@@ -32,6 +32,18 @@ else
   echo "No Apple Development identity found; using local ad-hoc signing."
 fi
 
+XCODE_SIGNING_ARGUMENTS=()
+if [ -n "$SIGNING_IDENTITY" ]; then
+  # Supplying the exact identity with manual style avoids Xcode's legacy
+  # "Mac Development" certificate lookup without repairing the bundle after
+  # the build. Xcode signs HeyMate-owned code itself and leaves embedded
+  # Sparkle code with Sparkle's own entitlements and hardened-runtime flags.
+  XCODE_SIGNING_ARGUMENTS=(
+    CODE_SIGN_STYLE=Manual
+    "CODE_SIGN_IDENTITY=$SIGNING_IDENTITY"
+  )
+fi
+
 case "$MODE" in
   run|--debug|debug|--logs|logs|--telemetry|telemetry|--verify|verify)
     ;;
@@ -43,32 +55,82 @@ esac
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
-xcodebuild \
-  -project "$ROOT_DIR/leanring-buddy.xcodeproj" \
-  -scheme leanring-buddy \
-  -configuration Debug \
-  -destination 'platform=macOS' \
-  -derivedDataPath "$DERIVED_DATA" \
-  -quiet \
-  build
+run_xcodebuild() {
+  xcodebuild \
+    -project "$ROOT_DIR/leanring-buddy.xcodeproj" \
+    -scheme leanring-buddy \
+    -configuration Debug \
+    -destination 'platform=macOS' \
+    -derivedDataPath "$DERIVED_DATA" \
+    "${XCODE_SIGNING_ARGUMENTS[@]}" \
+    -quiet \
+    "$@"
+}
 
-# Xcode 26 asks for a legacy "Mac Development" certificate when a team is
-# supplied on this project, even when a valid universal Apple Development
-# identity exists. Build with Xcode's working ad-hoc path first, then replace
-# that signature with the stable local identity while preserving Xcode's
-# generated Debug entitlements. Stable signing keeps TCC grants across builds.
-if [ -n "$SIGNING_IDENTITY" ]; then
-  GENERATED_ENTITLEMENTS=$(mktemp "${TMPDIR:-/tmp}/heymate-entitlements.XXXXXX")
-  codesign -d --entitlements :- "$APP_BUNDLE" > "$GENERATED_ENTITLEMENTS" 2>/dev/null
-  codesign \
-    --force \
-    --deep \
-    --sign "$SIGNING_IDENTITY" \
-    --entitlements "$GENERATED_ENTITLEMENTS" \
-    --timestamp=none \
-    "$APP_BUNDLE"
-  codesign --verify --deep --strict "$APP_BUNDLE"
-  rm "$GENERATED_ENTITLEMENTS"
+run_xcodebuild build
+
+require_hardened_runtime() {
+  local code_path="$1"
+  local signing_details
+  if ! signing_details=$(codesign -dvv "$code_path" 2>&1); then
+    echo "Could not read code signature for $code_path" >&2
+    return 1
+  fi
+  if ! printf '%s\n' "$signing_details" | grep -q 'flags=.*runtime'; then
+    echo "Hardened runtime is missing from $code_path" >&2
+    return 1
+  fi
+}
+
+reject_app_only_nested_entitlements() {
+  local code_path="$1"
+  local entitlements
+  entitlements=$(codesign -d --entitlements - "$code_path" 2>/dev/null || true)
+
+  # Camera, microphone, and ScreenCaptureKit picker access belong only to the
+  # UI app. Finding any of them on nested code means an outer-app entitlement
+  # set was recursively applied with `codesign --deep`.
+  if printf '%s\n' "$entitlements" | grep -Eq \
+    'com\.apple\.security\.device\.(camera|audio-input)|com\.apple\.security\.temporary-exception\.mach-lookup\.global-name'; then
+    echo "App-only entitlements leaked into nested code at $code_path" >&2
+    return 1
+  fi
+}
+
+verify_debug_signatures() {
+  local nested_code_count=0
+  local code_path
+
+  codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE" || return 1
+  require_hardened_runtime "$APP_BUNDLE" || return 1
+
+  # Inspect each signed executable independently. Deep verification proves the
+  # seals are intact; these checks also catch valid-but-wrong recursive signing
+  # that copied app entitlements or dropped hardened-runtime flags.
+  while IFS= read -r -d '' code_path; do
+    [ "$code_path" = "$APP_BINARY" ] && continue
+    if codesign -d "$code_path" >/dev/null 2>&1; then
+      nested_code_count=$((nested_code_count + 1))
+      require_hardened_runtime "$code_path" || return 1
+      reject_app_only_nested_entitlements "$code_path" || return 1
+    fi
+  done < <(find "$APP_BUNDLE/Contents" -type f -perm -111 -print0)
+
+  if [ "$nested_code_count" -eq 0 ]; then
+    echo "No nested signed executables found in $APP_BUNDLE" >&2
+    return 1
+  fi
+  echo "Verified app and $nested_code_count nested code signatures"
+}
+
+if ! verify_debug_signatures; then
+  # Older versions of this script recursively re-signed the built app. Xcode's
+  # incremental build considers those now-corrupted nested files up to date, so
+  # one clean rebuild is required to restore the package-authored signatures.
+  echo "Signature invariants failed; cleaning stale build products and rebuilding."
+  run_xcodebuild clean
+  run_xcodebuild build
+  verify_debug_signatures
 fi
 
 open_app() {
