@@ -72,4 +72,36 @@ struct OpenCodeRunParserTests {
             .failed(message: "crash")
         ])
     }
+
+    @Test func realNestedTextPayloadIsRead() {
+        let line = #"{"type":"text","sessionID":"ses_1","part":{"type":"text","text":"All files updated"}}"#
+        #expect(OpenCodeRunParser.events(fromStdoutLine: line) == [
+            .sessionIdentified("ses_1"),
+            .text("All files updated")
+        ])
+    }
+
+    @Test func intermediateStepFinishDoesNotEndToolUsingRun() {
+        let lines = [
+            #"{"type":"step_start","sessionID":"ses_1","part":{"type":"step-start"}}"#,
+            #"{"type":"tool_use","sessionID":"ses_1","part":{"type":"tool","tool":"bash","state":{"status":"completed"}}}"#,
+            #"{"type":"step_finish","sessionID":"ses_1","part":{"type":"step-finish","reason":"tool-calls"}}"#,
+            #"{"type":"step_start","sessionID":"ses_1","part":{"type":"step-start"}}"#,
+            #"{"type":"text","sessionID":"ses_1","part":{"type":"text","text":"Done after the tool"}}"#,
+            #"{"type":"step_finish","sessionID":"ses_1","part":{"type":"step-finish","reason":"stop"}}"#
+        ]
+
+        let events = lines.flatMap(OpenCodeRunParser.events(fromStdoutLine:))
+        #expect(events.contains(.tool(summary: "bash")))
+        #expect(events.contains(.text("Done after the tool")))
+        #expect(events.contains { event in
+            if case .finished = event { return true }
+            return false
+        } == false)
+    }
+
+    @Test func vagueCompleteTypeCannotKillTheProcess() {
+        let line = #"{"type":"step_complete","text":"first step complete"}"#
+        #expect(OpenCodeRunParser.events(fromStdoutLine: line).isEmpty)
+    }
 }

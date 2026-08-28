@@ -67,16 +67,33 @@ nonisolated enum OpenCodeRunParser {
         }
 
         if type.contains("tool") || type == "step_start" {
-            return [.tool(summary: toolSummary(from: dictionary))]
+            let payload = (dictionary["part"] as? [String: Any]) ?? dictionary
+            return [.tool(summary: toolSummary(from: payload))]
         }
 
-        if type == "text" || type == "message" || type.contains("complete") || type == "finish" {
+        if type == "text" || type == "message" {
             if let text = textPayload(from: dictionary), !text.isEmpty {
-                if type.contains("complete") || type == "finish" {
-                    return [.finished(summary: text)]
-                }
                 return [.text(text)]
             }
+        }
+
+        // `opencode run` is a one-shot process. Its clean process exit is the
+        // authoritative end of the turn. Stream events such as `step_finish`
+        // are not authoritative: one is emitted after every model step, and a
+        // tool-using turn can emit several before the final response. Treating
+        // any `complete`/`finish`-looking event as job completion kills the CLI
+        // between tool calls. It also breaks on OpenCode versions that omit the
+        // final `step_finish` event entirely. Keep these events informational
+        // and let HeadlessAgentLauncher finish the run from process exit.
+        if type == "step_finish"
+            || type == "step-finish"
+            || type == "finish"
+            || type == "finished"
+            || type == "complete"
+            || type == "completed"
+            || type == "message_complete"
+            || type == "message_completed" {
+            return []
         }
 
         if let part = dictionary["part"] as? [String: Any] {
