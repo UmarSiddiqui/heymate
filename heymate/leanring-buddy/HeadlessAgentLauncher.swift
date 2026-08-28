@@ -96,6 +96,16 @@ final class HeadlessAgentLauncher {
             : HeadlessCLIProcess.maximumRuntime
     }
 
+    /// Injectable independently from the duration so timeout tests can fire
+    /// only after their process fixture is fully running.
+    var waitForRuntimeLimit: (TimeInterval) async -> Void = { runtimeLimit in
+        // `SuspendingClock` stops while Mac sleeps. A wall/continuous deadline
+        // makes an overnight sleep look like a hung agent and kills healthy
+        // work immediately after wake.
+        let clock = SuspendingClock()
+        try? await clock.sleep(for: .seconds(runtimeLimit))
+    }
+
     /// Inline MCP config giving a working leg HeyMate's own tools. Resolved
     /// per spawn because it depends on the bridge port and on a script that is
     /// seeded lazily; nil is a normal answer and simply means no HeyMate tools.
@@ -647,12 +657,9 @@ final class HeadlessAgentLauncher {
         // A read-only leg is cheap and should not be able to sit for a quarter
         // of an hour; only real work gets the long rope.
         let runtimeLimit = runtimeLimitForLeg(leg)
+        let waitForRuntimeLimit = waitForRuntimeLimit
         let timeoutTask = Task { [weak self] in
-            // `SuspendingClock` stops while Mac sleeps. A wall/continuous
-            // deadline makes an overnight sleep look like a hung agent and
-            // kills healthy work immediately after wake.
-            let clock = SuspendingClock()
-            try? await clock.sleep(for: .seconds(runtimeLimit))
+            await waitForRuntimeLimit(runtimeLimit)
             guard !Task.isCancelled else { return }
             self?.failTimeout(runID: runID)
         }

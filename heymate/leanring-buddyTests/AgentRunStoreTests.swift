@@ -387,7 +387,13 @@ struct HeadlessAgentLauncherTests {
 
         let harness = try makeWriteLegRun(rootURL: rootURL, fixture: fixture)
         let runID = harness.run.id
-        harness.launcher.runtimeLimitForLeg = { leg in leg.isReadOnly ? 300 : 1 }
+        var timeoutContinuation: AsyncStream<Void>.Continuation?
+        let timeoutSignal = AsyncStream<Void> { continuation in
+            timeoutContinuation = continuation
+        }
+        harness.launcher.waitForRuntimeLimit = { _ in
+            for await _ in timeoutSignal { return }
+        }
         harness.launcher.approvePlan(runID: runID)
 
         let treeStarted = await waitUntil {
@@ -395,6 +401,9 @@ struct HeadlessAgentLauncherTests {
         }
         #expect(treeStarted)
         let processIDs = try processIdentifiers(from: fixture)
+
+        timeoutContinuation?.yield(())
+        timeoutContinuation?.finish()
 
         let beganStopping = await waitUntil(timeout: .seconds(3)) {
             harness.store.run(id: runID)?.latestAction
