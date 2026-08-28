@@ -19,32 +19,31 @@ nonisolated enum SupportLinks {
         let url: URL
     }
 
-    static let repositoryURLString = "https://github.com/farzaa/clicky"
+    static let repositoryURLString = "https://github.com/UmarSiddiqui/heymate"
 
-    /// Bug reports and feature requests both open GitHub issues with the
-    /// matching template preselected, so nothing depends on a mail client
-    /// being configured.
+    /// Keep support links on GitHub's generic issue surfaces. The repository
+    /// does not promise named issue templates or enabled Discussions.
     static let destinations: [Destination] = [
         Destination(
             id: "report-a-bug",
             title: "Report a bug",
             subtitle: "Open a GitHub issue with what went wrong.",
             symbolName: "ladybug",
-            url: URL(string: "\(repositoryURLString)/issues/new?labels=bug&template=bug_report.md")!
+            url: URL(string: "\(repositoryURLString)/issues/new")!
         ),
         Destination(
             id: "request-a-feature",
             title: "Request a feature",
             subtitle: "Tell us what HeyMate should be able to do.",
             symbolName: "lightbulb",
-            url: URL(string: "\(repositoryURLString)/issues/new?labels=enhancement&template=feature_request.md")!
+            url: URL(string: "\(repositoryURLString)/issues/new")!
         ),
         Destination(
-            id: "discussions",
-            title: "Community",
-            subtitle: "Ask questions and see what other people are building.",
-            symbolName: "bubble.left.and.bubble.right",
-            url: URL(string: "\(repositoryURLString)/discussions")!
+            id: "issues",
+            title: "Browse issues",
+            subtitle: "See known problems and requested improvements.",
+            symbolName: "list.bullet.rectangle",
+            url: URL(string: "\(repositoryURLString)/issues")!
         ),
         Destination(
             id: "source",

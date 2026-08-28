@@ -31,20 +31,30 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-DD="${TMPDIR:-/tmp}/heymate-typecheck-dd"
+if ! TYPECHECK_DERIVED_DATA=$(mktemp -d "${TMPDIR:-/tmp}/heymate-typecheck-dd.XXXXXX"); then
+  echo "error: could not create scratch DerivedData directory" >&2
+  exit 1
+fi
+
+cleanup_typecheck_derived_data() {
+  if [ -d "$TYPECHECK_DERIVED_DATA" ]; then
+    rm -r "$TYPECHECK_DERIVED_DATA"
+  fi
+}
+trap cleanup_typecheck_derived_data EXIT
 
 ACTION="build"
 if [ "${1:-}" = "--tests" ]; then
   ACTION="build-for-testing"
 fi
 
-echo "▸ ${ACTION} (scratch DerivedData at $DD)"
+echo "▸ ${ACTION} (scratch DerivedData at $TYPECHECK_DERIVED_DATA)"
 
 OUTPUT=$(xcodebuild \
   -project leanring-buddy.xcodeproj \
   -scheme leanring-buddy \
   -destination 'platform=macOS' \
-  -derivedDataPath "$DD" \
+  -derivedDataPath "$TYPECHECK_DERIVED_DATA" \
   CODE_SIGNING_ALLOWED=NO \
   CODE_SIGNING_REQUIRED=NO \
   "$ACTION" 2>&1)

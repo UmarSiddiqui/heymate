@@ -10,6 +10,12 @@
 	<string>macos</string>
 	<key>WorkerBaseURL</key>
 	<string>http://localhost:8787</string>
+	<!-- release.sh supplies both values together while archiving. They remain
+	     empty in source and Debug builds, where AppUpdateController stays inert. -->
+	<key>SUFeedURL</key>
+	<string>$(SPARKLE_FEED_URL)</string>
+	<key>SUPublicEDKey</key>
+	<string>$(SPARKLE_PUBLIC_ED_KEY)</string>
 	<!-- heymate:// deep links. Two hosts:
 	       heymate://integration/callback?provider=…&status=…  (connector OAuth)
 	       heymate://open/agents                                (open a desktop section) -->
@@ -26,8 +32,8 @@
 			</array>
 		</dict>
 	</array>
-	<!-- Loopback is ATS-exempt by default; this also allows plain-HTTP
-	     OpenCode servers on the LAN (e.g. an always-on Mac mini). -->
+	<!-- OpenCodeClient permits plain HTTP only on loopback and requires HTTPS
+	     for every non-loopback server before sending prompts or credentials. -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

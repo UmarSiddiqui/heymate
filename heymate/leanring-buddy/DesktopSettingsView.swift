@@ -721,12 +721,18 @@ struct DesktopSettingsView: View {
                         .pointerCursor()
                 }
 
-                Toggle(isOn: $updateController.automaticallyChecksForUpdates) {
-                    Text("Check automatically")
-                        .font(DS.Fonts.body)
-                        .foregroundColor(DS.Colors.textPrimary)
+                if updateController.isReady {
+                    Toggle(isOn: $updateController.automaticallyChecksForUpdates) {
+                        Text("Check automatically")
+                            .font(DS.Fonts.body)
+                            .foregroundColor(DS.Colors.textPrimary)
+                    }
+                    .toggleStyle(.switch)
+                } else {
+                    Text(updateAvailabilityDescription)
+                        .font(DS.Fonts.caption)
+                        .foregroundColor(DS.Colors.textSecondary)
                 }
-                .toggleStyle(.switch)
 
                 Divider().opacity(0.25)
 
@@ -755,11 +761,34 @@ struct DesktopSettingsView: View {
     }
 
     private var lastUpdateCheckDescription: String {
+        switch updateController.availability {
+        case .sourceBuild:
+            return "Updates unavailable in this source build."
+        case .notStarted, .starting:
+            return "Update service is starting."
+        case .failed:
+            return "Update service failed to start."
+        case .ready:
+            break
+        }
         guard let lastUpdateCheckDate = updateController.lastUpdateCheckDate else {
             return "Not checked yet."
         }
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .full
         return "Last checked \(formatter.localizedString(for: lastUpdateCheckDate, relativeTo: Date()))."
+    }
+
+    private var updateAvailabilityDescription: String {
+        switch updateController.availability {
+        case .sourceBuild:
+            return "Automatic updates activate in signed release builds."
+        case .notStarted, .starting:
+            return "Automatic updates are starting."
+        case .failed:
+            return "Automatic updates are unavailable because the update service could not start. Restart HeyMate or download the next release manually."
+        case .ready:
+            return "Automatic updates are ready."
+        }
     }
 }
