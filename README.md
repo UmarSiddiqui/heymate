@@ -82,7 +82,7 @@ Choosing an existing folder uses the same plan gate and adds per-tool approval w
 ~/Projects/heymate/<task-slug>-<short-id>
 ```
 
-Agent run cards and session identifiers are persisted in Application Support. Agent processes themselves are not detached: quitting HeyMate interrupts an active run. On next launch the run is marked interrupted, and a captured CLI session may be continued from its card. Planning is limited to five minutes and an execution leg to fifteen minutes.
+Agent run cards and session identifiers are persisted in Application Support. Agent processes are not detached yet, so HeyMate blocks Cmd-Q while process-backed work is active and opens Agents so you can cancel safely. Approval-ready plans have no live process and survive a normal quit. A crash-interrupted run is marked interrupted on next launch, its pre-write Undo snapshot remains recoverable, and a captured CLI session may be continued from its card. Planning is limited to five awake minutes and an execution leg to fifteen awake minutes; Mac sleep does not consume that budget.
 
 OpenCode jobs intentionally cannot run shell commands or spawn subagents; its CLI currently lacks an OS-enforced workspace-write sandbox. Use Claude Code or Codex when work must build or test itself.
 
@@ -210,7 +210,7 @@ Useful paths:
 
 - No signed public download is included yet; source builds require Xcode and local signing setup.
 - Fresh installs default to Claude even if another supported CLI is the one already signed in. Choose the brain before starting onboarding.
-- Active agent processes stop when HeyMate quits. Run history persists, not the process.
+- Cmd-Q is blocked while process-backed agent work is active. Finish or cancel those runs first; run history and approval-ready plans persist.
 - OpenCode Talk requires `opencode serve` to remain running.
 - Screen Recording permission can lag until the next app launch after granting it.
 - The default Apple Speech path adds a Speech Recognition prompt after the three-item setup card.

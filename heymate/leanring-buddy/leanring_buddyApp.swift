@@ -55,6 +55,26 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         companionManager.stop()
     }
 
+    /// Never leave a write-capable CLI orphaned with broken pipes. Until the
+    /// detached runner ships, HeyMate stays open while process-backed jobs run.
+    /// Users can cancel jobs from Agents, then quit normally.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !isHostingUnitTests else { return .terminateNow }
+        let activeCount = companionManager.activeProcessBackedAgentRunCount
+        guard activeCount > 0 else { return .terminateNow }
+
+        companionManager.openDesktopWindow(section: .agents)
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = activeCount == 1
+            ? "Coding agent still running"
+            : "\(activeCount) coding agents still running"
+        alert.informativeText = "HeyMate must stay open until active work finishes. Cancel running jobs from Agents if you need to quit now."
+        alert.addButton(withTitle: "Show Agents")
+        alert.runModal()
+        return .terminateCancel
+    }
+
     /// macOS delivers `heymate://` URLs here: connector OAuth callbacks
     /// from the browser, and `heymate://open/<section>` links that open the
     /// desktop window straight to a page.

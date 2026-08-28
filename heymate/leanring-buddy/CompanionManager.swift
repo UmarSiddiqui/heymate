@@ -404,6 +404,19 @@ final class CompanionManager: ObservableObject {
 
     var isDesktopWindowVisible: Bool { desktopWindowController.isVisible }
 
+    /// Process-backed jobs make Cmd-Q unsafe until detached runner support is
+    /// complete. Approval-ready plans have no live process and remain durable.
+    var activeProcessBackedAgentRunCount: Int {
+        agentRunStore.loadAll().count { run in
+            switch run.status {
+            case .queued, .planning, .running, .waitingForApproval:
+                return true
+            case .awaitingPlanApproval, .succeeded, .failed, .cancelled:
+                return false
+            }
+        }
+    }
+
     /// Handle a `heymate://` URL. Composio browser sign-in is confirmed by
     /// polling, so deep links only need to route to desktop sections.
     @discardableResult
