@@ -173,7 +173,6 @@ final class HeadlessCLIProcess {
     static let maximumPlanningRuntime: TimeInterval = 5 * 60
     static let killGracePeriod: TimeInterval = 2
 
-    private let process = Process()
     private let stdoutPipe = Pipe()
     private let stdinPipe = Pipe()
     private let stderrPipe = Pipe()
@@ -181,7 +180,11 @@ final class HeadlessCLIProcess {
     private let stdoutAccumulator = HeadlessCLILineAccumulator()
     private let standardErrorTail = HeadlessCLIStandardErrorTail()
 
-    var processIdentifier: Int32 { process.processIdentifier }
+    private var spawnedProcessIdentifier: pid_t = 0
+    private var spawnedProcessGroupIdentifier: pid_t = 0
+    private var isRunning = false
+
+    var processIdentifier: Int32 { spawnedProcessIdentifier }
 
     /// The tail of the child's stderr, formatted for a run card. Empty when
     /// the child said nothing on stderr.
@@ -200,19 +203,10 @@ final class HeadlessCLIProcess {
         onLine: @escaping (String) -> Void,
         onExit: @escaping (Int32) -> Void
     ) throws {
-        process.executableURL = executableURL
-        process.arguments = arguments
-        process.currentDirectoryURL = currentDirectoryURL
-        process.environment = HeadlessChildEnvironment.build(
+        let environment = HeadlessChildEnvironment.build(
             stripping: environmentKeysToRemove,
             overrides: environmentOverrides
         )
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-        // A job that never answers approvals must not be handed a live pipe:
-        // `claude -p` blocks three seconds waiting for stdin that is never
-        // coming, on every single run.
-        process.standardInput = usesDuplexStandardInput ? stdinPipe : FileHandle.nullDevice
 
         let stdoutAccumulator = self.stdoutAccumulator
         stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
@@ -232,21 +226,187 @@ final class HeadlessCLIProcess {
             standardErrorTail.append(handle.availableData)
         }
 
-        process.terminationHandler = { finishedProcess in
-            let status = finishedProcess.terminationStatus
-            Self.removeTemporaryDirectories(temporaryDirectoriesToRemove)
-            Task { @MainActor in
-                self.drainRemainingOutput(onLine: onLine)
-                onExit(status)
-            }
-        }
-
         do {
-            try process.run()
+            let processID = try Self.spawn(
+                executableURL: executableURL,
+                arguments: arguments,
+                currentDirectoryURL: currentDirectoryURL,
+                environment: environment,
+                standardInputFileDescriptor: usesDuplexStandardInput
+                    ? stdinPipe.fileHandleForReading.fileDescriptor
+                    : nil,
+                standardOutputFileDescriptor: stdoutPipe.fileHandleForWriting.fileDescriptor,
+                standardErrorFileDescriptor: stderrPipe.fileHandleForWriting.fileDescriptor
+            )
+
+            // POSIX_SPAWN_SETPGROUP with a zero group value makes the child
+            // leader of a fresh group whose ID is its PID. Every child and
+            // grandchild inherits that group unless it explicitly detaches.
+            spawnedProcessIdentifier = processID
+            spawnedProcessGroupIdentifier = processID
+            isRunning = true
+
+            // Parent must release its copies of the child-side descriptors or
+            // EOF never reaches the readability handlers after the group exits.
+            stdoutPipe.fileHandleForWriting.closeFile()
+            stderrPipe.fileHandleForWriting.closeFile()
+            stdinPipe.fileHandleForReading.closeFile()
+            if !usesDuplexStandardInput {
+                stdinPipe.fileHandleForWriting.closeFile()
+            }
+
+            DispatchQueue.global(qos: .utility).async {
+                var waitStatus: Int32 = 0
+                while waitpid(processID, &waitStatus, 0) == -1, errno == EINTR {}
+                let terminationStatus = Self.terminationStatus(fromWaitStatus: waitStatus)
+                Self.removeTemporaryDirectories(temporaryDirectoriesToRemove)
+                Task { @MainActor in
+                    self.isRunning = false
+                    self.drainRemainingOutput(onLine: onLine)
+                    onExit(terminationStatus)
+                }
+            }
         } catch {
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
             Self.removeTemporaryDirectories(temporaryDirectoriesToRemove)
             throw error
         }
+    }
+
+    /// Launches the CLI as leader of a dedicated process group. Foundation's
+    /// `Process` has no public process-group configuration; calling
+    /// `setpgid` after `run()` is already too late because the child has exec'd.
+    nonisolated private static func spawn(
+        executableURL: URL,
+        arguments: [String],
+        currentDirectoryURL: URL,
+        environment: [String: String],
+        standardInputFileDescriptor: Int32?,
+        standardOutputFileDescriptor: Int32,
+        standardErrorFileDescriptor: Int32
+    ) throws -> pid_t {
+        var fileActions: posix_spawn_file_actions_t?
+        var attributes: posix_spawnattr_t?
+
+        try requireSpawnSuccess(posix_spawn_file_actions_init(&fileActions))
+        defer { posix_spawn_file_actions_destroy(&fileActions) }
+        try requireSpawnSuccess(posix_spawnattr_init(&attributes))
+        defer { posix_spawnattr_destroy(&attributes) }
+
+        if #available(macOS 26.0, *) {
+            try requireSpawnSuccess(
+                posix_spawn_file_actions_addchdir(&fileActions, currentDirectoryURL.path)
+            )
+        } else {
+            try requireSpawnSuccess(
+                posix_spawn_file_actions_addchdir_np(&fileActions, currentDirectoryURL.path)
+            )
+        }
+
+        if let standardInputFileDescriptor {
+            try requireSpawnSuccess(
+                posix_spawn_file_actions_adddup2(
+                    &fileActions,
+                    standardInputFileDescriptor,
+                    STDIN_FILENO
+                )
+            )
+        } else {
+            // A job that never answers approvals must not inherit a live pipe:
+            // `claude -p` waits for input when stdin remains open.
+            try requireSpawnSuccess(
+                posix_spawn_file_actions_addopen(
+                    &fileActions,
+                    STDIN_FILENO,
+                    "/dev/null",
+                    O_RDONLY,
+                    0
+                )
+            )
+        }
+        try requireSpawnSuccess(
+            posix_spawn_file_actions_adddup2(
+                &fileActions,
+                standardOutputFileDescriptor,
+                STDOUT_FILENO
+            )
+        )
+        try requireSpawnSuccess(
+            posix_spawn_file_actions_adddup2(
+                &fileActions,
+                standardErrorFileDescriptor,
+                STDERR_FILENO
+            )
+        )
+        let duplicatedFileDescriptors = Set(
+            [standardOutputFileDescriptor, standardErrorFileDescriptor]
+                + [standardInputFileDescriptor].compactMap { $0 }
+        )
+        for fileDescriptor in duplicatedFileDescriptors where fileDescriptor > STDERR_FILENO {
+            try requireSpawnSuccess(
+                posix_spawn_file_actions_addclose(&fileActions, fileDescriptor)
+            )
+        }
+
+        try requireSpawnSuccess(
+            posix_spawnattr_setflags(
+                &attributes,
+                Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT)
+            )
+        )
+        try requireSpawnSuccess(posix_spawnattr_setpgroup(&attributes, 0))
+
+        let executablePath = executableURL.path
+        var argumentPointers: [UnsafeMutablePointer<CChar>?] =
+            ([executablePath] + arguments).map { strdup($0) }
+        argumentPointers.append(nil)
+        defer {
+            for case let pointer? in argumentPointers {
+                free(pointer)
+            }
+        }
+
+        let environmentStrings: [String] = environment
+            .map { "\($0.key)=\($0.value)" }
+            .sorted()
+        var environmentPointers: [UnsafeMutablePointer<CChar>?] = environmentStrings
+            .map { strdup($0) }
+        environmentPointers.append(nil)
+        defer {
+            for case let pointer? in environmentPointers {
+                free(pointer)
+            }
+        }
+
+        var processID: pid_t = 0
+        let spawnResult = argumentPointers.withUnsafeMutableBufferPointer { argv in
+            environmentPointers.withUnsafeMutableBufferPointer { envp in
+                posix_spawn(
+                    &processID,
+                    executablePath,
+                    &fileActions,
+                    &attributes,
+                    argv.baseAddress,
+                    envp.baseAddress
+                )
+            }
+        }
+        try requireSpawnSuccess(spawnResult)
+        return processID
+    }
+
+    nonisolated private static func requireSpawnSuccess(_ result: Int32) throws {
+        guard result != 0 else { return }
+        throw POSIXError(POSIXErrorCode(rawValue: result) ?? .EIO)
+    }
+
+    nonisolated private static func terminationStatus(fromWaitStatus waitStatus: Int32) -> Int32 {
+        let terminationSignal = waitStatus & 0x7f
+        if terminationSignal == 0 {
+            return (waitStatus >> 8) & 0xff
+        }
+        return terminationSignal
     }
 
     nonisolated private static func removeTemporaryDirectories(_ directories: [URL]) {
@@ -266,15 +426,23 @@ final class HeadlessCLIProcess {
         stdinPipe.fileHandleForWriting.write(Data("\n".utf8))
     }
 
-    /// SIGTERM, then SIGKILL after `killGracePeriod` if the child is still up.
+    /// SIGTERM, then SIGKILL after `killGracePeriod` if any member of the
+    /// process tree is still up. Negative targets signal the whole group.
     func terminateThenKill() {
-        guard process.isRunning else { return }
-        let processID = process.processIdentifier
-        process.terminate()
+        guard isRunning else { return }
+        let processID = spawnedProcessIdentifier
+        let processGroupID = spawnedProcessGroupIdentifier
+        let ownsSafeProcessGroup = processGroupID == processID
+            && processGroupID > 1
+            && processGroupID != getpgrp()
+        let signalTarget = ownsSafeProcessGroup ? -processGroupID : processID
+
+        kill(signalTarget, SIGTERM)
         DispatchQueue.global().asyncAfter(deadline: .now() + Self.killGracePeriod) {
-            var unused: Int32 = 0
-            if waitpid(processID, &unused, WNOHANG) == 0 {
-                kill(processID, SIGKILL)
+            // Signal zero checks group existence without racing the waitpid
+            // thread. EPERM still means a matching process exists.
+            if kill(signalTarget, 0) == 0 || errno == EPERM {
+                kill(signalTarget, SIGKILL)
             }
         }
     }

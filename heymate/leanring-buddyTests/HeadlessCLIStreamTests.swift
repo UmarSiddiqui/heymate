@@ -3,6 +3,7 @@
 //  leanring-buddyTests
 //
 
+import Darwin
 import Foundation
 import Testing
 @testable import HeyMate
@@ -88,6 +89,160 @@ struct HeadlessCLIStandardErrorTailTests {
         let lines = tail.recentLines(limit: 3)
         #expect(lines.count == 3)
         #expect(lines.last == "line 3999")
+    }
+}
+
+@MainActor
+struct HeadlessCLIProcessTreeTests {
+
+    @Test func spawnPreservesDuplexIOEnvironmentDirectoryAndExitStatus() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("HeadlessCLIProcessIOTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let process = HeadlessCLIProcess()
+        var outputLines: [String] = []
+        var exitStatus: Int32?
+        try process.start(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: [
+                "-c",
+                "IFS= read -r input; printf '%s|%s|%s' \"$PWD\" \"$HEYMATE_PROCESS_TEST\" \"$input\"; printf 'diagnostic\\n' >&2; exit 7"
+            ],
+            currentDirectoryURL: directoryURL,
+            environmentOverrides: ["HEYMATE_PROCESS_TEST": "scoped"],
+            usesDuplexStandardInput: true,
+            onLine: { outputLines.append($0) },
+            onExit: { exitStatus = $0 }
+        )
+        defer { process.terminateThenKill() }
+
+        process.writeToStandardInput(Data("hello".utf8))
+
+        let exited = await waitUntil(timeout: 3) { exitStatus != nil }
+        #expect(exited)
+        #expect(exitStatus == 7)
+        let output = try #require(outputLines.first)
+        let outputComponents = output.split(separator: "|", omittingEmptySubsequences: false)
+        #expect(outputLines.count == 1)
+        try #require(outputComponents.count == 3)
+        #expect(
+            URL(fileURLWithPath: String(outputComponents[0])).lastPathComponent
+                == directoryURL.lastPathComponent
+        )
+        #expect(String(outputComponents[1]) == "scoped")
+        #expect(String(outputComponents[2]) == "hello")
+        #expect(process.recentStandardErrorSummary == "diagnostic")
+    }
+
+    @Test func cancellationTerminatesChildAndGrandchild() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("HeadlessCLIProcessTreeTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let rootScriptURL = directoryURL.appendingPathComponent("root.sh")
+        let childScriptURL = directoryURL.appendingPathComponent("child.sh")
+        let grandchildScriptURL = directoryURL.appendingPathComponent("grandchild.sh")
+        let childPIDURL = directoryURL.appendingPathComponent("child.pid")
+        let grandchildPIDURL = directoryURL.appendingPathComponent("grandchild.pid")
+
+        try """
+        #!/bin/sh
+        trap '' TERM
+        /bin/sh "$3" "$1" "$2" "$4" &
+        wait
+        """.write(to: rootScriptURL, atomically: true, encoding: .utf8)
+        try """
+        #!/bin/sh
+        trap '' TERM
+        printf '%s\\n' "$$" > "$1"
+        /bin/sh "$3" "$2" &
+        wait
+        """.write(to: childScriptURL, atomically: true, encoding: .utf8)
+        try """
+        #!/bin/sh
+        trap '' TERM
+        printf '%s\\n' "$$" > "$1"
+        while :; do sleep 30; done
+        """.write(to: grandchildScriptURL, atomically: true, encoding: .utf8)
+
+        let process = HeadlessCLIProcess()
+        var didExit = false
+        try process.start(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: [
+                rootScriptURL.path,
+                childPIDURL.path,
+                grandchildPIDURL.path,
+                childScriptURL.path,
+                grandchildScriptURL.path
+            ],
+            currentDirectoryURL: directoryURL,
+            onLine: { _ in },
+            onExit: { _ in didExit = true }
+        )
+        defer { process.terminateThenKill() }
+
+        let rootPID = process.processIdentifier
+        let childPID = try await processIdentifier(writtenTo: childPIDURL)
+        let grandchildPID = try await processIdentifier(writtenTo: grandchildPIDURL)
+
+        #expect(rootPID > 1)
+        #expect(getpgid(rootPID) == rootPID)
+        #expect(getpgid(childPID) == rootPID)
+        #expect(getpgid(grandchildPID) == rootPID)
+
+        process.terminateThenKill()
+
+        let treeExited = await waitUntil(timeout: 4) {
+            didExit
+                && !Self.processExists(childPID)
+                && !Self.processExists(grandchildPID)
+        }
+        #expect(treeExited)
+    }
+
+    private func processIdentifier(writtenTo fileURL: URL) async throws -> pid_t {
+        let found = await waitUntil(timeout: 3) {
+            FileManager.default.fileExists(atPath: fileURL.path)
+        }
+        guard found else { throw ProcessTreeTestError.pidFileTimedOut }
+
+        let contents = try String(contentsOf: fileURL, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let processID = pid_t(contents), processID > 1 else {
+            throw ProcessTreeTestError.invalidProcessIdentifier
+        }
+        return processID
+    }
+
+    private func waitUntil(
+        timeout: TimeInterval,
+        condition: @escaping @MainActor () -> Bool
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            try? await Task.sleep(nanoseconds: 25_000_000)
+        }
+        return condition()
+    }
+
+    nonisolated private static func processExists(_ processID: pid_t) -> Bool {
+        kill(processID, 0) == 0 || errno == EPERM
+    }
+
+    private enum ProcessTreeTestError: Error {
+        case pidFileTimedOut
+        case invalidProcessIdentifier
     }
 }
 
