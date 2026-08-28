@@ -157,6 +157,16 @@ struct MCPClientParsingTests {
         #expect(MCPClient.shellArguments(for: "npx server") == ["-dfc", "npx server"])
     }
 
+    @Test func diagnosticPipeStopsMonitoringAtEOF() {
+        let pipe = Pipe()
+        let readHandle = pipe.fileHandleForReading
+        readHandle.readabilityHandler = { _ in }
+        pipe.fileHandleForWriting.closeFile()
+
+        #expect(!MCPClient.drainDiagnostics(from: readHandle))
+        #expect(readHandle.readabilityHandler == nil)
+    }
+
     @Test func parsesToolDefinitionsAndKeepsTheSchemaVerbatim() {
         let result: [String: Any] = [
             "tools": [

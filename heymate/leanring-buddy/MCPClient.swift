@@ -131,6 +131,8 @@ actor MCPClient {
     func stop() {
         standardOutputPipe?.fileHandleForReading.readabilityHandler = nil
         standardOutputPipe = nil
+        standardErrorPipe?.fileHandleForReading.readabilityHandler = nil
+        standardErrorPipe = nil
         // Fail every in-flight caller rather than leaving them suspended
         // forever when the process goes away.
         for (_, continuation) in pendingResponses {
@@ -186,12 +188,26 @@ actor MCPClient {
         process = newProcess
         standardInputPipe = inputPipe
         self.standardOutputPipe = outputPipe
+        self.standardErrorPipe = errorPipe
 
         // Drain stderr so a chatty server cannot fill the pipe buffer and
-        // deadlock. The content is diagnostics only; we never parse it.
+        // deadlock. EOF stays readable forever, so clear the handler when
+        // `availableData` is empty or a dead server spins this queue at 100%.
+        // The content is diagnostics only; we never parse it.
         errorPipe.fileHandleForReading.readabilityHandler = { handle in
-            _ = handle.availableData
+            Self.drainDiagnostics(from: handle)
         }
+    }
+
+    /// Returns false after EOF and, critically, stops Dispatch from invoking
+    /// the readability handler again for the permanently-readable EOF state.
+    @discardableResult
+    nonisolated static func drainDiagnostics(from handle: FileHandle) -> Bool {
+        guard !handle.availableData.isEmpty else {
+            handle.readabilityHandler = nil
+            return false
+        }
+        return true
     }
 
     /// Arbitrary MCP commands must not inherit unrelated app or Worker
@@ -228,6 +244,7 @@ actor MCPClient {
     }
 
     private var standardOutputPipe: Pipe?
+    private var standardErrorPipe: Pipe?
 
     // MARK: Reading
 
