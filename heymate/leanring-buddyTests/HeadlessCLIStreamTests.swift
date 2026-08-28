@@ -200,13 +200,14 @@ struct HeadlessCLIProcessTreeTests {
         #expect(getpgid(childPID) == rootPID)
         #expect(getpgid(grandchildPID) == rootPID)
 
-        process.terminateThenKill()
+        let stopped = await process.terminateAndWait()
 
         let treeExited = await waitUntil(timeout: 4) {
             didExit
                 && !Self.processExists(childPID)
                 && !Self.processExists(grandchildPID)
         }
+        #expect(stopped)
         #expect(treeExited)
     }
 

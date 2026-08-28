@@ -313,7 +313,7 @@ final class HeadlessAgentLauncher {
     /// Returns the command that was handed to Terminal so the caller can show
     /// it, or the reason there was nothing to hand over.
     @discardableResult
-    func beginTerminalTakeover(runID: UUID) -> Result<String, AgentTerminalTakeover.Unavailability> {
+    func beginTerminalTakeover(runID: UUID) async -> Result<String, AgentTerminalTakeover.Unavailability> {
         guard let run = store.run(id: runID) else { return .failure(.runNotFound) }
         guard let command = AgentTerminalTakeover.shellCommand(for: run) else {
             return .failure(.sessionNotStartedYet)
@@ -323,9 +323,30 @@ final class HeadlessAgentLauncher {
         // just as resumable, so the handover is only the store update.
         if !run.status.isTerminal {
             markCurrentWriteLegUndoReady(runID: runID)
-            sessions[runID]?.timeoutTask?.cancel()
-            sessions[runID]?.process.terminateThenKill()
-            sessions[runID] = nil
+            _ = store.update(id: runID) { current in
+                current.latestAction = "Stopping safely before Terminal handoff…"
+                current.appendActivity(kind: .status, text: current.latestAction)
+            }
+            onRunsChanged?()
+
+            // Remove callback ownership before waiting. Otherwise the SIGTERM
+            // exit callback marks the run failed while takeover is still in
+            // progress and emits a false failure notification.
+            if let liveSession = sessions.removeValue(forKey: runID) {
+                liveSession.timeoutTask?.cancel()
+                guard await liveSession.process.terminateAndWait() else {
+                    _ = store.update(id: runID) { current in
+                        current.status = .failed
+                        current.latestAction = AgentTerminalTakeover.Unavailability
+                            .processWouldNotStop.explanation
+                        current.error = current.latestAction
+                        current.finishedAt = Date()
+                        current.appendActivity(kind: .status, text: current.latestAction)
+                    }
+                    onRunsChanged?()
+                    return .failure(.processWouldNotStop)
+                }
+            }
         }
 
         _ = store.update(id: runID) { current in

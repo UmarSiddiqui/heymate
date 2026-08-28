@@ -33,6 +33,7 @@ nonisolated enum AgentTerminalTakeover {
         /// a job can genuinely be running with nothing to hand over.
         case sessionNotStartedYet
         case runNotFound
+        case processWouldNotStop
 
         var explanation: String {
             switch self {
@@ -40,6 +41,8 @@ nonisolated enum AgentTerminalTakeover {
                 return "This job hasn't reported its session yet. Give it a moment and try again."
             case .runNotFound:
                 return "That job is no longer around."
+            case .processWouldNotStop:
+                return "HeyMate could not confirm the agent stopped, so Terminal was not opened. Cancel the job and try again."
             }
         }
     }

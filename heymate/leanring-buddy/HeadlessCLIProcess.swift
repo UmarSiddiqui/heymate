@@ -429,22 +429,57 @@ final class HeadlessCLIProcess {
     /// SIGTERM, then SIGKILL after `killGracePeriod` if any member of the
     /// process tree is still up. Negative targets signal the whole group.
     func terminateThenKill() {
-        guard isRunning else { return }
-        let processID = spawnedProcessIdentifier
-        let processGroupID = spawnedProcessGroupIdentifier
-        let ownsSafeProcessGroup = processGroupID == processID
-            && processGroupID > 1
-            && processGroupID != getpgrp()
-        let signalTarget = ownsSafeProcessGroup ? -processGroupID : processID
+        guard let signalTarget = ownedSignalTarget(),
+              Self.processTreeExists(signalTarget: signalTarget) else { return }
 
         kill(signalTarget, SIGTERM)
         DispatchQueue.global().asyncAfter(deadline: .now() + Self.killGracePeriod) {
-            // Signal zero checks group existence without racing the waitpid
-            // thread. EPERM still means a matching process exists.
-            if kill(signalTarget, 0) == 0 || errno == EPERM {
+            if Self.processTreeExists(signalTarget: signalTarget) {
                 kill(signalTarget, SIGKILL)
             }
         }
+    }
+
+    /// Stops the owned process tree and returns only after it is gone.
+    /// Terminal takeover uses this path so two CLI clients never drive the
+    /// same persisted session at once.
+    @discardableResult
+    func terminateAndWait() async -> Bool {
+        guard let signalTarget = ownedSignalTarget(),
+              Self.processTreeExists(signalTarget: signalTarget) else { return true }
+
+        kill(signalTarget, SIGTERM)
+        let clock = ContinuousClock()
+        let terminateDeadline = clock.now.advanced(by: .seconds(Self.killGracePeriod))
+        while Self.processTreeExists(signalTarget: signalTarget), clock.now < terminateDeadline {
+            if Task.isCancelled { break }
+            try? await clock.sleep(for: .milliseconds(25))
+        }
+
+        if Self.processTreeExists(signalTarget: signalTarget) {
+            kill(signalTarget, SIGKILL)
+        }
+
+        let killDeadline = clock.now.advanced(by: .seconds(1))
+        while Self.processTreeExists(signalTarget: signalTarget), clock.now < killDeadline {
+            if Task.isCancelled { break }
+            try? await clock.sleep(for: .milliseconds(25))
+        }
+        return !Self.processTreeExists(signalTarget: signalTarget)
+    }
+
+    private func ownedSignalTarget() -> pid_t? {
+        let processID = spawnedProcessIdentifier
+        let processGroupID = spawnedProcessGroupIdentifier
+        guard processID > 1 else { return nil }
+        let ownsSafeProcessGroup = processGroupID == processID
+            && processGroupID > 1
+            && processGroupID != getpgrp()
+        return ownsSafeProcessGroup ? -processGroupID : processID
+    }
+
+    nonisolated private static func processTreeExists(signalTarget: pid_t) -> Bool {
+        kill(signalTarget, 0) == 0 || errno == EPERM
     }
 
     /// Reads whatever the child wrote between its last readability callback

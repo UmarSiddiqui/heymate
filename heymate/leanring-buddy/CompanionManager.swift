@@ -3519,13 +3519,16 @@ final class CompanionManager: ObservableObject {
     /// when the agent is going the wrong way *right now*.
     func takeOverAgentInTerminal(runID: UUID) {
         agentRevealErrorText = ""
-        switch agentLauncher.beginTerminalTakeover(runID: runID) {
-        case .success(let command):
-            if !AgentTerminalTakeover.openInTerminal(command: command) {
-                agentRevealErrorText = "Couldn't open Terminal. Allow HeyMate to control Terminal in System Settings › Privacy & Security › Automation."
+        Task { [weak self] in
+            guard let self else { return }
+            switch await self.agentLauncher.beginTerminalTakeover(runID: runID) {
+            case .success(let command):
+                if !AgentTerminalTakeover.openInTerminal(command: command) {
+                    self.agentRevealErrorText = "Couldn't open Terminal. Allow HeyMate to control Terminal in System Settings › Privacy & Security › Automation. Resume command: \(command)"
+                }
+            case .failure(let unavailability):
+                self.agentRevealErrorText = unavailability.explanation
             }
-        case .failure(let unavailability):
-            agentRevealErrorText = unavailability.explanation
         }
     }
 
