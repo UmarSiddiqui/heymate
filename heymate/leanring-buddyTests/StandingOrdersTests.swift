@@ -213,4 +213,70 @@ struct AgentUndoLedgerTests {
             _ = try ledger.prepareSnapshot(for: run)
         }
     }
+
+    @Test func preparedSnapshotRecoversAcrossLedgerRestart() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("heymate-undo-recovery-\(UUID().uuidString)", isDirectory: true)
+        let workspaceURL = temporaryRoot.appendingPathComponent("workspace", isDirectory: true)
+        let ledgerURL = temporaryRoot.appendingPathComponent("ledger", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let originalFileURL = workspaceURL.appendingPathComponent("index.html")
+        try "before".write(to: originalFileURL, atomically: true, encoding: .utf8)
+
+        let run = AgentRun.queued(
+            id: UUID(),
+            title: "Interrupted change",
+            prompt: "Change site",
+            workspaceURL: workspaceURL,
+            executor: .codex,
+            origin: .attached,
+            sessionIdentifier: UUID().uuidString
+        )
+        let firstLedger = FileAgentUndoLedger(rootDirectoryURL: ledgerURL)
+        let preparedEntry = try firstLedger.prepareSnapshot(for: run)
+
+        try "after".write(to: originalFileURL, atomically: true, encoding: .utf8)
+        let createdFileURL = workspaceURL.appendingPathComponent("new.css")
+        try "new".write(to: createdFileURL, atomically: true, encoding: .utf8)
+
+        let restartedLedger = FileAgentUndoLedger(rootDirectoryURL: ledgerURL)
+        let recoveredEntry = restartedLedger.latestReadyEntry()
+
+        #expect(recoveredEntry?.id == preparedEntry.id)
+        #expect(recoveredEntry?.status == .ready)
+        #expect(recoveredEntry?.completedAt != nil)
+
+        _ = try restartedLedger.undo(entryID: preparedEntry.id)
+        #expect(try String(contentsOf: originalFileURL, encoding: .utf8) == "before")
+        #expect(FileManager.default.fileExists(atPath: createdFileURL.path) == false)
+    }
+
+    @Test func missingPreparedSnapshotStaysUnavailableAfterRestart() throws {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("heymate-undo-missing-\(UUID().uuidString)", isDirectory: true)
+        let workspaceURL = temporaryRoot.appendingPathComponent("workspace", isDirectory: true)
+        let ledgerURL = temporaryRoot.appendingPathComponent("ledger", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryRoot) }
+
+        let run = AgentRun.queued(
+            id: UUID(),
+            title: "Interrupted change",
+            prompt: "Change site",
+            workspaceURL: workspaceURL,
+            executor: .codex,
+            origin: .attached,
+            sessionIdentifier: UUID().uuidString
+        )
+        let firstLedger = FileAgentUndoLedger(rootDirectoryURL: ledgerURL)
+        let preparedEntry = try firstLedger.prepareSnapshot(for: run)
+        try FileManager.default.removeItem(atPath: preparedEntry.snapshotPath)
+
+        let restartedLedger = FileAgentUndoLedger(rootDirectoryURL: ledgerURL)
+
+        #expect(restartedLedger.latestReadyEntry() == nil)
+        #expect(restartedLedger.entry(id: preparedEntry.id)?.status == .prepared)
+    }
 }
