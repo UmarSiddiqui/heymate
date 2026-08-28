@@ -8,7 +8,6 @@
 
 import SwiftUI
 
-@main
 struct leanring_buddyApp: App {
     @NSApplicationDelegateAdaptor(CompanionAppDelegate.self) var appDelegate
 
