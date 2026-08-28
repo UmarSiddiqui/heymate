@@ -481,6 +481,10 @@ struct DesktopAgentsView: View {
                 agentConversation(for: run, projectColor: projectColor)
             }
 
+            if run.status == .succeeded {
+                completionReceiptBlock(for: run)
+            }
+
             actionRow(for: run)
         }
         .padding(14)
@@ -533,6 +537,102 @@ struct DesktopAgentsView: View {
             RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
                 .fill(DS.Colors.surface2)
         )
+    }
+
+    private func completionReceiptBlock(for run: AgentRun) -> some View {
+        let changes = run.workspaceChangeSummary
+        let receipt = AgentCompletionReceipt.markdown(for: run, changes: changes)
+
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                DSSectionLabel(title: "Completion receipt")
+                Spacer(minLength: 0)
+                ShareLink(item: receipt) {
+                    Label("Share receipt", systemImage: "square.and.arrow.up")
+                        .font(DS.Fonts.caption)
+                }
+                .buttonStyle(DSTertiaryButtonStyle())
+                .help("Share a privacy-bounded Markdown proof of this completed run")
+            }
+
+            HStack(spacing: 7) {
+                receiptFact(
+                    value: receiptDuration(for: run),
+                    label: "elapsed",
+                    systemImage: "clock"
+                )
+                receiptFact(
+                    value: changes.map { "\($0.totalCount)" } ?? "—",
+                    label: "files changed",
+                    systemImage: "doc.on.doc"
+                )
+                receiptFact(
+                    value: run.undoEntryIdentifier.isEmpty ? "No" : "Ready",
+                    label: "undo",
+                    systemImage: "arrow.uturn.backward.circle"
+                )
+            }
+
+            if let changes, !changes.displayedChanges.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(Array(changes.displayedChanges.prefix(4).enumerated()), id: \.offset) { _, change in
+                        Text("\(receiptChangeGlyph(change.kind))  \(change.path)")
+                            .font(DS.Fonts.micro.monospaced())
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    if changes.totalCount > 4 {
+                        Text("+ \(changes.totalCount - 4) more")
+                            .font(DS.Fonts.micro)
+                            .foregroundColor(DS.Colors.textTertiary)
+                    }
+                }
+            } else if changes == nil {
+                Text("Measuring changed files…")
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.textTertiary)
+            }
+
+            Text("Prompt, absolute paths, session IDs, and raw logs stay out. Review outcome above before sharing.")
+                .font(DS.Fonts.micro)
+                .foregroundColor(DS.Colors.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                .fill(DS.Colors.surface2)
+        )
+    }
+
+    private func receiptFact(value: String, label: String, systemImage: String) -> some View {
+        Label {
+            Text("\(value) \(label)")
+                .lineLimit(1)
+        } icon: {
+            Image(systemName: systemImage)
+        }
+        .font(DS.Fonts.micro)
+        .foregroundColor(DS.Colors.textSecondary)
+    }
+
+    private func receiptDuration(for run: AgentRun, now: Date = Date()) -> String {
+        let start = run.startedAt ?? run.createdAt
+        let end = run.finishedAt ?? now
+        let totalSeconds = max(0, Int(end.timeIntervalSince(start).rounded()))
+        if totalSeconds < 60 { return "\(totalSeconds)s" }
+        if totalSeconds < 3_600 { return "\(totalSeconds / 60)m" }
+        return "\(totalSeconds / 3_600)h \((totalSeconds % 3_600) / 60)m"
+    }
+
+    private func receiptChangeGlyph(_ kind: AgentWorkspaceChangeKind) -> String {
+        switch kind {
+        case .added: return "+"
+        case .modified: return "~"
+        case .deleted: return "−"
+        }
     }
 
     private func agentConversation(for run: AgentRun, projectColor: Color) -> some View {

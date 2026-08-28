@@ -306,6 +306,10 @@ nonisolated struct AgentRun: Codable, Equatable, Identifiable {
     /// Snapshot prepared immediately before current write-enabled leg. Empty
     /// means no approved work has started or snapshot preparation failed.
     var undoEntryIdentifier: String
+    /// Privacy-bounded proof of files changed by the latest write-enabled
+    /// leg. Paths are relative and capped; prompt, logs, workspace location,
+    /// and CLI session data never enter this value.
+    var workspaceChangeSummary: AgentWorkspaceChangeSummary?
     /// Persistent, user-facing task conversation and progress timeline.
     var activity: [AgentActivityEntry]
     /// Follow-ups sent while a process is busy. They resume this same session
@@ -345,6 +349,7 @@ nonisolated struct AgentRun: Codable, Equatable, Identifiable {
             sessionIdentifier: sessionIdentifier,
             planText: "",
             undoEntryIdentifier: "",
+            workspaceChangeSummary: nil,
             activity: [
                 AgentActivityEntry(kind: .user, text: prompt, createdAt: createdAt),
                 AgentActivityEntry(kind: .status, text: "Queued", createdAt: createdAt)
@@ -379,6 +384,10 @@ extension AgentRun {
         sessionIdentifier = try container.decodeIfPresent(String.self, forKey: .sessionIdentifier) ?? ""
         planText = try container.decodeIfPresent(String.self, forKey: .planText) ?? ""
         undoEntryIdentifier = try container.decodeIfPresent(String.self, forKey: .undoEntryIdentifier) ?? ""
+        workspaceChangeSummary = try container.decodeIfPresent(
+            AgentWorkspaceChangeSummary.self,
+            forKey: .workspaceChangeSummary
+        )
         activity = try container.decodeIfPresent([AgentActivityEntry].self, forKey: .activity) ?? [
             AgentActivityEntry(kind: .user, text: prompt, createdAt: createdAt)
         ]

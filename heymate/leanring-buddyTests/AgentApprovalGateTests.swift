@@ -490,6 +490,7 @@ struct AgentRunPersistenceTests {
         #expect(runs[0].title == "build a landing page")
         #expect(runs[0].sessionIdentifier.isEmpty)
         #expect(runs[0].planText.isEmpty)
+        #expect(runs[0].workspaceChangeSummary == nil)
     }
 
     @Test func newFieldsSurviveARoundTrip() throws {
@@ -504,6 +505,15 @@ struct AgentRunPersistenceTests {
         )
         run.status = .awaitingPlanApproval
         run.planText = "Two files: index.html and styles.css."
+        run.workspaceChangeSummary = AgentWorkspaceChangeSummary(
+            addedCount: 1,
+            modifiedCount: 2,
+            deletedCount: 0,
+            displayedChanges: [
+                AgentWorkspaceChange(kind: .added, path: "Sources/New.swift")
+            ],
+            omittedDisplayPathCount: 2
+        )
 
         let encoded = try JSONEncoder().encode(run)
         let decoded = try JSONDecoder().decode(AgentRun.self, from: encoded)

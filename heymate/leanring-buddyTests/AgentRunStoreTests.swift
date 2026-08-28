@@ -193,6 +193,68 @@ struct AgentRunStoreTests {
 @MainActor
 struct HeadlessAgentLauncherTests {
 
+    @Test func completedWriteLegPersistsMeasuredReceiptChanges() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("launcher-receipt-\(UUID().uuidString)", isDirectory: true)
+        let workspaceURL = rootURL.appendingPathComponent("workspace", isDirectory: true)
+        let storeFileURL = rootURL.appendingPathComponent("runs.json")
+        let undoRootURL = rootURL.appendingPathComponent("undo", isDirectory: true)
+        let executableURL = rootURL.appendingPathComponent("fake-agent.sh")
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
+        try "baseline\n".write(
+            to: workspaceURL.appendingPathComponent("Existing.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "#!/bin/sh\nprintf 'agent output\\n' > Added.txt\n".write(
+            to: executableURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: executableURL.path
+        )
+
+        let store = FileAgentRunStore(fileURL: storeFileURL)
+        let undoLedger = FileAgentUndoLedger(rootDirectoryURL: undoRootURL)
+        var run = AgentRun.queued(
+            id: UUID(),
+            title: "Create file",
+            prompt: "Create file",
+            workspaceURL: workspaceURL,
+            executor: .claudeCode,
+            origin: .attached,
+            sessionIdentifier: UUID().uuidString.lowercased()
+        )
+        run.status = .awaitingPlanApproval
+        run.planText = "Add one file."
+        store.upsert(run)
+
+        let launcher = HeadlessAgentLauncher(store: store, undoLedger: undoLedger)
+        launcher.resolveExecutable = { _ in executableURL }
+        launcher.approvePlan(runID: run.id)
+
+        for _ in 0..<100 {
+            if store.run(id: run.id)?.workspaceChangeSummary != nil { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        let completedRun = try #require(store.run(id: run.id))
+        #expect(completedRun.status == .succeeded)
+        #expect(completedRun.workspaceChangeSummary?.addedCount == 1)
+        #expect(completedRun.workspaceChangeSummary?.modifiedCount == 0)
+        #expect(completedRun.workspaceChangeSummary?.deletedCount == 0)
+        #expect(completedRun.workspaceChangeSummary?.displayedChanges == [
+            AgentWorkspaceChange(kind: .added, path: "Added.txt")
+        ])
+
+        let reloadedStore = FileAgentRunStore(fileURL: storeFileURL)
+        #expect(reloadedStore.run(id: run.id)?.workspaceChangeSummary == completedRun.workspaceChangeSummary)
+    }
+
     @Test func followUpQueuesWhileAgentIsBusy() {
         let storeFileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("launcher-\(UUID().uuidString).json")

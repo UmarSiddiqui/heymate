@@ -236,15 +236,14 @@ nonisolated enum AgentWorkspaceChangeScanner {
 }
 
 /// Builds a portable Markdown receipt from user-safe fields only. This type
-/// never reads `prompt`, `workspacePath`, `sessionIdentifier`, `activity`,
-/// `latestAction`, or `error` from `AgentRun`.
+/// never reads `title` (derived from the prompt), `prompt`, `workspacePath`,
+/// `sessionIdentifier`, `activity`, `latestAction`, or `error` from `AgentRun`.
 nonisolated enum AgentCompletionReceipt {
     static func markdown(
         for run: AgentRun,
         changes: AgentWorkspaceChangeSummary? = nil,
         generatedAt: Date = Date()
     ) -> String {
-        let title = AgentReceiptPrivacy.safeInline(run.title, fallback: "Agent task")
         let outcome = AgentReceiptPrivacy.safeInline(
             run.summary,
             fallback: "No shareable outcome was recorded."
@@ -255,7 +254,7 @@ nonisolated enum AgentCompletionReceipt {
         var lines = [
             "# HeyMate completion receipt",
             "",
-            "## \(title)",
+            "## Completed agent work",
             "",
             "- Result: \(statusLabel(for: run.status))",
             "- Duration: \(durationLabel(max(0, endDate.timeIntervalSince(startDate))))",

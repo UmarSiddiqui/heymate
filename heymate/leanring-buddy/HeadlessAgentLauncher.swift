@@ -29,6 +29,7 @@ final class HeadlessAgentLauncher {
     private let undoLedger: FileAgentUndoLedger
     private let fileManager: FileManager
     private var sessions: [UUID: LiveSession] = [:]
+    private var receiptScansInFlight: Set<UUID> = []
 
     /// Fired after every store mutation so the Agents tab can republish.
     var onRunsChanged: (() -> Void)?
@@ -138,6 +139,7 @@ final class HeadlessAgentLauncher {
             let undoEntry = try undoLedger.prepareSnapshot(for: run)
             _ = store.update(id: runID) { current in
                 current.undoEntryIdentifier = undoEntry.id.uuidString
+                current.workspaceChangeSummary = nil
             }
         } catch {
             _ = store.update(id: runID) { current in
@@ -221,6 +223,8 @@ final class HeadlessAgentLauncher {
             current.summary = ""
             current.error = ""
             current.finishedAt = nil
+            current.undoEntryIdentifier = ""
+            current.workspaceChangeSummary = nil
             current.latestAction = "Planning the follow-up…"
             current.appendActivity(kind: .user, text: trimmedInstruction)
             current.appendActivity(kind: .status, text: current.latestAction)
@@ -666,6 +670,7 @@ final class HeadlessAgentLauncher {
 
         if finishedLeg?.isReadOnly == false {
             markUndoReady(runID: runID)
+            scheduleReceiptScanForRun(runID: runID)
         }
 
         guard let run = store.run(id: runID) else { return }
@@ -815,6 +820,8 @@ final class HeadlessAgentLauncher {
             current.summary = ""
             current.error = ""
             current.finishedAt = nil
+            current.undoEntryIdentifier = ""
+            current.workspaceChangeSummary = nil
             current.latestAction = "Planning queued follow-up…"
             current.appendActivity(kind: .status, text: current.latestAction)
         }
@@ -829,9 +836,44 @@ final class HeadlessAgentLauncher {
 
     private func markUndoReady(runID: UUID) {
         guard let run = store.run(id: runID),
-              let entryID = UUID(uuidString: run.undoEntryIdentifier) else { return }
+              let entryID = UUID(uuidString: run.undoEntryIdentifier),
+              undoLedger.entry(id: entryID) != nil else { return }
         undoLedger.markReady(entryID: entryID)
         onUndoLedgerChanged?()
+    }
+
+    private func scheduleReceiptScanForRun(runID: UUID) {
+        guard let run = store.run(id: runID),
+              let entryID = UUID(uuidString: run.undoEntryIdentifier),
+              let entry = undoLedger.entry(id: entryID) else { return }
+        scheduleReceiptScan(runID: runID, entry: entry)
+    }
+
+    private func scheduleReceiptScan(runID: UUID, entry: AgentUndoEntry) {
+        guard store.run(id: runID)?.workspaceChangeSummary == nil,
+              receiptScansInFlight.insert(entry.id).inserted else { return }
+
+        let snapshotURL = URL(fileURLWithPath: entry.snapshotPath, isDirectory: true)
+        let workspaceURL = URL(fileURLWithPath: entry.workspacePath, isDirectory: true)
+        Task { [weak self] in
+            let changes = await Task.detached(priority: .utility) {
+                try? AgentWorkspaceChangeScanner.scan(
+                    beforeSnapshotURL: snapshotURL,
+                    currentWorkspaceURL: workspaceURL
+                )
+            }.value
+
+            guard let self else { return }
+            self.receiptScansInFlight.remove(entry.id)
+            guard let changes,
+                  self.store.run(id: runID)?.undoEntryIdentifier == entry.id.uuidString else {
+                return
+            }
+            _ = self.store.update(id: runID) { current in
+                current.workspaceChangeSummary = changes
+            }
+            self.onRunsChanged?()
+        }
     }
 
     // MARK: - Plan text

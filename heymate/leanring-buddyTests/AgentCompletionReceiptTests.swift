@@ -103,7 +103,7 @@ struct AgentCompletionReceiptTests {
 
         var run = AgentRun.queued(
             id: UUID(),
-            title: "Build release at \(workspacePath) token=\(sourceControlToken)",
+            title: originalPrompt,
             prompt: originalPrompt,
             workspaceURL: URL(fileURLWithPath: workspacePath, isDirectory: true),
             executor: .codex,
