@@ -125,6 +125,38 @@ struct ConnectorRuntimeNamingTests {
 @MainActor
 struct MCPClientParsingTests {
 
+    @Test func childEnvironmentStripsAppSecretsAndKeepsOnlyScopedOverride() {
+        let environment = MCPClient.childEnvironment(
+            processEnvironment: [
+                "PATH": "/usr/bin",
+                "HOME": "/Users/tester",
+                "HEYMATE_CLIENT_TOKEN": "worker-secret",
+                "OPENAI_API_KEY": "provider-secret",
+                "NOTION_API_KEY": "unrelated-secret",
+                "GITHUB_TOKEN": "unknown-secret",
+                "AWS_SECRET_ACCESS_KEY": "unknown-secret",
+                "DATABASE_URL": "postgres://secret",
+                "NPM_TOKEN": "unknown-secret"
+            ],
+            overrides: ["SLACK_API_KEY": "scoped-secret"]
+        )
+
+        #expect(environment["PATH"] == "/usr/bin")
+        #expect(environment["HOME"] == "/Users/tester")
+        #expect(environment["HEYMATE_CLIENT_TOKEN"] == nil)
+        #expect(environment["OPENAI_API_KEY"] == nil)
+        #expect(environment["NOTION_API_KEY"] == nil)
+        #expect(environment["GITHUB_TOKEN"] == nil)
+        #expect(environment["AWS_SECRET_ACCESS_KEY"] == nil)
+        #expect(environment["DATABASE_URL"] == nil)
+        #expect(environment["NPM_TOKEN"] == nil)
+        #expect(environment["SLACK_API_KEY"] == "scoped-secret")
+    }
+
+    @Test func childShellSkipsStartupFilesThatCouldRestoreSecrets() {
+        #expect(MCPClient.shellArguments(for: "npx server") == ["-dfc", "npx server"])
+    }
+
     @Test func parsesToolDefinitionsAndKeepsTheSchemaVerbatim() {
         let result: [String: Any] = [
             "tools": [

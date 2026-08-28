@@ -124,9 +124,17 @@ struct MemoryAndSkillsPromptTests {
     }
 
     @Test func bearerHeaderAttachedOnlyWhenTokenPresent() throws {
-        let request = try #require(BackendClient.makeRequest(endpoint: .me))
-        // Test bundle has no HeyMateClientToken configured → header absent.
-        // (Presence-path is trivial string formatting covered by inspection.)
-        #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
+        let requestWithoutToken = try #require(
+            BackendClient.makeRequest(endpoint: .me, clientToken: nil)
+        )
+        #expect(requestWithoutToken.value(forHTTPHeaderField: "Authorization") == nil)
+
+        let requestWithToken = try #require(
+            BackendClient.makeRequest(endpoint: .me, clientToken: "local-test-token")
+        )
+        #expect(
+            requestWithToken.value(forHTTPHeaderField: "Authorization")
+                == "Bearer local-test-token"
+        )
     }
 }

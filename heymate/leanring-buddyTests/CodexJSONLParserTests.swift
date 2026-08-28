@@ -20,12 +20,41 @@ struct CodexJSONLParserTests {
         })
     }
 
-    @Test func completedAgentMessageBecomesFinishedText() {
+    @Test func completedAgentMessageIsTextNotTurnCompletion() {
         let line = #"{"type":"item.completed","item":{"type":"agent_message","text":"the plan is to add a dark mode"}}"#
+        #expect(
+            CodexJSONLParser.events(fromStdoutLine: line) == [
+                .text("the plan is to add a dark mode")
+            ]
+        )
         #expect(
             CodexJSONLParser.agentMessageText(fromStdoutLine: line)
                 == "the plan is to add a dark mode"
         )
+    }
+
+    /// Real Codex 0.149 output puts an `item.completed/agent_message` before
+    /// the first edit. No item in that transcript is a turn boundary; process
+    /// exit owns success so the launcher cannot kill Codex before the edit.
+    @Test func intermediateMessageBeforeWorkNeverFinishesTheTurn() {
+        let lines = [
+            #"{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I’ll make the change now."}}"#,
+            #"{"type":"item.completed","item":{"id":"item_1","type":"file_change","changes":[{"path":"/tmp/hello.txt","kind":"add"}],"status":"completed"}}"#,
+            #"{"type":"item.completed","item":{"id":"item_2","type":"command_execution","command":"cat hello.txt","aggregated_output":"hello\n","exit_code":0,"status":"completed"}}"#,
+            #"{"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":"Created hello.txt."}}"#,
+            #"{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}"#
+        ]
+
+        let events = lines.flatMap(CodexJSONLParser.events(fromStdoutLine:))
+
+        #expect(events.first == .text("I’ll make the change now."))
+        #expect(events.contains(.tool(summary: "tool")))
+        #expect(events.contains(.tool(summary: "cat hello.txt")))
+        #expect(events.last == .text("Created hello.txt."))
+        #expect(events.contains { event in
+            if case .finished = event { return true }
+            return false
+        } == false)
     }
 
     @Test func errorLinesFailTheJob() {
@@ -76,9 +105,24 @@ struct CodexExecAdapterTests {
         #expect(arguments.contains("gpt-5.4"))
         #expect(arguments.contains("model_reasoning_effort=\"xhigh\""))
         #expect(arguments.contains("resume") == false)
-        #expect(arguments.contains("build a landing page"))
+        #expect(arguments.last?.contains(AgentPlanBrief.planningContract) == true)
+        #expect(arguments.last?.contains("build a landing page") == true)
         #expect(arguments.contains("mcp_servers.heymate.command=\"/usr/bin/node\"") == false)
         #expect(spec(leg: .plan(prompt: "x")).environmentOverrides.isEmpty)
+    }
+
+    @Test func everyReadOnlyLegCarriesItsPlanningContractAndUserRequest() {
+        let cases: [(leg: AgentRunLeg, contract: String, userText: String)] = [
+            (.plan(prompt: "make a site"), AgentPlanBrief.planningContract, "make a site"),
+            (.replan(feedback: "use two columns"), AgentPlanBrief.replanContract, "use two columns"),
+            (.followUp(instruction: "add dark mode"), AgentPlanBrief.followUpContract, "add dark mode")
+        ]
+
+        for testCase in cases {
+            let prompt = spec(leg: testCase.leg).arguments.last ?? ""
+            #expect(prompt.contains(testCase.contract))
+            #expect(prompt.contains(testCase.userText))
+        }
     }
 
     @Test func executeLegResumesTheApprovedThread() {

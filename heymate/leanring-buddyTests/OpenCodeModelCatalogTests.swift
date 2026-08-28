@@ -6,6 +6,7 @@
 //  that looked empty. Grouping and search have to keep every model.
 //
 
+import Foundation
 import Testing
 @testable import HeyMate
 
@@ -49,5 +50,46 @@ struct OpenCodeModelCatalogTests {
         let groups = OpenCodeModelCatalog.grouped(catalog, matching: "zen")
         #expect(groups.map(\.providerID) == ["opencode"])
         #expect(groups.flatMap(\.models).map(\.modelID) == ["big-pickle", "mimo-v2.5-free"])
+    }
+}
+
+struct OpenCodeTransportSecurityTests {
+
+    @Test func loopbackHTTPAndRemoteHTTPSAreAllowed() {
+        #expect(OpenCodeClient.isAllowedServerURL(URL(string: "http://127.0.0.1:4096")!))
+        #expect(OpenCodeClient.isAllowedServerURL(URL(string: "http://localhost:4096")!))
+        #expect(OpenCodeClient.isAllowedServerURL(URL(string: "http://[::1]:4096")!))
+        #expect(OpenCodeClient.isAllowedServerURL(URL(string: "https://opencode.example.com")!))
+    }
+
+    @Test func remotePlainHTTPAndUnknownSchemesAreRejected() {
+        #expect(OpenCodeClient.isAllowedServerURL(URL(string: "http://192.168.1.12:4096")!) == false)
+        #expect(OpenCodeClient.isAllowedServerURL(URL(string: "http://127.example.com:4096")!) == false)
+        #expect(OpenCodeClient.isAllowedServerURL(URL(string: "ftp://opencode.example.com")!) == false)
+    }
+
+    @Test func basicAuthHeaderIsNeverAddedToRemotePlainHTTP() {
+        var request = URLRequest(url: URL(string: "http://192.168.1.12:4096/global/health")!)
+        OpenCodeClient.applyBasicAuth(to: &request, username: "user", password: "secret")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
+    }
+
+    @Test func redirectsCannotDowngradeOrLeaveTheApprovedOrigin() {
+        #expect(OpenCodeRedirectPolicy.isAllowedRedirect(
+            from: URL(string: "https://opencode.example.com/session")!,
+            to: URL(string: "http://opencode.example.com/session")!
+        ) == false)
+        #expect(OpenCodeRedirectPolicy.isAllowedRedirect(
+            from: URL(string: "http://127.0.0.1:4096/session")!,
+            to: URL(string: "http://192.168.1.12:4096/session")!
+        ) == false)
+        #expect(OpenCodeRedirectPolicy.isAllowedRedirect(
+            from: URL(string: "https://opencode.example.com/session")!,
+            to: URL(string: "https://collector.example.net/session")!
+        ) == false)
+        #expect(OpenCodeRedirectPolicy.isAllowedRedirect(
+            from: URL(string: "https://opencode.example.com/session")!,
+            to: URL(string: "https://opencode.example.com/next")!
+        ))
     }
 }

@@ -11,6 +11,13 @@ import Foundation
 
 nonisolated enum AgentTaskMarkdown {
 
+    /// A sandbox is a folder HeyMate created for this job, so leaving the
+    /// brief there is useful. An attached folder belongs to the user; even a
+    /// TASK.md file would dirty it before plan approval.
+    static func shouldPersist(in origin: AgentRunOrigin) -> Bool {
+        origin == .sandbox
+    }
+
     static func contents(
         title: String,
         prompt: String,

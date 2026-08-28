@@ -10,7 +10,7 @@
 import AVFoundation
 import Combine
 import Foundation
-import PostHog
+import OSLog
 import ScreenCaptureKit
 import SwiftUI
 
@@ -23,6 +23,15 @@ enum CompanionVoiceState {
 
 @MainActor
 final class CompanionManager: ObservableObject {
+
+    private static let screenPointingLogger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.heymate.app",
+        category: "ScreenPointing"
+    )
+    private static let pipelineErrorLogger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.heymate.app",
+        category: "PipelineErrors"
+    )
 
     /// UserDefaults key backing `isUISoundEnabled` (shared with UISoundPlayer).
     nonisolated static let uiSoundPreferenceKey = "isUISoundEnabled"
@@ -41,6 +50,11 @@ final class CompanionManager: ObservableObject {
 
     nonisolated static let codexModelPreferenceKey = "selectedCodexModel"
     nonisolated static let codexReasoningEffortPreferenceKey = "selectedCodexReasoningEffort"
+
+    nonisolated static let openCodeBasicAuthPasswordKeychainIdentifier =
+        "heymate.opencode.basicAuthPassword"
+    nonisolated static let legacyOpenCodeBasicAuthPasswordPreferenceKey =
+        "openCodeBasicAuthPassword"
 
     /// Local cooldown timestamps keyed by Standing Order filename stem.
     nonisolated static let standingOrderLastTriggeredPreferenceKey = "standingOrderLastTriggeredAt"
@@ -751,10 +765,54 @@ final class CompanionManager: ObservableObject {
         }
     }
     @Published var openCodeBasicAuthPassword: String =
-        UserDefaults.standard.string(forKey: "openCodeBasicAuthPassword") ?? "" {
+        CompanionManager.loadOpenCodeBasicAuthPassword() {
         didSet {
-            UserDefaults.standard.set(openCodeBasicAuthPassword, forKey: "openCodeBasicAuthPassword")
+            CompanionManager.persistOpenCodeBasicAuthPassword(openCodeBasicAuthPassword)
             rebuildOpenCodeClient()
+        }
+    }
+
+    private static func loadOpenCodeBasicAuthPassword(
+        userDefaults: UserDefaults = .standard
+    ) -> String {
+        if let stored = ConnectorSecretStore.secret(
+            forConnectorID: openCodeBasicAuthPasswordKeychainIdentifier
+        ) {
+            userDefaults.removeObject(forKey: legacyOpenCodeBasicAuthPasswordPreferenceKey)
+            return stored
+        }
+
+        guard let legacy = userDefaults.string(
+            forKey: legacyOpenCodeBasicAuthPasswordPreferenceKey
+        ), !legacy.isEmpty else { return "" }
+
+        let migrated = ConnectorSecretStore.setSecret(
+            legacy,
+            forConnectorID: openCodeBasicAuthPasswordKeychainIdentifier
+        )
+        if migrated {
+            // Remove plaintext only after Keychain confirms the replacement.
+            userDefaults.removeObject(forKey: legacyOpenCodeBasicAuthPasswordPreferenceKey)
+        }
+        return legacy
+    }
+
+    private static func persistOpenCodeBasicAuthPassword(_ password: String) {
+        let persisted: Bool
+        if password.isEmpty {
+            persisted = ConnectorSecretStore.deleteSecret(
+                forConnectorID: openCodeBasicAuthPasswordKeychainIdentifier
+            )
+        } else {
+            persisted = ConnectorSecretStore.setSecret(
+                password,
+                forConnectorID: openCodeBasicAuthPasswordKeychainIdentifier
+            )
+        }
+        if persisted {
+            UserDefaults.standard.removeObject(
+                forKey: legacyOpenCodeBasicAuthPasswordPreferenceKey
+            )
         }
     }
 
@@ -2390,7 +2448,7 @@ final class CompanionManager: ObservableObject {
                     },
                     submitDraftText: { [weak self] finalTranscript in
                         self?.lastTranscript = finalTranscript
-                        print("🗣️ Companion received transcript: \(finalTranscript)")
+                        print("🗣️ Companion received transcript (\(finalTranscript.count) characters)")
                         ClickyAnalytics.trackUserMessageSent(transcript: finalTranscript)
                         self?.handleTalkTranscript(finalTranscript)
                     }
@@ -2852,8 +2910,7 @@ final class CompanionManager: ObservableObject {
                         try await voiceSynthesisClient.speakText(spokenText)
                         dispatch(.beginSpeaking)
                     } catch {
-                        ClickyAnalytics.trackTTSError(error: error.localizedDescription)
-                        print("⚠️ Voice synthesis error: \(error)")
+                        Self.recordPipelineError(error, category: .textToSpeech)
                         speakPipelineFailure(error)
                     }
                 }
@@ -2867,9 +2924,8 @@ final class CompanionManager: ObservableObject {
             } catch is CancellationError {
                 // User spoke again — response was interrupted
             } catch {
-                ClickyAnalytics.trackResponseError(error: error.localizedDescription)
+                Self.recordPipelineError(error, category: .responsePipeline)
                 dispatch(.fail(error.localizedDescription))
-                print("⚠️ Companion response error: \(error)")
                 speakPipelineFailure(error)
             }
 
@@ -2881,6 +2937,17 @@ final class CompanionManager: ObservableObject {
                 scheduleTransientHideIfNeeded()
             }
         }
+    }
+
+    private static func recordPipelineError(
+        _ error: Error,
+        category: AnalyticsErrorCategory
+    ) {
+        let summary = AnalyticsErrorSummary(category: category, error: error)
+        ClickyAnalytics.trackError(summary)
+        pipelineErrorLogger.error(
+            "Pipeline failure category=\(summary.category.rawValue, privacy: .public) domain=\(summary.domain, privacy: .public) code=\(summary.code, privacy: .public)"
+        )
     }
 
     // MARK: - Talk tool calls
@@ -3150,10 +3217,22 @@ final class CompanionManager: ObservableObject {
 
             detectedElementScreenLocation = globalLocation
             detectedElementDisplayFrame = targetScreenCapture.displayFrame
-            ClickyAnalytics.trackElementPointed(elementLabel: parseResult.elementLabel)
-            print("🎯 Element pointing: (\(Int(pointCoordinate.x)), \(Int(pointCoordinate.y))) → \"\(parseResult.elementLabel ?? "element")\"")
+            let telemetry = ScreenPointingTelemetrySummary(
+                coordinate: pointCoordinate,
+                elementLabel: parseResult.elementLabel
+            )
+            ClickyAnalytics.trackElementPointed(telemetry)
+            Self.screenPointingLogger.info(
+                "Element pointing x=\(telemetry.x, privacy: .public) y=\(telemetry.y, privacy: .public) labelCharacters=\(telemetry.labelCharacterCount, privacy: .public)"
+            )
         } else {
-            print("🎯 Element pointing: \(parseResult.elementLabel ?? "no element")")
+            let telemetry = ScreenPointingTelemetrySummary(
+                coordinate: nil,
+                elementLabel: parseResult.elementLabel
+            )
+            Self.screenPointingLogger.info(
+                "Element pointing x=\(telemetry.x, privacy: .public) y=\(telemetry.y, privacy: .public) labelCharacters=\(telemetry.labelCharacterCount, privacy: .public)"
+            )
         }
     }
 
@@ -3289,7 +3368,14 @@ final class CompanionManager: ObservableObject {
                 detectedElementBubbleText = parseResult.spokenText
                 detectedElementScreenLocation = globalLocation
                 detectedElementDisplayFrame = cursorScreenCapture.displayFrame
-                print("🎯 Onboarding demo: pointing at \"\(parseResult.elementLabel ?? "element")\" — \"\(parseResult.spokenText)\"")
+                let telemetry = ScreenPointingTelemetrySummary(
+                    coordinate: pointCoordinate,
+                    elementLabel: parseResult.elementLabel,
+                    commentary: parseResult.spokenText
+                )
+                Self.screenPointingLogger.info(
+                    "Onboarding pointing x=\(telemetry.x, privacy: .public) y=\(telemetry.y, privacy: .public) labelCharacters=\(telemetry.labelCharacterCount, privacy: .public) commentaryCharacters=\(telemetry.commentaryCharacterCount, privacy: .public)"
+                )
             } catch {
                 print("⚠️ Onboarding demo error: \(error)")
             }
@@ -3328,23 +3414,15 @@ final class CompanionManager: ObservableObject {
                   !reasoningEffort.isEmpty else { return nil }
             return reasoningEffort
         }
-        agentLauncher.mcpConfigurationJSON = {
-            HeyMateMCPServer.claudeCodeConfigurationJSON(
-                additionalServers: ComposioAgentAttachment.mcpServerConfiguration()
-            )
-        }
         agentLauncher.openCodeMCPConfigurationJSON = {
             HeyMateMCPServer.openCodeConfigurationJSON()
         }
         agentLauncher.codexMCPConfigurationArguments = {
             HeyMateMCPServer.codexConfigurationArguments()
         }
-        agentLauncher.mcpChildEnvironment = {
-            // Composio's key is merged in here, not into `childEnvironment()`
-            // itself, so the Codex adapter's `env_vars` list keeps naming only
-            // the bridge values the HeyMate server actually reads.
-            HeyMateMCPServer.childEnvironment()
-                .merging(ComposioAgentAttachment.childEnvironment()) { existing, _ in existing }
+        agentLauncher.mcpChildEnvironment = { executor in
+            _ = executor
+            return HeyMateMCPServer.childEnvironment()
         }
         refreshHeadlessExecutorReadiness()
     }
@@ -3378,7 +3456,7 @@ final class CompanionManager: ObservableObject {
             ?? explicitlyRequestedExecutor
             ?? selectedBrain.executor
             ?? defaultHeadlessExecutor
-        print("🤖 Agent: starting sandbox (\(resolvedExecutor.displayName)): \(prompt)")
+        print("🤖 Agent: starting sandbox (\(resolvedExecutor.displayName))")
         _ = agentLauncher.startSandbox(
             prompt: prompt,
             executor: resolvedExecutor,

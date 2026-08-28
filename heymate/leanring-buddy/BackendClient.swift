@@ -47,13 +47,28 @@ nonisolated enum BackendClient {
         return URL(string: raw)
     }
 
-    /// Builds an authorized request. Token comes from Info.plist key
-    /// HeyMateClientToken (dev convenience); production builds should inject
-    /// a per-user session token instead of shipping one.
+    static let clientTokenSecretsKey = "HEYMATE_CLIENT_TOKEN"
+
+    /// Adds the Worker client token without putting it in the app bundle or
+    /// process arguments. An absent token deliberately leaves the header off;
+    /// a securely configured Worker then rejects the request.
+    static func applyAuthorization(
+        to request: inout URLRequest,
+        clientToken: String? = HeyMateSecrets.lookup(clientTokenSecretsKey)
+    ) {
+        guard let clientToken = clientToken?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !clientToken.isEmpty else { return }
+        request.setValue("Bearer \(clientToken)", forHTTPHeaderField: "Authorization")
+    }
+
+    /// Builds an authorized request. The token resolves from the process
+    /// environment or the local HeyMate secrets file, never Info.plist.
     static func makeRequest(
         endpoint: BackendEndpoint,
         bundle: Bundle = .main,
-        body: Data? = nil
+        body: Data? = nil,
+        clientToken: String? = HeyMateSecrets.lookup(clientTokenSecretsKey)
     ) -> URLRequest? {
         guard let base = baseURL(bundle: bundle),
               var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else {
@@ -66,9 +81,7 @@ nonisolated enum BackendClient {
         request.httpMethod = endpoint.method
         request.httpBody = body
 
-        if let token = AppBundleConfiguration.stringValue(forKey: "HeyMateClientToken"), !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
+        applyAuthorization(to: &request, clientToken: clientToken)
         return request
     }
 }

@@ -59,10 +59,9 @@ final class HeadlessAgentLauncher {
     /// Inline MCP config giving a working leg HeyMate's own tools. Resolved
     /// per spawn because it depends on the bridge port and on a script that is
     /// seeded lazily; nil is a normal answer and simply means no HeyMate tools.
-    var mcpConfigurationJSON: () -> String? = { nil }
     var openCodeMCPConfigurationJSON: () -> String? = { nil }
     var codexMCPConfigurationArguments: () -> [String] = { [] }
-    var mcpChildEnvironment: () -> [String: String] = { [:] }
+    var mcpChildEnvironment: (HeadlessExecutor) -> [String: String] = { _ in [:] }
 
     init(
         store: FileAgentRunStore,
@@ -466,18 +465,20 @@ final class HeadlessAgentLauncher {
             }
         }
 
-        do {
-            try AgentTaskMarkdown.write(
-                to: workspaceURL,
-                title: title,
-                prompt: trimmedPrompt,
-                executor: executor,
-                createdAt: createdAt,
-                screenContext: screenContext,
-                fileManager: fileManager
-            )
-        } catch {
-            return fail(run, reason: "Could not write TASK.md")
+        if AgentTaskMarkdown.shouldPersist(in: origin) {
+            do {
+                try AgentTaskMarkdown.write(
+                    to: workspaceURL,
+                    title: title,
+                    prompt: trimmedPrompt,
+                    executor: executor,
+                    createdAt: createdAt,
+                    screenContext: screenContext,
+                    fileManager: fileManager
+                )
+            } catch {
+                return fail(run, reason: "Could not write TASK.md")
+            }
         }
 
         store.upsert(run)
@@ -505,10 +506,9 @@ final class HeadlessAgentLauncher {
             claudeModelIdentifier: claudeModelIdentifier(),
             codexModelIdentifier: codexModelIdentifier(),
             codexReasoningEffort: codexReasoningEffort(),
-            mcpConfigurationJSON: leg.isReadOnly ? nil : mcpConfigurationJSON(),
             openCodeMCPConfigurationJSON: leg.isReadOnly ? nil : openCodeMCPConfigurationJSON(),
             codexMCPConfigurationArguments: leg.isReadOnly ? [] : codexMCPConfigurationArguments(),
-            mcpChildEnvironment: leg.isReadOnly ? [:] : mcpChildEnvironment()
+            mcpChildEnvironment: leg.isReadOnly ? [:] : mcpChildEnvironment(run.executor)
         )
         let spec = adapter.launchSpec(
             workspaceURL: run.workspaceURL,
@@ -526,6 +526,7 @@ final class HeadlessAgentLauncher {
                 currentDirectoryURL: spec.currentDirectoryURL,
                 environmentKeysToRemove: spec.environmentKeysToRemove,
                 environmentOverrides: spec.environmentOverrides,
+                temporaryDirectoriesToRemove: spec.temporaryDirectoriesToRemove,
                 usesDuplexStandardInput: spec.usesDuplexStandardInput,
                 onLine: { [weak self] line in
                     Task { @MainActor in

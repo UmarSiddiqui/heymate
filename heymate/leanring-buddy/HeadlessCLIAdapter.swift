@@ -18,11 +18,62 @@ struct HeadlessCLILaunchSpec {
     /// Runtime-only values such as loopback bridge address and token. Kept
     /// out of process arguments so secrets never appear in command listings.
     let environmentOverrides: [String: String]
+    /// Process-private scratch configuration roots. The process owner removes
+    /// these after exit (or a failed launch) so one job cannot seed another.
+    let temporaryDirectoriesToRemove: [URL]
     /// Whether the child reads stdin. Only attached jobs do — they answer tool
     /// approvals over `--input-format stream-json`. A sandbox job handed an
     /// idle pipe makes `claude -p` wait for input that is never coming, so
     /// those get /dev/null instead.
     let usesDuplexStandardInput: Bool
+}
+
+nonisolated enum OpenCodeRuntimeIsolation {
+    static func makeConfigurationHome(
+        fileManager: FileManager = .default
+    ) -> URL {
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("com.heymate.app", isDirectory: true)
+            .appendingPathComponent("opencode-config", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        // OpenCode can create a missing root itself, but creating it here lets
+        // us guarantee private permissions before any config lookup happens.
+        try? fileManager.createDirectory(
+            at: root,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        return root
+    }
+
+    /// OpenCode keeps subscription/provider auth plus resumable sessions in
+    /// XDG data, while config discovery also probes `~/.opencode`. Give the
+    /// child an isolated HOME/config root but keep explicit data/state/cache
+    /// locations so a plan can resume after approval without loading legacy
+    /// home configuration.
+    static func persistentRuntimeEnvironment(
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [String: String] {
+        guard let home = processEnvironment["HOME"], home.hasPrefix("/") else {
+            return [:]
+        }
+
+        let fallbacks = [
+            "XDG_DATA_HOME": ".local/share",
+            "XDG_STATE_HOME": ".local/state",
+            "XDG_CACHE_HOME": ".cache"
+        ]
+        return fallbacks.reduce(into: [:]) { result, entry in
+            let inherited = processEnvironment[entry.key]
+            if let inherited, inherited.hasPrefix("/") {
+                result[entry.key] = inherited
+            } else {
+                result[entry.key] = URL(fileURLWithPath: home, isDirectory: true)
+                    .appendingPathComponent(entry.value, isDirectory: true)
+                    .path
+            }
+        }
+    }
 }
 
 protocol HeadlessCLIAdapter {
@@ -52,6 +103,16 @@ let headlessAgentExecuteInstruction = "Execute the approved plan now. Do not exp
 struct OpenCodeRunAdapter: HeadlessCLIAdapter {
     let executor: HeadlessExecutor = .openCode
 
+    /// OpenCode normally merges global, legacy-home, and project configuration
+    /// even with `--pure`. HeyMate jobs instead get an isolated HOME and XDG
+    /// configuration root, disable project discovery, and install a late
+    /// permission override.
+    /// This makes the first leg a real write-free plan rather than a
+    /// convention that a project hook or custom agent can bypass.
+    private static let emptyConfigurationJSON = #"{"mcp":{},"plugin":[]}"#
+    private static let planningPermissionsJSON = #"{"*":"deny","read":"allow","glob":"allow","grep":"allow","list":"allow","lsp":"allow"}"#
+    private static let executionPermissionsJSON = #"{"*":"deny","read":"allow","edit":"allow","glob":"allow","grep":"allow","list":"allow","bash":"deny","task":"deny","todowrite":"allow","lsp":"allow","external_directory":"deny","webfetch":"deny","websearch":"deny","question":"deny","doom_loop":"deny","skill":"deny","heymate_*":"allow"}"#
+
     /// OpenCode mints its own `ses_…` id, so leg one has to be run without a
     /// session argument and the id read out of the event stream.
     let preassignsSessionIdentifier = false
@@ -60,8 +121,12 @@ struct OpenCodeRunAdapter: HeadlessCLIAdapter {
     /// Without it `opencode run` silently falls back to whatever its own
     /// default is — usually a free model, never the one on screen.
     let modelIdentifier: String?
+
     let mcpConfigurationJSON: String?
     let mcpChildEnvironment: [String: String]
+    /// Test-only fixed path. Production leaves this nil and gets a fresh
+    /// private directory for every process leg.
+    let isolatedConfigurationHomePath: String?
 
     func launchSpec(
         workspaceURL: URL,
@@ -84,36 +149,66 @@ struct OpenCodeRunAdapter: HeadlessCLIAdapter {
             arguments.append(contentsOf: ["--session", sessionIdentifier])
         }
 
+        let message: String
         switch leg {
         case .plan(let prompt):
-            // The `plan` agent is read-only: it answers with a plan and calls
-            // no write tools at all.
-            arguments.append(contentsOf: ["--agent", "plan"])
-            arguments.append(prompt)
-        case .replan(let feedback):
-            // The `plan` agent already knows how to plan; what it does not
-            // know is that the text arriving is a rejection of its last one.
-            arguments.append(contentsOf: ["--agent", "plan"])
-            arguments.append("The person read your previous plan and asked for changes. Revise it to match: \(feedback)")
-        case .followUp(let instruction):
-            arguments.append(contentsOf: ["--agent", "plan"])
-            arguments.append("The work you already planned and carried out in this session is done. The person now wants something further. Check the current state, then plan only the new work: \(instruction)")
-        case .execute:
-            // Sandbox: auto-approve file edits, because the user already
-            // approved the plan that describes them. Attached: leave the CLI's
-            // ask path in place — we never pass --auto on someone else's repo.
-            if origin == .sandbox {
-                arguments.append("--auto")
-            }
-            arguments.append(headlessAgentExecuteInstruction)
-        }
+            message = """
+            \(AgentPlanBrief.planningContract)
 
-        var environmentOverrides: [String: String] = [:]
-        if case .execute = leg,
-           let mcpConfigurationJSON,
-           !mcpConfigurationJSON.isEmpty {
+            Task:
+            \(prompt)
+            """
+        case .replan(let feedback):
+            message = """
+            \(AgentPlanBrief.replanContract)
+
+            Feedback:
+            \(feedback)
+            """
+        case .followUp(let instruction):
+            message = """
+            \(AgentPlanBrief.followUpContract)
+
+            New request:
+            \(instruction)
+            """
+        case .execute:
+            _ = origin
+            message = headlessAgentExecuteInstruction
+        }
+        arguments.append(message)
+
+        let isolatedConfigurationHomeURL = isolatedConfigurationHomePath.map {
+            URL(fileURLWithPath: $0, isDirectory: true)
+        } ?? OpenCodeRuntimeIsolation.makeConfigurationHome()
+        var environmentOverrides = OpenCodeRuntimeIsolation
+            .persistentRuntimeEnvironment()
+        environmentOverrides.merge([
+            // `XDG_CONFIG_HOME` blocks normal global config; HOME also blocks
+            // OpenCode's independent legacy `~/.opencode` lookup. Its internal
+            // test overrides are set too: inherited values can otherwise
+            // redirect home or managed configuration into a writable folder.
+            "HOME": isolatedConfigurationHomeURL.path,
+            "XDG_CONFIG_HOME": isolatedConfigurationHomeURL.path,
+            "OPENCODE_TEST_HOME": isolatedConfigurationHomeURL.path,
+            "OPENCODE_TEST_MANAGED_CONFIG_DIR": isolatedConfigurationHomeURL
+                .appendingPathComponent("managed", isDirectory: true)
+                .path,
+            "OPENCODE_DISABLE_PROJECT_CONFIG": "true",
+            "OPENCODE_DISABLE_CLAUDE_CODE": "true",
+            "OPENCODE_DISABLE_EXTERNAL_SKILLS": "true",
+            "OPENCODE_DISABLE_DEFAULT_PLUGINS": "true",
+            "OPENCODE_CONFIG_CONTENT": Self.emptyConfigurationJSON,
+            "OPENCODE_PERMISSION": leg.isReadOnly
+                ? Self.planningPermissionsJSON
+                : Self.executionPermissionsJSON
+        ]) { _, isolatedValue in isolatedValue }
+        if case .execute = leg {
             environmentOverrides = mcpChildEnvironment
-            environmentOverrides["OPENCODE_CONFIG_CONTENT"] = mcpConfigurationJSON
+                .merging(environmentOverrides) { _, isolatedValue in isolatedValue }
+            if let mcpConfigurationJSON, !mcpConfigurationJSON.isEmpty {
+                environmentOverrides["OPENCODE_CONFIG_CONTENT"] = mcpConfigurationJSON
+            }
         }
 
         return HeadlessCLILaunchSpec(
@@ -122,6 +217,9 @@ struct OpenCodeRunAdapter: HeadlessCLIAdapter {
             currentDirectoryURL: workspaceURL,
             environmentKeysToRemove: executor.environmentKeysToRemove,
             environmentOverrides: environmentOverrides,
+            temporaryDirectoriesToRemove: isolatedConfigurationHomePath == nil
+                ? [isolatedConfigurationHomeURL]
+                : [],
             usesDuplexStandardInput: false
         )
     }
@@ -141,16 +239,11 @@ struct OpenCodeRunAdapter: HeadlessCLIAdapter {
 
 struct ClaudePrintAdapter: HeadlessCLIAdapter {
     let executor: HeadlessExecutor = .claudeCode
+    private static let emptyMCPConfigurationJSON = #"{"mcpServers":{}}"#
 
     /// `--session-id` takes a UUID of our choosing, so HeyMate never has to
     /// scrape an id out of the stream to resume.
     let preassignsSessionIdentifier = true
-
-    /// Inline `--mcp-config` payload giving the child the HeyMate tools —
-    /// point, caption, speak, screenshot. Nil when no JavaScript runtime is
-    /// available, in which case the job runs without them.
-    let mcpConfigurationJSON: String?
-    let mcpChildEnvironment: [String: String]
 
     /// Alias passed as `--model` (sonnet / opus / haiku). Nil keeps the CLI's
     /// own default, which is what we want until the user picks a chip.
@@ -179,8 +272,17 @@ struct ClaudePrintAdapter: HeadlessCLIAdapter {
         arguments.append(contentsOf: [
             "--output-format", "stream-json",
             "--verbose",
-            "--name", title
+            "--name", title,
+            // User/project settings can install hooks before a model ever
+            // gets a tool decision. HeyMate supplies no ambient setting
+            // source; working legs add only reviewed MCP below.
+            "--setting-sources", ""
         ])
+        // Keep execution on the same customization surface the user approved.
+        // Current Claude safe mode also disables explicitly supplied MCP, so
+        // Claude jobs intentionally forgo HeyMate's bonus tools; Codex and
+        // OpenCode retain them through isolation mechanisms their CLIs expose.
+        arguments.append("--safe-mode")
         if let modelIdentifier, !modelIdentifier.isEmpty {
             arguments.append(contentsOf: ["--model", modelIdentifier])
         }
@@ -193,6 +295,11 @@ struct ClaudePrintAdapter: HeadlessCLIAdapter {
         if let contract = AgentPlanBrief.contract(for: leg) {
             arguments.append(contentsOf: ["--append-system-prompt", contract])
         }
+
+        arguments.append(contentsOf: [
+            "--mcp-config", Self.emptyMCPConfigurationJSON,
+            "--strict-mcp-config"
+        ])
 
         switch leg {
         case .plan:
@@ -219,20 +326,6 @@ struct ClaudePrintAdapter: HeadlessCLIAdapter {
                 ])
             }
 
-            // HeyMate's own tools are attached to the working leg only. A
-            // planning leg is supposed to be invisible, and speaking or moving
-            // the cursor is the opposite of that.
-            //
-            // `--strict-mcp-config` matters as much as the config itself: without
-            // it the child inherits every MCP server the user has configured
-            // for their own Claude Code — Gmail, Stripe, Figma — which is both
-            // clutter and a surface a sandbox job has no business touching.
-            if let mcpConfigurationJSON, !mcpConfigurationJSON.isEmpty {
-                arguments.append(contentsOf: ["--mcp-config", mcpConfigurationJSON])
-                arguments.append("--strict-mcp-config")
-                arguments.append("--allowedTools")
-                arguments.append(contentsOf: HeyMateMCPServer.claudeCodeToolNames())
-            }
         }
 
         return HeadlessCLILaunchSpec(
@@ -240,7 +333,8 @@ struct ClaudePrintAdapter: HeadlessCLIAdapter {
             arguments: arguments,
             currentDirectoryURL: workspaceURL,
             environmentKeysToRemove: executor.environmentKeysToRemove,
-            environmentOverrides: leg.isReadOnly ? [:] : mcpChildEnvironment,
+            environmentOverrides: [:],
+            temporaryDirectoriesToRemove: [],
             usesDuplexStandardInput: leg == .execute && origin == .attached
         )
     }
@@ -307,18 +401,33 @@ struct CodexExecAdapter: HeadlessCLIAdapter {
 
         switch leg {
         case .plan(let prompt):
-            arguments.append(prompt)
+            arguments.append("""
+            \(AgentPlanBrief.planningContract)
+
+            Task:
+            \(prompt)
+            """)
         case .replan(let feedback):
             arguments.append(contentsOf: [
                 "resume",
                 sessionIdentifier,
-                "The person read your previous plan and asked for changes. Revise it to match: \(feedback)"
+                """
+                \(AgentPlanBrief.replanContract)
+
+                Feedback:
+                \(feedback)
+                """
             ])
         case .followUp(let instruction):
             arguments.append(contentsOf: [
                 "resume",
                 sessionIdentifier,
-                "The work you already planned and carried out in this session is done. The person now wants something further. Check the current state, then plan only the new work: \(instruction)"
+                """
+                \(AgentPlanBrief.followUpContract)
+
+                New request:
+                \(instruction)
+                """
             ])
         case .execute:
             arguments.append(contentsOf: [
@@ -334,6 +443,7 @@ struct CodexExecAdapter: HeadlessCLIAdapter {
             currentDirectoryURL: workspaceURL,
             environmentKeysToRemove: executor.environmentKeysToRemove,
             environmentOverrides: leg.isReadOnly ? [:] : mcpChildEnvironment,
+            temporaryDirectoriesToRemove: [],
             usesDuplexStandardInput: false
         )
     }
@@ -356,22 +466,21 @@ enum HeadlessCLIAdapterFactory {
         claudeModelIdentifier: String? = nil,
         codexModelIdentifier: String? = nil,
         codexReasoningEffort: String? = nil,
-        mcpConfigurationJSON: String? = nil,
         openCodeMCPConfigurationJSON: String? = nil,
         codexMCPConfigurationArguments: [String] = [],
-        mcpChildEnvironment: [String: String] = [:]
+        mcpChildEnvironment: [String: String] = [:],
+        openCodeIsolatedConfigurationHomePath: String? = nil
     ) -> HeadlessCLIAdapter {
         switch executor {
         case .openCode:
             return OpenCodeRunAdapter(
                 modelIdentifier: openCodeModelIdentifier,
                 mcpConfigurationJSON: openCodeMCPConfigurationJSON,
-                mcpChildEnvironment: mcpChildEnvironment
+                mcpChildEnvironment: mcpChildEnvironment,
+                isolatedConfigurationHomePath: openCodeIsolatedConfigurationHomePath
             )
         case .claudeCode:
             return ClaudePrintAdapter(
-                mcpConfigurationJSON: mcpConfigurationJSON,
-                mcpChildEnvironment: mcpChildEnvironment,
                 modelIdentifier: claudeModelIdentifier
             )
         case .codex:

@@ -13,11 +13,10 @@ struct leanring_buddyApp: App {
     @NSApplicationDelegateAdaptor(CompanionAppDelegate.self) var appDelegate
 
     var body: some Scene {
-        // The app lives entirely in the notch card managed by CompanionManager.
-        // This empty Settings scene satisfies SwiftUI's requirement for at least
-        // one scene but is never shown (LSUIElement=true removes the app menu).
         Settings {
-            EmptyView()
+            DesktopSettingsView(companionManager: appDelegate.companionManager)
+                .frame(minWidth: 820, minHeight: 560)
+                .preferredColorScheme(.dark)
         }
     }
 }
@@ -26,9 +25,18 @@ struct leanring_buddyApp: App {
 /// control surface on launch.
 @MainActor
 final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
-    private let companionManager = CompanionManager()
+    let companionManager = CompanionManager()
+
+    /// Hosted unit tests inject XCTest into the app before launch. Starting
+    /// production services here can block XCTest itself (for example while
+    /// Keychain waits), so leave the host idle and let the test runner drive it.
+    private var isHostingUnitTests: Bool {
+        NSClassFromString("XCTestCase") != nil
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard !isHostingUnitTests else { return }
+
         print("🎯 HeyMate: Starting...")
         print("🎯 HeyMate: Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
 
@@ -43,6 +51,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        guard !isHostingUnitTests else { return }
         companionManager.stop()
     }
 

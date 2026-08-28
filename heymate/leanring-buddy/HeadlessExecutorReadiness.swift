@@ -84,14 +84,15 @@ nonisolated enum HeadlessExecutorReadinessProbe {
     /// `claude auth status` prints JSON and does not start a turn, so this
     /// costs nothing against the subscription.
     private static func probeClaudeCode(executableURL: URL) -> HeadlessExecutorReadiness {
-        guard let result = runCapturingStandardOutput(
+        guard let result = runCapturingOutput(
             executableURL: executableURL,
-            arguments: ["auth", "status", "--json"]
+            arguments: ["auth", "status", "--json"],
+            environmentKeysToRemove: HeadlessExecutor.claudeCode.environmentKeysToRemove
         ) else {
             return .indeterminate(detail: "Could not read auth status")
         }
 
-        guard let statusData = result.standardOutput.data(using: .utf8),
+        guard let statusData = result.output.data(using: .utf8),
               let status = try? JSONSerialization.jsonObject(with: statusData) as? [String: Any] else {
             return .indeterminate(detail: "Could not read auth status")
         }
@@ -121,7 +122,7 @@ nonisolated enum HeadlessExecutorReadinessProbe {
             return HeadlessExecutorReadiness(
                 state: .usingAPIKey,
                 detail: "API key (\(authenticationMethod.isEmpty ? "not claude.ai" : authenticationMethod))",
-                remedy: "Jobs will bill your API account, not your subscription. Remove ANTHROPIC_API_KEY from your environment to use the plan."
+                remedy: "This persisted Claude login may bill an API account. Run `claude logout`, then run `claude` and use /login with Claude.ai to use your subscription."
             )
         }
 
@@ -134,14 +135,15 @@ nonisolated enum HeadlessExecutorReadinessProbe {
     /// with no credentials at all. The probe reports what is connected so the
     /// settings row can say whether a real provider is available.
     private static func probeOpenCode(executableURL: URL) -> HeadlessExecutorReadiness {
-        guard let result = runCapturingStandardOutput(
+        guard let result = runCapturingOutput(
             executableURL: executableURL,
-            arguments: ["auth", "list"]
+            arguments: ["auth", "list"],
+            environmentKeysToRemove: HeadlessExecutor.openCode.environmentKeysToRemove
         ), result.exitStatus == 0 else {
             return .indeterminate(detail: "Installed")
         }
 
-        let credentialCount = parsedCredentialCount(from: result.standardOutput)
+        let credentialCount = parsedCredentialCount(from: result.output)
         guard credentialCount > 0 else {
             return HeadlessExecutorReadiness(
                 state: .ready,
@@ -159,15 +161,27 @@ nonisolated enum HeadlessExecutorReadinessProbe {
     /// `codex login status` is cheap and starts no turn. The ChatGPT macOS
     /// app being signed in is a *different* credential store — this probe
     /// reports the CLI, which is what HeyMate actually spawns.
-    private static func probeCodex(executableURL: URL) -> HeadlessExecutorReadiness {
-        guard let result = runCapturingStandardOutput(
+    static func probeCodex(
+        executableURL: URL,
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> HeadlessExecutorReadiness {
+        guard let result = runCapturingOutput(
             executableURL: executableURL,
-            arguments: ["login", "status"]
+            arguments: ["login", "status"],
+            includeStandardError: true,
+            environmentKeysToRemove: HeadlessExecutor.codex.environmentKeysToRemove,
+            processEnvironment: processEnvironment
         ) else {
             return .indeterminate(detail: "Could not read login status")
         }
 
-        let output = result.standardOutput
+        return codexReadiness(from: result.output, exitStatus: result.exitStatus)
+    }
+
+    nonisolated static func codexReadiness(
+        from output: String,
+        exitStatus: Int32
+    ) -> HeadlessExecutorReadiness {
         let lowered = output.lowercased()
         if lowered.contains("not logged in") {
             return HeadlessExecutorReadiness(
@@ -176,11 +190,30 @@ nonisolated enum HeadlessExecutorReadinessProbe {
                 remedy: "The ChatGPT app being signed in is not enough. Tap Sign in — that runs `codex login` in Terminal."
             )
         }
-        if lowered.contains("logged in") || lowered.contains("chatgpt") || output.contains("@") {
-            let firstLine = output.split(whereSeparator: \.isNewline).first.map(String.init) ?? "Codex"
-            return .ready(detail: firstLine.trimmingCharacters(in: .whitespacesAndNewlines))
+        if lowered.contains("chatgpt") {
+            return .ready(detail: "Codex · ChatGPT subscription")
         }
-        if result.exitStatus != 0 {
+        // Environment API keys were removed before this probe. These strings
+        // therefore identify a credential persisted by the Codex CLI itself;
+        // the child will use it too, so present an explicit billing warning.
+        let meteredCredentialMarkers = [
+            "logged in using an api key",
+            "logged in using api key",
+            "access token",
+            "personal token",
+            "personal access token",
+            "bedrock",
+            "azure",
+            "vertex"
+        ]
+        if meteredCredentialMarkers.contains(where: lowered.contains) || lowered.contains("logged in") {
+            return HeadlessExecutorReadiness(
+                state: .usingAPIKey,
+                detail: "Codex · non-ChatGPT credential",
+                remedy: "This Codex login may bill an API or provider account. Run `codex logout`, then `codex login` and choose ChatGPT to use your subscription."
+            )
+        }
+        if exitStatus != 0 {
             return HeadlessExecutorReadiness(
                 state: .notSignedIn,
                 detail: "Signed out",
@@ -203,25 +236,32 @@ nonisolated enum HeadlessExecutorReadinessProbe {
     // MARK: - Process helper
 
     private struct CapturedOutput {
-        let standardOutput: String
+        let output: String
         let exitStatus: Int32
     }
 
-    /// Runs a short-lived probe command. stderr goes to the null device so an
-    /// unread pipe can never block the child, and a watchdog terminates a
-    /// command that hangs rather than letting a settings refresh wedge.
-    private static func runCapturingStandardOutput(
+    /// Runs a short-lived probe command. Most probes discard stderr so an
+    /// unread pipe can never block the child. Codex is the exception: current
+    /// releases print `login status` to stderr even on a successful exit, so
+    /// that probe merges both streams into the pipe it parses.
+    private static func runCapturingOutput(
         executableURL: URL,
-        arguments: [String]
+        arguments: [String],
+        includeStandardError: Bool = false,
+        environmentKeysToRemove: [String],
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) -> CapturedOutput? {
         let process = Process()
         let outputPipe = Pipe()
 
         process.executableURL = executableURL
         process.arguments = arguments
-        process.environment = HeadlessChildEnvironment.build(stripping: [])
+        process.environment = HeadlessChildEnvironment.build(
+            stripping: environmentKeysToRemove,
+            processEnvironment: processEnvironment
+        )
         process.standardOutput = outputPipe
-        process.standardError = FileHandle.nullDevice
+        process.standardError = includeStandardError ? outputPipe : FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
 
         do {
@@ -240,7 +280,7 @@ nonisolated enum HeadlessExecutorReadinessProbe {
         watchdog.cancel()
 
         return CapturedOutput(
-            standardOutput: String(data: outputData, encoding: .utf8) ?? "",
+            output: String(data: outputData, encoding: .utf8) ?? "",
             exitStatus: process.terminationStatus
         )
     }

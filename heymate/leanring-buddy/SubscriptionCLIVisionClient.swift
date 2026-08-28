@@ -115,14 +115,11 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
         switch backend {
         case .claude:
             keysToStrip = HeadlessExecutor.claudeCode.environmentKeysToRemove
-            var claudeArguments = ["-p", prompt, "--output-format", "text", "--permission-mode", "plan"]
-            if !model.isEmpty {
-                claudeArguments.append(contentsOf: ["--model", model])
-            }
-            if !systemPrompt.isEmpty {
-                claudeArguments.append(contentsOf: ["--append-system-prompt", systemPrompt])
-            }
-            arguments = claudeArguments
+            arguments = Self.claudeTalkArguments(
+                prompt: prompt,
+                systemPrompt: systemPrompt,
+                model: model
+            )
         case .codex:
             keysToStrip = HeadlessExecutor.codex.environmentKeysToRemove
             let resolvedModel = Self.resolvedModelIdentifier(
@@ -179,6 +176,32 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
             return textOnlyModel
         }
         return selectedModel
+    }
+
+    nonisolated static func claudeTalkArguments(
+        prompt: String,
+        systemPrompt: String,
+        model: String
+    ) -> [String] {
+        var arguments = [
+            "-p", prompt,
+            "--output-format", "text",
+            "--permission-mode", "plan",
+            // Talk passes screenshot paths and conversation replay. Prevent
+            // user/project hooks, plugins, skills, agents, CLAUDE.md, or MCP
+            // servers from observing them before Claude answers.
+            "--safe-mode",
+            "--setting-sources", "",
+            "--mcp-config", #"{"mcpServers":{}}"#,
+            "--strict-mcp-config"
+        ]
+        if !model.isEmpty {
+            arguments.append(contentsOf: ["--model", model])
+        }
+        if !systemPrompt.isEmpty {
+            arguments.append(contentsOf: ["--append-system-prompt", systemPrompt])
+        }
+        return arguments
     }
 
     private static func captureStandardOutput(

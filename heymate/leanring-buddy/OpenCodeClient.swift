@@ -24,6 +24,46 @@
 
 import Foundation
 
+nonisolated final class OpenCodeRedirectPolicy: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+
+    static func isAllowedRedirect(from sourceURL: URL?, to destinationURL: URL) -> Bool {
+        guard let sourceURL,
+              OpenCodeClient.isAllowedServerURL(destinationURL),
+              sourceURL.scheme?.lowercased() == destinationURL.scheme?.lowercased(),
+              sourceURL.host?.lowercased() == destinationURL.host?.lowercased(),
+              effectivePort(for: sourceURL) == effectivePort(for: destinationURL) else {
+            return false
+        }
+        return true
+    }
+
+    private static func effectivePort(for url: URL) -> Int? {
+        if let port = url.port { return port }
+        switch url.scheme?.lowercased() {
+        case "https": return 443
+        case "http": return 80
+        default: return nil
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        _ = session
+        _ = task
+        guard let destinationURL = request.url,
+              Self.isAllowedRedirect(from: response.url, to: destinationURL) else {
+            completionHandler(nil)
+            return
+        }
+        completionHandler(request)
+    }
+}
+
 final class OpenCodeClient: VisionConversationClient {
 
     /// Base URL of the opencode server, e.g. "http://127.0.0.1:4096".
@@ -58,13 +98,11 @@ final class OpenCodeClient: VisionConversationClient {
 
         // Same tuning as ClaudeAPI: default config so keep-alive connections
         // are reused across turns, no on-disk cache or cookies.
-        let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 120
-        configuration.timeoutIntervalForResource = 300
-        configuration.waitsForConnectivity = true
-        configuration.urlCache = nil
-        configuration.httpCookieStorage = nil
-        self.session = URLSession(configuration: configuration)
+        self.session = Self.makeSession(
+            requestTimeout: 120,
+            resourceTimeout: 300,
+            waitsForConnectivity: true
+        )
     }
 
     // MARK: - VisionConversationClient
@@ -77,6 +115,8 @@ final class OpenCodeClient: VisionConversationClient {
         onTextChunk: @MainActor @Sendable (String) -> Void
     ) async throws -> (text: String, duration: TimeInterval) {
         let startTime = Date()
+
+        try Self.validateServerTransport(serverBaseURL)
 
         guard let providerID, !model.isEmpty else {
             throw NSError(
@@ -118,12 +158,15 @@ final class OpenCodeClient: VisionConversationClient {
         basicAuthUsername: String?,
         basicAuthPassword: String?
     ) async throws -> String {
+        try validateServerTransport(baseURL)
         var request = URLRequest(url: baseURL.appendingPathComponent("global/health"))
         request.httpMethod = "GET"
         request.timeoutInterval = 5
         applyBasicAuth(to: &request, username: basicAuthUsername, password: basicAuthPassword)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let session = makeSession(requestTimeout: 5, resourceTimeout: 10)
+        defer { session.finishTasksAndInvalidate() }
+        let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode) else {
             throw NSError(
@@ -150,12 +193,15 @@ final class OpenCodeClient: VisionConversationClient {
         basicAuthUsername: String?,
         basicAuthPassword: String?
     ) async throws -> [OpenCodeModelOption] {
+        try validateServerTransport(baseURL)
         var request = URLRequest(url: baseURL.appendingPathComponent("config/providers"))
         request.httpMethod = "GET"
         request.timeoutInterval = 5
         applyBasicAuth(to: &request, username: basicAuthUsername, password: basicAuthPassword)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let session = makeSession(requestTimeout: 5, resourceTimeout: 10)
+        defer { session.finishTasksAndInvalidate() }
+        let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode) else {
             throw NSError(
@@ -205,6 +251,24 @@ final class OpenCodeClient: VisionConversationClient {
     }
 
     // MARK: - Private Request Helpers
+
+    private static func makeSession(
+        requestTimeout: TimeInterval,
+        resourceTimeout: TimeInterval,
+        waitsForConnectivity: Bool = false
+    ) -> URLSession {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = requestTimeout
+        configuration.timeoutIntervalForResource = resourceTimeout
+        configuration.waitsForConnectivity = waitsForConnectivity
+        configuration.urlCache = nil
+        configuration.httpCookieStorage = nil
+        return URLSession(
+            configuration: configuration,
+            delegate: OpenCodeRedirectPolicy(),
+            delegateQueue: nil
+        )
+    }
 
     private func makeJSONRequest(url: URL, method: String) -> URLRequest {
         var request = URLRequest(url: url)
@@ -379,8 +443,36 @@ final class OpenCodeClient: VisionConversationClient {
         password: String?
     ) {
         guard let password, !password.isEmpty else { return }
+        // Defense in depth for direct helper call sites. Public requests also
+        // validate before network I/O and return a clear error.
+        guard request.url.map(isAllowedServerURL) == true else { return }
         let credential = "\(username?.isEmpty == false ? username! : "opencode"):\(password)"
         let encoded = Data(credential.utf8).base64EncodedString()
         request.setValue("Basic \(encoded)", forHTTPHeaderField: "Authorization")
+    }
+
+    /// Screen images, prompts, and optional Basic Auth may use plain HTTP only
+    /// on loopback. Any remote server must provide HTTPS.
+    nonisolated static func isAllowedServerURL(_ url: URL) -> Bool {
+        let scheme = url.scheme?.lowercased()
+        if scheme == "https" { return true }
+        guard scheme == "http", let host = url.host?.lowercased() else { return false }
+        if host == "localhost" || host == "::1" { return true }
+        let octets = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard octets.count == 4,
+              let firstOctet = UInt8(octets[0]),
+              octets.allSatisfy({ UInt8($0) != nil }) else { return false }
+        return firstOctet == 127
+    }
+
+    private static func validateServerTransport(_ url: URL) throws {
+        guard isAllowedServerURL(url) else {
+            throw NSError(
+                domain: "OpenCodeClient",
+                code: -11,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "OpenCode requires HTTPS unless the server is on this Mac."]
+            )
+        }
     }
 }

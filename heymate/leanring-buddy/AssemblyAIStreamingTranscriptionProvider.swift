@@ -47,7 +47,7 @@ final class AssemblyAIStreamingTranscriptionProvider: BuddyTranscriptionProvider
     ) async throws -> any BuddyStreamingTranscriptionSession {
         // Fetch a fresh temporary token from the proxy before each session
         let temporaryToken = try await fetchTemporaryToken()
-        print("🎙️ AssemblyAI: fetched temporary token (\(temporaryToken.prefix(20))...)")
+        print("🎙️ AssemblyAI: fetched temporary token")
 
         let session = AssemblyAIStreamingTranscriptionSession(
             apiKey: nil,
@@ -67,6 +67,7 @@ final class AssemblyAIStreamingTranscriptionProvider: BuddyTranscriptionProvider
     private func fetchTemporaryToken() async throws -> String {
         var request = URLRequest(url: URL(string: Self.tokenProxyURL)!)
         request.httpMethod = "POST"
+        BackendClient.applyAuthorization(to: &request)
 
         let (data, response) = try await URLSession.shared.data(for: request)
 

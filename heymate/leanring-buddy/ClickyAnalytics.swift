@@ -9,6 +9,83 @@
 import Foundation
 import PostHog
 
+/// Numeric-only projection of model-derived screen text. The original label and
+/// commentary are deliberately discarded during initialization so neither can
+/// be passed to PostHog or unified logging by accident.
+struct ScreenPointingTelemetrySummary {
+    let x: Int
+    let y: Int
+    let labelCharacterCount: Int
+    let commentaryCharacterCount: Int
+
+    init(
+        coordinate: CGPoint?,
+        elementLabel: String?,
+        commentary: String? = nil
+    ) {
+        x = coordinate.map { Int($0.x) } ?? -1
+        y = coordinate.map { Int($0.y) } ?? -1
+        labelCharacterCount = elementLabel?.count ?? 0
+        commentaryCharacterCount = commentary?.count ?? 0
+    }
+
+    var analyticsProperties: [String: Any] {
+        [
+            "x": x,
+            "y": y,
+            "label_character_count": labelCharacterCount
+        ]
+    }
+}
+
+enum AnalyticsErrorCategory: String {
+    case responsePipeline = "response_pipeline"
+    case textToSpeech = "text_to_speech"
+
+    var eventName: String {
+        switch self {
+        case .responsePipeline: return "response_error"
+        case .textToSpeech: return "tts_error"
+        }
+    }
+}
+
+/// Bounded error metadata for analytics and logs. `localizedDescription` and
+/// NSError userInfo are intentionally never retained.
+struct AnalyticsErrorSummary {
+    private static let maximumDomainLength = 80
+    private static let allowedDomainCharacters = CharacterSet.alphanumerics
+        .union(CharacterSet(charactersIn: "._-"))
+
+    let category: AnalyticsErrorCategory
+    let domain: String
+    let code: Int
+
+    init(category: AnalyticsErrorCategory, error: Error) {
+        let nsError = error as NSError
+        self.category = category
+        domain = Self.boundedDomain(nsError.domain)
+        code = nsError.code
+    }
+
+    var analyticsProperties: [String: Any] {
+        [
+            "category": category.rawValue,
+            "error_domain": domain,
+            "error_code": code
+        ]
+    }
+
+    private static func boundedDomain(_ rawDomain: String) -> String {
+        let domain = rawDomain.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !domain.isEmpty,
+              domain.unicodeScalars.allSatisfy(allowedDomainCharacters.contains) else {
+            return "other"
+        }
+        return String(domain.prefix(maximumDomainLength))
+    }
+}
+
 enum ClickyAnalytics {
 
     // MARK: - Setup
@@ -120,30 +197,26 @@ enum ClickyAnalytics {
         ])
     }
 
-    /// Claude's response included a [POINT:x,y:label] coordinate tag,
-    /// so the buddy is flying to point at a UI element.
-    static func trackElementPointed(elementLabel: String?) {
+    /// Claude's response included a [POINT:x,y:label] coordinate tag. Only its
+    /// numeric projection is reported; screen-derived text never leaves the Mac.
+    static func trackElementPointed(_ summary: ScreenPointingTelemetrySummary) {
         guard isEnabled else { return }
-        PostHogSDK.shared.capture("element_pointed", properties: [
-            "element_label": elementLabel ?? "unknown"
-        ])
+        PostHogSDK.shared.capture(
+            "element_pointed",
+            properties: summary.analyticsProperties
+        )
     }
 
     // MARK: - Errors
 
-    /// An error occurred during the AI response pipeline.
-    static func trackResponseError(error: String) {
+    /// An error occurred in a bounded pipeline category. Only category,
+    /// sanitized domain, and numeric code are sent — never descriptions or
+    /// upstream response bodies.
+    static func trackError(_ summary: AnalyticsErrorSummary) {
         guard isEnabled else { return }
-        PostHogSDK.shared.capture("response_error", properties: [
-            "error": error
-        ])
-    }
-
-    /// An error occurred during TTS playback.
-    static func trackTTSError(error: String) {
-        guard isEnabled else { return }
-        PostHogSDK.shared.capture("tts_error", properties: [
-            "error": error
-        ])
+        PostHogSDK.shared.capture(
+            summary.category.eventName,
+            properties: summary.analyticsProperties
+        )
     }
 }

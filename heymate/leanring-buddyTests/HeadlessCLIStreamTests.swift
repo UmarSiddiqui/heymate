@@ -104,24 +104,59 @@ struct HeadlessExecutorPolicyTests {
     @Test func codexStripsProviderKeys() {
         #expect(HeadlessExecutor.codex.usesSubscriptionSignIn)
         #expect(HeadlessExecutor.codex.environmentKeysToRemove.contains("OPENAI_API_KEY"))
+        #expect(HeadlessExecutor.codex.environmentKeysToRemove.contains("ANTHROPIC_API_KEY"))
         #expect(HeadlessExecutor.codex.executableName == "codex")
     }
 
-    /// Bringing your own provider keys is the entire point of OpenCode.
-    @Test func openCodeStripsNothing() {
+    /// OpenCode may inherit provider credentials, but app-only credentials
+    /// still stay outside its agent-controlled shell.
+    @Test func openCodeStripsAppOnlySecrets() {
         #expect(HeadlessExecutor.openCode.usesSubscriptionSignIn == false)
-        #expect(HeadlessExecutor.openCode.environmentKeysToRemove.isEmpty)
+        #expect(HeadlessExecutor.openCode.environmentKeysToRemove.contains("HEYMATE_CLIENT_TOKEN"))
+        #expect(HeadlessExecutor.openCode.environmentKeysToRemove.contains("ELEVENLABS_API_KEY"))
+        #expect(HeadlessExecutor.openCode.environmentKeysToRemove.contains("OPENCODE_CONFIG"))
+        #expect(HeadlessExecutor.openCode.environmentKeysToRemove.contains("OPENCODE_CONFIG_CONTENT"))
+        #expect(HeadlessExecutor.openCode.environmentKeysToRemove.contains("OPENCODE_PERMISSION"))
+        #expect(HeadlessExecutor.openCode.environmentKeysToRemove.contains("OPENCODE_TEST_HOME"))
+        #expect(HeadlessExecutor.openCode.environmentKeysToRemove.contains("OPENCODE_TEST_MANAGED_CONFIG_DIR"))
+        #expect(HeadlessExecutor.openCode.environmentKeysToRemove.contains("OPENAI_API_KEY") == false)
     }
 
     @Test func strippedKeysAreAbsentFromTheChildEnvironment() {
         let environment = HeadlessChildEnvironment.build(
-            stripping: ["ANTHROPIC_API_KEY"],
-            overrides: ["HEYMATE_BRIDGE_URL": "http://127.0.0.1:18732"]
+            stripping: ["ANTHROPIC_API_KEY", "HEYMATE_CLIENT_TOKEN"],
+            overrides: ["HEYMATE_BRIDGE_URL": "http://127.0.0.1:18732"],
+            processEnvironment: [
+                "PATH": "/usr/bin",
+                "ANTHROPIC_API_KEY": "provider-secret",
+                "HEYMATE_CLIENT_TOKEN": "worker-secret"
+            ]
         )
         #expect(environment["ANTHROPIC_API_KEY"] == nil)
+        #expect(environment["HEYMATE_CLIENT_TOKEN"] == nil)
         #expect(environment["HEYMATE_BRIDGE_URL"] == "http://127.0.0.1:18732")
         #expect(environment["TERM"] == "dumb")
         #expect(environment["PATH"]?.isEmpty == false)
+    }
+
+    @Test func trustedLegOverrideCanReintroduceScopedBridgeToken() {
+        let environment = HeadlessChildEnvironment.build(
+            stripping: ["HEYMATE_BRIDGE_TOKEN"],
+            overrides: ["HEYMATE_BRIDGE_TOKEN": "scoped-token"],
+            processEnvironment: ["HEYMATE_BRIDGE_TOKEN": "inherited-token"]
+        )
+        #expect(environment["HEYMATE_BRIDGE_TOKEN"] == "scoped-token")
+    }
+
+    @Test func everyExecutorStripsWorkerAndVoiceSecrets() {
+        for executor in HeadlessExecutor.allCases {
+            #expect(executor.environmentKeysToRemove.contains("HEYMATE_CLIENT_TOKEN"))
+            #expect(executor.environmentKeysToRemove.contains("ASSEMBLYAI_API_KEY"))
+            #expect(executor.environmentKeysToRemove.contains("ELEVENLABS_API_KEY"))
+            #expect(executor.environmentKeysToRemove.contains("HEYMATE_BRIDGE_TOKEN"))
+            #expect(executor.environmentKeysToRemove.contains("HEYMATE_SECRETS_FILE"))
+            #expect(executor.environmentKeysToRemove.contains("COMPOSIO_API_KEY"))
+        }
     }
 }
 
@@ -171,6 +206,63 @@ struct HeadlessCLILaunchSpecTests {
 }
 
 struct HeadlessExecutorReadinessTests {
+
+    /// Codex 0.149.1 writes a successful `login status` message to stderr and
+    /// leaves stdout empty. Exercise the real process-capture path so a future
+    /// refactor cannot silently turn a signed-in CLI back into "Installed".
+    @Test func codexLoginStatusEmittedOnlyOnStandardErrorIsReady() throws {
+        let executableURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("heymate-codex-status-\(UUID().uuidString)")
+        let script = """
+        #!/bin/sh
+        if [ -n "${HEYMATE_CLIENT_TOKEN:-}" ]; then
+          printf 'Worker token leaked to probe\\n' >&2
+          exit 9
+        fi
+        printf 'Logged in using ChatGPT\\n' >&2
+        """
+
+        try script.write(to: executableURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executableURL.path
+        )
+        defer { try? FileManager.default.removeItem(at: executableURL) }
+
+        let readiness = HeadlessExecutorReadinessProbe.probeCodex(
+            executableURL: executableURL,
+            processEnvironment: ["HEYMATE_CLIENT_TOKEN": "must-not-reach-child"]
+        )
+
+        #expect(readiness.state == .ready)
+        #expect(readiness.detail == "Codex · ChatGPT subscription")
+        #expect(readiness.allowsLaunch)
+    }
+
+    @Test func codexPersistedMeteredCredentialsNeverMasqueradeAsChatGPT() {
+        let statuses = [
+            "Logged in using an API key - sk-redacted",
+            "Logged in using access token",
+            "Logged in using personal access token",
+            "Logged in using Bedrock API key"
+        ]
+
+        for status in statuses {
+            let readiness = HeadlessExecutorReadinessProbe.codexReadiness(
+                from: status,
+                exitStatus: 0
+            )
+            #expect(readiness.state == .usingAPIKey)
+            #expect(readiness.detail == "Codex · non-ChatGPT credential")
+            #expect(readiness.remedy.contains("may bill"))
+        }
+
+        let subscription = HeadlessExecutorReadinessProbe.codexReadiness(
+            from: "Logged in using ChatGPT",
+            exitStatus: 0
+        )
+        #expect(subscription.state == .ready)
+    }
 
     @Test func onlyDefiniteNegativesBlockALaunch() {
         #expect(HeadlessExecutorReadiness.ready(detail: "Claude Pro").allowsLaunch)

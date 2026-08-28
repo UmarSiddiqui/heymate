@@ -42,4 +42,20 @@ struct TalkContextPolicyTests {
             hasImages: true
         ) == selected)
     }
+
+    @Test func claudeTalkCannotLoadAmbientHooksOrMCPServers() {
+        let arguments = SubscriptionCLIVisionClient.claudeTalkArguments(
+            prompt: "look at /tmp/private-screen.jpg",
+            systemPrompt: "answer briefly",
+            model: "sonnet"
+        )
+
+        #expect(arguments.contains("--permission-mode"))
+        #expect(arguments.contains("plan"))
+        #expect(arguments.contains("--safe-mode"))
+        #expect(arguments.contains("--setting-sources"))
+        #expect(arguments.contains(#"{"mcpServers":{}}"#))
+        #expect(arguments.contains("--strict-mcp-config"))
+        #expect(arguments.contains("sonnet"))
+    }
 }

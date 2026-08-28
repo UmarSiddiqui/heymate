@@ -1,0 +1,5 @@
+HEYMATE_CLIENT_TOKEN=<choose-a-random-value>
+ANTHROPIC_API_KEY=<your-anthropic-key>
+ASSEMBLYAI_API_KEY=<your-assemblyai-key>
+ELEVENLABS_API_KEY=<your-elevenlabs-key>
+ELEVENLABS_VOICE_ID=<your-elevenlabs-voice-id>

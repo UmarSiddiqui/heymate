@@ -8,7 +8,8 @@
 //
 //  Known keys (none are required; missing → nil):
 //  ANTHROPIC_API_KEY, OPENAI_API_KEY, ASSEMBLYAI_API_KEY, ELEVENLABS_API_KEY,
-//  ELEVENLABS_VOICE_ID, GOG_KEYRING_PASSWORD, HEYMATE_BRIDGE_TOKEN
+//  ELEVENLABS_VOICE_ID, GOG_KEYRING_PASSWORD, HEYMATE_CLIENT_TOKEN,
+//  HEYMATE_BRIDGE_TOKEN
 //
 
 import Foundation
@@ -24,6 +25,7 @@ nonisolated enum HeyMateSecrets {
         "ELEVENLABS_API_KEY",
         "ELEVENLABS_VOICE_ID",
         "GOG_KEYRING_PASSWORD",
+        "HEYMATE_CLIENT_TOKEN",
         "HEYMATE_BRIDGE_TOKEN"
     ]
 
@@ -43,15 +45,6 @@ nonisolated enum HeyMateSecrets {
         presentKeys(
             fileURLs: secretsFileURLs(),
             processEnvironment: ProcessInfo.processInfo.environment
-        )
-    }
-
-    /// Process environment plus file keys that are not already set (non-empty)
-    /// in the process environment. Intended for child CLI processes.
-    static func mergedProcessEnvironment() -> [String: String] {
-        mergedProcessEnvironment(
-            processEnvironment: ProcessInfo.processInfo.environment,
-            fileURLs: secretsFileURLs()
         )
     }
 
@@ -125,40 +118,7 @@ nonisolated enum HeyMateSecrets {
         }
     }
 
-    static func mergedProcessEnvironment(
-        processEnvironment: [String: String],
-        fileContents: String
-    ) -> [String: String] {
-        overlay(
-            processEnvironment: processEnvironment,
-            fileEntries: parseEntries(from: fileContents)
-        )
-    }
-
-    static func mergedProcessEnvironment(
-        processEnvironment: [String: String],
-        fileURLs: [URL]
-    ) -> [String: String] {
-        overlay(
-            processEnvironment: processEnvironment,
-            fileEntries: parsedEntries(from: fileURLs)
-        )
-    }
-
     // MARK: - Parsing
-
-    private static func overlay(
-        processEnvironment: [String: String],
-        fileEntries: [String: String]
-    ) -> [String: String] {
-        var merged = processEnvironment
-        for (key, value) in fileEntries {
-            if normalizedValue(processEnvironment[key]) == nil {
-                merged[key] = value
-            }
-        }
-        return merged
-    }
 
     /// Earlier URLs win. Unreadable / missing files are skipped.
     private static func parsedEntries(from fileURLs: [URL]) -> [String: String] {

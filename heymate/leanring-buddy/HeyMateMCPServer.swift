@@ -45,13 +45,16 @@ nonisolated enum HeyMateMCPServer {
     /// "Claude requested permissions to use mcp__heymate__heymate_point, but
     /// you haven't granted it yet" and the call never reaches the bridge.
     /// Verified against a live child.
-    static func claudeCodeToolNames() -> [String] {
+    static func claudeCodeToolNames(
+        userDefaults: UserDefaults = .standard
+    ) -> [String] {
         // Composio's meta-tools ride the same allow-list. They are read from
         // storage rather than passed in because the adapter that builds the
         // argument list has no injection point; `ComposioAgentAttachment`
         // applies the same gate the config JSON does, so the two cannot
         // disagree about whether Composio is attached.
-        toolNames.map { "mcp__\(serverName)__\($0)" } + ComposioAgentAttachment.claudeCodeToolNames()
+        toolNames.map { "mcp__\(serverName)__\($0)" }
+            + ComposioAgentAttachment.claudeCodeToolNames(userDefaults: userDefaults)
     }
 
     /// Runtimes tried in order. Both are checked against the login PATH, so a
@@ -190,7 +193,21 @@ nonisolated enum HeyMateMCPServer {
         bridgeEnvironment: [String: String] = childEnvironment()
     ) -> [String] {
         guard let runtime = availableRuntime(), let scriptURL = seedScript() else { return [] }
-        let command = jsonString(runtime.runtimeURL.path)
+        return codexConfigurationArguments(
+            runtimeURL: runtime.runtimeURL,
+            scriptURL: scriptURL,
+            bridgeEnvironment: bridgeEnvironment
+        )
+    }
+
+    /// Pure argument construction kept separate from runtime discovery and
+    /// script seeding so the approval-to-execution boundary can be tested.
+    static func codexConfigurationArguments(
+        runtimeURL: URL,
+        scriptURL: URL,
+        bridgeEnvironment: [String: String]
+    ) -> [String] {
+        let command = jsonString(runtimeURL.path)
         let args = "[\(jsonString(scriptURL.path))]"
         let environmentVariables = bridgeEnvironment.keys.sorted().map(jsonString).joined(separator: ",")
         let tools = toolNames.map(jsonString).joined(separator: ",")
@@ -204,7 +221,13 @@ nonisolated enum HeyMateMCPServer {
     }
 
     private static func jsonString(_ value: String) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: value),
+        // JSONSerialization rejects a top-level String unless fragments are
+        // explicitly enabled by throwing an Objective-C exception, which a
+        // Swift `try?` cannot catch. That exception used to unwind the Approve
+        // button after it persisted "starting work" but before Codex spawned.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .withoutEscapingSlashes
+        guard let data = try? encoder.encode(value),
               let encoded = String(data: data, encoding: .utf8) else { return "\"\"" }
         return encoded
     }

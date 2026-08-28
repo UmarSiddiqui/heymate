@@ -138,18 +138,27 @@ nonisolated enum HeadlessChildEnvironment {
 
     static func build(
         stripping environmentKeysToRemove: [String],
-        overrides: [String: String] = [:]
+        overrides: [String: String] = [:],
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String: String] {
-        var environment = HeyMateSecrets.mergedProcessEnvironment()
+        // Agent children inherit only the app's launch environment. Never
+        // overlay ~/.config/heymate/secrets.env here: that file holds app and
+        // Worker credentials which a coding agent has no reason to read.
+        // Narrow runtime values (bridge / connector credentials) are added
+        // explicitly through `overrides` for write-enabled legs only.
+        var environment = processEnvironment
         environment["PATH"] = LoginShellExecutableResolver.loginPATH()
         // Keep CLIs from paging / prompting a TTY we do not own.
         environment["TERM"] = "dumb"
         environment["NO_COLOR"] = "1"
-        for (key, value) in overrides {
-            environment[key] = value
-        }
         for keyToRemove in environmentKeysToRemove {
             environment.removeValue(forKey: keyToRemove)
+        }
+        // Trusted, per-leg values are applied after inherited secrets are
+        // stripped. This lets an execute leg reintroduce only its scoped
+        // loopback bridge token without exposing an app or Worker token.
+        for (key, value) in overrides {
+            environment[key] = value
         }
         return environment
     }
@@ -186,6 +195,7 @@ final class HeadlessCLIProcess {
         currentDirectoryURL: URL,
         environmentKeysToRemove: [String] = [],
         environmentOverrides: [String: String] = [:],
+        temporaryDirectoriesToRemove: [URL] = [],
         usesDuplexStandardInput: Bool = false,
         onLine: @escaping (String) -> Void,
         onExit: @escaping (Int32) -> Void
@@ -224,13 +234,31 @@ final class HeadlessCLIProcess {
 
         process.terminationHandler = { finishedProcess in
             let status = finishedProcess.terminationStatus
+            Self.removeTemporaryDirectories(temporaryDirectoriesToRemove)
             Task { @MainActor in
                 self.drainRemainingOutput(onLine: onLine)
                 onExit(status)
             }
         }
 
-        try process.run()
+        do {
+            try process.run()
+        } catch {
+            Self.removeTemporaryDirectories(temporaryDirectoriesToRemove)
+            throw error
+        }
+    }
+
+    nonisolated private static func removeTemporaryDirectories(_ directories: [URL]) {
+        let allowedRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("com.heymate.app", isDirectory: true)
+            .appendingPathComponent("opencode-config", isDirectory: true)
+            .standardizedFileURL.path
+        for directory in directories {
+            let path = directory.standardizedFileURL.path
+            guard path.hasPrefix(allowedRoot + "/") else { continue }
+            try? FileManager.default.removeItem(at: directory)
+        }
     }
 
     func writeToStandardInput(_ data: Data) {

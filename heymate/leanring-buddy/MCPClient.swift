@@ -160,20 +160,22 @@ actor MCPClient {
         let outputPipe = Pipe()
         let errorPipe = Pipe()
 
-        // Run through a login shell so the command resolves against the
-        // user's real PATH — `npx` and `uvx` live in nvm/homebrew paths
-        // that a bare Process environment does not know about.
+        // Keep shell syntax for user-configured commands, but skip startup
+        // files: a login shell could re-export app secrets after sanitization.
+        // The resolved login PATH is injected explicitly below so `npx` and
+        // `uvx` still resolve without sourcing user configuration.
         newProcess.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        newProcess.arguments = ["-lc", trimmedCommand]
+        newProcess.arguments = Self.shellArguments(for: trimmedCommand)
         newProcess.standardInput = inputPipe
         newProcess.standardOutput = outputPipe
         newProcess.standardError = errorPipe
 
-        var environment = ProcessInfo.processInfo.environment
-        for (key, value) in environmentOverrides {
-            environment[key] = value
-        }
-        newProcess.environment = environment
+        var childEnvironment = Self.childEnvironment(
+            processEnvironment: ProcessInfo.processInfo.environment,
+            overrides: environmentOverrides
+        )
+        childEnvironment["PATH"] = LoginShellExecutableResolver.loginPATH()
+        newProcess.environment = childEnvironment
 
         do {
             try newProcess.run()
@@ -190,6 +192,39 @@ actor MCPClient {
         errorPipe.fileHandleForReading.readabilityHandler = { handle in
             _ = handle.availableData
         }
+    }
+
+    /// Arbitrary MCP commands must not inherit unrelated app or Worker
+    /// credentials. ConnectorRuntime reintroduces only this connector's
+    /// Keychain secret through `overrides` after inherited values are removed.
+    nonisolated static func childEnvironment(
+        processEnvironment: [String: String],
+        overrides: [String: String]
+    ) -> [String: String] {
+        // Arbitrary user-supplied MCP commands are a trust boundary. A
+        // denylist will always miss credentials added by another tool
+        // (AWS_SECRET_ACCESS_KEY, GITHUB_TOKEN, DATABASE_URL, and so on), so
+        // begin with the small runtime surface a shell/package runner needs.
+        let runtimeKeys = [
+            "HOME", "USER", "LOGNAME", "SHELL",
+            "TMPDIR", "TMP", "TEMP",
+            "LANG", "LC_ALL", "LC_CTYPE",
+            "PATH", "TERM", "NO_COLOR"
+        ]
+        var environment: [String: String] = [:]
+        for key in runtimeKeys {
+            if let value = processEnvironment[key] {
+                environment[key] = value
+            }
+        }
+        for (key, value) in overrides {
+            environment[key] = value
+        }
+        return environment
+    }
+
+    nonisolated static func shellArguments(for launchCommand: String) -> [String] {
+        ["-dfc", launchCommand]
     }
 
     private var standardOutputPipe: Pipe?

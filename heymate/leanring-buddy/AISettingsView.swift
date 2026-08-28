@@ -614,7 +614,7 @@ struct AISettingsView: View {
                     )
 
                     if !VoiceListenProvider.openAI.isSelectable {
-                        Text("OpenAI locked — add OpenAIAPIKey to Info.plist to enable it.")
+                        Text("OpenAI locked — set OPENAI_API_KEY in your local HeyMate secrets file to enable it.")
                             .font(DS.Fonts.micro)
                             .foregroundColor(DS.Colors.warningText)
                             .fixedSize(horizontal: false, vertical: true)
@@ -723,7 +723,7 @@ struct AISettingsView: View {
 
     private func listenProviderDisabledReason(_ provider: VoiceListenProvider) -> String? {
         if !provider.isSelectable {
-            return "OpenAI unavailable. Add OpenAIAPIKey to Info.plist."
+            return "OpenAI unavailable. Set OPENAI_API_KEY in your local HeyMate secrets file."
         }
         return audioProviderBusyMessage
     }

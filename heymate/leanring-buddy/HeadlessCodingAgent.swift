@@ -42,23 +42,63 @@ nonisolated enum HeadlessExecutor: String, Codable, CaseIterable, Equatable {
 
     /// Environment variables removed from this executor's child process.
     ///
-    /// `claude` prefers `ANTHROPIC_API_KEY` over its stored subscription
-    /// credential when both are visible, so leaking one in from
-    /// `~/.config/heymate/secrets.env` would move every agent job onto metered
-    /// API billing without changing anything the user can see.
-    /// `ANTHROPIC_BASE_URL` is stripped for the same reason — it redirects the
-    /// CLI away from the account it is signed in to.
+    /// Subscription CLIs get no documented HeyMate app secret at all. Besides
+    /// preventing accidental API billing, this keeps Worker, transcription,
+    /// speech, and bridge credentials outside an agent-controlled shell.
     ///
-    /// OpenCode strips nothing: bringing your own provider keys is the whole
-    /// point of that executor.
+    /// OpenCode may legitimately need provider credentials inherited from the
+    /// app's launch environment, but still gets no app-only credential. The
+    /// local HeyMate secrets file is never merged into any child environment.
     var environmentKeysToRemove: [String] {
+        let appOnlySecrets = [
+            "ASSEMBLYAI_API_KEY",
+            "COMPOSIO_API_KEY",
+            "ELEVENLABS_API_KEY",
+            "ELEVENLABS_VOICE_ID",
+            "GOG_KEYRING_PASSWORD",
+            "HEYMATE_CLIENT_TOKEN",
+            "HEYMATE_BRIDGE_TOKEN",
+            "HEYMATE_SECRETS_FILE",
+            "NOTION_API_KEY",
+            "OPENCODE_SERVER_PASSWORD",
+            "POSTHOG_API_KEY",
+            "SLACK_API_KEY"
+        ]
         switch self {
         case .claudeCode:
-            return ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"]
+            return appOnlySecrets + [
+                "ANTHROPIC_API_KEY",
+                "ANTHROPIC_AUTH_TOKEN",
+                "ANTHROPIC_BASE_URL",
+                "OPENAI_API_KEY",
+                "OPENAI_BASE_URL",
+                "OPENAI_API_BASE"
+            ]
         case .codex:
-            return ["OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_API_BASE"]
+            return appOnlySecrets + [
+                "ANTHROPIC_API_KEY",
+                "ANTHROPIC_AUTH_TOKEN",
+                "ANTHROPIC_BASE_URL",
+                "OPENAI_API_KEY",
+                "OPENAI_BASE_URL",
+                "OPENAI_API_BASE"
+            ]
         case .openCode:
-            return []
+            return appOnlySecrets + [
+                // HeyMate supplies a complete, isolated OpenCode runtime
+                // configuration. Ambient control variables must not redirect
+                // it back to user or project configuration.
+                "OPENCODE_CONFIG",
+                "OPENCODE_CONFIG_CONTENT",
+                "OPENCODE_CONFIG_DIR",
+                "OPENCODE_DISABLE_CLAUDE_CODE",
+                "OPENCODE_DISABLE_DEFAULT_PLUGINS",
+                "OPENCODE_DISABLE_EXTERNAL_SKILLS",
+                "OPENCODE_DISABLE_PROJECT_CONFIG",
+                "OPENCODE_PERMISSION",
+                "OPENCODE_TEST_HOME",
+                "OPENCODE_TEST_MANAGED_CONFIG_DIR"
+            ]
         }
     }
 

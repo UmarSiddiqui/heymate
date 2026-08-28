@@ -90,20 +90,6 @@ struct HeyMateSecretsTests {
         #expect(value == nil)
     }
 
-    @Test func overlayDoesNotOverwriteExistingProcessEnvironmentKey() {
-        let merged = HeyMateSecrets.mergedProcessEnvironment(
-            processEnvironment: [
-                "ANTHROPIC_API_KEY": "keep-me",
-                "PATH": "/usr/bin"
-            ],
-            fileContents: Self.sampleFileContents
-        )
-        #expect(merged["ANTHROPIC_API_KEY"] == "keep-me")
-        #expect(merged["OPENAI_API_KEY"] == "exported-key")
-        #expect(merged["PATH"] == "/usr/bin")
-        #expect(merged["ELEVENLABS_VOICE_ID"] == nil)
-    }
-
     @Test func secretsFileEnvironmentOverrideIsFirstURL() {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("heymate-secrets-home-\(UUID().uuidString)", isDirectory: true)

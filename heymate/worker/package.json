@@ -1,9 +1,11 @@
 {
   "name": "heymate-proxy",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "test": "node --test --test-concurrency=1 src/index.test.mjs"
   },
   "devDependencies": {
     "wrangler": "^3.0.0"

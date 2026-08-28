@@ -28,7 +28,7 @@ enum VoiceListenProvider: String, CaseIterable, Hashable {
         case .assemblyAI:
             return "Streaming listen via your Worker."
         case .openAI:
-            return "Cloud transcription. Needs OpenAIAPIKey in Info.plist."
+            return "Cloud transcription. Needs OPENAI_API_KEY in your local secrets file."
         }
     }
 

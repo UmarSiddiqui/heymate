@@ -1,15 +1,15 @@
 /**
- * Clicky Proxy Worker
+ * HeyMate Proxy Worker
  *
  * Proxies requests to Claude, ElevenLabs, and AssemblyAI APIs so the app never
  * ships with raw API keys. Keys are stored as Cloudflare secrets.
  *
- * Legacy routes (behavior unchanged, no auth):
+ * Legacy routes (Bearer-gated; kept only for existing app clients):
  *   POST /chat             → Anthropic Messages API (streaming)
  *   POST /tts              → ElevenLabs TTS API
  *   POST /transcribe-token → AssemblyAI realtime websocket token
  *
- * Versioned routes (Bearer-gated when HEYMATE_CLIENT_TOKEN is set):
+ * Versioned routes (Bearer-gated):
  *   POST /v1/chat/stream        → Anthropic Messages API (streaming)
  *   POST /v1/tts/stream         → ElevenLabs TTS API
  *   POST /v1/stt/session-token  → AssemblyAI realtime websocket token
@@ -25,11 +25,11 @@ interface Env {
   ASSEMBLYAI_API_KEY: string;
 
   /**
-   * WHY: optional shared client token for the /v1/* surface. It is deliberately
+   * WHY: shared client token for every provider-backed route. It is deliberately
    * NOT a provider secret — the real API keys stay server-side behind this
    * proxy. Its only job right now is abuse damping (something cheap to demand
-   * from callers and rotate) until real accounts exist. Unset → /v1 is open,
-   * so local dev stays frictionless.
+   * from callers and rotate) until real accounts exist. Unset means every
+   * provider-backed route fails closed.
    */
   HEYMATE_CLIENT_TOKEN?: string;
 }
@@ -50,24 +50,29 @@ export default {
       }
     }
 
-    // Everything outside /v1 keeps the original worker surface exactly:
-    // non-POST anywhere answered plain-text 405, known POST paths proxied,
-    // everything else plain-text 404.
+    // Outside /v1, known provider routes require the same client token. Other
+    // legacy response shapes stay unchanged for compatibility.
     if (request.method !== "POST") {
       return new Response("Method not allowed", { status: 405 });
     }
 
+    const isLegacyProviderPath =
+      path === "/chat" || path === "/tts" || path === "/transcribe-token";
+    if (isLegacyProviderPath && !bearerOk(request, env)) {
+      return json({ error: "unauthorized" }, 401);
+    }
+
     try {
       if (path === "/chat") {
-        return await handleChat(request, env);
+        return await handleChat(request, env, path);
       }
 
       if (path === "/tts") {
-        return await handleTTS(request, env);
+        return await handleTTS(request, env, path);
       }
 
       if (path === "/transcribe-token") {
-        return await handleTranscribeToken(env);
+        return await handleTranscribeToken(env, path);
       }
     } catch (error) {
       return internalError(path, error);
@@ -103,15 +108,15 @@ async function handleVersionedRequest(
   const method = request.method;
 
   if (method === "POST" && path === "/v1/chat/stream") {
-    return await handleChat(request, env);
+    return await handleChat(request, env, path);
   }
 
   if (method === "POST" && path === "/v1/tts/stream") {
-    return await handleTTS(request, env);
+    return await handleTTS(request, env, path);
   }
 
   if (method === "POST" && path === "/v1/stt/session-token") {
-    return await handleTranscribeToken(env);
+    return await handleTranscribeToken(env, path);
   }
 
   if (method === "GET" && path === "/v1/me") {
@@ -153,7 +158,7 @@ function bearerOk(request: Request, env: Env): boolean {
   // equality is intentional: the threat model is drive-by abuse damping, not a
   // determined attacker; real accounts will replace this gate later.
   if (!env.HEYMATE_CLIENT_TOKEN) {
-    return true;
+    return false;
   }
 
   const authorizationHeader = request.headers.get("authorization");
@@ -162,13 +167,21 @@ function bearerOk(request: Request, env: Env): boolean {
 
 function internalError(path: string, error: unknown): Response {
   console.error(`[${path}] Unhandled error:`, error);
-  return new Response(JSON.stringify({ error: String(error) }), {
-    status: 500,
-    headers: { "content-type": "application/json" },
-  });
+  return json({ error: "internal_error" }, 500);
 }
 
-async function handleChat(request: Request, env: Env): Promise<Response> {
+function logProviderFailure(path: string, status: number, responseBody: string): void {
+  const responseBytes = new TextEncoder().encode(responseBody).byteLength;
+  console.error(
+    `[${path}] Provider error status=${status} response_bytes=${responseBytes}`
+  );
+}
+
+async function handleChat(
+  request: Request,
+  env: Env,
+  path: string
+): Promise<Response> {
   const body = await request.text();
 
   const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -183,7 +196,7 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
 
   if (!response.ok) {
     const errorBody = await response.text();
-    console.error(`[/chat] Anthropic API error ${response.status}: ${errorBody}`);
+    logProviderFailure(path, response.status, errorBody);
     return new Response(errorBody, {
       status: response.status,
       headers: { "content-type": "application/json" },
@@ -199,7 +212,7 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
   });
 }
 
-async function handleTranscribeToken(env: Env): Promise<Response> {
+async function handleTranscribeToken(env: Env, path: string): Promise<Response> {
   const response = await fetch(
     "https://streaming.assemblyai.com/v3/token?expires_in_seconds=480",
     {
@@ -212,7 +225,7 @@ async function handleTranscribeToken(env: Env): Promise<Response> {
 
   if (!response.ok) {
     const errorBody = await response.text();
-    console.error(`[/transcribe-token] AssemblyAI token error ${response.status}: ${errorBody}`);
+    logProviderFailure(path, response.status, errorBody);
     return new Response(errorBody, {
       status: response.status,
       headers: { "content-type": "application/json" },
@@ -234,7 +247,11 @@ async function handleTranscribeToken(env: Env): Promise<Response> {
  */
 const ELEVENLABS_VOICE_ID_PATTERN = /^[A-Za-z0-9]{1,64}$/;
 
-async function handleTTS(request: Request, env: Env): Promise<Response> {
+async function handleTTS(
+  request: Request,
+  env: Env,
+  path: string
+): Promise<Response> {
   const rawBody = await request.text();
 
   // The client may name a voice; the configured var stays the fallback so an
@@ -273,7 +290,7 @@ async function handleTTS(request: Request, env: Env): Promise<Response> {
 
   if (!response.ok) {
     const errorBody = await response.text();
-    console.error(`[/tts] ElevenLabs API error ${response.status}: ${errorBody}`);
+    logProviderFailure(path, response.status, errorBody);
     return new Response(errorBody, {
       status: response.status,
       headers: { "content-type": "application/json" },

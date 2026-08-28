@@ -219,15 +219,18 @@ class ElementLocationDetector {
             guard let httpResponse = response as? HTTPURLResponse,
                   (200...299).contains(httpResponse.statusCode) else {
                 let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                let errorBody = String(data: data, encoding: .utf8) ?? "unknown"
-                print("⚠️ ElementLocationDetector: API error \(statusCode): \(errorBody.prefix(200))")
+                print(
+                    "⚠️ ElementLocationDetector: API error \(statusCode), " +
+                    "response bytes \(data.count)"
+                )
                 return nil
             }
 
             return parseCoordinateFromResponse(data: data)
 
         } catch {
-            print("⚠️ ElementLocationDetector: request failed: \(error.localizedDescription)")
+            let errorCode = (error as NSError).code
+            print("⚠️ ElementLocationDetector: request failed with code \(errorCode)")
             return nil
         }
     }

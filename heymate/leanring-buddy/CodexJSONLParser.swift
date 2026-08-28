@@ -62,7 +62,6 @@ nonisolated enum CodexJSONLParser {
 
     private static func eventsFromItem(_ item: [String: Any], enclosingType: String) -> [AgentEvent] {
         let itemType = ((item["type"] as? String) ?? "").lowercased()
-        let isCompletion = enclosingType.contains("completed") || enclosingType.contains("complete")
 
         if itemType.contains("command") || itemType.contains("tool") || itemType.contains("mcp")
             || itemType.contains("file_change") || itemType.contains("command_execution") {
@@ -75,9 +74,12 @@ nonisolated enum CodexJSONLParser {
 
         if itemType.contains("agent_message") || itemType.contains("message") || itemType == "agentmessage" {
             guard let text = firstNonEmptyText(in: item) else { return [] }
-            if isCompletion {
-                return [.finished(summary: text)]
-            }
+            // `item.completed` means this one message finished streaming, not
+            // that the Codex turn finished. Current Codex versions routinely
+            // emit an agent message such as “I’ll make the change” before the
+            // file-change and command items. Treating that message as the run's
+            // finish makes the launcher terminate Codex before any work starts.
+            // The process exit is the authoritative turn boundary.
             return [.text(text)]
         }
 

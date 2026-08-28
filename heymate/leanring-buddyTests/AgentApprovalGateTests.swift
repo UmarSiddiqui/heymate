@@ -14,6 +14,11 @@ import Testing
 
 struct AgentApprovalLaunchSpecTests {
 
+    @Test func attachedPlanningDoesNotDirtyTheUserWorkspaceWithATaskFile() {
+        #expect(AgentTaskMarkdown.shouldPersist(in: .sandbox))
+        #expect(AgentTaskMarkdown.shouldPersist(in: .attached) == false)
+    }
+
     @Test func explicitExecutorRequestOverridesSelectionWithoutMatchingProductNames() {
         #expect(HeadlessExecutor.explicitlyRequested(in: "Use OpenCode to build it") == .openCode)
         #expect(HeadlessExecutor.explicitlyRequested(in: "using Codex, fix this") == .codex)
@@ -39,7 +44,11 @@ struct AgentApprovalLaunchSpecTests {
         origin: AgentRunOrigin = .sandbox,
         sessionIdentifier: String = ""
     ) -> HeadlessCLILaunchSpec {
-        HeadlessCLIAdapterFactory.adapter(for: .openCode, openCodeModelIdentifier: nil).launchSpec(
+        HeadlessCLIAdapterFactory.adapter(
+            for: .openCode,
+            openCodeModelIdentifier: nil,
+            openCodeIsolatedConfigurationHomePath: "/tmp/heymate-opencode-test-config"
+        ).launchSpec(
             workspaceURL: workspaceURL,
             leg: leg,
             origin: origin,
@@ -53,6 +62,9 @@ struct AgentApprovalLaunchSpecTests {
         let arguments = claudeSpec(leg: .plan(prompt: "build a landing page")).arguments
         #expect(arguments.contains("--permission-mode"))
         #expect(arguments.contains("plan"))
+        #expect(arguments.contains("--safe-mode"))
+        #expect(arguments.contains("--setting-sources"))
+        #expect(arguments.contains(""))
         #expect(arguments.contains("acceptEdits") == false)
         #expect(arguments.contains("--session-id"))
         #expect(arguments.contains(sessionIdentifier))
@@ -67,6 +79,7 @@ struct AgentApprovalLaunchSpecTests {
         #expect(arguments.contains(sessionIdentifier))
         #expect(arguments.contains("--session-id") == false)
         #expect(arguments.contains("acceptEdits"))
+        #expect(arguments.contains("--safe-mode"))
         #expect(arguments.contains(headlessAgentExecuteInstruction))
     }
 
@@ -76,6 +89,7 @@ struct AgentApprovalLaunchSpecTests {
         #expect(arguments.contains(sessionIdentifier))
         #expect(arguments.contains("plan"))
         #expect(arguments.contains("use two columns"))
+        #expect(arguments.contains("--safe-mode"))
         #expect(arguments.contains("acceptEdits") == false)
     }
 
@@ -92,22 +106,57 @@ struct AgentApprovalLaunchSpecTests {
         #expect(claudeSpec(leg: .plan(prompt: "x"), origin: .attached).usesDuplexStandardInput == false)
     }
 
-    /// OpenCode's `plan` agent answers with a plan and calls no write tools.
-    @Test func openCodePlanLegUsesThePlanAgentAndNoSession() {
-        let arguments = openCodeSpec(leg: .plan(prompt: "build a landing page")).arguments
-        #expect(arguments.contains("--agent"))
-        #expect(arguments.contains("plan"))
+    /// OpenCode gets explicit late permissions instead of its ambient `plan`
+    /// agent, which can be replaced by user/project configuration.
+    @Test func openCodePlanLegIsIsolatedAndHasNoSession() {
+        let spec = openCodeSpec(leg: .plan(prompt: "build a landing page"))
+        let arguments = spec.arguments
+        #expect(arguments.contains("--agent") == false)
         #expect(arguments.contains("--session") == false)
         #expect(arguments.contains("--auto") == false)
+        #expect(arguments.contains(where: { $0.contains(AgentPlanBrief.planningContract) }))
+        #expect(spec.environmentOverrides["XDG_CONFIG_HOME"] == "/tmp/heymate-opencode-test-config")
+        #expect(spec.environmentOverrides["HOME"] == "/tmp/heymate-opencode-test-config")
+        #expect(spec.environmentOverrides["OPENCODE_TEST_HOME"] == "/tmp/heymate-opencode-test-config")
+        #expect(
+            spec.environmentOverrides["OPENCODE_TEST_MANAGED_CONFIG_DIR"]
+                == "/tmp/heymate-opencode-test-config/managed"
+        )
+        #expect(spec.environmentOverrides["OPENCODE_DISABLE_PROJECT_CONFIG"] == "true")
+        #expect(spec.environmentOverrides["OPENCODE_CONFIG_CONTENT"] == #"{"mcp":{},"plugin":[]}"#)
+        let permissions = spec.environmentOverrides["OPENCODE_PERMISSION"] ?? ""
+        #expect(permissions.contains(#""edit":"allow""#) == false)
+        #expect(permissions.contains(#""bash":"allow""#) == false)
+        #expect(permissions.contains(#""*":"deny""#))
+    }
+
+    @Test func openCodeKeepsRuntimeDataExplicitWhileIsolatingHomeConfig() {
+        let runtime = OpenCodeRuntimeIsolation.persistentRuntimeEnvironment(
+            processEnvironment: ["HOME": "/Users/tester"]
+        )
+
+        #expect(runtime["XDG_DATA_HOME"] == "/Users/tester/.local/share")
+        #expect(runtime["XDG_STATE_HOME"] == "/Users/tester/.local/state")
+        #expect(runtime["XDG_CACHE_HOME"] == "/Users/tester/.cache")
+        #expect(runtime["HOME"] == nil)
+        #expect(runtime["XDG_CONFIG_HOME"] == nil)
     }
 
     @Test func openCodeExecuteLegResumesTheSessionAndEnablesWrites() {
         let arguments = openCodeSpec(leg: .execute, sessionIdentifier: "ses_abc123").arguments
         #expect(arguments.contains("--session"))
         #expect(arguments.contains("ses_abc123"))
-        #expect(arguments.contains("--auto"))
+        #expect(arguments.contains("--auto") == false)
         #expect(arguments.contains("--agent") == false)
         #expect(arguments.contains(headlessAgentExecuteInstruction))
+        let permissions = openCodeSpec(
+            leg: .execute,
+            sessionIdentifier: "ses_abc123"
+        ).environmentOverrides["OPENCODE_PERMISSION"] ?? ""
+        #expect(permissions.contains(#""edit":"allow""#))
+        #expect(permissions.contains(#""bash":"deny""#))
+        #expect(permissions.contains(#""task":"deny""#))
+        #expect(permissions.contains(#""external_directory":"deny""#))
     }
 
     @Test func openCodeAttachedExecuteDoesNotAutoApprove() {
@@ -117,6 +166,36 @@ struct AgentApprovalLaunchSpecTests {
             sessionIdentifier: "ses_abc123"
         ).arguments
         #expect(arguments.contains("--auto") == false)
+    }
+
+    @Test func openCodeProcessesCannotShareSeededConfiguration() throws {
+        func spec() -> HeadlessCLILaunchSpec {
+            HeadlessCLIAdapterFactory.adapter(for: .openCode).launchSpec(
+                workspaceURL: workspaceURL,
+                leg: .plan(prompt: "inspect only"),
+                origin: .sandbox,
+                title: "inspect",
+                sessionIdentifier: ""
+            )
+        }
+
+        let first = spec()
+        let second = spec()
+        defer {
+            for directory in first.temporaryDirectoriesToRemove + second.temporaryDirectoriesToRemove {
+                try? FileManager.default.removeItem(at: directory)
+            }
+        }
+
+        let firstPath = first.environmentOverrides["XDG_CONFIG_HOME"]
+        let secondPath = second.environmentOverrides["XDG_CONFIG_HOME"]
+        #expect(firstPath != nil)
+        #expect(firstPath != secondPath)
+        #expect(first.temporaryDirectoriesToRemove.count == 1)
+        #expect(second.temporaryDirectoriesToRemove.count == 1)
+
+        let attributes = try FileManager.default.attributesOfItem(atPath: firstPath!)
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o700)
     }
 
     @Test func onlyClaudeCodePreassignsItsSession() {
@@ -148,20 +227,25 @@ struct AgentFollowUpTests {
         #expect(arguments.contains("also add a dark mode"))
     }
 
-    @Test func openCodeFollowUpResumesTheSessionWithThePlanAgent() {
-        let arguments = HeadlessCLIAdapterFactory.adapter(for: .openCode).launchSpec(
+    @Test func openCodeFollowUpResumesTheSessionWithIsolatedReadOnlyPermissions() {
+        let spec = HeadlessCLIAdapterFactory.adapter(
+            for: .openCode,
+            openCodeIsolatedConfigurationHomePath: "/tmp/heymate-opencode-test-config"
+        ).launchSpec(
             workspaceURL: workspaceURL,
             leg: .followUp(instruction: "also add a dark mode"),
             origin: .sandbox,
             title: "build a landing page",
             sessionIdentifier: "ses_abc123"
-        ).arguments
+        )
+        let arguments = spec.arguments
 
         #expect(arguments.contains("--session"))
         #expect(arguments.contains("ses_abc123"))
-        #expect(arguments.contains("--agent"))
-        #expect(arguments.contains("plan"))
+        #expect(arguments.contains("--agent") == false)
+        #expect(arguments.contains(where: { $0.contains(AgentPlanBrief.followUpContract) }))
         #expect(arguments.contains("--auto") == false)
+        #expect(spec.environmentOverrides["OPENCODE_PERMISSION"]?.contains(#""*":"deny""#) == true)
     }
 
     @Test func onlyTheFirstPlanOpensAFreshSession() {
@@ -181,12 +265,17 @@ struct AgentFollowUpTests {
 struct HeyMateMCPServerTests {
 
     private let workspaceURL = URL(fileURLWithPath: "/tmp/heymate-gate-test", isDirectory: true)
-    private let mcpConfiguration = #"{"mcpServers":{"heymate":{"command":"/usr/bin/node","args":["/tmp/heymate-mcp.mjs"]}}}"#
 
     /// Verified against a live child: without the allow-list, the call is
     /// refused with "you haven't granted it yet" and never reaches the bridge.
     @Test func toolNamesAreNamespacedTheWayClaudeCodeExpects() {
-        let names = HeyMateMCPServer.claudeCodeToolNames()
+        let suiteName = "HeyMateMCPServerTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        // Never consult real connector preferences or Keychain state in a
+        // namespace-only unit test.
+        let names = HeyMateMCPServer.claudeCodeToolNames(userDefaults: defaults)
         #expect(names.contains("mcp__heymate__heymate_point"))
         #expect(names.count == HeyMateMCPServer.toolNames.count)
         #expect(names.allSatisfy { $0.hasPrefix("mcp__heymate__") })
@@ -202,11 +291,29 @@ struct HeyMateMCPServerTests {
         }
     }
 
+    /// Approval reaches this argument builder before the Codex child starts.
+    /// Top-level strings must be encoded without the NSJSONSerialization
+    /// exception that used to strand a run at "Approved — starting work".
+    @Test func codexConfigurationArgumentsSafelyEncodeTopLevelStrings() {
+        let arguments = HeyMateMCPServer.codexConfigurationArguments(
+            runtimeURL: URL(fileURLWithPath: "/opt/Hey Mate/bin/node"),
+            scriptURL: URL(fileURLWithPath: #"/tmp/heymate-"bridge".mjs"#),
+            bridgeEnvironment: [
+                "HEYMATE_BRIDGE_URL": "http://127.0.0.1:18732",
+                "HEYMATE_BRIDGE_TOKEN": "secret"
+            ]
+        )
+
+        #expect(arguments.count == 10)
+        #expect(arguments[0] == "-c")
+        #expect(arguments[1] == #"mcp_servers.heymate.command="/opt/Hey Mate/bin/node""#)
+        #expect(arguments[3] == #"mcp_servers.heymate.args=["/tmp/heymate-\"bridge\".mjs"]"#)
+        #expect(arguments[5] == #"mcp_servers.heymate.env_vars=["HEYMATE_BRIDGE_TOKEN","HEYMATE_BRIDGE_URL"]"#)
+        #expect(arguments.joined(separator: " ").contains("secret") == false)
+    }
+
     private func claudeArguments(leg: AgentRunLeg) -> [String] {
-        HeadlessCLIAdapterFactory.adapter(
-            for: .claudeCode,
-            mcpConfigurationJSON: mcpConfiguration
-        ).launchSpec(
+        HeadlessCLIAdapterFactory.adapter(for: .claudeCode).launchSpec(
             workspaceURL: workspaceURL,
             leg: leg,
             origin: .sandbox,
@@ -215,12 +322,12 @@ struct HeyMateMCPServerTests {
         ).arguments
     }
 
-    @Test func theWorkingLegGetsTheHeyMateTools() {
+    @Test func claudeWorkingLegUsesTheSameSafeCustomizationSurface() {
         let arguments = claudeArguments(leg: .execute)
+        #expect(arguments.contains("--safe-mode"))
         #expect(arguments.contains("--mcp-config"))
-        #expect(arguments.contains(mcpConfiguration))
-        #expect(arguments.contains("--allowedTools"))
-        #expect(arguments.contains("mcp__heymate__heymate_point"))
+        #expect(arguments.contains(#"{"mcpServers":{}}"#))
+        #expect(arguments.contains("--allowedTools") == false)
     }
 
     /// Otherwise a sandbox job inherits every MCP server the user configured
@@ -233,14 +340,17 @@ struct HeyMateMCPServerTests {
     /// cursor are the opposite of that.
     @Test func planningLegsGetNoTools() {
         for leg in [AgentRunLeg.plan(prompt: "x"), .replan(feedback: "x"), .followUp(instruction: "x")] {
-            #expect(claudeArguments(leg: leg).contains("--mcp-config") == false)
+            let arguments = claudeArguments(leg: leg)
+            #expect(arguments.contains("--mcp-config"))
+            #expect(arguments.contains(#"{"mcpServers":{}}"#))
+            #expect(arguments.contains("--strict-mcp-config"))
+            #expect(arguments.contains("--allowedTools") == false)
         }
     }
 
-    @Test func aMissingRuntimeSimplyMeansNoTools() {
+    @Test func aMissingRuntimeUsesStrictEmptyTools() {
         let arguments = HeadlessCLIAdapterFactory.adapter(
-            for: .claudeCode,
-            mcpConfigurationJSON: nil
+            for: .claudeCode
         ).launchSpec(
             workspaceURL: workspaceURL,
             leg: .execute,
@@ -248,7 +358,10 @@ struct HeyMateMCPServerTests {
             title: "t",
             sessionIdentifier: "s"
         ).arguments
-        #expect(arguments.contains("--mcp-config") == false)
+        #expect(arguments.contains("--mcp-config"))
+        #expect(arguments.contains(#"{"mcpServers":{}}"#))
+        #expect(arguments.contains("--strict-mcp-config"))
+        #expect(arguments.contains("--allowedTools") == false)
         #expect(arguments.contains("--resume"))
     }
 
@@ -256,7 +369,6 @@ struct HeyMateMCPServerTests {
         let secret = "do-not-put-me-in-argv"
         let spec = HeadlessCLIAdapterFactory.adapter(
             for: .claudeCode,
-            mcpConfigurationJSON: mcpConfiguration,
             mcpChildEnvironment: ["HEYMATE_BRIDGE_TOKEN": secret]
         ).launchSpec(
             workspaceURL: workspaceURL,
@@ -266,7 +378,7 @@ struct HeyMateMCPServerTests {
             sessionIdentifier: "s"
         )
         #expect(spec.arguments.contains(where: { $0.contains(secret) }) == false)
-        #expect(spec.environmentOverrides["HEYMATE_BRIDGE_TOKEN"] == secret)
+        #expect(spec.environmentOverrides["HEYMATE_BRIDGE_TOKEN"] == nil)
     }
 
     @Test func openCodeGetsInlineToolsOnlyOnWorkingLeg() {
@@ -275,7 +387,8 @@ struct HeyMateMCPServerTests {
             HeadlessCLIAdapterFactory.adapter(
                 for: .openCode,
                 openCodeMCPConfigurationJSON: configuration,
-                mcpChildEnvironment: ["HEYMATE_BRIDGE_URL": "http://127.0.0.1:18732"]
+                mcpChildEnvironment: ["HEYMATE_BRIDGE_URL": "http://127.0.0.1:18732"],
+                openCodeIsolatedConfigurationHomePath: "/tmp/heymate-opencode-test-config"
             ).launchSpec(
                 workspaceURL: workspaceURL,
                 leg: leg,
@@ -284,9 +397,11 @@ struct HeyMateMCPServerTests {
                 sessionIdentifier: "ses_test"
             )
         }
-        #expect(spec(.plan(prompt: "x")).environmentOverrides.isEmpty)
+        #expect(spec(.plan(prompt: "x")).environmentOverrides["OPENCODE_CONFIG_CONTENT"] == #"{"mcp":{},"plugin":[]}"#)
+        #expect(spec(.plan(prompt: "x")).environmentOverrides["HEYMATE_BRIDGE_URL"] == nil)
         #expect(spec(.execute).environmentOverrides["OPENCODE_CONFIG_CONTENT"] == configuration)
         #expect(spec(.execute).environmentOverrides["HEYMATE_BRIDGE_URL"] != nil)
+        #expect(spec(.execute).environmentOverrides["OPENCODE_DISABLE_PROJECT_CONFIG"] == "true")
     }
 }
 

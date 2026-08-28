@@ -35,6 +35,7 @@ final class ElevenLabsTTSClient: TTSClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("audio/mpeg", forHTTPHeaderField: "Accept")
+        BackendClient.applyAuthorization(to: &request)
 
         var body: [String: Any] = [
             "text": text,
