@@ -561,7 +561,11 @@ final class HeadlessAgentLauncher {
             ? HeadlessCLIProcess.maximumPlanningRuntime
             : HeadlessCLIProcess.maximumRuntime
         let timeoutTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(runtimeLimit * 1_000_000_000))
+            // `SuspendingClock` stops while Mac sleeps. A wall/continuous
+            // deadline makes an overnight sleep look like a hung agent and
+            // kills healthy work immediately after wake.
+            let clock = SuspendingClock()
+            try? await clock.sleep(for: .seconds(runtimeLimit))
             guard !Task.isCancelled else { return }
             self?.failTimeout(runID: runID)
         }
