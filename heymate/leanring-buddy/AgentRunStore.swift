@@ -17,6 +17,22 @@ final class FileAgentRunStore {
 
     init(fileURL: URL) {
         self.fileURL = fileURL
+        let parentDirectoryURL = fileURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(
+            at: parentDirectoryURL,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: parentDirectoryURL.path
+        )
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: fileURL.path
+            )
+        }
         if let fileData = try? Data(contentsOf: fileURL),
            let decodedRuns = try? JSONDecoder().decode([AgentRun].self, from: fileData) {
             self.runs = decodedRuns
@@ -72,10 +88,14 @@ final class FileAgentRunStore {
     /// `canSendFollowUp` needs, so a job cut off mid-flight can be picked back
     /// up with Continue instead of started again from nothing.
     @discardableResult
-    func reconcileInterruptedRuns(finishedAt: Date = Date()) -> [UUID] {
+    func reconcileInterruptedRuns(
+        excludingRunIDs: Set<UUID> = [],
+        finishedAt: Date = Date()
+    ) -> [UUID] {
         var reconciledRunIDs: [UUID] = []
 
         for index in runs.indices {
+            guard !excludingRunIDs.contains(runs[index].id) else { continue }
             switch runs[index].status {
             case .queued, .planning, .running, .waitingForApproval:
                 runs[index].status = .failed
@@ -102,7 +122,15 @@ final class FileAgentRunStore {
             in: .userDomainMask
         )[0]
         let heymateDirectory = applicationSupportDirectory.appendingPathComponent("heymate", isDirectory: true)
-        try? FileManager.default.createDirectory(at: heymateDirectory, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(
+            at: heymateDirectory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: heymateDirectory.path
+        )
         return heymateDirectory.appendingPathComponent("agent-runs.json")
     }
 
@@ -112,6 +140,10 @@ final class FileAgentRunStore {
         do {
             let fileData = try encoder.encode(runs)
             try fileData.write(to: fileURL, options: .atomic)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: fileURL.path
+            )
         } catch {
             // Best-effort: an unwritable volume should not crash the app.
         }
