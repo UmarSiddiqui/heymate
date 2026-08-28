@@ -3,6 +3,7 @@
 //  leanring-buddyTests
 //
 
+import Darwin
 import Foundation
 import Testing
 @testable import HeyMate
@@ -192,6 +193,271 @@ struct AgentRunStoreTests {
 
 @MainActor
 struct HeadlessAgentLauncherTests {
+
+    private struct StubbornProcessTreeFixture {
+        let executableURL: URL
+        let rootPIDURL: URL
+        let childPIDURL: URL
+        let grandchildPIDURL: URL
+
+        var pidFileURLs: [URL] {
+            [rootPIDURL, childPIDURL, grandchildPIDURL]
+        }
+    }
+
+    private func makeStubbornProcessTreeFixture(
+        in directoryURL: URL
+    ) throws -> StubbornProcessTreeFixture {
+        let executableURL = directoryURL.appendingPathComponent("fake-agent.sh")
+        let childScriptURL = directoryURL.appendingPathComponent("fake-child.sh")
+        let grandchildScriptURL = directoryURL.appendingPathComponent("fake-grandchild.sh")
+        let rootPIDURL = directoryURL.appendingPathComponent("root.pid")
+        let childPIDURL = directoryURL.appendingPathComponent("child.pid")
+        let grandchildPIDURL = directoryURL.appendingPathComponent("grandchild.pid")
+
+        try """
+        #!/bin/sh
+        trap '' TERM
+        printf '%s\\n' "$$" > "\(rootPIDURL.path)"
+        /bin/sh "\(childScriptURL.path)" &
+        wait
+        """.write(to: executableURL, atomically: true, encoding: .utf8)
+        try """
+        #!/bin/sh
+        trap '' TERM
+        printf '%s\\n' "$$" > "\(childPIDURL.path)"
+        /bin/sh "\(grandchildScriptURL.path)" &
+        wait
+        """.write(to: childScriptURL, atomically: true, encoding: .utf8)
+        try """
+        #!/bin/sh
+        trap '' TERM
+        printf '%s\\n' "$$" > "\(grandchildPIDURL.path)"
+        while :; do sleep 30; done
+        """.write(to: grandchildScriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: executableURL.path
+        )
+
+        return StubbornProcessTreeFixture(
+            executableURL: executableURL,
+            rootPIDURL: rootPIDURL,
+            childPIDURL: childPIDURL,
+            grandchildPIDURL: grandchildPIDURL
+        )
+    }
+
+    private func makeWriteLegRun(
+        rootURL: URL,
+        fixture: StubbornProcessTreeFixture
+    ) throws -> (
+        launcher: HeadlessAgentLauncher,
+        store: FileAgentRunStore,
+        undoLedger: FileAgentUndoLedger,
+        run: AgentRun
+    ) {
+        let workspaceURL = rootURL.appendingPathComponent("workspace", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
+        try "baseline\n".write(
+            to: workspaceURL.appendingPathComponent("Existing.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let store = FileAgentRunStore(fileURL: rootURL.appendingPathComponent("runs.json"))
+        let undoLedger = FileAgentUndoLedger(
+            rootDirectoryURL: rootURL.appendingPathComponent("undo", isDirectory: true)
+        )
+        var run = AgentRun.queued(
+            id: UUID(),
+            title: "Lifecycle test",
+            prompt: "Exercise lifecycle",
+            workspaceURL: workspaceURL,
+            executor: .claudeCode,
+            origin: .attached,
+            sessionIdentifier: UUID().uuidString.lowercased()
+        )
+        run.status = .awaitingPlanApproval
+        run.planText = "Run the fixture."
+        store.upsert(run)
+
+        let launcher = HeadlessAgentLauncher(store: store, undoLedger: undoLedger)
+        launcher.resolveExecutable = { _ in fixture.executableURL }
+        return (launcher, store, undoLedger, run)
+    }
+
+    private func processIdentifiers(
+        from fixture: StubbornProcessTreeFixture
+    ) throws -> [pid_t] {
+        try fixture.pidFileURLs.map { url in
+            let text = try String(contentsOf: url, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return try #require(pid_t(text))
+        }
+    }
+
+    private func waitUntil(
+        timeout: Duration = .seconds(7),
+        condition: @escaping @MainActor () -> Bool
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if condition() { return true }
+            try? await clock.sleep(for: .milliseconds(10))
+        }
+        return condition()
+    }
+
+    nonisolated private static func processExists(_ processID: pid_t) -> Bool {
+        kill(processID, 0) == 0 || errno == EPERM
+    }
+
+    nonisolated private static func terminateFixtureIfNeeded(
+        _ fixture: StubbornProcessTreeFixture
+    ) {
+        guard let text = try? String(contentsOf: fixture.rootPIDURL, encoding: .utf8),
+              let processID = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+              processID > 1,
+              processExists(processID) else { return }
+        kill(-processID, SIGKILL)
+    }
+
+    @Test func cancelWaitsForWholeProcessTreeAndIsIdempotent() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("launcher-cancel-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let fixture = try makeStubbornProcessTreeFixture(in: rootURL)
+        defer {
+            Self.terminateFixtureIfNeeded(fixture)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let harness = try makeWriteLegRun(rootURL: rootURL, fixture: fixture)
+        let runID = harness.run.id
+        var terminalEventCount = 0
+        harness.launcher.onEvent = { eventRunID, event in
+            guard eventRunID == runID else { return }
+            if case .finished = event { terminalEventCount += 1 }
+        }
+        harness.launcher.approvePlan(runID: runID)
+
+        let treeStarted = await waitUntil {
+            fixture.pidFileURLs.allSatisfy { FileManager.default.fileExists(atPath: $0.path) }
+        }
+        #expect(treeStarted)
+        let processIDs = try processIdentifiers(from: fixture)
+
+        harness.launcher.cancel(runID: runID)
+        harness.launcher.cancel(runID: runID)
+
+        let stoppingRun = try #require(harness.store.run(id: runID))
+        #expect(!stoppingRun.status.isTerminal)
+        #expect(stoppingRun.latestAction == "Stopping safely…")
+        #expect(harness.undoLedger.latestReadyEntry() == nil)
+        #expect(
+            stoppingRun.activity.filter { $0.text == "Stopping safely…" }.count == 1
+        )
+
+        let cancelled = await waitUntil {
+            harness.store.run(id: runID)?.status == .cancelled
+        }
+        #expect(cancelled)
+        #expect(processIDs.allSatisfy { !Self.processExists($0) })
+        #expect(harness.undoLedger.latestReadyEntry()?.runID == runID)
+        #expect(terminalEventCount == 1)
+
+        // Let already-enqueued waitpid callbacks run. They must not overwrite
+        // the cancellation after its process-group waiter finalized it.
+        for _ in 0..<20 { await Task.yield() }
+        #expect(harness.store.run(id: runID)?.status == .cancelled)
+        #expect(terminalEventCount == 1)
+    }
+
+    @Test func timeoutStaysNonTerminalUntilWholeProcessTreeStops() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("launcher-timeout-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let fixture = try makeStubbornProcessTreeFixture(in: rootURL)
+        defer {
+            Self.terminateFixtureIfNeeded(fixture)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let harness = try makeWriteLegRun(rootURL: rootURL, fixture: fixture)
+        let runID = harness.run.id
+        harness.launcher.runtimeLimitForLeg = { leg in leg.isReadOnly ? 300 : 1 }
+        harness.launcher.approvePlan(runID: runID)
+
+        let treeStarted = await waitUntil {
+            fixture.pidFileURLs.allSatisfy { FileManager.default.fileExists(atPath: $0.path) }
+        }
+        #expect(treeStarted)
+        let processIDs = try processIdentifiers(from: fixture)
+
+        let beganStopping = await waitUntil(timeout: .seconds(3)) {
+            harness.store.run(id: runID)?.latestAction
+                == "Timed out — stopping safely…"
+        }
+        #expect(beganStopping)
+        let stoppingRun = try #require(harness.store.run(id: runID))
+        #expect(!stoppingRun.status.isTerminal)
+        #expect(harness.undoLedger.latestReadyEntry() == nil)
+
+        let failed = await waitUntil {
+            harness.store.run(id: runID)?.status == .failed
+        }
+        #expect(failed)
+        #expect(harness.store.run(id: runID)?.error == "Timed out")
+        #expect(processIDs.allSatisfy { !Self.processExists($0) })
+        #expect(harness.undoLedger.latestReadyEntry()?.runID == runID)
+    }
+
+    @Test func terminalTakeoverClearsSessionOwnershipAndQueuedFollowUps() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("launcher-takeover-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let workspaceURL = rootURL.appendingPathComponent("workspace", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
+        let storeFileURL = rootURL.appendingPathComponent("runs.json")
+        let store = FileAgentRunStore(fileURL: storeFileURL)
+        let undoLedger = FileAgentUndoLedger(
+            rootDirectoryURL: rootURL.appendingPathComponent("undo", isDirectory: true)
+        )
+        var run = AgentRun.queued(
+            id: UUID(),
+            title: "Take over",
+            prompt: "Take over",
+            workspaceURL: workspaceURL,
+            executor: .claudeCode,
+            origin: .attached,
+            sessionIdentifier: "owned-session"
+        )
+        run.status = .succeeded
+        run.queuedFollowUpInstructions = ["Queued one", "Queued two"]
+        store.upsert(run)
+        let launcher = HeadlessAgentLauncher(store: store, undoLedger: undoLedger)
+
+        let result = await launcher.beginTerminalTakeover(runID: run.id)
+        guard case .success(let command) = result else {
+            Issue.record("Expected successful terminal takeover")
+            return
+        }
+        #expect(command.contains("owned-session"))
+
+        let handedOffRun = try #require(store.run(id: run.id))
+        #expect(handedOffRun.status == .cancelled)
+        #expect(handedOffRun.sessionIdentifier.isEmpty)
+        #expect(handedOffRun.queuedFollowUpInstructions.isEmpty)
+        #expect(!launcher.canSendFollowUp(runID: run.id))
+
+        let reloadedRun = try #require(FileAgentRunStore(fileURL: storeFileURL).run(id: run.id))
+        #expect(reloadedRun.sessionIdentifier.isEmpty)
+        #expect(reloadedRun.queuedFollowUpInstructions.isEmpty)
+    }
 
     @Test func completedWriteLegPersistsMeasuredReceiptChanges() async throws {
         let rootURL = FileManager.default.temporaryDirectory

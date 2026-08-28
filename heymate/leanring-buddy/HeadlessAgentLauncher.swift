@@ -25,10 +25,41 @@ final class HeadlessAgentLauncher {
         var planFragments: [String] = []
     }
 
+    private enum PendingStopReason {
+        case cancellation
+        case timeout(standardErrorSummary: String)
+
+        var stoppingAction: String {
+            switch self {
+            case .cancellation:
+                return "Stopping safely…"
+            case .timeout:
+                return "Timed out — stopping safely…"
+            }
+        }
+
+        var couldNotStopAction: String {
+            switch self {
+            case .cancellation:
+                return "Couldn't stop the agent process — try again."
+            case .timeout:
+                return "Timed out, but the agent process did not stop. Try Cancel again."
+            }
+        }
+    }
+
+    private struct PendingStop {
+        let identifier: UUID
+        let process: HeadlessCLIProcess
+        let leg: AgentRunLeg
+        let reason: PendingStopReason
+    }
+
     private let store: FileAgentRunStore
     private let undoLedger: FileAgentUndoLedger
     private let fileManager: FileManager
     private var sessions: [UUID: LiveSession] = [:]
+    private var pendingStops: [UUID: PendingStop] = [:]
     private var receiptScansInFlight: Set<UUID> = []
 
     /// Fired after every store mutation so the Agents tab can republish.
@@ -56,6 +87,14 @@ final class HeadlessAgentLauncher {
     var claudeModelIdentifier: () -> String? = { nil }
     var codexModelIdentifier: () -> String? = { nil }
     var codexReasoningEffort: () -> String? = { nil }
+
+    /// Injectable so timeout lifecycle tests use milliseconds rather than the
+    /// production five- and fifteen-minute limits.
+    var runtimeLimitForLeg: (AgentRunLeg) -> TimeInterval = { leg in
+        leg.isReadOnly
+            ? HeadlessCLIProcess.maximumPlanningRuntime
+            : HeadlessCLIProcess.maximumRuntime
+    }
 
     /// Inline MCP config giving a working leg HeyMate's own tools. Resolved
     /// per spawn because it depends on the bridge port and on a script that is
@@ -286,16 +325,33 @@ final class HeadlessAgentLauncher {
 
     func cancel(runID: UUID) {
         guard let run = store.run(id: runID), !run.status.isTerminal else { return }
-        markCurrentWriteLegUndoReady(runID: runID)
-        sessions[runID]?.timeoutTask?.cancel()
-        sessions[runID]?.process.terminateThenKill()
-        sessions[runID] = nil
+        guard pendingStops[runID] == nil else { return }
+
+        guard let liveSession = sessions[runID] else {
+            // Plan approval and pre-spawn queued states have no process tree.
+            // A persisted PID without a live owned session is not safe to
+            // signal, and must stay non-terminal for startup reconciliation.
+            guard run.pid == nil else { return }
+            finishCancellation(runID: runID)
+            return
+        }
+
+        beginStop(
+            runID: runID,
+            liveSession: liveSession,
+            reason: .cancellation
+        )
+    }
+
+    private func finishCancellation(runID: UUID) {
         _ = store.update(id: runID) { current in
+            guard !current.status.isTerminal else { return }
             current.status = .cancelled
             current.latestAction = "Cancelled"
             current.finishedAt = Date()
             current.pid = nil
             current.pendingApprovalID = ""
+            current.error = ""
             if !current.queuedFollowUpInstructions.isEmpty {
                 current.queuedFollowUpInstructions.removeAll()
                 current.appendActivity(kind: .status, text: "Queued follow-ups discarded")
@@ -319,6 +375,7 @@ final class HeadlessAgentLauncher {
     @discardableResult
     func beginTerminalTakeover(runID: UUID) async -> Result<String, AgentTerminalTakeover.Unavailability> {
         guard let run = store.run(id: runID) else { return .failure(.runNotFound) }
+        guard pendingStops[runID] == nil else { return .failure(.processWouldNotStop) }
         guard let command = AgentTerminalTakeover.shellCommand(for: run) else {
             return .failure(.sessionNotStartedYet)
         }
@@ -326,7 +383,6 @@ final class HeadlessAgentLauncher {
         // A job that already finished has no process to stop — its session is
         // just as resumable, so the handover is only the store update.
         if !run.status.isTerminal {
-            markCurrentWriteLegUndoReady(runID: runID)
             _ = store.update(id: runID) { current in
                 current.latestAction = "Stopping safely before Terminal handoff…"
                 current.appendActivity(kind: .status, text: current.latestAction)
@@ -350,6 +406,10 @@ final class HeadlessAgentLauncher {
                     onRunsChanged?()
                     return .failure(.processWouldNotStop)
                 }
+                if !liveSession.leg.isReadOnly {
+                    markUndoReady(runID: runID)
+                    scheduleReceiptScanForRun(runID: runID)
+                }
             }
         }
 
@@ -359,6 +419,9 @@ final class HeadlessAgentLauncher {
             current.finishedAt = Date()
             current.pid = nil
             current.pendingApprovalID = ""
+            // Session now belongs exclusively to Terminal. Keeping this value
+            // would make `canSendFollowUp` offer a second driver for it.
+            current.sessionIdentifier = ""
             if !current.queuedFollowUpInstructions.isEmpty {
                 current.queuedFollowUpInstructions.removeAll()
                 current.appendActivity(kind: .status, text: "Queued follow-ups discarded")
@@ -392,7 +455,8 @@ final class HeadlessAgentLauncher {
 
     /// Per-tool approval inside leg two, which only attached folders ask for.
     func resolveApproval(runID: UUID, approve: Bool) {
-        guard let session = sessions[runID],
+        guard pendingStops[runID] == nil,
+              let session = sessions[runID],
               let run = store.run(id: runID),
               run.status == .waitingForApproval else { return }
 
@@ -582,9 +646,7 @@ final class HeadlessAgentLauncher {
 
         // A read-only leg is cheap and should not be able to sit for a quarter
         // of an hour; only real work gets the long rope.
-        let runtimeLimit = leg.isReadOnly
-            ? HeadlessCLIProcess.maximumPlanningRuntime
-            : HeadlessCLIProcess.maximumRuntime
+        let runtimeLimit = runtimeLimitForLeg(leg)
         let timeoutTask = Task { [weak self] in
             // `SuspendingClock` stops while Mac sleeps. A wall/continuous
             // deadline makes an overnight sleep look like a hung agent and
@@ -623,7 +685,8 @@ final class HeadlessAgentLauncher {
     // MARK: - Stream handling
 
     private func handleStdout(runID: UUID, line: String) {
-        guard let session = sessions[runID],
+        guard pendingStops[runID] == nil,
+              let session = sessions[runID],
               let run = store.run(id: runID),
               !run.status.isTerminal else { return }
 
@@ -655,6 +718,11 @@ final class HeadlessAgentLauncher {
     }
 
     private func handleExit(runID: UUID, status: Int32, process: HeadlessCLIProcess) {
+        // Cancellation and timeout own this exit. Their waiter finalizes only
+        // after the complete process group is gone, so the root exit callback
+        // must not race the run into a different terminal state.
+        if pendingStops[runID]?.process === process { return }
+
         // A finished process may report its exit after a follow-up has already
         // occupied this run's session slot. Never let that stale callback tear
         // down the newer turn.
@@ -707,16 +775,98 @@ final class HeadlessAgentLauncher {
     }
 
     private func failTimeout(runID: UUID) {
-        guard let run = store.run(id: runID), !run.status.isTerminal else { return }
-        markCurrentWriteLegUndoReady(runID: runID)
-        let standardErrorSummary = sessions[runID]?.process.recentStandardErrorSummary ?? ""
-        sessions[runID]?.process.terminateThenKill()
-        sessions[runID]?.timeoutTask?.cancel()
-        sessions[runID] = nil
-        let message = standardErrorSummary.isEmpty
-            ? "Timed out"
-            : "Timed out · \(standardErrorSummary)"
-        apply(.failed(message: message), to: runID)
+        guard let run = store.run(id: runID),
+              !run.status.isTerminal,
+              pendingStops[runID] == nil,
+              let liveSession = sessions[runID] else { return }
+        beginStop(
+            runID: runID,
+            liveSession: liveSession,
+            reason: .timeout(
+                standardErrorSummary: liveSession.process.recentStandardErrorSummary
+            )
+        )
+    }
+
+    private func beginStop(
+        runID: UUID,
+        liveSession: LiveSession,
+        reason: PendingStopReason
+    ) {
+        guard pendingStops[runID] == nil else { return }
+
+        liveSession.timeoutTask?.cancel()
+        let pendingStop = PendingStop(
+            identifier: UUID(),
+            process: liveSession.process,
+            leg: liveSession.leg,
+            reason: reason
+        )
+        pendingStops[runID] = pendingStop
+
+        _ = store.update(id: runID) { current in
+            guard !current.status.isTerminal else { return }
+            current.latestAction = reason.stoppingAction
+            current.appendActivity(kind: .status, text: current.latestAction)
+        }
+        onRunsChanged?()
+
+        Task { [weak self, process = liveSession.process] in
+            let didStop = await process.terminateAndWait()
+            guard let self else { return }
+            self.finishStop(
+                runID: runID,
+                identifier: pendingStop.identifier,
+                process: process,
+                didStop: didStop
+            )
+        }
+    }
+
+    private func finishStop(
+        runID: UUID,
+        identifier: UUID,
+        process: HeadlessCLIProcess,
+        didStop: Bool
+    ) {
+        guard let pendingStop = pendingStops[runID],
+              pendingStop.identifier == identifier,
+              pendingStop.process === process else { return }
+
+        if didStop {
+            if sessions[runID]?.process === process {
+                sessions[runID] = nil
+            }
+            pendingStops[runID] = nil
+
+            if !pendingStop.leg.isReadOnly {
+                markUndoReady(runID: runID)
+                scheduleReceiptScanForRun(runID: runID)
+            }
+
+            switch pendingStop.reason {
+            case .cancellation:
+                finishCancellation(runID: runID)
+            case .timeout(let standardErrorSummary):
+                let message = standardErrorSummary.isEmpty
+                    ? "Timed out"
+                    : "Timed out · \(standardErrorSummary)"
+                apply(.failed(message: message), to: runID)
+            }
+            return
+        }
+
+        // Keep run non-terminal and retain session ownership. User may retry
+        // Cancel; safe quit continues to block while process cannot be proven
+        // dead.
+        pendingStops[runID] = nil
+        _ = store.update(id: runID) { current in
+            guard !current.status.isTerminal else { return }
+            current.latestAction = pendingStop.reason.couldNotStopAction
+            current.error = current.latestAction
+            current.appendActivity(kind: .status, text: current.latestAction)
+        }
+        onRunsChanged?()
     }
 
     private func apply(_ event: AgentEvent, to runID: UUID) {
