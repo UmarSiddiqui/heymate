@@ -1,0 +1,20 @@
+.DS_Store
+HeyMate_HeyClicky_Research_Pack/
+*.xcuserstate
+xcuserdata/
+*.xccheckout
+DerivedData/
+
+# local secrets
+.env
+.env.*
+.dev.vars
+
+# app / Xcode / worker
+heymate/build/
+heymate/releases/
+heymate/.claude/
+heymate/coding-plans/
+heymate/worker/node_modules/
+heymate/worker/.dev.vars
+heymate/worker/.wrangler/

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>LSUIElement</key>
+	<true/>
+	<key>VoiceTranscriptionProvider</key>
+	<string>apple</string>
+	<key>VoiceSpeakProvider</key>
+	<string>macos</string>
+	<key>WorkerBaseURL</key>
+	<string>http://localhost:8787</string>
+	<!-- heymate:// deep links. Two hosts:
+	       heymate://integration/callback?provider=…&status=…  (connector OAuth)
+	       heymate://open/agents                                (open a desktop section) -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.heymate.app.deeplink</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>heymate</string>
+			</array>
+		</dict>
+	</array>
+	<!-- Loopback is ATS-exempt by default; this also allows plain-HTTP
+	     OpenCode servers on the LAN (e.g. an always-on Mac mini). -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>HeyMate uses your microphone so you can talk to it</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>HeyMate needs screen recording access to see your screen and help you.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>HeyMate uses speech recognition to transcribe your voice when you talk to it</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>HeyMate shows your next event in the notch and can create events when you ask it to.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>HeyMate can capture reminders by voice and read back what is due.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>HeyMate looks up contacts so drafts go to the right person.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>HeyMate controls apps you connect — playing music, drafting mail, running a shortcut — and always asks before anything is sent.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>HeyMate can show a camera mirror in the notch so you can check your appearance before a call.</string>
+</dict>
+</plist>
