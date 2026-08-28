@@ -72,6 +72,7 @@ final class CompanionManager: ObservableObject {
     /// Spawns headless OpenCode / Claude Code processes. Callbacks are bound
     /// at the end of init so they can capture self.
     let agentLauncher: HeadlessAgentLauncher
+    private let agentUserNotifier = AgentUserNotifier()
 
     /// User-owned Markdown automation rules and recoverable agent snapshots.
     let standingOrderRepository: FileStandingOrderRepository
@@ -3699,6 +3700,10 @@ final class CompanionManager: ObservableObject {
     }
 
     private func handleAgentEvent(runID: UUID, event: AgentEvent) {
+        if let run = agentRunStore.run(id: runID) {
+            agentUserNotifier.handle(run: run, event: event)
+        }
+
         switch event {
         case .started:
             dispatch(.agentStarted(runID))
