@@ -320,31 +320,19 @@ private struct AgentFilamentLine: View {
 
 // MARK: - Indicators
 //
-// Each indicator owns its own animation. None of them use TimelineView:
-// a `repeatForever` implicit animation is handed to Core Animation once
-// and then runs without re-evaluating any SwiftUI body, which is the
-// difference between ~0% and a permanently warm CPU core on an app that
-// sits in the menu bar all day.
+// Active indicators own their own animation. Idle stays static so a companion
+// that sits in the menu bar all day does not keep SwiftUI rendering.
 
-/// Idle: a slow green breath. The only always-on animation in the app, and
-/// it costs one interpolated opacity on the render server.
+/// Idle: steady green. Hover adds emphasis without a forever animation.
 private struct NotchReadyDot: View {
     let isHovered: Bool
-    @State private var isBreathingIn = false
-    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
     var body: some View {
         Circle()
             .fill(DS.Colors.success)
             .frame(width: 6, height: 6)
-            .opacity(accessibilityReduceMotion ? 1.0 : (isBreathingIn ? 1.0 : 0.62))
+            .opacity(isHovered ? 1.0 : 0.82)
             .shadow(color: DS.Colors.success.opacity(0.55), radius: isHovered ? 4 : 2)
-            .onAppear {
-                guard !accessibilityReduceMotion else { return }
-                withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
-                    isBreathingIn = true
-                }
-            }
     }
 }
 
