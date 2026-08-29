@@ -211,6 +211,86 @@ struct HeadlessCLIProcessTreeTests {
         #expect(treeExited)
     }
 
+    @Test func terminalCallbackWaitsForDescendantProcessGroupCleanup() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "HeadlessCLIProcessTerminalCleanupTests-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let leaderScriptURL = directoryURL.appendingPathComponent("leader.sh")
+        let descendantScriptURL = directoryURL.appendingPathComponent("descendant.sh")
+        let descendantPIDURL = directoryURL.appendingPathComponent("descendant.pid")
+        try """
+        #!/bin/sh
+        trap '' TERM
+        printf '%s\\n' "$$" > "$1"
+        while :; do /bin/sleep 30; done
+        """.write(to: descendantScriptURL, atomically: true, encoding: .utf8)
+        try """
+        #!/bin/sh
+        /bin/sh "$2" "$1" &
+        while [ ! -s "$1" ]; do /bin/sleep 0.01; done
+        exit 0
+        """.write(to: leaderScriptURL, atomically: true, encoding: .utf8)
+
+        let process = HeadlessCLIProcess()
+        var leaderPID: pid_t = 0
+        var exitStatus: Int32?
+        var descendantExistedAtCallback: Bool?
+        var groupExistedAtCallback: Bool?
+        try process.start(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: [
+                leaderScriptURL.path,
+                descendantPIDURL.path,
+                descendantScriptURL.path
+            ],
+            currentDirectoryURL: directoryURL,
+            onLine: { _ in },
+            onExit: { status in
+                exitStatus = status
+                let descendantPID = try? String(
+                    contentsOf: descendantPIDURL,
+                    encoding: .utf8
+                )
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                descendantExistedAtCallback = descendantPID
+                    .flatMap { pid_t($0) }
+                    .map(Self.processExists)
+                    ?? true
+                groupExistedAtCallback = Self.processGroupExists(leaderPID)
+            }
+        )
+        leaderPID = process.processIdentifier
+        let descendantPID = try await processIdentifier(writtenTo: descendantPIDURL)
+        defer {
+            process.terminateThenKill()
+            if Self.processExists(descendantPID) { Darwin.kill(descendantPID, SIGKILL) }
+        }
+
+        #expect(getpgid(descendantPID) == leaderPID)
+        let terminalCallbackArrived = await waitUntil(timeout: 6) { exitStatus != nil }
+        #expect(terminalCallbackArrived)
+        #expect(exitStatus == 0)
+        #expect(descendantExistedAtCallback == false)
+        #expect(groupExistedAtCallback == false)
+        #expect(!Self.processExists(descendantPID))
+
+        // Re-entering stop after terminal state must return without targeting
+        // the stale positive leader PID or waiting a full kill deadline.
+        let clock = ContinuousClock()
+        let startedAt = clock.now
+        let stoppedAgain = await process.terminateAndWait()
+        #expect(stoppedAgain)
+        #expect(startedAt.duration(to: clock.now) < .seconds(1))
+    }
+
     private func processIdentifier(writtenTo fileURL: URL) async throws -> pid_t {
         let found = await waitUntil(timeout: 3) {
             FileManager.default.fileExists(atPath: fileURL.path)
@@ -239,6 +319,11 @@ struct HeadlessCLIProcessTreeTests {
 
     nonisolated private static func processExists(_ processID: pid_t) -> Bool {
         kill(processID, 0) == 0 || errno == EPERM
+    }
+
+    nonisolated private static func processGroupExists(_ processGroupID: pid_t) -> Bool {
+        guard processGroupID > 1 else { return false }
+        return kill(-processGroupID, 0) == 0 || errno == EPERM
     }
 
     private enum ProcessTreeTestError: Error {
