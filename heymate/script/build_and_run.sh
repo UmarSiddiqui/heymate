@@ -10,6 +10,9 @@ DERIVED_DATA="$ROOT_DIR/build/DerivedData"
 APP_BUNDLE="$DERIVED_DATA/Build/Products/Debug/$APP_NAME.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
+# shellcheck source=process_scope.sh
+source "$ROOT_DIR/script/process_scope.sh"
+
 HEYMATE_TEAM="${HEYMATE_DEVELOPMENT_TEAM:-}"
 SIGNING_IDENTITY="${HEYMATE_SIGNING_IDENTITY:-}"
 if [ -z "$SIGNING_IDENTITY" ]; then
@@ -53,7 +56,9 @@ case "$MODE" in
     ;;
 esac
 
-pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+# Detached coding-agent runners use this same executable. Stop only GUI
+# instances from this build; name-only pkill would destroy background work.
+heymate_stop_ui_app_processes "$APP_NAME" "$APP_BINARY"
 
 run_xcodebuild() {
   xcodebuild \
@@ -138,17 +143,7 @@ open_app() {
 }
 
 find_built_app_pid() {
-  local candidate_pid executable_path
-  while IFS= read -r candidate_pid; do
-    [ -n "$candidate_pid" ] || continue
-    executable_path=$(ps -ww -p "$candidate_pid" -o comm= 2>/dev/null \
-      | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-    if [ "$executable_path" = "$APP_BINARY" ]; then
-      printf '%s\n' "$candidate_pid"
-      return 0
-    fi
-  done < <(pgrep -x "$APP_NAME" || true)
-  return 1
+  heymate_find_first_ui_app_pid "$APP_NAME" "$APP_BINARY"
 }
 
 case "$MODE" in
