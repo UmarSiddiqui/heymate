@@ -36,7 +36,7 @@ When Claude or Codex runs a job, HeyMate removes documented app secrets plus pro
 - At least one supported CLI above for CLI-backed Talk and coding-agent jobs. A Custom API is an optional Talk-only alternative.
 - A signed-in Claude or Codex CLI, or a working OpenCode installation. OpenCode's free models do not require a provider credential.
 
-Node.js or Bun is optional. If either is present, HeyMate gives Codex and OpenCode jobs its local MCP tools for screenshots, pointing, captions, and speech. Claude jobs stay in CLI safe mode across planning and execution, so they run without those extras.
+Node.js or Bun is optional. Coding jobs use each CLI's native toolset and do not depend on HeyMate's local MCP bridge, so background execution keeps working after HeyMate quits.
 
 ## Quick source setup
 
@@ -82,7 +82,7 @@ Choosing an existing folder uses the same plan gate and adds per-tool approval w
 ~/Projects/heymate/<task-slug>-<short-id>
 ```
 
-Agent run cards and session identifiers are persisted in Application Support. Agent processes are not detached yet, so HeyMate blocks Cmd-Q while process-backed work is active and opens Agents so you can cancel safely. Approval-ready plans have no live process and survive a normal quit. A crash-interrupted run is marked interrupted on next launch, its pre-write Undo snapshot remains recoverable, and a captured CLI session may be continued from its card. Planning is limited to five awake minutes and an execution leg to fifteen awake minutes; Mac sleep does not consume that budget.
+Agent run cards and session identifiers are persisted in Application Support. Planning stays attached to HeyMate, but approved execution moves into a verified background runner. After startup verification, that work survives Cmd-Q; reopening HeyMate reattaches its card from a private durable journal. Cancel, approval, and Terminal takeover commands still reach the runner, while approval and completion notifications bring you back to the run. HeyMate blocks Cmd-Q during planning, launch races, or any state it cannot prove safe to detach. Approval-ready plans have no live process and also survive a normal quit. A crash-interrupted attached run is marked interrupted on next launch, while its pre-write Undo snapshot remains recoverable. Planning is limited to five awake minutes and an execution leg to fifteen awake minutes; Mac sleep does not consume that budget.
 
 OpenCode jobs intentionally cannot run shell commands or spawn subagents; its CLI currently lacks an OS-enforced workspace-write sandbox. Use Claude Code or Codex when work must build or test itself.
 
@@ -210,7 +210,7 @@ Useful paths:
 
 - No signed public download is included yet; source builds require Xcode and local signing setup.
 - Fresh installs default to Claude even if another supported CLI is the one already signed in. Choose the brain before starting onboarding.
-- Cmd-Q is blocked while process-backed agent work is active. Finish or cancel those runs first; run history and approval-ready plans persist.
+- Cmd-Q remains blocked during agent planning and background-runner startup. Once approved execution shows as verified background work, it survives quit and reconnects on next launch.
 - OpenCode Talk requires `opencode serve` to remain running.
 - Screen Recording permission can lag until the next app launch after granting it.
 - The default Apple Speech path adds a Speech Recognition prompt after the three-item setup card.
