@@ -283,6 +283,7 @@ struct HeadlessAgentLauncherTests {
         store.upsert(run)
 
         let launcher = HeadlessAgentLauncher(store: store, undoLedger: undoLedger)
+        launcher.detachedExecutionEnabled = false
         launcher.resolveExecutable = { _ in fixture.executableURL }
         return (launcher, store, undoLedger, run)
     }
@@ -509,6 +510,7 @@ struct HeadlessAgentLauncherTests {
         store.upsert(run)
 
         let launcher = HeadlessAgentLauncher(store: store, undoLedger: undoLedger)
+        launcher.detachedExecutionEnabled = false
         launcher.resolveExecutable = { _ in executableURL }
         launcher.approvePlan(runID: run.id)
 

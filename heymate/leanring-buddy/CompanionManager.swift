@@ -105,11 +105,13 @@ final class CompanionManager: ObservableObject {
 
         let store = agentRunStore
             ?? FileAgentRunStore(fileURL: FileAgentRunStore.appSupportFileURL())
-        store.reconcileInterruptedRuns()
         self.agentRunStore = store
         self.agentRuns = store.loadAll()
         let undoLedger = agentUndoLedger
-            ?? FileAgentUndoLedger(rootDirectoryURL: FileAgentUndoLedger.appSupportDirectoryURL())
+            ?? FileAgentUndoLedger(
+                rootDirectoryURL: FileAgentUndoLedger.appSupportDirectoryURL(),
+                recoverPreparedEntriesOnInit: false
+            )
         self.agentUndoLedger = undoLedger
         self.agentLauncher = HeadlessAgentLauncher(store: store, undoLedger: undoLedger)
 
@@ -128,6 +130,9 @@ final class CompanionManager: ObservableObject {
         AppTheme.currentHex = themeColorHex
 
         bindAgentLauncher()
+        agentLauncher.recoverPersistedRuns()
+        self.agentRuns = store.loadAll()
+        self.latestAgentUndoEntry = undoLedger.latestReadyEntry()
         if let executor = selectedBrain.executor {
             defaultHeadlessExecutor = executor
         }
@@ -404,17 +409,11 @@ final class CompanionManager: ObservableObject {
 
     var isDesktopWindowVisible: Bool { desktopWindowController.isVisible }
 
-    /// Process-backed jobs make Cmd-Q unsafe until detached runner support is
-    /// complete. Approval-ready plans have no live process and remain durable.
+    /// Planning and launch races still make Cmd-Q unsafe. A write-enabled job
+    /// may outlive HeyMate only after its detached runner's complete process
+    /// identity has been verified against live state.
     var activeProcessBackedAgentRunCount: Int {
-        agentRunStore.loadAll().count { run in
-            switch run.status {
-            case .queued, .planning, .running, .waitingForApproval:
-                return true
-            case .awaitingPlanApproval, .succeeded, .failed, .cancelled:
-                return false
-            }
-        }
+        agentLauncher.terminationBlockingRunCount
     }
 
     /// Handle a `heymate://` URL. Composio browser sign-in is confirmed by

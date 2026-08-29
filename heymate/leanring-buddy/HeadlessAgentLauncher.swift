@@ -62,6 +62,34 @@ final class HeadlessAgentLauncher {
     private var pendingStops: [UUID: PendingStop] = [:]
     private var receiptScansInFlight: Set<UUID> = []
 
+    /// Write-enabled legs run in a same-binary background runner. Planning,
+    /// replanning, and follow-ups remain short, read-only child processes owned
+    /// by the app so subscription-first session selection stays unchanged.
+    var detachedExecutionEnabled = true
+    var detachedRuntimeRootURL = DetachedAgentRuntimePaths.defaultRootURL
+    var detachedRunnerExecutableURL: () -> URL? = { Bundle.main.executableURL }
+    var spawnDetachedRunner: (URL, DetachedAgentLaunchRequest) throws -> Int32 = {
+        try DetachedAgentRunnerBootstrap.spawn(executableURL: $0, request: $1)
+    }
+    var inspectProcessIdentity: (Int32) -> AgentProcessIdentity? = {
+        AgentProcessIdentityInspector.identity(for: $0)
+    }
+    var matchesLiveProcessIdentity: (AgentProcessIdentity) -> Bool = {
+        AgentProcessIdentityInspector.matchesLiveProcess($0)
+    }
+    var matchesLiveChildProcessGroup: (AgentProcessIdentity, Int32) -> Bool = {
+        AgentProcessIdentityInspector.matchesLiveProcessGroup(leader: $0, processGroupID: $1)
+    }
+    var detachedMonitorInterval: Duration = .milliseconds(250)
+    var detachedCleanupGracePeriod: TimeInterval = 3
+
+    private var detachedMonitorTasks: [UUID: Task<Void, Never>] = [:]
+    private var detachedExpectedRunnerPIDs: [UUID: Int32] = [:]
+    private var detachedExpectedRunnerIdentities: [UUID: AgentProcessIdentity] = [:]
+    private var detachedJournalByteCounts: [UUID: UInt64] = [:]
+    private var pendingDetachedRunIDs: Set<UUID> = []
+    private var verifiedDetachedRunIDs: Set<UUID> = []
+
     /// Fired after every store mutation so the Agents tab can republish.
     var onRunsChanged: (() -> Void)?
 
@@ -121,6 +149,56 @@ final class HeadlessAgentLauncher {
         self.store = store
         self.undoLedger = undoLedger
         self.fileManager = fileManager
+    }
+
+    /// Number of jobs that make normal Cmd-Q unsafe. A detached execute leg is
+    /// exempt only while its persisted full process identity still matches the
+    /// live runner. Launch races, corrupt state, planning legs, and legacy
+    /// in-process work all continue to block quit.
+    var terminationBlockingRunCount: Int {
+        store.runningRuns().count { run in
+            guard run.status != .awaitingPlanApproval else { return false }
+            return !detachedRunCanSurviveAppTermination(run)
+        }
+    }
+
+    /// Reattaches durable execute attempts before legacy interruption cleanup.
+    /// Terminal state can be imported after its runner exits; nonterminal state
+    /// is trusted only after PID-reuse-resistant identity verification.
+    func recoverPersistedRuns() {
+        var liveDetachedRunIDs = Set<UUID>()
+
+        for run in store.runningRuns() where run.detachedAttemptID != nil {
+            switch refreshDetachedRun(runID: run.id, allowMissingStateWhileSpawned: false) {
+            case .activeVerified:
+                liveDetachedRunIDs.insert(run.id)
+                beginDetachedMonitoring(runID: run.id)
+                onEvent?(run.id, .started)
+                if store.run(id: run.id)?.status == .waitingForApproval,
+                   let refreshedRun = store.run(id: run.id) {
+                    onEvent?(
+                        run.id,
+                        .approvalRequested(
+                            id: refreshedRun.pendingApprovalID,
+                            summary: refreshedRun.latestAction
+                        )
+                    )
+                }
+            case .pending:
+                // Runner may have crashed while its lifetime monitor is still
+                // terminating the verified child process group. Keep snapshot
+                // prepared and Cmd-Q blocked until that group is gone.
+                liveDetachedRunIDs.insert(run.id)
+                beginDetachedMonitoring(runID: run.id)
+            case .terminal, .failed:
+                break
+            }
+        }
+
+        _ = store.reconcileInterruptedRuns(excludingRunIDs: liveDetachedRunIDs)
+        undoLedger.recoverInterruptedPreparedEntries(excludingRunIDs: liveDetachedRunIDs)
+        onRunsChanged?()
+        onUndoLedgerChanged?()
     }
 
     // MARK: - Starting a job (leg one)
@@ -274,6 +352,8 @@ final class HeadlessAgentLauncher {
             current.finishedAt = nil
             current.undoEntryIdentifier = ""
             current.workspaceChangeSummary = nil
+            current.detachedAttemptIdentifier = ""
+            current.lastDetachedJournalSequence = 0
             current.latestAction = "Planning the follow-up…"
             current.appendActivity(kind: .user, text: trimmedInstruction)
             current.appendActivity(kind: .status, text: current.latestAction)
@@ -335,6 +415,20 @@ final class HeadlessAgentLauncher {
 
     func cancel(runID: UUID) {
         guard let run = store.run(id: runID), !run.status.isTerminal else { return }
+
+        if run.detachedAttemptID != nil, sessions[runID] == nil {
+            guard enqueueDetachedCommand(runID: runID, command: .cancel) else {
+                _ = refreshDetachedRun(runID: runID, allowMissingStateWhileSpawned: true)
+                return
+            }
+            _ = store.update(id: runID) { current in
+                current.latestAction = "Stopping safely…"
+                current.appendActivity(kind: .status, text: current.latestAction)
+            }
+            onRunsChanged?()
+            return
+        }
+
         guard pendingStops[runID] == nil else { return }
 
         guard let liveSession = sessions[runID] else {
@@ -388,6 +482,25 @@ final class HeadlessAgentLauncher {
         guard pendingStops[runID] == nil else { return .failure(.processWouldNotStop) }
         guard let command = AgentTerminalTakeover.shellCommand(for: run) else {
             return .failure(.sessionNotStartedYet)
+        }
+
+        if !run.status.isTerminal,
+           run.detachedAttemptID != nil,
+           sessions[runID] == nil {
+            guard enqueueDetachedCommand(runID: runID, command: .takeOverInTerminal) else {
+                _ = refreshDetachedRun(runID: runID, allowMissingStateWhileSpawned: true)
+                return .failure(.processWouldNotStop)
+            }
+            _ = store.update(id: runID) { current in
+                current.latestAction = "Stopping safely before Terminal handoff…"
+                current.appendActivity(kind: .status, text: current.latestAction)
+            }
+            onRunsChanged?()
+
+            guard await waitForDetachedTerminalHandoff(runID: runID) else {
+                return .failure(.processWouldNotStop)
+            }
+            return .success(command)
         }
 
         // A job that already finished has no process to stop — its session is
@@ -466,9 +579,34 @@ final class HeadlessAgentLauncher {
     /// Per-tool approval inside leg two, which only attached folders ask for.
     func resolveApproval(runID: UUID, approve: Bool) {
         guard pendingStops[runID] == nil,
-              let session = sessions[runID],
               let run = store.run(id: runID),
               run.status == .waitingForApproval else { return }
+
+        if run.detachedAttemptID != nil, sessions[runID] == nil {
+            guard let tokenID = UUID(uuidString: run.pendingApprovalID) else { return }
+            let command = DetachedAgentRuntimeCommand.respondToApproval(
+                token: DetachedAgentApprovalToken(rawValue: tokenID),
+                decision: approve ? .approve : .deny
+            )
+            guard enqueueDetachedCommand(runID: runID, command: command) else {
+                _ = refreshDetachedRun(runID: runID, allowMissingStateWhileSpawned: true)
+                return
+            }
+            _ = store.update(id: runID) { current in
+                current.latestAction = approve
+                    ? "Approval sent — continuing…"
+                    : "Declined — stopping safely…"
+                current.appendActivity(
+                    kind: .user,
+                    text: approve ? "Approved requested action" : "Declined requested action"
+                )
+                current.appendActivity(kind: .status, text: current.latestAction)
+            }
+            onRunsChanged?()
+            return
+        }
+
+        guard let session = sessions[runID] else { return }
 
         if !approve {
             // OpenCode has no stable stdin deny; Claude gets a control_response.
@@ -590,8 +728,14 @@ final class HeadlessAgentLauncher {
 
     private func spawn(runID: UUID, leg: AgentRunLeg) {
         guard let run = store.run(id: runID) else { return }
+        let shouldDetachExecution = detachedExecutionEnabled && leg == .execute
 
         guard let executableURL = resolveExecutable(run.executor.executableName) else {
+            if !leg.isReadOnly {
+                // Approval already prepared the snapshot. No child was
+                // started, so the snapshot can become undoable immediately.
+                markUndoReady(runID: runID)
+            }
             apply(
                 .failed(message: "\(run.executor.executableName) is no longer on PATH."),
                 to: runID
@@ -605,9 +749,15 @@ final class HeadlessAgentLauncher {
             claudeModelIdentifier: claudeModelIdentifier(),
             codexModelIdentifier: codexModelIdentifier(),
             codexReasoningEffort: codexReasoningEffort(),
-            openCodeMCPConfigurationJSON: leg.isReadOnly ? nil : openCodeMCPConfigurationJSON(),
-            codexMCPConfigurationArguments: leg.isReadOnly ? [] : codexMCPConfigurationArguments(),
-            mcpChildEnvironment: leg.isReadOnly ? [:] : mcpChildEnvironment(run.executor)
+            openCodeMCPConfigurationJSON: leg.isReadOnly || shouldDetachExecution
+                ? nil
+                : openCodeMCPConfigurationJSON(),
+            codexMCPConfigurationArguments: leg.isReadOnly || shouldDetachExecution
+                ? []
+                : codexMCPConfigurationArguments(),
+            mcpChildEnvironment: leg.isReadOnly || shouldDetachExecution
+                ? [:]
+                : mcpChildEnvironment(run.executor)
         )
         let spec = adapter.launchSpec(
             workspaceURL: run.workspaceURL,
@@ -616,6 +766,16 @@ final class HeadlessAgentLauncher {
             title: run.title,
             sessionIdentifier: run.sessionIdentifier
         )
+
+        if shouldDetachExecution {
+            spawnDetachedExecute(
+                run: run,
+                executableURL: executableURL,
+                launchSpec: spec
+            )
+            return
+        }
+
         let process = HeadlessCLIProcess()
 
         do {
@@ -672,6 +832,416 @@ final class HeadlessAgentLauncher {
         )
         onRunsChanged?()
         onEvent?(runID, .started)
+    }
+
+    // MARK: - Detached execute runtime
+
+    private enum DetachedRefreshOutcome {
+        case activeVerified
+        case pending
+        case terminal
+        case failed
+    }
+
+    private func spawnDetachedExecute(
+        run: AgentRun,
+        executableURL: URL,
+        launchSpec: HeadlessCLILaunchSpec
+    ) {
+        guard let runnerExecutableURL = detachedRunnerExecutableURL() else {
+            markUndoReady(runID: run.id)
+            apply(.failed(message: "Could not locate HeyMate's agent runner."), to: run.id)
+            return
+        }
+
+        let attemptID = UUID()
+        let request = DetachedAgentLaunchRequest(
+            runID: run.id,
+            attemptID: attemptID,
+            executor: run.executor,
+            leg: .execute,
+            spec: DetachedAgentLaunchSpec(
+                executableURL: executableURL,
+                arguments: launchSpec.arguments,
+                currentDirectoryURL: launchSpec.currentDirectoryURL,
+                environmentKeysToRemove: launchSpec.environmentKeysToRemove,
+                environmentOverrides: launchSpec.environmentOverrides,
+                temporaryDirectoriesToRemove: launchSpec.temporaryDirectoriesToRemove,
+                usesDuplexStandardInput: launchSpec.usesDuplexStandardInput,
+                runtimeLimit: runtimeLimitForLeg(.execute)
+            )
+        )
+
+        cleanupDetachedTracking(runID: run.id)
+        pendingDetachedRunIDs.insert(run.id)
+        _ = store.update(id: run.id) { current in
+            current.detachedAttemptIdentifier = attemptID.uuidString.lowercased()
+            current.lastDetachedJournalSequence = 0
+            current.status = .running
+            current.latestAction = "Starting background agent…"
+            current.startedAt = current.startedAt ?? Date()
+            current.finishedAt = nil
+            current.pid = nil
+            current.pendingApprovalID = ""
+            current.error = ""
+            current.appendActivity(kind: .status, text: current.latestAction)
+        }
+        onRunsChanged?()
+
+        do {
+            let runnerPID = try spawnDetachedRunner(runnerExecutableURL, request)
+            detachedExpectedRunnerPIDs[run.id] = runnerPID
+            if let identity = inspectProcessIdentity(runnerPID) {
+                detachedExpectedRunnerIdentities[run.id] = identity
+            }
+            _ = store.update(id: run.id) { current in
+                current.pid = runnerPID
+            }
+            beginDetachedMonitoring(runID: run.id)
+            _ = refreshDetachedRun(runID: run.id, allowMissingStateWhileSpawned: true)
+            onRunsChanged?()
+            onEvent?(run.id, .started)
+        } catch {
+            cleanupDetachedTracking(runID: run.id)
+            markUndoReady(runID: run.id)
+            apply(.failed(message: error.localizedDescription), to: run.id)
+        }
+    }
+
+    private func beginDetachedMonitoring(runID: UUID) {
+        detachedMonitorTasks[runID]?.cancel()
+        detachedMonitorTasks[runID] = Task { [weak self] in
+            let clock = SuspendingClock()
+            while !Task.isCancelled {
+                guard let (outcome, interval) = self.map({ launcher in
+                    (
+                        launcher.refreshDetachedRun(
+                            runID: runID,
+                            allowMissingStateWhileSpawned: true
+                        ),
+                        launcher.detachedMonitorInterval
+                    )
+                }) else { return }
+                switch outcome {
+                case .activeVerified, .pending:
+                    break
+                case .terminal, .failed:
+                    return
+                }
+                try? await clock.sleep(for: interval)
+            }
+        }
+    }
+
+    private func refreshDetachedRun(
+        runID: UUID,
+        allowMissingStateWhileSpawned: Bool
+    ) -> DetachedRefreshOutcome {
+        guard let run = store.run(id: runID),
+              !run.status.isTerminal,
+              let attemptID = run.detachedAttemptID else {
+            cleanupDetachedTracking(runID: runID)
+            return .terminal
+        }
+
+        let state: DetachedAgentDurableState
+        do {
+            guard let loadedState = try DetachedAgentDurableStateStore.loadReadOnly(
+                rootDirectoryURL: detachedRuntimeRootURL,
+                runID: runID,
+                attemptID: attemptID
+            ) else {
+                if allowMissingStateWhileSpawned, expectedSpawnIsStillLive(runID: runID) {
+                    return .pending
+                }
+                failDetachedRun(
+                    runID: runID,
+                    message: "Detached agent state is missing."
+                )
+                return .failed
+            }
+            state = loadedState
+        } catch {
+            failDetachedRun(
+                runID: runID,
+                message: "Detached agent state could not be verified."
+            )
+            return .failed
+        }
+
+        let reduced: AgentRun
+        do {
+            // Always inspect journal while snapshot is nonterminal. Runner may
+            // durably append its terminal record and then fail before replacing
+            // state.json; terminal journal is still authoritative and safe to
+            // import after runner exits.
+            let journalByteCount = detachedJournalByteCount(
+                runID: runID,
+                attemptID: attemptID
+            )
+            let shouldReloadJournal = state.lastJournalSequence > run.lastDetachedJournalSequence
+                || detachedJournalByteCounts[runID] != journalByteCount
+            let journal = shouldReloadJournal
+                ? try DetachedAgentRuntimeJournal.loadReadOnly(
+                    rootDirectoryURL: detachedRuntimeRootURL,
+                    runID: runID,
+                    attemptID: attemptID
+                )
+                : []
+            detachedJournalByteCounts[runID] = journalByteCount
+            reduced = try DetachedAgentRunReducer.reduce(
+                run: run,
+                state: state,
+                journal: journal
+            )
+        } catch {
+            failDetachedRun(
+                runID: runID,
+                message: "Detached agent progress could not be verified."
+            )
+            return .failed
+        }
+
+        if reduced.status.isTerminal {
+            projectDetachedRun(previous: run, reduced: reduced)
+            cleanupDetachedTracking(runID: runID)
+            return .terminal
+        }
+
+        guard let runnerIdentity = state.runnerIdentity,
+              detachedExpectedRunnerPIDs[runID].map({ $0 == runnerIdentity.pid }) ?? true,
+              detachedExpectedRunnerIdentities[runID].map({ $0 == runnerIdentity }) ?? true,
+              matchesLiveProcessIdentity(runnerIdentity) else {
+            if detachedChildCleanupStillInFlight(state: state) {
+                holdDetachedCleanup(runID: runID)
+                return .pending
+            }
+            failDetachedRun(
+                runID: runID,
+                message: "Detached agent runner stopped unexpectedly."
+            )
+            return .failed
+        }
+        detachedExpectedRunnerPIDs[runID] = runnerIdentity.pid
+        detachedExpectedRunnerIdentities[runID] = runnerIdentity
+
+        projectDetachedRun(previous: run, reduced: reduced)
+
+        pendingDetachedRunIDs.remove(runID)
+        verifiedDetachedRunIDs.insert(runID)
+        return .activeVerified
+    }
+
+    private func projectDetachedRun(
+        previous: AgentRun,
+        reduced: AgentRun
+    ) {
+        var projected = reduced
+        let statusChanged = previous.status != projected.status
+        let actionChanged = previous.latestAction != projected.latestAction
+        if (statusChanged || actionChanged), !projected.latestAction.isEmpty {
+            let kind: AgentActivityEntry.Kind = projected.status == .succeeded
+                ? .agent
+                : (statusChanged ? .status : .progress)
+            projected.appendActivity(kind: kind, text: projected.latestAction)
+        }
+        store.upsert(projected)
+        onRunsChanged?()
+
+        guard statusChanged else { return }
+        switch projected.status {
+        case .running:
+            onEvent?(projected.id, .started)
+        case .waitingForApproval:
+            onEvent?(
+                projected.id,
+                .approvalRequested(
+                    id: projected.pendingApprovalID,
+                    summary: projected.latestAction
+                )
+            )
+        case .succeeded:
+            markUndoReady(runID: projected.id)
+            scheduleReceiptScanForRun(runID: projected.id)
+            onEvent?(
+                projected.id,
+                .finished(summary: projected.summary.isEmpty ? "Done" : projected.summary)
+            )
+            startNextQueuedFollowUp(runID: projected.id)
+        case .failed:
+            markUndoReady(runID: projected.id)
+            scheduleReceiptScanForRun(runID: projected.id)
+            onEvent?(projected.id, .failed(message: projected.error))
+        case .cancelled:
+            markUndoReady(runID: projected.id)
+            scheduleReceiptScanForRun(runID: projected.id)
+            onEvent?(
+                projected.id,
+                .finished(
+                    summary: projected.sessionIdentifier.isEmpty
+                        ? "Handed off to Terminal"
+                        : "Cancelled"
+                )
+            )
+        case .queued, .planning, .awaitingPlanApproval:
+            break
+        }
+    }
+
+    private func detachedChildCleanupStillInFlight(
+        state: DetachedAgentDurableState,
+        now: Date = Date()
+    ) -> Bool {
+        if let childIdentity = state.childIdentity,
+           let processGroupID = state.childProcessGroupID {
+            return matchesLiveChildProcessGroup(childIdentity, processGroupID)
+        }
+        guard state.childIdentity == nil, state.childProcessGroupID == nil else {
+            return false
+        }
+        return now.timeIntervalSince(state.updatedAt) <= detachedCleanupGracePeriod
+    }
+
+    private func holdDetachedCleanup(runID: UUID) {
+        verifiedDetachedRunIDs.remove(runID)
+        pendingDetachedRunIDs.insert(runID)
+        _ = store.update(id: runID) { current in
+            guard !current.status.isTerminal,
+                  current.latestAction != "Stopping orphaned agent process…" else { return }
+            current.latestAction = "Stopping orphaned agent process…"
+            current.appendActivity(kind: .status, text: current.latestAction)
+        }
+        onRunsChanged?()
+    }
+
+    private func expectedSpawnIsStillLive(runID: UUID) -> Bool {
+        if let expectedIdentity = detachedExpectedRunnerIdentities[runID] {
+            return matchesLiveProcessIdentity(expectedIdentity)
+        }
+        guard let expectedPID = detachedExpectedRunnerPIDs[runID],
+              let identity = inspectProcessIdentity(expectedPID),
+              matchesLiveProcessIdentity(identity) else { return false }
+        detachedExpectedRunnerIdentities[runID] = identity
+        return true
+    }
+
+    private func detachedJournalByteCount(runID: UUID, attemptID: UUID) -> UInt64 {
+        let journalURL = DetachedAgentRuntimePaths.attemptDirectoryURL(
+            rootDirectoryURL: detachedRuntimeRootURL,
+            runID: runID,
+            attemptID: attemptID
+        ).appendingPathComponent("events.jsonl", isDirectory: false)
+        let attributes = try? fileManager.attributesOfItem(atPath: journalURL.path)
+        return (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
+    }
+
+    private func detachedRunCanSurviveAppTermination(_ run: AgentRun) -> Bool {
+        guard let attemptID = run.detachedAttemptID,
+              !pendingDetachedRunIDs.contains(run.id) else { return false }
+        do {
+            guard let state = try DetachedAgentDurableStateStore.loadReadOnly(
+                rootDirectoryURL: detachedRuntimeRootURL,
+                runID: run.id,
+                attemptID: attemptID
+            ) else { return false }
+            if state.phase.isTerminal { return true }
+            guard verifiedDetachedRunIDs.contains(run.id),
+                  let identity = state.runnerIdentity,
+                  detachedExpectedRunnerPIDs[run.id].map({ $0 == identity.pid }) ?? true,
+                  detachedExpectedRunnerIdentities[run.id].map({ $0 == identity }) ?? true else {
+                return false
+            }
+            return matchesLiveProcessIdentity(identity)
+        } catch {
+            return false
+        }
+    }
+
+    @discardableResult
+    private func enqueueDetachedCommand(
+        runID: UUID,
+        command: DetachedAgentRuntimeCommand
+    ) -> Bool {
+        guard let run = store.run(id: runID),
+              !run.status.isTerminal,
+              let attemptID = run.detachedAttemptID else { return false }
+
+        do {
+            if let state = try DetachedAgentDurableStateStore.loadReadOnly(
+                rootDirectoryURL: detachedRuntimeRootURL,
+                runID: runID,
+                attemptID: attemptID
+            ) {
+                guard !state.phase.isTerminal,
+                      let identity = state.runnerIdentity,
+                      detachedExpectedRunnerPIDs[runID].map({ $0 == identity.pid }) ?? true,
+                      detachedExpectedRunnerIdentities[runID].map({ $0 == identity }) ?? true,
+                      matchesLiveProcessIdentity(identity) else { return false }
+            } else {
+                guard pendingDetachedRunIDs.contains(runID),
+                      expectedSpawnIsStillLive(runID: runID) else { return false }
+            }
+
+            let mailbox = try DetachedAgentCommandMailbox(
+                rootDirectoryURL: detachedRuntimeRootURL,
+                runID: runID,
+                attemptID: attemptID
+            )
+            _ = try mailbox.enqueue(
+                DetachedAgentCommandEnvelope(
+                    runID: runID,
+                    attemptID: attemptID,
+                    command: command
+                )
+            )
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func waitForDetachedTerminalHandoff(runID: UUID) async -> Bool {
+        let clock = SuspendingClock()
+        let deadline = clock.now.advanced(by: .seconds(15))
+        while clock.now < deadline {
+            _ = refreshDetachedRun(runID: runID, allowMissingStateWhileSpawned: true)
+            if let run = store.run(id: runID), run.status.isTerminal {
+                return run.status == .cancelled && run.sessionIdentifier.isEmpty
+            }
+            try? await clock.sleep(for: .milliseconds(100))
+        }
+        return false
+    }
+
+    private func failDetachedRun(runID: UUID, message: String) {
+        cleanupDetachedTracking(runID: runID)
+        _ = store.update(id: runID) { current in
+            guard !current.status.isTerminal else { return }
+            current.status = .failed
+            current.error = message
+            current.latestAction = message
+            current.finishedAt = Date()
+            current.pid = nil
+            current.pendingApprovalID = ""
+            if !current.queuedFollowUpInstructions.isEmpty {
+                current.queuedFollowUpInstructions.removeAll()
+                current.appendActivity(kind: .status, text: "Queued follow-ups stopped")
+            }
+            current.appendActivity(kind: .status, text: message)
+        }
+        markUndoReady(runID: runID)
+        scheduleReceiptScanForRun(runID: runID)
+        onRunsChanged?()
+        onEvent?(runID, .failed(message: message))
+    }
+
+    private func cleanupDetachedTracking(runID: UUID) {
+        detachedMonitorTasks.removeValue(forKey: runID)?.cancel()
+        detachedExpectedRunnerPIDs.removeValue(forKey: runID)
+        detachedExpectedRunnerIdentities.removeValue(forKey: runID)
+        detachedJournalByteCounts.removeValue(forKey: runID)
+        pendingDetachedRunIDs.remove(runID)
+        verifiedDetachedRunIDs.remove(runID)
     }
 
     /// Records a job that never started, and returns its id — so `beginRun`
@@ -979,6 +1549,8 @@ final class HeadlessAgentLauncher {
             current.finishedAt = nil
             current.undoEntryIdentifier = ""
             current.workspaceChangeSummary = nil
+            current.detachedAttemptIdentifier = ""
+            current.lastDetachedJournalSequence = 0
             current.latestAction = "Planning queued follow-up…"
             current.appendActivity(kind: .status, text: current.latestAction)
         }

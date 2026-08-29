@@ -54,9 +54,8 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         companionManager.stop()
     }
 
-    /// Never leave a write-capable CLI orphaned with broken pipes. Until the
-    /// detached runner ships, HeyMate stays open while process-backed jobs run.
-    /// Users can cancel jobs from Agents, then quit normally.
+    /// Verified detached execute legs survive Cmd-Q. Planning, legacy work, and
+    /// launch races still stay attached to HeyMate and must finish or cancel.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !isHostingUnitTests else { return .terminateNow }
         let activeCount = companionManager.activeProcessBackedAgentRunCount
@@ -68,7 +67,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         alert.messageText = activeCount == 1
             ? "Coding agent still running"
             : "\(activeCount) coding agents still running"
-        alert.informativeText = "HeyMate must stay open until active work finishes. Cancel running jobs from Agents if you need to quit now."
+        alert.informativeText = "HeyMate must stay open while an agent is planning or still starting. Cancel that job from Agents if you need to quit now. Background work can keep running after HeyMate closes."
         alert.addButton(withTitle: "Show Agents")
         alert.runModal()
         return .terminateCancel
