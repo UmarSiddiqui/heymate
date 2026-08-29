@@ -4,6 +4,7 @@
 //
 
 import Darwin
+import Dispatch
 import Foundation
 import Testing
 @testable import HeyMate
@@ -213,6 +214,70 @@ struct HeadlessCLIProcessTreeTests {
         #expect(exitStatus == 0)
         #expect(lineCountAtExit == expectedLines.count)
         #expect(outputLines == expectedLines)
+    }
+
+    @Test func exitCallbackWaitsForInFlightStandardErrorAppend() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "HeadlessCLIProcessStandardErrorOrderTests-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let appendStarted = DispatchSemaphore(value: 0)
+        let allowAppend = DispatchSemaphore(value: 0)
+        let standardErrorTail = HeadlessCLIStandardErrorTail {
+            appendStarted.signal()
+            allowAppend.wait()
+        }
+        let process = HeadlessCLIProcess(standardErrorTail: standardErrorTail)
+        var exitStatus: Int32?
+        var summaryAtExit: String?
+        try process.start(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: [
+                "-c",
+                "printf 'final diagnostic\\n' >&2; IFS= read -r command; exit 9"
+            ],
+            currentDirectoryURL: directoryURL,
+            usesDuplexStandardInput: true,
+            onLine: { _ in },
+            onExit: { status in
+                summaryAtExit = process.recentStandardErrorSummary
+                exitStatus = status
+            }
+        )
+        defer {
+            allowAppend.signal()
+            process.terminateThenKill()
+        }
+
+        let stderrWasRead = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(
+                    returning: appendStarted.wait(timeout: .now() + 3) == .success
+                )
+            }
+        }
+        #expect(stderrWasRead)
+        let releaseAppend = Task.detached {
+            try? await Task.sleep(for: .milliseconds(150))
+            allowAppend.signal()
+        }
+        #expect(process.writeToStandardInput(Data("exit".utf8)))
+
+        // Callback already removed final bytes from pipe but intentionally has
+        // not appended them. Detached release prevents blocking MainActor;
+        // terminal callback must wait behind reader seal until release.
+        let exited = await waitUntil(timeout: 6) { exitStatus != nil }
+        await releaseAppend.value
+        #expect(exited)
+        #expect(exitStatus == 9)
+        #expect(summaryAtExit == "final diagnostic")
     }
 
     @Test func cancellationTerminatesChildAndGrandchild() async throws {

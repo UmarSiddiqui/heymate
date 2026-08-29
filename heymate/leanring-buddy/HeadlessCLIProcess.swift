@@ -98,9 +98,15 @@ nonisolated final class HeadlessCLIStandardErrorTail: @unchecked Sendable {
 
     private let lock = NSLock()
     private var retainedBytes = Data()
+    private let beforeAppend: (@Sendable () -> Void)?
+
+    init(beforeAppend: (@Sendable () -> Void)? = nil) {
+        self.beforeAppend = beforeAppend
+    }
 
     func append(_ chunk: Data) {
         guard !chunk.isEmpty else { return }
+        beforeAppend?()
         lock.lock()
         defer { lock.unlock() }
         retainedBytes.append(chunk)
@@ -123,6 +129,40 @@ nonisolated final class HeadlessCLIStandardErrorTail: @unchecked Sendable {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         return Array(lines.suffix(lineLimit))
+    }
+}
+
+/// Serializes stderr callback reads with terminal drain. Tail owns its memory
+/// bound; this reader only closes race where callback has removed pipe bytes
+/// but has not appended them when `onExit` asks for diagnostic summary.
+nonisolated final class HeadlessCLIStandardErrorReader: @unchecked Sendable {
+    private let lock = NSLock()
+    private let tail: HeadlessCLIStandardErrorTail
+    private var isSealed = false
+
+    init(tail: HeadlessCLIStandardErrorTail) {
+        self.tail = tail
+    }
+
+    func readAvailableData(from handle: FileHandle) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !isSealed else { return }
+        tail.append(handle.availableData)
+    }
+
+    func readToEndAndSeal(from handle: FileHandle) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !isSealed else { return }
+        tail.append(handle.readDataToEndOfFile())
+        isSealed = true
+    }
+
+    func sealWithoutReading() {
+        lock.lock()
+        isSealed = true
+        lock.unlock()
     }
 }
 
@@ -311,14 +351,18 @@ final class HeadlessCLIProcess {
     private lazy var stdoutReader = HeadlessCLIStandardOutputReader(
         deliveryBuffer: stdoutDeliveryBuffer
     )
-    private let standardErrorTail = HeadlessCLIStandardErrorTail()
+    private let standardErrorTail: HeadlessCLIStandardErrorTail
+    private lazy var standardErrorReader = HeadlessCLIStandardErrorReader(
+        tail: standardErrorTail
+    )
 
     private var spawnedProcessIdentifier: pid_t = 0
     private var spawnedProcessGroupIdentifier: pid_t = 0
     private var spawnedProcessIdentity: AgentProcessIdentity?
     private var isRunning = false
 
-    init() {
+    init(standardErrorTail: HeadlessCLIStandardErrorTail = HeadlessCLIStandardErrorTail()) {
+        self.standardErrorTail = standardErrorTail
         // Monitor or CLI may exit between readiness and a write. Convert that
         // race to EPIPE instead of terminating HeyMate with SIGPIPE.
         _ = fcntl(stdinPipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
@@ -357,9 +401,9 @@ final class HeadlessCLIProcess {
             }
         }
 
-        let standardErrorTail = self.standardErrorTail
+        let standardErrorReader = self.standardErrorReader
         stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-            standardErrorTail.append(handle.availableData)
+            standardErrorReader.readAvailableData(from: handle)
         }
 
         do {
@@ -735,7 +779,7 @@ final class HeadlessCLIProcess {
         stdoutReader.readToEndAndSeal(from: stdoutPipe.fileHandleForReading)
         drainBufferedOutputSynchronously(onLine: onLine)
 
-        standardErrorTail.append(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+        standardErrorReader.readToEndAndSeal(from: stderrPipe.fileHandleForReading)
         return !stdoutDeliveryBuffer.hasOverflowed
     }
 
@@ -774,6 +818,7 @@ final class HeadlessCLIProcess {
         stdoutPipe.fileHandleForReading.readabilityHandler = nil
         stderrPipe.fileHandleForReading.readabilityHandler = nil
         stdoutReader.sealWithoutReading()
+        standardErrorReader.sealWithoutReading()
         drainBufferedOutputSynchronously(onLine: onLine)
         try? stdoutPipe.fileHandleForReading.close()
         try? stderrPipe.fileHandleForReading.close()
