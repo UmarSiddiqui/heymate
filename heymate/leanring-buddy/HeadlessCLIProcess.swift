@@ -195,6 +195,62 @@ nonisolated final class HeadlessCLIOutputDeliveryBuffer: @unchecked Sendable {
         pendingBytes -= lines.reduce(0) { $0 + $1.utf8.count }
         return .lines(lines)
     }
+
+    var hasOverflowed: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return didOverflow
+    }
+}
+
+/// Serializes pipe reads with terminal sealing. FileHandle may already be
+/// running a readability callback when waitpid observes child exit. Without
+/// this gate, terminal cleanup can read later bytes first or fire `onExit`
+/// while callback still has earlier bytes waiting to enter delivery queue.
+nonisolated final class HeadlessCLIStandardOutputReader: @unchecked Sendable {
+    private let lock = NSLock()
+    private let accumulator = HeadlessCLILineAccumulator()
+    private let deliveryBuffer: HeadlessCLIOutputDeliveryBuffer
+    private var isSealed = false
+
+    init(deliveryBuffer: HeadlessCLIOutputDeliveryBuffer) {
+        self.deliveryBuffer = deliveryBuffer
+    }
+
+    /// Reads one readiness notification. Returns true only when caller must
+    /// schedule delivery drain.
+    func readAvailableData(from handle: FileHandle) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !isSealed else { return false }
+
+        let data = handle.availableData
+        guard !data.isEmpty else { return false }
+        return deliveryBuffer.enqueue(accumulator.completeLines(from: data))
+    }
+
+    /// Called after process group has closed stdout. Earlier callback either
+    /// completes before this lock or observes sealed state afterward, keeping
+    /// bytes and callbacks in one order.
+    func readToEndAndSeal(from handle: FileHandle) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !isSealed else { return }
+
+        let trailingData = handle.readDataToEndOfFile()
+        _ = deliveryBuffer.enqueue(accumulator.completeLines(from: trailingData))
+        _ = deliveryBuffer.enqueue(accumulator.flushRemainder())
+        isSealed = true
+    }
+
+    /// Used when descendants keep pipe open past cleanup deadline. Existing
+    /// callback finishes first; unread kernel bytes are discarded without a
+    /// blocking read.
+    func sealWithoutReading() {
+        lock.lock()
+        isSealed = true
+        lock.unlock()
+    }
 }
 
 /// The environment every HeyMate-spawned CLI child receives.
@@ -251,8 +307,10 @@ final class HeadlessCLIProcess {
     /// If this owner crashes, EOF makes monitor kill CLI process group.
     private let lifetimePipe = Pipe()
 
-    private let stdoutAccumulator = HeadlessCLILineAccumulator()
     private let stdoutDeliveryBuffer = HeadlessCLIOutputDeliveryBuffer()
+    private lazy var stdoutReader = HeadlessCLIStandardOutputReader(
+        deliveryBuffer: stdoutDeliveryBuffer
+    )
     private let standardErrorTail = HeadlessCLIStandardErrorTail()
 
     private var spawnedProcessIdentifier: pid_t = 0
@@ -291,13 +349,9 @@ final class HeadlessCLIProcess {
             overrides: environmentOverrides
         )
 
-        let stdoutAccumulator = self.stdoutAccumulator
-        let stdoutDeliveryBuffer = self.stdoutDeliveryBuffer
+        let stdoutReader = self.stdoutReader
         stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            let lines = stdoutAccumulator.completeLines(from: data)
-            guard stdoutDeliveryBuffer.enqueue(lines) else { return }
+            guard stdoutReader.readAvailableData(from: handle) else { return }
             Task { @MainActor [weak self] in
                 await self?.drainBufferedOutput(onLine: onLine)
             }
@@ -370,12 +424,21 @@ final class HeadlessCLIProcess {
                         timeout: .seconds(Self.killGracePeriod + 2)
                     )
                     self.isRunning = false
+                    let outputDeliveredWithoutOverflow: Bool
                     if processTreeExited {
-                        self.drainRemainingOutput(onLine: onLine)
+                        outputDeliveredWithoutOverflow = self.drainRemainingOutput(
+                            onLine: onLine
+                        )
                     } else {
-                        self.closeOutputWithoutBlocking()
+                        outputDeliveredWithoutOverflow = self.closeOutputWithoutBlocking(
+                            onLine: onLine
+                        )
                     }
-                    onExit(processTreeExited ? terminationStatus : 70)
+                    onExit(
+                        processTreeExited && outputDeliveredWithoutOverflow
+                            ? terminationStatus
+                            : 70
+                    )
                 }
             }
         } catch {
@@ -665,19 +728,15 @@ final class HeadlessCLIProcess {
     /// Reads whatever the child wrote between its last readability callback
     /// and exit, then releases the handlers. Both pipes have finite buffered
     /// content once the writer has exited, so the reads return promptly.
-    private func drainRemainingOutput(onLine: (String) -> Void) {
+    private func drainRemainingOutput(onLine: (String) -> Void) -> Bool {
         stdoutPipe.fileHandleForReading.readabilityHandler = nil
         stderrPipe.fileHandleForReading.readabilityHandler = nil
 
-        let trailingStandardOutput = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        for line in stdoutAccumulator.completeLines(from: trailingStandardOutput) {
-            onLine(line)
-        }
-        for line in stdoutAccumulator.flushRemainder() {
-            onLine(line)
-        }
+        stdoutReader.readToEndAndSeal(from: stdoutPipe.fileHandleForReading)
+        drainBufferedOutputSynchronously(onLine: onLine)
 
         standardErrorTail.append(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+        return !stdoutDeliveryBuffer.hasOverflowed
     }
 
     private func drainBufferedOutput(onLine: (String) -> Void) async {
@@ -695,10 +754,29 @@ final class HeadlessCLIProcess {
         }
     }
 
-    private func closeOutputWithoutBlocking() {
+    /// Final drain never yields: queued callbacks must finish before terminal
+    /// callback mutates runner state. Queue remains bounded at 512 lines/2 MB.
+    private func drainBufferedOutputSynchronously(onLine: (String) -> Void) {
+        while true {
+            switch stdoutDeliveryBuffer.nextBatch() {
+            case .lines(let lines):
+                for line in lines { onLine(line) }
+            case .overflow:
+                terminateThenKill()
+                return
+            case .finished:
+                return
+            }
+        }
+    }
+
+    private func closeOutputWithoutBlocking(onLine: (String) -> Void) -> Bool {
         stdoutPipe.fileHandleForReading.readabilityHandler = nil
         stderrPipe.fileHandleForReading.readabilityHandler = nil
+        stdoutReader.sealWithoutReading()
+        drainBufferedOutputSynchronously(onLine: onLine)
         try? stdoutPipe.fileHandleForReading.close()
         try? stderrPipe.fileHandleForReading.close()
+        return !stdoutDeliveryBuffer.hasOverflowed
     }
 }

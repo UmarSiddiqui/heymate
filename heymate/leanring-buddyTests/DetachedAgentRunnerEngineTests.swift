@@ -60,6 +60,52 @@ struct DetachedAgentRunnerEngineTests {
         #expect(journal.last?.phase == .succeeded)
     }
 
+    @Test func bufferedFailureEventWinsOverZeroProcessExit() async throws {
+        let fixture = try makeFixtureDirectory(named: "buffered-failure")
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let runtimeRoot = fixture.appendingPathComponent("runtime", isDirectory: true)
+        let scriptURL = try makeExecutableScript(
+            in: fixture,
+            named: "buffered-failure.sh",
+            contents: """
+            #!/bin/sh
+            index=0
+            while [ "$index" -lt 96 ]; do
+              printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"queued"}}'
+              index=$((index + 1))
+            done
+            printf '%s\n' '{"type":"error","message":"buffered failure"}'
+            while [ "$index" -lt 160 ]; do
+              printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"queued"}}'
+              index=$((index + 1))
+            done
+            exit 0
+            """
+        )
+        let request = makeRequest(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: [scriptURL.path],
+            workspaceURL: fixture,
+            runtimeLimit: 5
+        )
+        let engine = try DetachedAgentRunnerEngine(
+            request: request,
+            rootDirectoryURL: runtimeRoot,
+            exitProcess: { _ in }
+        )
+
+        engine.start()
+
+        let reachedTerminalState = await waitUntil(timeout: 5) {
+            (try? Self.loadState(root: runtimeRoot, request: request))?.phase.isTerminal == true
+        }
+        #expect(reachedTerminalState)
+        let state = try #require(try Self.loadState(root: runtimeRoot, request: request))
+        #expect(state.phase == .failed)
+        #expect(state.exitCode == 0)
+        #expect(state.terminalSafeError == "Coding agent reported an error")
+    }
+
     @Test func cancelPublishesTerminalStateOnlyAfterChildAndGrandchildExit() async throws {
         let fixture = try makeFixtureDirectory(named: "cancel-tree")
         defer { try? FileManager.default.removeItem(at: fixture) }

@@ -117,6 +117,7 @@ struct HeadlessCLIOutputDeliveryBufferTests {
             Issue.record("Expected bounded overflow")
             return
         }
+        #expect(buffer.hasOverflowed)
         #expect(!buffer.enqueue(["ignored-after-overflow"]))
         guard case .finished = buffer.nextBatch() else {
             Issue.record("Expected empty queue after overflow")
@@ -173,6 +174,45 @@ struct HeadlessCLIProcessTreeTests {
         #expect(String(outputComponents[1]) == "scoped")
         #expect(String(outputComponents[2]) == "hello")
         #expect(process.recentStandardErrorSummary == "diagnostic")
+    }
+
+    @Test func exitCallbackFollowsEveryQueuedOutputLineInOrder() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "HeadlessCLIProcessOutputOrderTests-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let expectedLines = (0..<160).map { String(format: "line-%03d", $0) }
+        let process = HeadlessCLIProcess()
+        var outputLines: [String] = []
+        var lineCountAtExit: Int?
+        var exitStatus: Int32?
+        try process.start(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: [
+                "-c",
+                "index=0; while [ \"$index\" -lt 160 ]; do printf 'line-%03d\\n' \"$index\"; index=$((index + 1)); done"
+            ],
+            currentDirectoryURL: directoryURL,
+            onLine: { outputLines.append($0) },
+            onExit: { status in
+                lineCountAtExit = outputLines.count
+                exitStatus = status
+            }
+        )
+        defer { process.terminateThenKill() }
+
+        let exited = await waitUntil(timeout: 6) { exitStatus != nil }
+        #expect(exited)
+        #expect(exitStatus == 0)
+        #expect(lineCountAtExit == expectedLines.count)
+        #expect(outputLines == expectedLines)
     }
 
     @Test func cancellationTerminatesChildAndGrandchild() async throws {
