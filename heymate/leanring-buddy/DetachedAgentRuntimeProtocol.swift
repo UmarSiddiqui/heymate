@@ -10,7 +10,18 @@
 import Foundation
 
 nonisolated enum DetachedAgentRuntimeProtocol {
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
+}
+
+/// Public runtime approval handle. The detached runner keeps the provider's
+/// opaque approval identifier in memory and exposes only this random token to
+/// the app and command mailbox.
+nonisolated struct DetachedAgentApprovalToken: RawRepresentable, Codable, Equatable, Hashable, Sendable {
+    let rawValue: UUID
+
+    init(rawValue: UUID = UUID()) {
+        self.rawValue = rawValue
+    }
 }
 
 nonisolated enum DetachedAgentRuntimePhase: String, Codable, Equatable, Sendable {
@@ -41,7 +52,7 @@ nonisolated enum DetachedAgentOutputStream: String, Codable, Equatable, Sendable
 
 /// Event sent from runner to app.
 ///
-/// `text`, `sessionIdentifier`, and `approvalIdentifier` are transient IPC
+/// `text`, `sessionIdentifier`, and `approvalToken` are transient IPC
 /// values. They must not be written directly to disk. The runtime journal
 /// converts this type to a persistence-safe record first.
 nonisolated struct DetachedAgentRuntimeEvent: Codable, Equatable, Sendable {
@@ -54,6 +65,7 @@ nonisolated struct DetachedAgentRuntimeEvent: Codable, Equatable, Sendable {
         case heartbeat
         case approvalRequested
         case finished
+        case handedOff
         case warning
     }
 
@@ -62,7 +74,7 @@ nonisolated struct DetachedAgentRuntimeEvent: Codable, Equatable, Sendable {
     let stream: DetachedAgentOutputStream?
     let text: String?
     let sessionIdentifier: String?
-    let approvalIdentifier: String?
+    let approvalToken: DetachedAgentApprovalToken?
     let exitCode: Int32?
 
     private init(
@@ -71,7 +83,7 @@ nonisolated struct DetachedAgentRuntimeEvent: Codable, Equatable, Sendable {
         stream: DetachedAgentOutputStream? = nil,
         text: String? = nil,
         sessionIdentifier: String? = nil,
-        approvalIdentifier: String? = nil,
+        approvalToken: DetachedAgentApprovalToken? = nil,
         exitCode: Int32? = nil
     ) {
         self.kind = kind
@@ -79,7 +91,7 @@ nonisolated struct DetachedAgentRuntimeEvent: Codable, Equatable, Sendable {
         self.stream = stream
         self.text = text
         self.sessionIdentifier = sessionIdentifier
-        self.approvalIdentifier = approvalIdentifier
+        self.approvalToken = approvalToken
         self.exitCode = exitCode
     }
 
@@ -103,11 +115,11 @@ nonisolated struct DetachedAgentRuntimeEvent: Codable, Equatable, Sendable {
 
     static let heartbeat = Self(kind: .heartbeat)
 
-    static func approvalRequested(identifier: String, summary: String) -> Self {
+    static func approvalRequested(token: DetachedAgentApprovalToken, summary: String) -> Self {
         Self(
             kind: .approvalRequested,
             text: summary,
-            approvalIdentifier: identifier
+            approvalToken: token
         )
     }
 
@@ -122,23 +134,28 @@ nonisolated struct DetachedAgentRuntimeEvent: Codable, Equatable, Sendable {
     static func warning(_ summary: String) -> Self {
         Self(kind: .warning, text: summary)
     }
+
+    static let handedOff = Self(kind: .handedOff, phase: .cancelled)
 }
 
 nonisolated struct DetachedAgentEventEnvelope: Codable, Equatable, Sendable {
     let schemaVersion: Int
     let runID: UUID
+    let attemptID: UUID
     let messageID: UUID
     let emittedAt: Date
     let event: DetachedAgentRuntimeEvent
 
     init(
         runID: UUID,
+        attemptID: UUID,
         messageID: UUID = UUID(),
         emittedAt: Date = Date(),
         event: DetachedAgentRuntimeEvent
     ) {
         self.schemaVersion = DetachedAgentRuntimeProtocol.currentSchemaVersion
         self.runID = runID
+        self.attemptID = attemptID
         self.messageID = messageID
         self.emittedAt = emittedAt
         self.event = event
@@ -167,20 +184,20 @@ nonisolated struct DetachedAgentRuntimeCommand: Codable, Equatable, Sendable {
 
     let kind: Kind
     let text: String?
-    let approvalIdentifier: String?
+    let approvalToken: DetachedAgentApprovalToken?
     let approvalDecision: ApprovalDecision?
     let afterSequence: UInt64?
 
     private init(
         kind: Kind,
         text: String? = nil,
-        approvalIdentifier: String? = nil,
+        approvalToken: DetachedAgentApprovalToken? = nil,
         approvalDecision: ApprovalDecision? = nil,
         afterSequence: UInt64? = nil
     ) {
         self.kind = kind
         self.text = text
-        self.approvalIdentifier = approvalIdentifier
+        self.approvalToken = approvalToken
         self.approvalDecision = approvalDecision
         self.afterSequence = afterSequence
     }
@@ -201,12 +218,12 @@ nonisolated struct DetachedAgentRuntimeCommand: Codable, Equatable, Sendable {
     }
 
     static func respondToApproval(
-        identifier: String,
+        token: DetachedAgentApprovalToken,
         decision: ApprovalDecision
     ) -> Self {
         Self(
             kind: .respondToApproval,
-            approvalIdentifier: identifier,
+            approvalToken: token,
             approvalDecision: decision
         )
     }
@@ -215,18 +232,21 @@ nonisolated struct DetachedAgentRuntimeCommand: Codable, Equatable, Sendable {
 nonisolated struct DetachedAgentCommandEnvelope: Codable, Equatable, Sendable {
     let schemaVersion: Int
     let runID: UUID
+    let attemptID: UUID
     let messageID: UUID
     let sentAt: Date
     let command: DetachedAgentRuntimeCommand
 
     init(
         runID: UUID,
+        attemptID: UUID,
         messageID: UUID = UUID(),
         sentAt: Date = Date(),
         command: DetachedAgentRuntimeCommand
     ) {
         self.schemaVersion = DetachedAgentRuntimeProtocol.currentSchemaVersion
         self.runID = runID
+        self.attemptID = attemptID
         self.messageID = messageID
         self.sentAt = sentAt
         self.command = command

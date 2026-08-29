@@ -11,11 +11,18 @@ import Foundation
 
 nonisolated enum DetachedAgentPersistenceError: Error, Equatable {
     case runIDMismatch(expected: UUID, actual: UUID)
+    case attemptIDMismatch(expected: UUID, actual: UUID)
     case unsupportedSchemaVersion(Int)
     case corruptJournalRecord(line: Int)
     case nonMonotonicSequence(previous: UInt64, current: UInt64)
     case sequenceExhausted
     case invalidPersistencePath(String)
+    case unsafeSymbolicLink(String)
+    case wrongFileOwner(path: String, expected: UInt32, actual: UInt32)
+    case wrongFileType(String)
+    case insecureFilePermissions(path: String, expected: Int, actual: Int)
+    case writerAlreadyActive(String)
+    case invalidProcessGroupIdentity
     case posixFailure(operation: String, code: Int32)
 }
 
@@ -25,35 +32,67 @@ nonisolated enum DetachedAgentPersistenceError: Error, Equatable {
 nonisolated struct DetachedAgentDurableState: Codable, Equatable, Sendable {
     let schemaVersion: Int
     let runID: UUID
+    let attemptID: UUID
+    let leg: DetachedAgentRunLegKind
     var phase: DetachedAgentRuntimePhase
     let createdAt: Date
     var updatedAt: Date
     var lastJournalSequence: UInt64
     var latestSafeSummary: String?
+    var runnerIdentity: AgentProcessIdentity?
+    var childIdentity: AgentProcessIdentity?
+    var childProcessGroupID: Int32?
+    var lastHeartbeatAt: Date?
+    var terminalSafeSummary: String?
+    var terminalSafeError: String?
+    var pendingApprovalToken: DetachedAgentApprovalToken?
+    var handedOffToTerminal: Bool
     var exitCode: Int32?
 
     init(
         runID: UUID,
+        attemptID: UUID,
+        leg: DetachedAgentRunLegKind,
         phase: DetachedAgentRuntimePhase = .queued,
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
         lastJournalSequence: UInt64 = 0,
         latestSafeSummary: String? = nil,
+        runnerIdentity: AgentProcessIdentity? = nil,
+        childIdentity: AgentProcessIdentity? = nil,
+        childProcessGroupID: Int32? = nil,
+        lastHeartbeatAt: Date? = nil,
+        terminalSafeSummary: String? = nil,
+        terminalSafeError: String? = nil,
+        pendingApprovalToken: DetachedAgentApprovalToken? = nil,
+        handedOffToTerminal: Bool = false,
         exitCode: Int32? = nil
     ) {
         self.schemaVersion = DetachedAgentRuntimeProtocol.currentSchemaVersion
         self.runID = runID
+        self.attemptID = attemptID
+        self.leg = leg
         self.phase = phase
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.lastJournalSequence = lastJournalSequence
         self.latestSafeSummary = DetachedAgentSecretRedactor.redact(latestSafeSummary)
+        self.runnerIdentity = runnerIdentity
+        self.childIdentity = childIdentity
+        self.childProcessGroupID = childProcessGroupID
+        self.lastHeartbeatAt = lastHeartbeatAt
+        self.terminalSafeSummary = DetachedAgentSecretRedactor.redact(terminalSafeSummary)
+        self.terminalSafeError = DetachedAgentSecretRedactor.redact(terminalSafeError)
+        self.pendingApprovalToken = pendingApprovalToken
+        self.handedOffToTerminal = handedOffToTerminal
         self.exitCode = exitCode
     }
 
     fileprivate func sanitizedForPersistence() -> Self {
         var copy = self
         copy.latestSafeSummary = DetachedAgentSecretRedactor.redact(latestSafeSummary)
+        copy.terminalSafeSummary = DetachedAgentSecretRedactor.redact(terminalSafeSummary)
+        copy.terminalSafeError = DetachedAgentSecretRedactor.redact(terminalSafeError)
         return copy
     }
 }
@@ -66,6 +105,7 @@ nonisolated struct DetachedAgentDurableState: Codable, Equatable, Sendable {
 nonisolated struct DetachedAgentJournalRecord: Codable, Equatable, Sendable {
     let schemaVersion: Int
     let runID: UUID
+    let attemptID: UUID
     let sequence: UInt64
     let messageID: UUID
     let emittedAt: Date
@@ -74,17 +114,20 @@ nonisolated struct DetachedAgentJournalRecord: Codable, Equatable, Sendable {
     let stream: DetachedAgentOutputStream?
     let outputByteCount: Int?
     let safeSummary: String?
+    let pendingApprovalToken: DetachedAgentApprovalToken?
     let exitCode: Int32?
 
     fileprivate init(sequence: UInt64, envelope: DetachedAgentEventEnvelope) {
         schemaVersion = DetachedAgentRuntimeProtocol.currentSchemaVersion
         runID = envelope.runID
+        attemptID = envelope.attemptID
         self.sequence = sequence
         messageID = envelope.messageID
         emittedAt = envelope.emittedAt
         kind = envelope.event.kind
         phase = envelope.event.phase
         stream = envelope.event.stream
+        pendingApprovalToken = envelope.event.approvalToken
         exitCode = envelope.event.exitCode
 
         if envelope.event.kind == .output {
@@ -99,26 +142,42 @@ nonisolated struct DetachedAgentJournalRecord: Codable, Equatable, Sendable {
 
 nonisolated final class DetachedAgentRuntimeJournal {
     let runID: UUID
+    let attemptID: UUID
     let directoryURL: URL
     let journalFileURL: URL
 
+    private let writerLease: DetachedAgentExclusiveFileLease
     private let lock = NSLock()
     private var cachedRecords: [DetachedAgentJournalRecord]
     private var nextSequence: UInt64
 
-    init(rootDirectoryURL: URL, runID: UUID) throws {
+    init(rootDirectoryURL: URL, runID: UUID, attemptID: UUID) throws {
         self.runID = runID
-        directoryURL = rootDirectoryURL
-            .appendingPathComponent(runID.uuidString.lowercased(), isDirectory: true)
+        self.attemptID = attemptID
+        let runDirectoryURL = DetachedAgentRuntimePaths.runDirectoryURL(
+            rootDirectoryURL: rootDirectoryURL,
+            runID: runID
+        )
+        directoryURL = DetachedAgentRuntimePaths.attemptDirectoryURL(
+            rootDirectoryURL: rootDirectoryURL,
+            runID: runID,
+            attemptID: attemptID
+        )
         journalFileURL = directoryURL.appendingPathComponent("events.jsonl", isDirectory: false)
 
         try DetachedAgentSecureFiles.ensureDirectory(rootDirectoryURL)
+        try DetachedAgentSecureFiles.ensureDirectory(runDirectoryURL)
         try DetachedAgentSecureFiles.ensureDirectory(directoryURL)
+        writerLease = try DetachedAgentExclusiveFileLease(
+            fileURL: directoryURL.appendingPathComponent("journal-writer.lock")
+        )
         try DetachedAgentSecureFiles.ensureFile(journalFileURL)
 
         let recoveredRecords = try Self.loadAndRecover(
             journalFileURL: journalFileURL,
-            expectedRunID: runID
+            expectedRunID: runID,
+            expectedAttemptID: attemptID,
+            truncateIncompleteFinalRecord: true
         )
         cachedRecords = recoveredRecords
         if let lastSequence = recoveredRecords.last?.sequence {
@@ -151,6 +210,12 @@ nonisolated final class DetachedAgentRuntimeJournal {
                 actual: envelope.runID
             )
         }
+        guard envelope.attemptID == attemptID else {
+            throw DetachedAgentPersistenceError.attemptIDMismatch(
+                expected: attemptID,
+                actual: envelope.attemptID
+            )
+        }
         guard nextSequence > 0 else {
             throw DetachedAgentPersistenceError.sequenceExhausted
         }
@@ -160,12 +225,7 @@ nonisolated final class DetachedAgentRuntimeJournal {
         var line = encodedRecord
         line.append(0x0A)
 
-        let fileHandle = try FileHandle(forWritingTo: journalFileURL)
-        defer { try? fileHandle.close() }
-        try fileHandle.seekToEnd()
-        try fileHandle.write(contentsOf: line)
-        try fileHandle.synchronize()
-        try DetachedAgentSecureFiles.setPermissions(0o600, at: journalFileURL)
+        try DetachedAgentSecureFiles.appendDurably(line, to: journalFileURL)
 
         cachedRecords.append(record)
         if nextSequence == UInt64.max {
@@ -178,9 +238,11 @@ nonisolated final class DetachedAgentRuntimeJournal {
 
     private static func loadAndRecover(
         journalFileURL: URL,
-        expectedRunID: UUID
+        expectedRunID: UUID,
+        expectedAttemptID: UUID,
+        truncateIncompleteFinalRecord: Bool
     ) throws -> [DetachedAgentJournalRecord] {
-        var data = try Data(contentsOf: journalFileURL)
+        var data = try DetachedAgentSecureFiles.readRegularFile(journalFileURL)
         if !data.isEmpty, data.last != 0x0A {
             let recoveredLength: Int
             if let lastNewlineIndex = data.lastIndex(of: 0x0A) {
@@ -192,10 +254,12 @@ nonisolated final class DetachedAgentRuntimeJournal {
                 recoveredLength = 0
             }
 
-            let fileHandle = try FileHandle(forWritingTo: journalFileURL)
-            defer { try? fileHandle.close() }
-            try fileHandle.truncate(atOffset: UInt64(recoveredLength))
-            try fileHandle.synchronize()
+            if truncateIncompleteFinalRecord {
+                try DetachedAgentSecureFiles.truncateDurably(
+                    journalFileURL,
+                    to: UInt64(recoveredLength)
+                )
+            }
             data = data.prefix(recoveredLength)
         }
 
@@ -228,6 +292,12 @@ nonisolated final class DetachedAgentRuntimeJournal {
                     actual: record.runID
                 )
             }
+            guard record.attemptID == expectedAttemptID else {
+                throw DetachedAgentPersistenceError.attemptIDMismatch(
+                    expected: expectedAttemptID,
+                    actual: record.attemptID
+                )
+            }
             if let previousSequence, record.sequence <= previousSequence {
                 throw DetachedAgentPersistenceError.nonMonotonicSequence(
                     previous: previousSequence,
@@ -238,6 +308,35 @@ nonisolated final class DetachedAgentRuntimeJournal {
             records.append(record)
         }
         return records
+    }
+
+    /// Reads a live runner's journal without acquiring its writer lease and
+    /// without truncating an in-progress final JSONL record.
+    static func loadReadOnly(
+        rootDirectoryURL: URL,
+        runID: UUID,
+        attemptID: UUID
+    ) throws -> [DetachedAgentJournalRecord] {
+        let runDirectoryURL = DetachedAgentRuntimePaths.runDirectoryURL(
+            rootDirectoryURL: rootDirectoryURL,
+            runID: runID
+        )
+        let attemptDirectoryURL = DetachedAgentRuntimePaths.attemptDirectoryURL(
+            rootDirectoryURL: rootDirectoryURL,
+            runID: runID,
+            attemptID: attemptID
+        )
+        let fileURL = attemptDirectoryURL.appendingPathComponent("events.jsonl", isDirectory: false)
+        guard DetachedAgentSecureFiles.pathExistsWithoutFollowingLinks(fileURL) else { return [] }
+        try DetachedAgentSecureFiles.validateDirectory(rootDirectoryURL)
+        try DetachedAgentSecureFiles.validateDirectory(runDirectoryURL)
+        try DetachedAgentSecureFiles.validateDirectory(attemptDirectoryURL)
+        return try loadAndRecover(
+            journalFileURL: fileURL,
+            expectedRunID: runID,
+            expectedAttemptID: attemptID,
+            truncateIncompleteFinalRecord: false
+        )
     }
 
     fileprivate static func makeEncoder() -> JSONEncoder {
@@ -256,33 +355,92 @@ nonisolated final class DetachedAgentRuntimeJournal {
 
 nonisolated final class DetachedAgentDurableStateStore {
     let runID: UUID
+    let attemptID: UUID
     let directoryURL: URL
     let stateFileURL: URL
+    private let writerLease: DetachedAgentExclusiveFileLease
 
-    init(rootDirectoryURL: URL, runID: UUID) throws {
+    init(rootDirectoryURL: URL, runID: UUID, attemptID: UUID) throws {
         self.runID = runID
-        directoryURL = rootDirectoryURL
-            .appendingPathComponent(runID.uuidString.lowercased(), isDirectory: true)
+        self.attemptID = attemptID
+        let runDirectoryURL = DetachedAgentRuntimePaths.runDirectoryURL(
+            rootDirectoryURL: rootDirectoryURL,
+            runID: runID
+        )
+        directoryURL = DetachedAgentRuntimePaths.attemptDirectoryURL(
+            rootDirectoryURL: rootDirectoryURL,
+            runID: runID,
+            attemptID: attemptID
+        )
         stateFileURL = directoryURL.appendingPathComponent("state.json", isDirectory: false)
         try DetachedAgentSecureFiles.ensureDirectory(rootDirectoryURL)
+        try DetachedAgentSecureFiles.ensureDirectory(runDirectoryURL)
         try DetachedAgentSecureFiles.ensureDirectory(directoryURL)
+        writerLease = try DetachedAgentExclusiveFileLease(
+            fileURL: directoryURL.appendingPathComponent("state-writer.lock")
+        )
     }
 
     func load() throws -> DetachedAgentDurableState? {
-        guard FileManager.default.fileExists(atPath: stateFileURL.path) else { return nil }
+        try Self.loadState(
+            stateFileURL: stateFileURL,
+            expectedRunID: runID,
+            expectedAttemptID: attemptID
+        )
+    }
+
+    static func loadReadOnly(
+        rootDirectoryURL: URL,
+        runID: UUID,
+        attemptID: UUID
+    ) throws -> DetachedAgentDurableState? {
+        let runDirectoryURL = DetachedAgentRuntimePaths.runDirectoryURL(
+            rootDirectoryURL: rootDirectoryURL,
+            runID: runID
+        )
+        let attemptDirectoryURL = DetachedAgentRuntimePaths.attemptDirectoryURL(
+            rootDirectoryURL: rootDirectoryURL,
+            runID: runID,
+            attemptID: attemptID
+        )
+        let stateFileURL = attemptDirectoryURL.appendingPathComponent("state.json", isDirectory: false)
+        guard DetachedAgentSecureFiles.pathExistsWithoutFollowingLinks(stateFileURL) else { return nil }
+        try DetachedAgentSecureFiles.validateDirectory(rootDirectoryURL)
+        try DetachedAgentSecureFiles.validateDirectory(runDirectoryURL)
+        try DetachedAgentSecureFiles.validateDirectory(attemptDirectoryURL)
+        return try loadState(
+            stateFileURL: stateFileURL,
+            expectedRunID: runID,
+            expectedAttemptID: attemptID
+        )
+    }
+
+    private static func loadState(
+        stateFileURL: URL,
+        expectedRunID: UUID,
+        expectedAttemptID: UUID
+    ) throws -> DetachedAgentDurableState? {
+        guard DetachedAgentSecureFiles.pathExistsWithoutFollowingLinks(stateFileURL) else { return nil }
         let state = try DetachedAgentRuntimeJournal.makeDecoder().decode(
             DetachedAgentDurableState.self,
-            from: Data(contentsOf: stateFileURL)
+            from: DetachedAgentSecureFiles.readRegularFile(stateFileURL)
         )
         guard state.schemaVersion == DetachedAgentRuntimeProtocol.currentSchemaVersion else {
             throw DetachedAgentPersistenceError.unsupportedSchemaVersion(state.schemaVersion)
         }
-        guard state.runID == runID else {
+        guard state.runID == expectedRunID else {
             throw DetachedAgentPersistenceError.runIDMismatch(
-                expected: runID,
+                expected: expectedRunID,
                 actual: state.runID
             )
         }
+        guard state.attemptID == expectedAttemptID else {
+            throw DetachedAgentPersistenceError.attemptIDMismatch(
+                expected: expectedAttemptID,
+                actual: state.attemptID
+            )
+        }
+        try validateProcessOwnership(in: state)
         return state
     }
 
@@ -296,11 +454,41 @@ nonisolated final class DetachedAgentDurableStateStore {
                 actual: state.runID
             )
         }
+        guard state.attemptID == attemptID else {
+            throw DetachedAgentPersistenceError.attemptIDMismatch(
+                expected: attemptID,
+                actual: state.attemptID
+            )
+        }
+        try Self.validateProcessOwnership(in: state)
 
         let data = try DetachedAgentRuntimeJournal.makeEncoder().encode(
             state.sanitizedForPersistence()
         )
         try DetachedAgentSecureFiles.atomicDurableWrite(data, to: stateFileURL)
+    }
+
+    private static func validateProcessOwnership(
+        in state: DetachedAgentDurableState
+    ) throws {
+        if let runnerIdentity = state.runnerIdentity,
+           !AgentProcessIdentityInspector.isTrustworthy(runnerIdentity) {
+            throw DetachedAgentPersistenceError.invalidPersistencePath(
+                "Untrustworthy runner process identity"
+            )
+        }
+        if let childIdentity = state.childIdentity,
+           !AgentProcessIdentityInspector.isTrustworthy(childIdentity) {
+            throw DetachedAgentPersistenceError.invalidPersistencePath(
+                "Untrustworthy child process identity"
+            )
+        }
+        if let childProcessGroupID = state.childProcessGroupID {
+            guard childProcessGroupID > 1,
+                  state.childIdentity?.pid == childProcessGroupID else {
+                throw DetachedAgentPersistenceError.invalidProcessGroupIdentity
+            }
+        }
     }
 }
 
@@ -336,46 +524,218 @@ nonisolated private enum DetachedAgentSecretRedactor {
     }
 }
 
-nonisolated private enum DetachedAgentSecureFiles {
-    static func ensureDirectory(_ url: URL) throws {
-        var isDirectory: ObjCBool = false
-        let exists = FileManager.default.fileExists(
-            atPath: url.path,
-            isDirectory: &isDirectory
-        )
-        if exists, !isDirectory.boolValue {
-            throw DetachedAgentPersistenceError.invalidPersistencePath(url.path)
+nonisolated final class DetachedAgentExclusiveFileLease: @unchecked Sendable {
+    private static let registry = Registry()
+
+    private let descriptor: Int32
+    private let path: String
+
+    init(fileURL: URL) throws {
+        let path = fileURL.standardizedFileURL.path
+        guard Self.registry.acquire(path) else {
+            throw DetachedAgentPersistenceError.writerAlreadyActive(path)
         }
-        if !exists {
+        var keepsRegistryLease = false
+        defer {
+            if !keepsRegistryLease { Self.registry.release(path) }
+        }
+        try DetachedAgentSecureFiles.ensureFile(fileURL)
+        let descriptor = fileURL.path.withCString {
+            Darwin.open($0, O_RDWR | O_CLOEXEC | O_NOFOLLOW)
+        }
+        guard descriptor >= 0 else {
+            throw DetachedAgentSecureFiles.posixError(operation: "open writer lease")
+        }
+        guard Self.setLock(descriptor: descriptor, type: F_WRLCK) == 0 else {
+            let code = errno
+            Darwin.close(descriptor)
+            if code == EWOULDBLOCK || code == EAGAIN {
+                throw DetachedAgentPersistenceError.writerAlreadyActive(fileURL.path)
+            }
+            throw DetachedAgentPersistenceError.posixFailure(
+                operation: "lock writer lease",
+                code: code
+            )
+        }
+        self.descriptor = descriptor
+        self.path = path
+        keepsRegistryLease = true
+    }
+
+    deinit {
+        _ = Self.setLock(descriptor: descriptor, type: F_UNLCK)
+        Darwin.close(descriptor)
+        Self.registry.release(path)
+    }
+
+    private static func setLock(descriptor: Int32, type: Int32) -> Int32 {
+        var fileLock = flock()
+        fileLock.l_type = Int16(type)
+        fileLock.l_whence = Int16(SEEK_SET)
+        fileLock.l_start = 0
+        fileLock.l_len = 0
+        return Darwin.fcntl(descriptor, F_SETLK, &fileLock)
+    }
+
+    private final class Registry: @unchecked Sendable {
+        private let lock = NSLock()
+        private var paths: Set<String> = []
+
+        func acquire(_ path: String) -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return paths.insert(path).inserted
+        }
+
+        func release(_ path: String) {
+            lock.lock()
+            paths.remove(path)
+            lock.unlock()
+        }
+    }
+}
+
+nonisolated enum DetachedAgentSecureFiles {
+    private static let expectedOwner = UInt32(getuid())
+
+    static func pathExistsWithoutFollowingLinks(_ url: URL) -> Bool {
+        var information = stat()
+        let result = url.path.withCString { Darwin.lstat($0, &information) }
+        return result == 0
+    }
+
+    static func ensureDirectory(_ url: URL) throws {
+        var information = stat()
+        let status = url.path.withCString { Darwin.lstat($0, &information) }
+        if status != 0 {
+            guard errno == ENOENT else { throw posixError(operation: "lstat directory") }
             try FileManager.default.createDirectory(
                 at: url,
                 withIntermediateDirectories: true,
                 attributes: [.posixPermissions: 0o700]
             )
         }
-        try setPermissions(0o700, at: url)
+
+        let descriptor = url.path.withCString {
+            Darwin.open($0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        }
+        guard descriptor >= 0 else {
+            if errno == ELOOP { throw DetachedAgentPersistenceError.unsafeSymbolicLink(url.path) }
+            throw posixError(operation: "open directory")
+        }
+        defer { Darwin.close(descriptor) }
+        let existing = try validatedInformation(
+            descriptor: descriptor,
+            path: url.path,
+            expectedType: mode_t(S_IFDIR)
+        )
+        guard Darwin.fchmod(descriptor, 0o700) == 0 else {
+            throw posixError(operation: "chmod directory")
+        }
+        _ = existing
+    }
+
+    /// Read-only validation used before recovery follows a runtime hierarchy.
+    /// Unlike `ensureDirectory`, this never repairs permissions or creates a
+    /// missing component.
+    static func validateDirectory(_ url: URL) throws {
+        let descriptor = url.path.withCString {
+            Darwin.open($0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        }
+        guard descriptor >= 0 else {
+            if errno == ELOOP { throw DetachedAgentPersistenceError.unsafeSymbolicLink(url.path) }
+            throw posixError(operation: "open directory for validation")
+        }
+        defer { Darwin.close(descriptor) }
+        let information = try validatedInformation(
+            descriptor: descriptor,
+            path: url.path,
+            expectedType: mode_t(S_IFDIR)
+        )
+        try requirePermissions(information, expected: 0o700, path: url.path)
     }
 
     static func ensureFile(_ url: URL) throws {
-        var isDirectory: ObjCBool = false
-        let exists = FileManager.default.fileExists(
-            atPath: url.path,
-            isDirectory: &isDirectory
+        let descriptor = url.path.withCString {
+            Darwin.open($0, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0o600)
+        }
+        guard descriptor >= 0 else {
+            if errno == ELOOP { throw DetachedAgentPersistenceError.unsafeSymbolicLink(url.path) }
+            throw posixError(operation: "open file")
+        }
+        defer { Darwin.close(descriptor) }
+        _ = try validatedInformation(
+            descriptor: descriptor,
+            path: url.path,
+            expectedType: mode_t(S_IFREG)
         )
-        if exists, isDirectory.boolValue {
-            throw DetachedAgentPersistenceError.invalidPersistencePath(url.path)
+        guard Darwin.fchmod(descriptor, 0o600) == 0 else {
+            throw posixError(operation: "chmod file")
         }
-        if !exists {
-            guard FileManager.default.createFile(
-                atPath: url.path,
-                contents: Data(),
-                attributes: [.posixPermissions: 0o600]
-            ) else {
-                throw DetachedAgentPersistenceError.invalidPersistencePath(url.path)
-            }
-            try synchronizeDirectory(url.deletingLastPathComponent())
+        try synchronizeDirectory(url.deletingLastPathComponent())
+    }
+
+    static func readRegularFile(_ url: URL) throws -> Data {
+        let descriptor = url.path.withCString {
+            Darwin.open($0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
         }
-        try setPermissions(0o600, at: url)
+        guard descriptor >= 0 else {
+            if errno == ELOOP { throw DetachedAgentPersistenceError.unsafeSymbolicLink(url.path) }
+            throw posixError(operation: "open file for reading")
+        }
+        do {
+            let information = try validatedInformation(
+                descriptor: descriptor,
+                path: url.path,
+                expectedType: mode_t(S_IFREG)
+            )
+            try requirePermissions(information, expected: 0o600, path: url.path)
+            let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+            return try handle.readToEnd() ?? Data()
+        } catch {
+            Darwin.close(descriptor)
+            throw error
+        }
+    }
+
+    static func appendDurably(_ data: Data, to url: URL) throws {
+        let descriptor = url.path.withCString {
+            Darwin.open($0, O_WRONLY | O_APPEND | O_CLOEXEC | O_NOFOLLOW)
+        }
+        guard descriptor >= 0 else {
+            if errno == ELOOP { throw DetachedAgentPersistenceError.unsafeSymbolicLink(url.path) }
+            throw posixError(operation: "open journal for append")
+        }
+        defer { Darwin.close(descriptor) }
+        _ = try validatedInformation(
+            descriptor: descriptor,
+            path: url.path,
+            expectedType: mode_t(S_IFREG)
+        )
+        try writeAll(data, descriptor: descriptor)
+        guard Darwin.fsync(descriptor) == 0 else { throw posixError(operation: "fsync journal") }
+    }
+
+    static func truncateDurably(_ url: URL, to length: UInt64) throws {
+        let descriptor = url.path.withCString {
+            Darwin.open($0, O_WRONLY | O_CLOEXEC | O_NOFOLLOW)
+        }
+        guard descriptor >= 0 else {
+            if errno == ELOOP { throw DetachedAgentPersistenceError.unsafeSymbolicLink(url.path) }
+            throw posixError(operation: "open journal for recovery")
+        }
+        defer { Darwin.close(descriptor) }
+        _ = try validatedInformation(
+            descriptor: descriptor,
+            path: url.path,
+            expectedType: mode_t(S_IFREG)
+        )
+        guard Darwin.ftruncate(descriptor, off_t(length)) == 0 else {
+            throw posixError(operation: "truncate journal")
+        }
+        guard Darwin.fsync(descriptor) == 0 else {
+            throw posixError(operation: "fsync recovered journal")
+        }
     }
 
     static func atomicDurableWrite(_ data: Data, to destinationURL: URL) throws {
@@ -385,26 +745,40 @@ nonisolated private enum DetachedAgentSecureFiles {
             ".\(destinationURL.lastPathComponent).\(UUID().uuidString).tmp",
             isDirectory: false
         )
-        defer { try? FileManager.default.removeItem(at: temporaryURL) }
+        defer { _ = temporaryURL.path.withCString { Darwin.unlink($0) } }
 
-        guard FileManager.default.createFile(
-            atPath: temporaryURL.path,
-            contents: nil,
-            attributes: [.posixPermissions: 0o600]
-        ) else {
-            throw DetachedAgentPersistenceError.invalidPersistencePath(temporaryURL.path)
+        if pathExistsWithoutFollowingLinks(destinationURL) {
+            let descriptor = destinationURL.path.withCString {
+                Darwin.open($0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+            }
+            guard descriptor >= 0 else {
+                if errno == ELOOP {
+                    throw DetachedAgentPersistenceError.unsafeSymbolicLink(destinationURL.path)
+                }
+                throw posixError(operation: "validate atomic destination")
+            }
+            defer { Darwin.close(descriptor) }
+            _ = try validatedInformation(
+                descriptor: descriptor,
+                path: destinationURL.path,
+                expectedType: mode_t(S_IFREG)
+            )
         }
 
-        let fileHandle = try FileHandle(forWritingTo: temporaryURL)
+        let temporaryDescriptor = temporaryURL.path.withCString {
+            Darwin.open($0, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0o600)
+        }
+        guard temporaryDescriptor >= 0 else { throw posixError(operation: "create atomic temporary file") }
         do {
-            try fileHandle.write(contentsOf: data)
-            try fileHandle.synchronize()
-            try fileHandle.close()
+            try writeAll(data, descriptor: temporaryDescriptor)
+            guard Darwin.fsync(temporaryDescriptor) == 0 else {
+                throw posixError(operation: "fsync atomic temporary file")
+            }
+            Darwin.close(temporaryDescriptor)
         } catch {
-            try? fileHandle.close()
+            Darwin.close(temporaryDescriptor)
             throw error
         }
-        try setPermissions(0o600, at: temporaryURL)
 
         let renameResult = temporaryURL.path.withCString { temporaryPath in
             destinationURL.path.withCString { destinationPath in
@@ -414,22 +788,137 @@ nonisolated private enum DetachedAgentSecureFiles {
         guard renameResult == 0 else {
             throw posixError(operation: "rename")
         }
-        try setPermissions(0o600, at: destinationURL)
+        let destinationDescriptor = destinationURL.path.withCString {
+            Darwin.open($0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        }
+        guard destinationDescriptor >= 0 else {
+            throw posixError(operation: "open atomic destination")
+        }
+        defer { Darwin.close(destinationDescriptor) }
+        _ = try validatedInformation(
+            descriptor: destinationDescriptor,
+            path: destinationURL.path,
+            expectedType: mode_t(S_IFREG)
+        )
         try synchronizeDirectory(directoryURL)
     }
 
-    static func setPermissions(_ permissions: Int, at url: URL) throws {
-        let result = url.path.withCString { path in
-            Darwin.chmod(path, mode_t(permissions))
+    /// Publishes a fully synchronized file only when the destination does not
+    /// already exist. A hard link makes the completed temporary inode visible
+    /// atomically and gives command message IDs natural collision protection.
+    static func atomicDurableCreate(_ data: Data, at destinationURL: URL) throws -> Bool {
+        let directoryURL = destinationURL.deletingLastPathComponent()
+        try ensureDirectory(directoryURL)
+        let temporaryURL = directoryURL.appendingPathComponent(
+            ".\(destinationURL.lastPathComponent).\(UUID().uuidString).tmp",
+            isDirectory: false
+        )
+        defer { _ = temporaryURL.path.withCString { Darwin.unlink($0) } }
+
+        let descriptor = temporaryURL.path.withCString {
+            Darwin.open($0, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0o600)
         }
-        guard result == 0 else {
-            throw posixError(operation: "chmod")
+        guard descriptor >= 0 else { throw posixError(operation: "create atomic inbox file") }
+        do {
+            try writeAll(data, descriptor: descriptor)
+            guard Darwin.fsync(descriptor) == 0 else {
+                throw posixError(operation: "fsync atomic inbox file")
+            }
+            Darwin.close(descriptor)
+        } catch {
+            Darwin.close(descriptor)
+            throw error
+        }
+
+        let linkResult = temporaryURL.path.withCString { temporaryPath in
+            destinationURL.path.withCString { destinationPath in
+                Darwin.link(temporaryPath, destinationPath)
+            }
+        }
+        if linkResult != 0 {
+            if errno == EEXIST { return false }
+            throw posixError(operation: "publish atomic inbox file")
+        }
+        try synchronizeDirectory(directoryURL)
+        return true
+    }
+
+    static func removeRegularFileDurably(_ url: URL) throws {
+        let descriptor = url.path.withCString {
+            Darwin.open($0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        }
+        guard descriptor >= 0 else {
+            if errno == ELOOP { throw DetachedAgentPersistenceError.unsafeSymbolicLink(url.path) }
+            if errno == ENOENT { return }
+            throw posixError(operation: "open file for removal")
+        }
+        defer { Darwin.close(descriptor) }
+        _ = try validatedInformation(
+            descriptor: descriptor,
+            path: url.path,
+            expectedType: mode_t(S_IFREG)
+        )
+        guard url.path.withCString({ Darwin.unlink($0) }) == 0 else {
+            if errno == ENOENT { return }
+            throw posixError(operation: "remove file")
+        }
+        try synchronizeDirectory(url.deletingLastPathComponent())
+    }
+
+    private static func validatedInformation(
+        descriptor: Int32,
+        path: String,
+        expectedType: mode_t
+    ) throws -> stat {
+        var information = stat()
+        guard Darwin.fstat(descriptor, &information) == 0 else {
+            throw posixError(operation: "fstat")
+        }
+        let actualType = information.st_mode & mode_t(S_IFMT)
+        guard actualType == expectedType else {
+            throw DetachedAgentPersistenceError.wrongFileType(path)
+        }
+        guard information.st_uid == expectedOwner else {
+            throw DetachedAgentPersistenceError.wrongFileOwner(
+                path: path,
+                expected: expectedOwner,
+                actual: information.st_uid
+            )
+        }
+        return information
+    }
+
+    private static func requirePermissions(_ information: stat, expected: Int, path: String) throws {
+        let actual = Int(information.st_mode & 0o777)
+        guard actual == expected else {
+            throw DetachedAgentPersistenceError.insecureFilePermissions(
+                path: path,
+                expected: expected,
+                actual: actual
+            )
         }
     }
 
-    private static func synchronizeDirectory(_ url: URL) throws {
+    private static func writeAll(_ data: Data, descriptor: Int32) throws {
+        try data.withUnsafeBytes { bytes in
+            guard let baseAddress = bytes.baseAddress else { return }
+            var writtenByteCount = 0
+            while writtenByteCount < bytes.count {
+                let result = Darwin.write(
+                    descriptor,
+                    baseAddress.advanced(by: writtenByteCount),
+                    bytes.count - writtenByteCount
+                )
+                if result < 0, errno == EINTR { continue }
+                guard result > 0 else { throw posixError(operation: "write") }
+                writtenByteCount += result
+            }
+        }
+    }
+
+    static func synchronizeDirectory(_ url: URL) throws {
         let descriptor = url.path.withCString { path in
-            Darwin.open(path, O_RDONLY)
+            Darwin.open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
         }
         guard descriptor >= 0 else {
             throw posixError(operation: "open directory")
@@ -440,7 +929,7 @@ nonisolated private enum DetachedAgentSecureFiles {
         }
     }
 
-    private static func posixError(operation: String) -> DetachedAgentPersistenceError {
+    static func posixError(operation: String) -> DetachedAgentPersistenceError {
         DetachedAgentPersistenceError.posixFailure(operation: operation, code: errno)
     }
 }

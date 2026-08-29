@@ -34,4 +34,26 @@ struct AgentProcessIdentityTests {
     @Test func invalidPIDHasNoIdentity() {
         #expect(AgentProcessIdentityInspector.identity(for: -1) == nil)
     }
+
+    @Test func unknownBootIdentityFailsClosed() throws {
+        let identity = try #require(AgentProcessIdentityInspector.identity(for: getpid()))
+        let untrusted = AgentProcessIdentity(
+            pid: identity.pid,
+            startSeconds: identity.startSeconds,
+            startMicroseconds: identity.startMicroseconds,
+            executablePath: identity.executablePath,
+            uid: identity.uid,
+            bootSessionID: "unknown"
+        )
+        #expect(!AgentProcessIdentityInspector.isTrustworthy(untrusted))
+        #expect(!AgentProcessIdentityInspector.matchesLiveProcess(untrusted))
+    }
+
+    @Test func mismatchedProcessGroupIsRejected() throws {
+        let identity = try #require(AgentProcessIdentityInspector.identity(for: getpid()))
+        #expect(!AgentProcessIdentityInspector.matchesLiveProcessGroup(
+            leader: identity,
+            processGroupID: identity.pid + 1
+        ))
+    }
 }

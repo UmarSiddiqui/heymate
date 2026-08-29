@@ -9,7 +9,7 @@
 import Darwin
 import Foundation
 
-nonisolated struct AgentProcessIdentity: Codable, Equatable {
+nonisolated struct AgentProcessIdentity: Codable, Equatable, Sendable {
     let pid: Int32
     let startSeconds: UInt64
     let startMicroseconds: UInt64
@@ -36,29 +36,53 @@ nonisolated enum AgentProcessIdentityInspector {
         }
         guard pathLength > 0 else { return nil }
 
+        guard let bootSessionID = bootSessionID() else { return nil }
+
         return AgentProcessIdentity(
             pid: pid,
             startSeconds: processInfo.pbi_start_tvsec,
             startMicroseconds: processInfo.pbi_start_tvusec,
             executablePath: String(cString: pathBuffer),
             uid: UInt32(processInfo.pbi_uid),
-            bootSessionID: bootSessionID()
+            bootSessionID: bootSessionID
         )
     }
 
     static func matchesLiveProcess(_ expected: AgentProcessIdentity) -> Bool {
-        guard kill(expected.pid, 0) == 0 || errno == EPERM,
+        guard isTrustworthy(expected),
+              kill(expected.pid, 0) == 0 || errno == EPERM,
               let current = identity(for: expected.pid) else { return false }
         return current == expected
     }
 
-    private static func bootSessionID() -> String {
+    /// Process groups are safe signal targets only when the recorded child is
+    /// still the group leader and its complete PID-reuse-resistant identity
+    /// matches. Never signal a persisted negative PID without this check.
+    static func matchesLiveProcessGroup(
+        leader expected: AgentProcessIdentity,
+        processGroupID: Int32
+    ) -> Bool {
+        guard processGroupID > 1,
+              expected.pid == processGroupID,
+              matchesLiveProcess(expected) else { return false }
+        return getpgid(expected.pid) == processGroupID
+    }
+
+    static func isTrustworthy(_ identity: AgentProcessIdentity) -> Bool {
+        identity.pid > 1
+            && identity.uid == UInt32(getuid())
+            && identity.executablePath.hasPrefix("/")
+            && !identity.bootSessionID.isEmpty
+            && identity.bootSessionID != "unknown"
+    }
+
+    private static func bootSessionID() -> String? {
         var bootTime = timeval()
         var size = MemoryLayout<timeval>.size
         let result = withUnsafeMutablePointer(to: &bootTime) { pointer in
             sysctlbyname("kern.boottime", pointer, &size, nil, 0)
         }
-        guard result == 0 else { return "unknown" }
+        guard result == 0 else { return nil }
         return "\(bootTime.tv_sec).\(bootTime.tv_usec)"
     }
 }
