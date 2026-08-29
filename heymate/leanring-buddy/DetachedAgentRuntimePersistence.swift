@@ -16,6 +16,9 @@ nonisolated enum DetachedAgentPersistenceError: Error, Equatable {
     case corruptJournalRecord(line: Int)
     case nonMonotonicSequence(previous: UInt64, current: UInt64)
     case sequenceExhausted
+    case artifactTooLarge(path: String, maximumBytes: UInt64, actualBytes: UInt64)
+    case journalRecordTooLarge(maximumBytes: Int, actualBytes: Int)
+    case journalRecordLimitExceeded(maximumRecords: Int, actualRecords: Int)
     case invalidPersistencePath(String)
     case unsafeSymbolicLink(String)
     case wrongFileOwner(path: String, expected: UInt32, actual: UInt32)
@@ -24,6 +27,35 @@ nonisolated enum DetachedAgentPersistenceError: Error, Equatable {
     case writerAlreadyActive(String)
     case invalidProcessGroupIdentity
     case posixFailure(operation: String, code: Int32)
+}
+
+/// Hard ceiling for one detached attempt's append-only journal. Keeping these
+/// limits together makes both writer and recovery readers enforce identical
+/// disk and memory bounds.
+nonisolated struct DetachedAgentJournalLimits: Equatable, Sendable {
+    static let standard = Self(
+        maximumFileByteCount: 8 * 1_024 * 1_024,
+        maximumRecordByteCount: 16 * 1_024,
+        maximumRecordCount: 10_000
+    )
+
+    let maximumFileByteCount: UInt64
+    let maximumRecordByteCount: Int
+    let maximumRecordCount: Int
+
+    init(
+        maximumFileByteCount: UInt64,
+        maximumRecordByteCount: Int,
+        maximumRecordCount: Int
+    ) {
+        precondition(maximumFileByteCount > 0)
+        precondition(maximumFileByteCount <= UInt64(Int.max))
+        precondition(maximumRecordByteCount > 0)
+        precondition(maximumRecordCount > 0)
+        self.maximumFileByteCount = maximumFileByteCount
+        self.maximumRecordByteCount = maximumRecordByteCount
+        self.maximumRecordCount = maximumRecordCount
+    }
 }
 
 /// Narrow durable snapshot. Prompts, CLI arguments, environment variables,
@@ -147,13 +179,20 @@ nonisolated final class DetachedAgentRuntimeJournal {
     let journalFileURL: URL
 
     private let writerLease: DetachedAgentExclusiveFileLease
+    private let limits: DetachedAgentJournalLimits
     private let lock = NSLock()
     private var cachedRecords: [DetachedAgentJournalRecord]
     private var nextSequence: UInt64
 
-    init(rootDirectoryURL: URL, runID: UUID, attemptID: UUID) throws {
+    init(
+        rootDirectoryURL: URL,
+        runID: UUID,
+        attemptID: UUID,
+        limits: DetachedAgentJournalLimits = .standard
+    ) throws {
         self.runID = runID
         self.attemptID = attemptID
+        self.limits = limits
         let runDirectoryURL = DetachedAgentRuntimePaths.runDirectoryURL(
             rootDirectoryURL: rootDirectoryURL,
             runID: runID
@@ -177,7 +216,8 @@ nonisolated final class DetachedAgentRuntimeJournal {
             journalFileURL: journalFileURL,
             expectedRunID: runID,
             expectedAttemptID: attemptID,
-            truncateIncompleteFinalRecord: true
+            truncateIncompleteFinalRecord: true,
+            limits: limits
         )
         cachedRecords = recoveredRecords
         if let lastSequence = recoveredRecords.last?.sequence {
@@ -219,13 +259,29 @@ nonisolated final class DetachedAgentRuntimeJournal {
         guard nextSequence > 0 else {
             throw DetachedAgentPersistenceError.sequenceExhausted
         }
+        guard cachedRecords.count < limits.maximumRecordCount else {
+            throw DetachedAgentPersistenceError.journalRecordLimitExceeded(
+                maximumRecords: limits.maximumRecordCount,
+                actualRecords: cachedRecords.count + 1
+            )
+        }
 
         let record = DetachedAgentJournalRecord(sequence: nextSequence, envelope: envelope)
         let encodedRecord = try Self.makeEncoder().encode(record)
+        guard encodedRecord.count <= limits.maximumRecordByteCount else {
+            throw DetachedAgentPersistenceError.journalRecordTooLarge(
+                maximumBytes: limits.maximumRecordByteCount,
+                actualBytes: encodedRecord.count
+            )
+        }
         var line = encodedRecord
         line.append(0x0A)
 
-        try DetachedAgentSecureFiles.appendDurably(line, to: journalFileURL)
+        try DetachedAgentSecureFiles.appendDurably(
+            line,
+            to: journalFileURL,
+            maximumFileByteCount: limits.maximumFileByteCount
+        )
 
         cachedRecords.append(record)
         if nextSequence == UInt64.max {
@@ -240,9 +296,13 @@ nonisolated final class DetachedAgentRuntimeJournal {
         journalFileURL: URL,
         expectedRunID: UUID,
         expectedAttemptID: UUID,
-        truncateIncompleteFinalRecord: Bool
+        truncateIncompleteFinalRecord: Bool,
+        limits: DetachedAgentJournalLimits
     ) throws -> [DetachedAgentJournalRecord] {
-        var data = try DetachedAgentSecureFiles.readRegularFile(journalFileURL)
+        var data = try DetachedAgentSecureFiles.readRegularFile(
+            journalFileURL,
+            maximumByteCount: limits.maximumFileByteCount
+        )
         if !data.isEmpty, data.last != 0x0A {
             let recoveredLength: Int
             if let lastNewlineIndex = data.lastIndex(of: 0x0A) {
@@ -265,12 +325,32 @@ nonisolated final class DetachedAgentRuntimeJournal {
 
         guard !data.isEmpty else { return [] }
 
-        let lines = data.split(separator: 0x0A, omittingEmptySubsequences: true)
         var records: [DetachedAgentJournalRecord] = []
-        records.reserveCapacity(lines.count)
+        records.reserveCapacity(min(limits.maximumRecordCount, 256))
         var previousSequence: UInt64?
+        var lineStart = data.startIndex
+        var lineNumber = 0
 
-        for (zeroBasedIndex, line) in lines.enumerated() {
+        while lineStart < data.endIndex {
+            guard let newlineIndex = data[lineStart...].firstIndex(of: 0x0A) else {
+                break
+            }
+            let line = data[lineStart..<newlineIndex]
+            lineStart = data.index(after: newlineIndex)
+            guard !line.isEmpty else { continue }
+            lineNumber += 1
+            guard line.count <= limits.maximumRecordByteCount else {
+                throw DetachedAgentPersistenceError.journalRecordTooLarge(
+                    maximumBytes: limits.maximumRecordByteCount,
+                    actualBytes: line.count
+                )
+            }
+            guard records.count < limits.maximumRecordCount else {
+                throw DetachedAgentPersistenceError.journalRecordLimitExceeded(
+                    maximumRecords: limits.maximumRecordCount,
+                    actualRecords: records.count + 1
+                )
+            }
             let record: DetachedAgentJournalRecord
             do {
                 record = try makeDecoder().decode(
@@ -279,7 +359,7 @@ nonisolated final class DetachedAgentRuntimeJournal {
                 )
             } catch {
                 throw DetachedAgentPersistenceError.corruptJournalRecord(
-                    line: zeroBasedIndex + 1
+                    line: lineNumber
                 )
             }
 
@@ -315,7 +395,8 @@ nonisolated final class DetachedAgentRuntimeJournal {
     static func loadReadOnly(
         rootDirectoryURL: URL,
         runID: UUID,
-        attemptID: UUID
+        attemptID: UUID,
+        limits: DetachedAgentJournalLimits = .standard
     ) throws -> [DetachedAgentJournalRecord] {
         let runDirectoryURL = DetachedAgentRuntimePaths.runDirectoryURL(
             rootDirectoryURL: rootDirectoryURL,
@@ -335,7 +416,8 @@ nonisolated final class DetachedAgentRuntimeJournal {
             journalFileURL: fileURL,
             expectedRunID: runID,
             expectedAttemptID: attemptID,
-            truncateIncompleteFinalRecord: false
+            truncateIncompleteFinalRecord: false,
+            limits: limits
         )
     }
 
@@ -675,7 +757,10 @@ nonisolated enum DetachedAgentSecureFiles {
         try synchronizeDirectory(url.deletingLastPathComponent())
     }
 
-    static func readRegularFile(_ url: URL) throws -> Data {
+    static func readRegularFile(
+        _ url: URL,
+        maximumByteCount: UInt64? = nil
+    ) throws -> Data {
         let descriptor = url.path.withCString {
             Darwin.open($0, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
         }
@@ -690,15 +775,70 @@ nonisolated enum DetachedAgentSecureFiles {
                 expectedType: mode_t(S_IFREG)
             )
             try requirePermissions(information, expected: 0o600, path: url.path)
-            let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-            return try handle.readToEnd() ?? Data()
+            guard information.st_size >= 0 else {
+                throw DetachedAgentPersistenceError.posixFailure(
+                    operation: "negative file size",
+                    code: EIO
+                )
+            }
+            let existingByteCount = UInt64(information.st_size)
+            if let maximumByteCount, existingByteCount > maximumByteCount {
+                throw DetachedAgentPersistenceError.artifactTooLarge(
+                    path: url.path,
+                    maximumBytes: maximumByteCount,
+                    actualBytes: existingByteCount
+                )
+            }
+
+            let boundedCapacity = maximumByteCount.map {
+                min(existingByteCount, $0)
+            } ?? existingByteCount
+            var data = Data()
+            data.reserveCapacity(Int(boundedCapacity))
+            var buffer = [UInt8](repeating: 0, count: 64 * 1_024)
+            while true {
+                let requestedByteCount: Int
+                if let maximumByteCount {
+                    let currentByteCount = UInt64(data.count)
+                    guard currentByteCount <= maximumByteCount else {
+                        throw DetachedAgentPersistenceError.artifactTooLarge(
+                            path: url.path,
+                            maximumBytes: maximumByteCount,
+                            actualBytes: currentByteCount
+                        )
+                    }
+                    let remainingThroughSentinel = maximumByteCount - currentByteCount + 1
+                    requestedByteCount = Int(min(UInt64(buffer.count), remainingThroughSentinel))
+                } else {
+                    requestedByteCount = buffer.count
+                }
+
+                let readByteCount = Darwin.read(descriptor, &buffer, requestedByteCount)
+                if readByteCount < 0, errno == EINTR { continue }
+                guard readByteCount >= 0 else { throw posixError(operation: "read file") }
+                guard readByteCount > 0 else { break }
+                data.append(contentsOf: buffer.prefix(readByteCount))
+                if let maximumByteCount, UInt64(data.count) > maximumByteCount {
+                    throw DetachedAgentPersistenceError.artifactTooLarge(
+                        path: url.path,
+                        maximumBytes: maximumByteCount,
+                        actualBytes: UInt64(data.count)
+                    )
+                }
+            }
+            Darwin.close(descriptor)
+            return data
         } catch {
             Darwin.close(descriptor)
             throw error
         }
     }
 
-    static func appendDurably(_ data: Data, to url: URL) throws {
+    static func appendDurably(
+        _ data: Data,
+        to url: URL,
+        maximumFileByteCount: UInt64? = nil
+    ) throws {
         let descriptor = url.path.withCString {
             Darwin.open($0, O_WRONLY | O_APPEND | O_CLOEXEC | O_NOFOLLOW)
         }
@@ -707,11 +847,31 @@ nonisolated enum DetachedAgentSecureFiles {
             throw posixError(operation: "open journal for append")
         }
         defer { Darwin.close(descriptor) }
-        _ = try validatedInformation(
+        let information = try validatedInformation(
             descriptor: descriptor,
             path: url.path,
             expectedType: mode_t(S_IFREG)
         )
+        try requirePermissions(information, expected: 0o600, path: url.path)
+        guard information.st_size >= 0 else {
+            throw DetachedAgentPersistenceError.posixFailure(
+                operation: "negative journal size",
+                code: EIO
+            )
+        }
+        if let maximumFileByteCount {
+            let existingByteCount = UInt64(information.st_size)
+            let appendedByteCount = UInt64(data.count)
+            guard existingByteCount <= maximumFileByteCount,
+                  appendedByteCount <= maximumFileByteCount - existingByteCount else {
+                let actualByteCount = existingByteCount.addingReportingOverflow(appendedByteCount)
+                throw DetachedAgentPersistenceError.artifactTooLarge(
+                    path: url.path,
+                    maximumBytes: maximumFileByteCount,
+                    actualBytes: actualByteCount.overflow ? UInt64.max : actualByteCount.partialValue
+                )
+            }
+        }
         try writeAll(data, descriptor: descriptor)
         guard Darwin.fsync(descriptor) == 0 else { throw posixError(operation: "fsync journal") }
     }
