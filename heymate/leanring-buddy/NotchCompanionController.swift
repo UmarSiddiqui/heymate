@@ -97,6 +97,7 @@ final class NotchCompanionController {
     private var audioPowerCancellable: AnyCancellable?
 
     private var cancellables: Set<AnyCancellable> = []
+    private var screenParametersObserver: NSObjectProtocol?
     private var dismissCardObserver: NSObjectProtocol?
     private var privacyDragBeginObserver: NSObjectProtocol?
     private var privacyDragEndObserver: NSObjectProtocol?
@@ -169,7 +170,7 @@ final class NotchCompanionController {
         // per-window notifications. Collapsing first guarantees neither
         // surface is left parked at a stale frame on a screen that changed
         // underneath it.
-        NotificationCenter.default.addObserver(
+        screenParametersObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
             queue: .main
@@ -233,6 +234,11 @@ final class NotchCompanionController {
         // back), dismissing here orders out every surface before the panel
         // references are dropped.
         cancellables.removeAll()
+        audioPowerCancellable = nil
+        if let screenParametersObserver {
+            NotificationCenter.default.removeObserver(screenParametersObserver)
+            self.screenParametersObserver = nil
+        }
         if let dismissCardObserver {
             NotificationCenter.default.removeObserver(dismissCardObserver)
             self.dismissCardObserver = nil
@@ -624,7 +630,7 @@ final class NotchCompanionController {
 
     /// Built exactly once per panel. The model reference inside is stable,
     /// so nothing here ever needs to be re-created for a state change.
-    private func makePillContentView(occludedTopInset: CGFloat) -> NotchInteractionHostingView<NotchPillView> {
+    private func makePillContentView(occludedTopInset: CGFloat) -> NotchInteractionHostingView {
         pillModel.occludedTopInset = occludedTopInset
         pillModel.hardwareNotchWidth = hardwareNotchWidthForCurrentScreen()
         if let companionManager {
@@ -636,7 +642,9 @@ final class NotchCompanionController {
             pillModel.activity = companionManager.activeNotchActivity
         }
 
-        let hostingView = NotchInteractionHostingView(rootView: NotchPillView(model: pillModel))
+        let hostingView = NotchInteractionHostingView(
+            rootView: AnyView(NotchPillView(model: pillModel))
+        )
         hostingView.clipsToBounds = true
         hostingView.onMouseEnter = { [weak self] in self?.handlePillMouseEnter() }
         hostingView.onMouseExit = { [weak self] in self?.handlePillMouseExit() }
@@ -659,13 +667,14 @@ final class NotchCompanionController {
         companionManager: CompanionManager,
         occludedTopInset: CGFloat,
         layoutSize: CGSize
-    ) -> NotchInteractionHostingView<NotchSurfaceRoot> {
-        let hostingView = NotchInteractionHostingView(rootView: makeSurfaceRootView(
+    ) -> NotchInteractionHostingView {
+        let rootView = makeSurfaceRootView(
             surface: surface,
             companionManager: companionManager,
             occludedTopInset: occludedTopInset,
             layoutSize: layoutSize
-        ))
+        )
+        let hostingView = NotchInteractionHostingView(rootView: AnyView(rootView))
         hostingView.clipsToBounds = true
         hostingView.sizingOptions = []
         hostingView.onMouseEnter = { [weak self] in self?.handleExpandedCardMouseEnter() }
@@ -1213,7 +1222,10 @@ private final class NotchFrameAnimator: NSObject {
 /// NSHostingView doesn't surface mouseEntered/mouseExited, and `.activeAlways`
 /// matters here: a menu-bar-only app is almost never frontmost, and the
 /// notch tab must still respond to hover while another app has focus.
-private final class NotchInteractionHostingView<Content: View>: NSHostingView<Content> {
+/// Type erasure is intentional: optimized universal builds crash the Swift
+/// compiler while synthesizing a generic NSHostingView subclass destructor.
+/// Both roots are built once, so erasure doesn't disturb their model updates.
+private final class NotchInteractionHostingView: NSHostingView<AnyView> {
     var onMouseEnter: (() -> Void)?
     var onMouseExit: (() -> Void)?
 
