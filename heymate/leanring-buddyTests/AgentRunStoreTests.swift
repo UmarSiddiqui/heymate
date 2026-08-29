@@ -514,10 +514,13 @@ struct HeadlessAgentLauncherTests {
         launcher.resolveExecutable = { _ in executableURL }
         launcher.approvePlan(runID: run.id)
 
-        for _ in 0..<100 {
-            if store.run(id: run.id)?.workspaceChangeSummary != nil { break }
-            try await Task.sleep(for: .milliseconds(20))
+        // Receipt scanning and terminal projection are separate asynchronous
+        // work. Wait for both instead of racing whichever one publishes first.
+        let persistedTerminalReceipt = await waitUntil(timeout: .seconds(7)) {
+            guard let current = store.run(id: run.id) else { return false }
+            return current.status == .succeeded && current.workspaceChangeSummary != nil
         }
+        #expect(persistedTerminalReceipt)
 
         let completedRun = try #require(store.run(id: run.id))
         #expect(completedRun.status == .succeeded)

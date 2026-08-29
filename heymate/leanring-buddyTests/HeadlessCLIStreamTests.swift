@@ -156,7 +156,10 @@ struct HeadlessCLIProcessTreeTests {
 
         process.writeToStandardInput(Data("hello".utf8))
 
-        let exited = await waitUntil(timeout: 3) { exitStatus != nil }
+        // A terminal callback waits for the complete process group. Under the
+        // full parallel suite, MainActor scheduling can consume most of the
+        // four-second production cleanup window before this test resumes.
+        let exited = await waitUntil(timeout: 6) { exitStatus != nil }
         #expect(exited)
         #expect(exitStatus == 7)
         let output = try #require(outputLines.first)
