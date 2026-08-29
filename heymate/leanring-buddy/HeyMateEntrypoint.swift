@@ -11,6 +11,9 @@ import SwiftUI
 @main
 nonisolated enum HeyMateEntrypoint {
     static func main() {
+        if let invocation = DetachedAgentRunnerInvocation() {
+            DetachedAgentRunnerProgram.run(invocation: invocation)
+        }
         leanring_buddyApp.main()
     }
 }

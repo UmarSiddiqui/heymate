@@ -23,7 +23,7 @@ import Foundation
 /// Bytes are accumulated rather than `String`s for a second reason: a
 /// multi-byte UTF-8 sequence can straddle a chunk boundary too, and decoding
 /// each chunk on its own returns nil for the whole chunk when it does.
-final class HeadlessCLILineAccumulator: @unchecked Sendable {
+nonisolated final class HeadlessCLILineAccumulator: @unchecked Sendable {
 
     /// A single line longer than this is treated as a runaway rather than
     /// buffered forever. No CLI emits a legitimate 8 MB JSON line.
@@ -92,7 +92,7 @@ final class HeadlessCLILineAccumulator: @unchecked Sendable {
 /// job is concerned, until the runtime timeout kills it. The bound exists
 /// because a chatty CLI would otherwise pin an unbounded buffer in memory for
 /// the life of the run.
-final class HeadlessCLIStandardErrorTail: @unchecked Sendable {
+nonisolated final class HeadlessCLIStandardErrorTail: @unchecked Sendable {
 
     private static let maximumRetainedBytes = 16 * 1024
 
@@ -123,6 +123,77 @@ final class HeadlessCLIStandardErrorTail: @unchecked Sendable {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         return Array(lines.suffix(lineLimit))
+    }
+}
+
+/// Bounded bridge from FileHandle's callback queue to MainActor parsing.
+/// One drain task serves many reads; overflow stops job instead of growing an
+/// unbounded task/line backlog from a malicious or broken CLI.
+nonisolated final class HeadlessCLIOutputDeliveryBuffer: @unchecked Sendable {
+    enum DrainResult {
+        case lines([String])
+        case overflow
+        case finished
+    }
+
+    private static let maximumPendingLines = 512
+    private static let maximumPendingBytes = 2 * 1024 * 1024
+    private static let batchSize = 32
+
+    private let lock = NSLock()
+    private var pendingLines: [String] = []
+    private var pendingBytes = 0
+    private var drainScheduled = false
+    private var didOverflow = false
+    private var deliveredOverflow = false
+
+    /// Returns true only when caller must schedule one MainActor drain.
+    func enqueue(_ lines: [String]) -> Bool {
+        guard !lines.isEmpty else { return false }
+        lock.lock()
+        defer { lock.unlock() }
+        guard !didOverflow else { return false }
+
+        for line in lines {
+            let byteCount = line.utf8.count
+            guard pendingLines.count < Self.maximumPendingLines,
+                  pendingBytes <= Self.maximumPendingBytes - min(
+                    byteCount,
+                    Self.maximumPendingBytes + 1
+                  ) else {
+                pendingLines.removeAll(keepingCapacity: false)
+                pendingBytes = 0
+                didOverflow = true
+                break
+            }
+            pendingLines.append(line)
+            pendingBytes += byteCount
+        }
+
+        guard !drainScheduled else { return false }
+        drainScheduled = true
+        return true
+    }
+
+    func nextBatch() -> DrainResult {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if didOverflow, !deliveredOverflow {
+            deliveredOverflow = true
+            drainScheduled = false
+            return .overflow
+        }
+        guard !pendingLines.isEmpty else {
+            drainScheduled = false
+            return .finished
+        }
+
+        let count = min(Self.batchSize, pendingLines.count)
+        let lines = Array(pendingLines.prefix(count))
+        pendingLines.removeFirst(count)
+        pendingBytes -= lines.reduce(0) { $0 + $1.utf8.count }
+        return .lines(lines)
     }
 }
 
@@ -176,13 +247,25 @@ final class HeadlessCLIProcess {
     private let stdoutPipe = Pipe()
     private let stdinPipe = Pipe()
     private let stderrPipe = Pipe()
+    /// Read end is inherited by a tiny shell monitor; write end stays here.
+    /// If this owner crashes, EOF makes monitor kill CLI process group.
+    private let lifetimePipe = Pipe()
 
     private let stdoutAccumulator = HeadlessCLILineAccumulator()
+    private let stdoutDeliveryBuffer = HeadlessCLIOutputDeliveryBuffer()
     private let standardErrorTail = HeadlessCLIStandardErrorTail()
 
     private var spawnedProcessIdentifier: pid_t = 0
     private var spawnedProcessGroupIdentifier: pid_t = 0
+    private var spawnedProcessIdentity: AgentProcessIdentity?
     private var isRunning = false
+
+    init() {
+        // Monitor or CLI may exit between readiness and a write. Convert that
+        // race to EPIPE instead of terminating HeyMate with SIGPIPE.
+        _ = fcntl(stdinPipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+        _ = fcntl(lifetimePipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+    }
 
     var processIdentifier: Int32 { spawnedProcessIdentifier }
 
@@ -209,15 +292,14 @@ final class HeadlessCLIProcess {
         )
 
         let stdoutAccumulator = self.stdoutAccumulator
+        let stdoutDeliveryBuffer = self.stdoutDeliveryBuffer
         stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
             guard !data.isEmpty else { return }
             let lines = stdoutAccumulator.completeLines(from: data)
-            guard !lines.isEmpty else { return }
-            Task { @MainActor in
-                for line in lines {
-                    onLine(line)
-                }
+            guard stdoutDeliveryBuffer.enqueue(lines) else { return }
+            Task { @MainActor [weak self] in
+                await self?.drainBufferedOutput(onLine: onLine)
             }
         }
 
@@ -236,7 +318,8 @@ final class HeadlessCLIProcess {
                     ? stdinPipe.fileHandleForReading.fileDescriptor
                     : nil,
                 standardOutputFileDescriptor: stdoutPipe.fileHandleForWriting.fileDescriptor,
-                standardErrorFileDescriptor: stderrPipe.fileHandleForWriting.fileDescriptor
+                standardErrorFileDescriptor: stderrPipe.fileHandleForWriting.fileDescriptor,
+                lifetimeFileDescriptor: lifetimePipe.fileHandleForReading.fileDescriptor
             )
 
             // POSIX_SPAWN_SETPGROUP with a zero group value makes the child
@@ -244,6 +327,15 @@ final class HeadlessCLIProcess {
             // grandchild inherits that group unless it explicitly detaches.
             spawnedProcessIdentifier = processID
             spawnedProcessGroupIdentifier = processID
+            guard let processIdentity = AgentProcessIdentityInspector.identity(for: processID),
+                  AgentProcessIdentityInspector.matchesLiveProcessGeneration(processIdentity),
+                  getpgid(processID) == processID else {
+                kill(-processID, SIGKILL)
+                var waitStatus: Int32 = 0
+                while waitpid(processID, &waitStatus, 0) == -1, errno == EINTR {}
+                throw POSIXError(.EIO)
+            }
+            spawnedProcessIdentity = processIdentity
             isRunning = true
 
             // Parent must release its copies of the child-side descriptors or
@@ -251,24 +343,46 @@ final class HeadlessCLIProcess {
             stdoutPipe.fileHandleForWriting.closeFile()
             stderrPipe.fileHandleForWriting.closeFile()
             stdinPipe.fileHandleForReading.closeFile()
+            lifetimePipe.fileHandleForReading.closeFile()
             if !usesDuplexStandardInput {
                 stdinPipe.fileHandleForWriting.closeFile()
             }
 
             DispatchQueue.global(qos: .utility).async {
                 var waitStatus: Int32 = 0
-                while waitpid(processID, &waitStatus, 0) == -1, errno == EINTR {}
-                let terminationStatus = Self.terminationStatus(fromWaitStatus: waitStatus)
+                var waitResult: pid_t
+                repeat {
+                    waitResult = waitpid(processID, &waitStatus, 0)
+                } while waitResult == -1 && errno == EINTR
+                let terminationStatus = waitResult == processID
+                    ? Self.terminationStatus(fromWaitStatus: waitStatus)
+                    : 70
                 Self.removeTemporaryDirectories(temporaryDirectoriesToRemove)
                 Task { @MainActor in
+                    // Distinguish expected cleanup from owner death. Crash
+                    // closes pipe without marker, so monitor always kills
+                    // owned group even if CLI leader already exited.
+                    try? self.lifetimePipe.fileHandleForWriting.write(
+                        contentsOf: Data("owner-complete\n".utf8)
+                    )
+                    self.lifetimePipe.fileHandleForWriting.closeFile()
+                    let processTreeExited = await self.waitForProcessGroupToExit(
+                        timeout: .seconds(Self.killGracePeriod + 2)
+                    )
                     self.isRunning = false
-                    self.drainRemainingOutput(onLine: onLine)
-                    onExit(terminationStatus)
+                    if processTreeExited {
+                        self.drainRemainingOutput(onLine: onLine)
+                    } else {
+                        self.closeOutputWithoutBlocking()
+                    }
+                    onExit(processTreeExited ? terminationStatus : 70)
                 }
             }
         } catch {
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
+            lifetimePipe.fileHandleForReading.closeFile()
+            lifetimePipe.fileHandleForWriting.closeFile()
             Self.removeTemporaryDirectories(temporaryDirectoriesToRemove)
             throw error
         }
@@ -284,7 +398,8 @@ final class HeadlessCLIProcess {
         environment: [String: String],
         standardInputFileDescriptor: Int32?,
         standardOutputFileDescriptor: Int32,
-        standardErrorFileDescriptor: Int32
+        standardErrorFileDescriptor: Int32,
+        lifetimeFileDescriptor: Int32
     ) throws -> pid_t {
         var fileActions: posix_spawn_file_actions_t?
         var attributes: posix_spawnattr_t?
@@ -339,11 +454,21 @@ final class HeadlessCLIProcess {
                 STDERR_FILENO
             )
         )
+        let inheritedLifetimeFileDescriptor: Int32 = 64
+        try requireSpawnSuccess(
+            posix_spawn_file_actions_adddup2(
+                &fileActions,
+                lifetimeFileDescriptor,
+                inheritedLifetimeFileDescriptor
+            )
+        )
         let duplicatedFileDescriptors = Set(
             [standardOutputFileDescriptor, standardErrorFileDescriptor]
-                + [standardInputFileDescriptor].compactMap { $0 }
+                + [standardInputFileDescriptor, lifetimeFileDescriptor].compactMap { $0 }
         )
-        for fileDescriptor in duplicatedFileDescriptors where fileDescriptor > STDERR_FILENO {
+        for fileDescriptor in duplicatedFileDescriptors
+        where fileDescriptor > STDERR_FILENO
+            && fileDescriptor != inheritedLifetimeFileDescriptor {
             try requireSpawnSuccess(
                 posix_spawn_file_actions_addclose(&fileActions, fileDescriptor)
             )
@@ -358,8 +483,50 @@ final class HeadlessCLIProcess {
         try requireSpawnSuccess(posix_spawnattr_setpgroup(&attributes, 0))
 
         let executablePath = executableURL.path
+        // macOS has no parent-death signal. Fixed shell monitor owns only FD
+        // 64; owner death closes write end without normal marker, causing
+        // TERM/KILL of CLI group.
+        // Actual executable and arguments are positional values, never shell
+        // source, so user text cannot alter monitor command.
+        let shellPath = "/bin/sh"
+        let lifetimeGuardScript = """
+        group_id=$$
+        /bin/sh -c '
+          trap "" TERM HUP INT
+          group_id="$1"
+          normal_shutdown=0
+          while IFS= read -r marker <&64; do
+            if [ "$marker" = "owner-complete" ]; then
+              normal_shutdown=1
+            fi
+          done
+          if [ "$normal_shutdown" = "1" ]; then
+            other_member=0
+            for member in $(/usr/bin/pgrep -g "$group_id" . 2>/dev/null); do
+              if [ "$member" != "$$" ]; then
+                other_member=1
+                break
+              fi
+            done
+            if [ "$other_member" = "0" ]; then
+              exit 0
+            fi
+          fi
+          /bin/kill -TERM -- -"$group_id" 2>/dev/null || true
+          /bin/sleep 2
+          /bin/kill -KILL -- -"$group_id" 2>/dev/null || true
+        ' heymate-agent-lifetime-monitor "$group_id" </dev/null >/dev/null 2>&1 &
+        exec "$@" 64>&-
+        """
+        let guardedArguments = [
+            shellPath,
+            "-c",
+            lifetimeGuardScript,
+            "heymate-agent-lifetime-guard",
+            executablePath
+        ] + arguments
         var argumentPointers: [UnsafeMutablePointer<CChar>?] =
-            ([executablePath] + arguments).map { strdup($0) }
+            guardedArguments.map { strdup($0) }
         argumentPointers.append(nil)
         defer {
             for case let pointer? in argumentPointers {
@@ -384,7 +551,7 @@ final class HeadlessCLIProcess {
             environmentPointers.withUnsafeMutableBufferPointer { envp in
                 posix_spawn(
                     &processID,
-                    executablePath,
+                    shellPath,
                     &fileActions,
                     &attributes,
                     argv.baseAddress,
@@ -421,22 +588,29 @@ final class HeadlessCLIProcess {
         }
     }
 
-    func writeToStandardInput(_ data: Data) {
-        stdinPipe.fileHandleForWriting.write(data)
-        stdinPipe.fileHandleForWriting.write(Data("\n".utf8))
+    @discardableResult
+    func writeToStandardInput(_ data: Data) -> Bool {
+        do {
+            var framedData = data
+            framedData.append(0x0A)
+            try stdinPipe.fileHandleForWriting.write(contentsOf: framedData)
+            return true
+        } catch {
+            return false
+        }
     }
 
     /// SIGTERM, then SIGKILL after `killGracePeriod` if any member of the
     /// process tree is still up. Negative targets signal the whole group.
     func terminateThenKill() {
-        guard let signalTarget = ownedSignalTarget(),
-              Self.processTreeExists(signalTarget: signalTarget) else { return }
+        guard let signalTarget = ownedSignalTarget() else { return }
 
         kill(signalTarget, SIGTERM)
-        DispatchQueue.global().asyncAfter(deadline: .now() + Self.killGracePeriod) {
-            if Self.processTreeExists(signalTarget: signalTarget) {
-                kill(signalTarget, SIGKILL)
-            }
+        Task { @MainActor [weak self] in
+            let clock = ContinuousClock()
+            try? await clock.sleep(for: .seconds(Self.killGracePeriod))
+            guard let currentTarget = self?.ownedSignalTarget() else { return }
+            kill(currentTarget, SIGKILL)
         }
     }
 
@@ -445,8 +619,11 @@ final class HeadlessCLIProcess {
     /// same persisted session at once.
     @discardableResult
     func terminateAndWait() async -> Bool {
-        guard let signalTarget = ownedSignalTarget(),
-              Self.processTreeExists(signalTarget: signalTarget) else { return true }
+        guard let signalTarget = ownedSignalTarget() else {
+            return await waitForProcessGroupToExit(
+                timeout: .seconds(Self.killGracePeriod + 2)
+            )
+        }
 
         kill(signalTarget, SIGTERM)
         let clock = ContinuousClock()
@@ -456,8 +633,9 @@ final class HeadlessCLIProcess {
             try? await clock.sleep(for: .milliseconds(25))
         }
 
-        if Self.processTreeExists(signalTarget: signalTarget) {
-            kill(signalTarget, SIGKILL)
+        if Self.processTreeExists(signalTarget: signalTarget),
+           let currentTarget = ownedSignalTarget() {
+            kill(currentTarget, SIGKILL)
         }
 
         let killDeadline = clock.now.advanced(by: .seconds(1))
@@ -471,15 +649,29 @@ final class HeadlessCLIProcess {
     private func ownedSignalTarget() -> pid_t? {
         let processID = spawnedProcessIdentifier
         let processGroupID = spawnedProcessGroupIdentifier
-        guard processID > 1 else { return nil }
+        guard processID > 1,
+              let processIdentity = spawnedProcessIdentity,
+              AgentProcessIdentityInspector.matchesLiveProcessGeneration(processIdentity),
+              getpgid(processID) == processGroupID else { return nil }
         let ownsSafeProcessGroup = processGroupID == processID
             && processGroupID > 1
             && processGroupID != getpgrp()
-        return ownsSafeProcessGroup ? -processGroupID : processID
+        return ownsSafeProcessGroup ? -processGroupID : nil
     }
 
     nonisolated private static func processTreeExists(signalTarget: pid_t) -> Bool {
         kill(signalTarget, 0) == 0 || errno == EPERM
+    }
+
+    private func waitForProcessGroupToExit(timeout: Duration) async -> Bool {
+        let signalTarget = -spawnedProcessGroupIdentifier
+        guard signalTarget < -1 else { return true }
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while Self.processTreeExists(signalTarget: signalTarget), clock.now < deadline {
+            try? await clock.sleep(for: .milliseconds(25))
+        }
+        return !Self.processTreeExists(signalTarget: signalTarget)
     }
 
     /// Reads whatever the child wrote between its last readability callback
@@ -498,5 +690,27 @@ final class HeadlessCLIProcess {
         }
 
         standardErrorTail.append(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+    }
+
+    private func drainBufferedOutput(onLine: (String) -> Void) async {
+        while true {
+            switch stdoutDeliveryBuffer.nextBatch() {
+            case .lines(let lines):
+                for line in lines { onLine(line) }
+                await Task.yield()
+            case .overflow:
+                terminateThenKill()
+                return
+            case .finished:
+                return
+            }
+        }
+    }
+
+    private func closeOutputWithoutBlocking() {
+        stdoutPipe.fileHandleForReading.readabilityHandler = nil
+        stderrPipe.fileHandleForReading.readabilityHandler = nil
+        try? stdoutPipe.fileHandleForReading.close()
+        try? stderrPipe.fileHandleForReading.close()
     }
 }

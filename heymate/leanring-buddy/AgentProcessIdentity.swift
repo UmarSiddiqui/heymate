@@ -55,6 +55,20 @@ nonisolated enum AgentProcessIdentityInspector {
         return current == expected
     }
 
+    /// Matches one process generation while allowing an intentional `exec`
+    /// to replace its executable image. Used only by in-memory ownership;
+    /// persisted recovery still requires `matchesLiveProcess` exactly.
+    static func matchesLiveProcessGeneration(_ expected: AgentProcessIdentity) -> Bool {
+        guard isTrustworthy(expected),
+              kill(expected.pid, 0) == 0 || errno == EPERM,
+              let current = identity(for: expected.pid) else { return false }
+        return current.pid == expected.pid
+            && current.startSeconds == expected.startSeconds
+            && current.startMicroseconds == expected.startMicroseconds
+            && current.uid == expected.uid
+            && current.bootSessionID == expected.bootSessionID
+    }
+
     /// Process groups are safe signal targets only when the recorded child is
     /// still the group leader and its complete PID-reuse-resistant identity
     /// matches. Never signal a persisted negative PID without this check.

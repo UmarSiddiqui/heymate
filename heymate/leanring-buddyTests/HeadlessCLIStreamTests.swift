@@ -92,6 +92,39 @@ struct HeadlessCLIStandardErrorTailTests {
     }
 }
 
+struct HeadlessCLIOutputDeliveryBufferTests {
+    @Test func oneDrainServesManyEnqueuesInBoundedBatches() {
+        let buffer = HeadlessCLIOutputDeliveryBuffer()
+        #expect(buffer.enqueue(["first"]))
+        #expect(!buffer.enqueue(["second", "third"]))
+
+        guard case .lines(let lines) = buffer.nextBatch() else {
+            Issue.record("Expected queued lines")
+            return
+        }
+        #expect(lines == ["first", "second", "third"])
+        guard case .finished = buffer.nextBatch() else {
+            Issue.record("Expected finished drain")
+            return
+        }
+        #expect(buffer.enqueue(["later"]))
+    }
+
+    @Test func overflowIsTerminalAndDoesNotGrowAnotherQueue() {
+        let buffer = HeadlessCLIOutputDeliveryBuffer()
+        #expect(buffer.enqueue([String(repeating: "x", count: 2 * 1_024 * 1_024 + 1)]))
+        guard case .overflow = buffer.nextBatch() else {
+            Issue.record("Expected bounded overflow")
+            return
+        }
+        #expect(!buffer.enqueue(["ignored-after-overflow"]))
+        guard case .finished = buffer.nextBatch() else {
+            Issue.record("Expected empty queue after overflow")
+            return
+        }
+    }
+}
+
 @MainActor
 struct HeadlessCLIProcessTreeTests {
 
