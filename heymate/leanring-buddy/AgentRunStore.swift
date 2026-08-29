@@ -13,10 +13,17 @@ import Foundation
 final class FileAgentRunStore {
 
     private let fileURL: URL
+    private let durableWrite: (Data, URL) throws -> Void
     private var runs: [AgentRun]
 
-    init(fileURL: URL) {
+    init(
+        fileURL: URL,
+        durableWrite: @escaping (Data, URL) throws -> Void = {
+            try DetachedAgentSecureFiles.atomicDurableWrite($0, to: $1)
+        }
+    ) {
         self.fileURL = fileURL
+        self.durableWrite = durableWrite
         let parentDirectoryURL = fileURL.deletingLastPathComponent()
         try? FileManager.default.createDirectory(
             at: parentDirectoryURL,
@@ -63,6 +70,18 @@ final class FileAgentRunStore {
         guard let existingIndex = runs.firstIndex(where: { $0.id == id }) else { return nil }
         mutate(&runs[existingIndex])
         persist()
+        return runs[existingIndex]
+    }
+
+    /// Critical detached-run mutations commit to disk before becoming visible
+    /// in memory. Callers may spawn an app-independent writer only after this
+    /// succeeds; otherwise relaunch could lose ownership of that live process.
+    func updateDurably(id: UUID, mutate: (inout AgentRun) -> Void) throws -> AgentRun? {
+        guard let existingIndex = runs.firstIndex(where: { $0.id == id }) else { return nil }
+        var candidateRuns = runs
+        mutate(&candidateRuns[existingIndex])
+        try persistDurably(candidateRuns)
+        runs = candidateRuns
         return runs[existingIndex]
     }
 
@@ -135,18 +154,13 @@ final class FileAgentRunStore {
     }
 
     private func persist() {
+        try? persistDurably(runs)
+    }
+
+    private func persistDurably(_ runs: [AgentRun]) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        do {
-            let fileData = try encoder.encode(runs)
-            try fileData.write(to: fileURL, options: .atomic)
-            try FileManager.default.setAttributes(
-                [.posixPermissions: 0o600],
-                ofItemAtPath: fileURL.path
-            )
-        } catch {
-            // Best-effort: an unwritable volume should not crash the app.
-        }
+        try durableWrite(encoder.encode(runs), fileURL)
     }
 }
 

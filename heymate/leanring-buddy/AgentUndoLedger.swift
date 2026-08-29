@@ -62,16 +62,21 @@ final class FileAgentUndoLedger {
     private let rootDirectoryURL: URL
     private let ledgerFileURL: URL
     private let fileManager: FileManager
+    private let durableWrite: (Data, URL) throws -> Void
     private var entries: [AgentUndoEntry]
 
     init(
         rootDirectoryURL: URL,
         fileManager: FileManager = .default,
-        recoverPreparedEntriesOnInit: Bool = true
+        recoverPreparedEntriesOnInit: Bool = true,
+        durableWrite: @escaping (Data, URL) throws -> Void = {
+            try DetachedAgentSecureFiles.atomicDurableWrite($0, to: $1)
+        }
     ) {
         self.rootDirectoryURL = rootDirectoryURL
         self.ledgerFileURL = rootDirectoryURL.appendingPathComponent("ledger.json")
         self.fileManager = fileManager
+        self.durableWrite = durableWrite
         try? fileManager.createDirectory(
             at: rootDirectoryURL,
             withIntermediateDirectories: true,
@@ -142,9 +147,33 @@ final class FileAgentUndoLedger {
             undoneAt: nil,
             status: .prepared
         )
-        entries.append(entry)
-        persist()
+        var candidateEntries = entries
+        candidateEntries.append(entry)
+        do {
+            try persistDurably(candidateEntries)
+        } catch {
+            try? fileManager.removeItem(at: entryDirectoryURL)
+            throw AgentUndoLedgerError.couldNotCreateSnapshot(error.localizedDescription)
+        }
+        entries = candidateEntries
         return entry
+    }
+
+    /// Removes a baseline prepared for work that never started. Ledger update
+    /// commits before snapshot deletion, so a failed discard keeps a safe (if
+    /// unnecessary) recovery entry rather than losing an undo record.
+    func discardPrepared(entryID: UUID) throws {
+        guard let index = entries.firstIndex(where: { $0.id == entryID }),
+              entries[index].status == .prepared else { return }
+        let entry = entries[index]
+        var candidateEntries = entries
+        candidateEntries.remove(at: index)
+        try persistDurably(candidateEntries)
+        entries = candidateEntries
+
+        let snapshotURL = URL(fileURLWithPath: entry.snapshotPath, isDirectory: true)
+        let entryDirectoryURL = snapshotURL.deletingLastPathComponent()
+        try? fileManager.removeItem(at: entryDirectoryURL)
     }
 
     func markReady(entryID: UUID) {
@@ -282,13 +311,12 @@ final class FileAgentUndoLedger {
     }
 
     private func persist() {
+        try? persistDurably(entries)
+    }
+
+    private func persistDurably(_ entries: [AgentUndoEntry]) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(entries) else { return }
-        try? data.write(to: ledgerFileURL, options: .atomic)
-        try? fileManager.setAttributes(
-            [.posixPermissions: 0o600],
-            ofItemAtPath: ledgerFileURL.path
-        )
+        try durableWrite(encoder.encode(entries), ledgerFileURL)
     }
 }

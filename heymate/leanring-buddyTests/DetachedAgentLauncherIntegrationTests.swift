@@ -11,6 +11,10 @@ import Testing
 @MainActor
 struct DetachedAgentLauncherIntegrationTests {
 
+    private typealias DurableWriter = (Data, URL) throws -> Void
+
+    private struct InjectedWriteFailure: Error {}
+
     private struct Harness {
         let rootURL: URL
         let runtimeRootURL: URL
@@ -23,7 +27,13 @@ struct DetachedAgentLauncherIntegrationTests {
 
     private func makeHarness(
         attemptID: UUID? = nil,
-        status: AgentRunStatus = .awaitingPlanApproval
+        status: AgentRunStatus = .awaitingPlanApproval,
+        storeDurableWrite: @escaping DurableWriter = {
+            try DetachedAgentSecureFiles.atomicDurableWrite($0, to: $1)
+        },
+        undoDurableWrite: @escaping DurableWriter = {
+            try DetachedAgentSecureFiles.atomicDurableWrite($0, to: $1)
+        }
     ) throws -> Harness {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("DetachedLauncher-\(UUID().uuidString)", isDirectory: true)
@@ -36,10 +46,14 @@ struct DetachedAgentLauncherIntegrationTests {
             encoding: .utf8
         )
 
-        let store = FileAgentRunStore(fileURL: rootURL.appendingPathComponent("runs.json"))
+        let store = FileAgentRunStore(
+            fileURL: rootURL.appendingPathComponent("runs.json"),
+            durableWrite: storeDurableWrite
+        )
         let undoLedger = FileAgentUndoLedger(
             rootDirectoryURL: rootURL.appendingPathComponent("undo", isDirectory: true),
-            recoverPreparedEntriesOnInit: false
+            recoverPreparedEntriesOnInit: false,
+            durableWrite: undoDurableWrite
         )
         var run = AgentRun.queued(
             id: UUID(),
@@ -356,6 +370,276 @@ struct DetachedAgentLauncherIntegrationTests {
         harness.launcher.recoverPersistedRuns()
         #expect(harness.store.run(id: harness.runID)?.status == .failed)
         #expect(harness.undoLedger.latestReadyEntry()?.runID == harness.runID)
+    }
+
+    @Test func journalAheadOfStateNeverReleasesUndoDuringSnapshotGap() throws {
+        let attemptID = UUID()
+        let harness = try makeHarness(attemptID: attemptID, status: .running)
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+        let journal = try DetachedAgentRuntimeJournal(
+            rootDirectoryURL: harness.runtimeRootURL,
+            runID: harness.runID,
+            attemptID: attemptID
+        )
+        let runningRecord = try journal.append(
+            DetachedAgentEventEnvelope(
+                runID: harness.runID,
+                attemptID: attemptID,
+                event: .phaseChanged(.running)
+            )
+        )
+        let stateStore = try DetachedAgentDurableStateStore(
+            rootDirectoryURL: harness.runtimeRootURL,
+            runID: harness.runID,
+            attemptID: attemptID
+        )
+        try stateStore.save(
+            DetachedAgentDurableState(
+                runID: harness.runID,
+                attemptID: attemptID,
+                leg: .execute,
+                phase: .running,
+                lastJournalSequence: runningRecord.sequence,
+                runnerIdentity: harness.runnerIdentity
+            )
+        )
+        let progressRecord = try journal.append(
+            DetachedAgentEventEnvelope(
+                runID: harness.runID,
+                attemptID: attemptID,
+                event: .progress("Editing safely")
+            )
+        )
+
+        harness.launcher.recoverPersistedRuns()
+        #expect(harness.store.run(id: harness.runID)?.lastDetachedJournalSequence == progressRecord.sequence)
+        #expect(harness.launcher.terminationBlockingRunCount == 0)
+
+        // Same stale state + unchanged journal size previously threw staleState
+        // and marked undo ready while runner was still verified live.
+        harness.launcher.recoverPersistedRuns()
+        #expect(harness.store.run(id: harness.runID)?.status.isTerminal == false)
+        #expect(harness.undoLedger.latestReadyEntry() == nil)
+        #expect(harness.launcher.terminationBlockingRunCount == 1)
+
+        try stateStore.save(
+            DetachedAgentDurableState(
+                runID: harness.runID,
+                attemptID: attemptID,
+                leg: .execute,
+                phase: .running,
+                lastJournalSequence: progressRecord.sequence,
+                latestSafeSummary: "Editing safely",
+                runnerIdentity: harness.runnerIdentity
+            )
+        )
+        harness.launcher.recoverPersistedRuns()
+        #expect(harness.store.run(id: harness.runID)?.status == .running)
+        #expect(harness.undoLedger.latestReadyEntry() == nil)
+        #expect(harness.launcher.terminationBlockingRunCount == 0)
+    }
+
+    @Test func corruptJournalKeepsLiveRunnerLockedAndTerminalStateCanCloseIt() throws {
+        let attemptID = UUID()
+        let harness = try makeHarness(attemptID: attemptID, status: .running)
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+        try persistState(
+            rootURL: harness.runtimeRootURL,
+            runID: harness.runID,
+            attemptID: attemptID,
+            phase: .running,
+            runnerIdentity: harness.runnerIdentity
+        )
+        let attemptDirectoryURL = DetachedAgentRuntimePaths.attemptDirectoryURL(
+            rootDirectoryURL: harness.runtimeRootURL,
+            runID: harness.runID,
+            attemptID: attemptID
+        )
+        let journalURL = attemptDirectoryURL.appendingPathComponent("events.jsonl")
+        try Data("{broken-journal}\n".utf8).write(to: journalURL, options: .atomic)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: journalURL.path
+        )
+
+        harness.launcher.recoverPersistedRuns()
+        #expect(harness.store.run(id: harness.runID)?.status.isTerminal == false)
+        #expect(harness.undoLedger.latestReadyEntry() == nil)
+        #expect(harness.launcher.terminationBlockingRunCount == 1)
+
+        let stateStore = try DetachedAgentDurableStateStore(
+            rootDirectoryURL: harness.runtimeRootURL,
+            runID: harness.runID,
+            attemptID: attemptID
+        )
+        try stateStore.save(
+            DetachedAgentDurableState(
+                runID: harness.runID,
+                attemptID: attemptID,
+                leg: .execute,
+                phase: .succeeded,
+                lastJournalSequence: 1,
+                latestSafeSummary: "Finished safely",
+                runnerIdentity: harness.runnerIdentity,
+                terminalSafeSummary: "Finished safely",
+                exitCode: 0
+            )
+        )
+        harness.launcher.recoverPersistedRuns()
+        #expect(harness.store.run(id: harness.runID)?.status == .succeeded)
+        #expect(harness.undoLedger.latestReadyEntry()?.runID == harness.runID)
+    }
+
+    @Test func leaderExitStillHoldsUndoWhileRecordedProcessGroupExists() throws {
+        let attemptID = UUID()
+        let harness = try makeHarness(attemptID: attemptID, status: .running)
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+        let childIdentity = AgentProcessIdentity(
+            pid: 43_535,
+            startSeconds: 789,
+            startMicroseconds: 13,
+            executablePath: "/usr/bin/fake-agent",
+            uid: UInt32(getuid()),
+            bootSessionID: "test-boot"
+        )
+        try persistState(
+            rootURL: harness.runtimeRootURL,
+            runID: harness.runID,
+            attemptID: attemptID,
+            phase: .running,
+            runnerIdentity: harness.runnerIdentity,
+            childIdentity: childIdentity,
+            childProcessGroupID: childIdentity.pid
+        )
+        harness.launcher.matchesLiveProcessIdentity = { _ in false }
+        harness.launcher.matchesLiveChildProcessGroup = { _, _ in false }
+        var processGroupExists = true
+        harness.launcher.detachedProcessGroupExists = { groupID in
+            processGroupExists && groupID == childIdentity.pid
+        }
+
+        harness.launcher.recoverPersistedRuns()
+        #expect(harness.store.run(id: harness.runID)?.status.isTerminal == false)
+        #expect(harness.undoLedger.latestReadyEntry() == nil)
+        #expect(harness.launcher.terminationBlockingRunCount == 1)
+
+        processGroupExists = false
+        harness.launcher.recoverPersistedRuns()
+        #expect(harness.store.run(id: harness.runID)?.status == .failed)
+        #expect(harness.undoLedger.latestReadyEntry()?.runID == harness.runID)
+    }
+
+    @Test func corruptStateUsesFreshRecoveryGraceBeforeUndoRelease() throws {
+        let attemptID = UUID()
+        let harness = try makeHarness(attemptID: attemptID, status: .running)
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+        try persistState(
+            rootURL: harness.runtimeRootURL,
+            runID: harness.runID,
+            attemptID: attemptID,
+            phase: .running,
+            runnerIdentity: harness.runnerIdentity
+        )
+        let stateURL = DetachedAgentRuntimePaths.attemptDirectoryURL(
+            rootDirectoryURL: harness.runtimeRootURL,
+            runID: harness.runID,
+            attemptID: attemptID
+        ).appendingPathComponent("state.json")
+        try Data("not-json".utf8).write(to: stateURL, options: .atomic)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: stateURL.path
+        )
+        var now = Date(timeIntervalSince1970: 10_000)
+        harness.launcher.detachedCurrentDate = { now }
+        harness.launcher.detachedPersistenceRecoveryGracePeriod = 8
+
+        harness.launcher.recoverPersistedRuns()
+        #expect(harness.store.run(id: harness.runID)?.status.isTerminal == false)
+        #expect(harness.undoLedger.latestReadyEntry() == nil)
+        #expect(harness.launcher.terminationBlockingRunCount == 1)
+
+        now = now.addingTimeInterval(9)
+        harness.launcher.recoverPersistedRuns()
+        #expect(harness.store.run(id: harness.runID)?.status == .failed)
+        #expect(harness.undoLedger.latestReadyEntry()?.runID == harness.runID)
+    }
+
+    @Test func detachedRunnerNeverSpawnsUntilAttemptOwnershipIsDurable() throws {
+        var writeCount = 0
+        let harness = try makeHarness(storeDurableWrite: { data, url in
+            writeCount += 1
+            if writeCount >= 3 { throw InjectedWriteFailure() }
+            try DetachedAgentSecureFiles.atomicDurableWrite(data, to: url)
+        })
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+        let fakeCLIURL = harness.rootURL.appendingPathComponent("claude")
+        let fakeRunnerURL = harness.rootURL.appendingPathComponent("HeyMate")
+        var didSpawn = false
+        harness.launcher.resolveExecutable = { _ in fakeCLIURL }
+        harness.launcher.detachedRunnerExecutableURL = { fakeRunnerURL }
+        harness.launcher.spawnDetachedRunner = { _, _ in
+            didSpawn = true
+            return harness.runnerIdentity.pid
+        }
+
+        harness.launcher.approvePlan(runID: harness.runID)
+
+        #expect(didSpawn == false)
+        #expect(harness.store.run(id: harness.runID)?.status == .failed)
+        #expect(harness.store.run(id: harness.runID)?.detachedAttemptID == nil)
+        #expect(harness.undoLedger.latestReadyEntry()?.runID == harness.runID)
+        let reloadedStore = FileAgentRunStore(
+            fileURL: harness.rootURL.appendingPathComponent("runs.json")
+        )
+        #expect(reloadedStore.run(id: harness.runID)?.detachedAttemptID == nil)
+    }
+
+    @Test func failedUndoLedgerCommitLeavesNoSnapshotAndStartsNoRunner() throws {
+        let harness = try makeHarness(undoDurableWrite: { _, _ in
+            throw InjectedWriteFailure()
+        })
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+        var didSpawn = false
+        harness.launcher.resolveExecutable = { _ in harness.rootURL.appendingPathComponent("claude") }
+        harness.launcher.spawnDetachedRunner = { _, _ in
+            didSpawn = true
+            return harness.runnerIdentity.pid
+        }
+
+        harness.launcher.approvePlan(runID: harness.runID)
+
+        #expect(didSpawn == false)
+        #expect(harness.store.run(id: harness.runID)?.status == .awaitingPlanApproval)
+        #expect(harness.undoLedger.latestReadyEntry() == nil)
+        let undoRootURL = harness.rootURL.appendingPathComponent("undo", isDirectory: true)
+        let remainingNames = try FileManager.default.contentsOfDirectory(atPath: undoRootURL.path)
+        #expect(remainingNames.isEmpty)
+    }
+
+    @Test func failedUndoBindingDiscardsPreparedSnapshotAndStartsNoRunner() throws {
+        var writeCount = 0
+        let harness = try makeHarness(storeDurableWrite: { data, url in
+            writeCount += 1
+            if writeCount >= 2 { throw InjectedWriteFailure() }
+            try DetachedAgentSecureFiles.atomicDurableWrite(data, to: url)
+        })
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+        var didSpawn = false
+        harness.launcher.resolveExecutable = { _ in harness.rootURL.appendingPathComponent("claude") }
+        harness.launcher.spawnDetachedRunner = { _, _ in
+            didSpawn = true
+            return harness.runnerIdentity.pid
+        }
+
+        harness.launcher.approvePlan(runID: harness.runID)
+
+        #expect(didSpawn == false)
+        #expect(harness.store.run(id: harness.runID)?.status == .awaitingPlanApproval)
+        #expect(harness.undoLedger.latestReadyEntry() == nil)
+        let undoRootURL = harness.rootURL.appendingPathComponent("undo", isDirectory: true)
+        let remainingNames = try FileManager.default.contentsOfDirectory(atPath: undoRootURL.path)
+        #expect(remainingNames == ["ledger.json"] || remainingNames.isEmpty)
     }
 
     @Test func takeoverWaitsForRunnerHandoffBeforeReleasingSession() async throws {

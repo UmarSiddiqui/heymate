@@ -9,6 +9,7 @@
 //  it in CompanionState — it never talks to Process directly.
 //
 
+import Darwin
 import Foundation
 
 @MainActor
@@ -80,13 +81,22 @@ final class HeadlessAgentLauncher {
     var matchesLiveChildProcessGroup: (AgentProcessIdentity, Int32) -> Bool = {
         AgentProcessIdentityInspector.matchesLiveProcessGroup(leader: $0, processGroupID: $1)
     }
+    /// Read-only, conservative group check. Safe for deciding whether to keep
+    /// quit/undo blocked after leader exit; never authorizes a signal.
+    var detachedProcessGroupExists: (Int32) -> Bool = { processGroupID in
+        guard processGroupID > 1, processGroupID != getpgrp() else { return false }
+        return kill(-processGroupID, 0) == 0 || errno == EPERM
+    }
     var detachedMonitorInterval: Duration = .milliseconds(250)
     var detachedCleanupGracePeriod: TimeInterval = 3
+    var detachedPersistenceRecoveryGracePeriod: TimeInterval = 8
+    var detachedCurrentDate: () -> Date = { Date() }
 
     private var detachedMonitorTasks: [UUID: Task<Void, Never>] = [:]
     private var detachedExpectedRunnerPIDs: [UUID: Int32] = [:]
     private var detachedExpectedRunnerIdentities: [UUID: AgentProcessIdentity] = [:]
     private var detachedJournalByteCounts: [UUID: UInt64] = [:]
+    private var detachedSafetyHoldStartedAt: [UUID: Date] = [:]
     private var pendingDetachedRunIDs: Set<UUID> = []
     private var verifiedDetachedRunIDs: Set<UUID> = []
 
@@ -262,12 +272,9 @@ final class HeadlessAgentLauncher {
 
         // Approval means write permission. Snapshot must finish first; if it
         // cannot, work stays stopped and plan remains available to retry.
+        let undoEntry: AgentUndoEntry
         do {
-            let undoEntry = try undoLedger.prepareSnapshot(for: run)
-            _ = store.update(id: runID) { current in
-                current.undoEntryIdentifier = undoEntry.id.uuidString
-                current.workspaceChangeSummary = nil
-            }
+            undoEntry = try undoLedger.prepareSnapshot(for: run)
         } catch {
             _ = store.update(id: runID) { current in
                 current.latestAction = "Could not prepare undo"
@@ -277,12 +284,27 @@ final class HeadlessAgentLauncher {
             return
         }
 
-        _ = store.update(id: runID) { current in
-            current.status = .running
-            current.latestAction = "Approved — starting work"
-            current.error = ""
-            current.appendActivity(kind: .user, text: "Approved plan")
-            current.appendActivity(kind: .status, text: current.latestAction)
+        do {
+            guard try store.updateDurably(id: runID, mutate: { current in
+                current.undoEntryIdentifier = undoEntry.id.uuidString
+                current.workspaceChangeSummary = nil
+                current.status = .running
+                current.latestAction = "Approved — starting work"
+                current.error = ""
+                current.appendActivity(kind: .user, text: "Approved plan")
+                current.appendActivity(kind: .status, text: current.latestAction)
+            }) != nil else {
+                try? undoLedger.discardPrepared(entryID: undoEntry.id)
+                return
+            }
+        } catch {
+            try? undoLedger.discardPrepared(entryID: undoEntry.id)
+            _ = store.update(id: runID) { current in
+                current.latestAction = "Could not save the approved job safely"
+                current.error = error.localizedDescription
+            }
+            onRunsChanged?()
+            return
         }
         onRunsChanged?()
         spawn(runID: runID, leg: .execute)
@@ -873,19 +895,28 @@ final class HeadlessAgentLauncher {
         )
 
         cleanupDetachedTracking(runID: run.id)
-        pendingDetachedRunIDs.insert(run.id)
-        _ = store.update(id: run.id) { current in
-            current.detachedAttemptIdentifier = attemptID.uuidString.lowercased()
-            current.lastDetachedJournalSequence = 0
-            current.status = .running
-            current.latestAction = "Starting background agent…"
-            current.startedAt = current.startedAt ?? Date()
-            current.finishedAt = nil
-            current.pid = nil
-            current.pendingApprovalID = ""
-            current.error = ""
-            current.appendActivity(kind: .status, text: current.latestAction)
+        do {
+            guard try store.updateDurably(id: run.id, mutate: { current in
+                current.detachedAttemptIdentifier = attemptID.uuidString.lowercased()
+                current.lastDetachedJournalSequence = 0
+                current.status = .running
+                current.latestAction = "Starting background agent…"
+                current.startedAt = current.startedAt ?? Date()
+                current.finishedAt = nil
+                current.pid = nil
+                current.pendingApprovalID = ""
+                current.error = ""
+                current.appendActivity(kind: .status, text: current.latestAction)
+            }) != nil else { return }
+        } catch {
+            markUndoReady(runID: run.id)
+            apply(
+                .failed(message: "Could not save background agent ownership safely."),
+                to: run.id
+            )
+            return
         }
+        pendingDetachedRunIDs.insert(run.id)
         onRunsChanged?()
 
         do {
@@ -951,7 +982,13 @@ final class HeadlessAgentLauncher {
                 runID: runID,
                 attemptID: attemptID
             ) else {
-                if allowMissingStateWhileSpawned, expectedSpawnIsStillLive(runID: runID) {
+                if (allowMissingStateWhileSpawned && expectedSpawnIsStillLive(runID: runID))
+                    || recordedRunnerMayStillBeLive(run)
+                    || detachedSafetyGraceIsActive(
+                        runID: runID,
+                        duration: detachedPersistenceRecoveryGracePeriod
+                    ) {
+                    holdDetachedVerification(runID: runID)
                     return .pending
                 }
                 failDetachedRun(
@@ -962,6 +999,15 @@ final class HeadlessAgentLauncher {
             }
             state = loadedState
         } catch {
+            if (allowMissingStateWhileSpawned && expectedSpawnIsStillLive(runID: runID))
+                || recordedRunnerMayStillBeLive(run)
+                || detachedSafetyGraceIsActive(
+                    runID: runID,
+                    duration: detachedPersistenceRecoveryGracePeriod
+                ) {
+                holdDetachedVerification(runID: runID)
+                return .pending
+            }
             failDetachedRun(
                 runID: runID,
                 message: "Detached agent state could not be verified."
@@ -995,6 +1041,32 @@ final class HeadlessAgentLauncher {
                 journal: journal
             )
         } catch {
+            // A terminal snapshot is independently durable and is written only
+            // after process-tree exit. Let it close a run even when journal
+            // bytes are unreadable, provided it is not behind app checkpoint.
+            if state.phase.isTerminal,
+               state.lastJournalSequence >= run.lastDetachedJournalSequence,
+               let terminal = try? DetachedAgentRunReducer.reduce(
+                   run: run,
+                   state: state,
+                   journal: []
+               ) {
+                projectDetachedRun(previous: run, reduced: terminal)
+                cleanupDetachedTracking(runID: runID)
+                return .terminal
+            }
+            // Journal append is intentionally durable before state replacement.
+            // A poll may observe that normal gap and then see stale state on its
+            // next pass. Corrupt persistence has the same safety rule: never
+            // release undo while a verified owner or child group may still write.
+            if persistedRunnerIsVerifiedLive(runID: runID, state: state) {
+                holdDetachedVerification(runID: runID)
+                return .pending
+            }
+            if detachedChildCleanupStillInFlight(state: state, runID: runID) {
+                holdDetachedCleanup(runID: runID)
+                return .pending
+            }
             failDetachedRun(
                 runID: runID,
                 message: "Detached agent progress could not be verified."
@@ -1008,11 +1080,9 @@ final class HeadlessAgentLauncher {
             return .terminal
         }
 
-        guard let runnerIdentity = state.runnerIdentity,
-              detachedExpectedRunnerPIDs[runID].map({ $0 == runnerIdentity.pid }) ?? true,
-              detachedExpectedRunnerIdentities[runID].map({ $0 == runnerIdentity }) ?? true,
-              matchesLiveProcessIdentity(runnerIdentity) else {
-            if detachedChildCleanupStillInFlight(state: state) {
+        guard persistedRunnerIsVerifiedLive(runID: runID, state: state),
+              let runnerIdentity = state.runnerIdentity else {
+            if detachedChildCleanupStillInFlight(state: state, runID: runID) {
                 holdDetachedCleanup(runID: runID)
                 return .pending
             }
@@ -1029,6 +1099,7 @@ final class HeadlessAgentLauncher {
 
         pendingDetachedRunIDs.remove(runID)
         verifiedDetachedRunIDs.insert(runID)
+        detachedSafetyHoldStartedAt.removeValue(forKey: runID)
         return .activeVerified
     }
 
@@ -1088,27 +1159,90 @@ final class HeadlessAgentLauncher {
         }
     }
 
+    private func persistedRunnerIsVerifiedLive(
+        runID: UUID,
+        state: DetachedAgentDurableState
+    ) -> Bool {
+        guard let runnerIdentity = state.runnerIdentity,
+              detachedExpectedRunnerPIDs[runID].map({ $0 == runnerIdentity.pid }) ?? true,
+              detachedExpectedRunnerIdentities[runID].map({ $0 == runnerIdentity }) ?? true else {
+            return false
+        }
+        return matchesLiveProcessIdentity(runnerIdentity)
+    }
+
+    /// PID without persisted generation never authorizes signaling or quit.
+    /// Exact executable match is useful only as a conservative reason to keep
+    /// recovery pending while a missing/corrupt state snapshot repairs itself.
+    private func recordedRunnerMayStillBeLive(_ run: AgentRun) -> Bool {
+        guard let recordedPID = run.pid,
+              recordedPID > 1,
+              let identity = inspectProcessIdentity(recordedPID),
+              AgentProcessIdentityInspector.isTrustworthy(identity),
+              let runnerExecutableURL = detachedRunnerExecutableURL() else { return false }
+        let livePath = URL(fileURLWithPath: identity.executablePath)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL.path
+        let expectedPath = runnerExecutableURL
+            .resolvingSymlinksInPath()
+            .standardizedFileURL.path
+        return livePath == expectedPath
+    }
+
+    private func detachedSafetyGraceIsActive(
+        runID: UUID,
+        duration: TimeInterval
+    ) -> Bool {
+        guard duration > 0 else { return false }
+        let now = detachedCurrentDate()
+        let startedAt = detachedSafetyHoldStartedAt[runID] ?? now
+        detachedSafetyHoldStartedAt[runID] = startedAt
+        return now.timeIntervalSince(startedAt) < duration
+    }
+
     private func detachedChildCleanupStillInFlight(
         state: DetachedAgentDurableState,
-        now: Date = Date()
+        runID: UUID
     ) -> Bool {
         if let childIdentity = state.childIdentity,
            let processGroupID = state.childProcessGroupID {
-            return matchesLiveChildProcessGroup(childIdentity, processGroupID)
+            if matchesLiveChildProcessGroup(childIdentity, processGroupID) {
+                return true
+            }
+            // Leader may already be gone while descendants and lifetime monitor
+            // remain during TERM/KILL grace. Group existence is hold-only; full
+            // leader identity remains mandatory for every signal operation.
+            return detachedProcessGroupExists(processGroupID)
         }
-        guard state.childIdentity == nil, state.childProcessGroupID == nil else {
-            return false
-        }
-        return now.timeIntervalSince(state.updatedAt) <= detachedCleanupGracePeriod
+        return detachedSafetyGraceIsActive(
+            runID: runID,
+            duration: detachedCleanupGracePeriod
+        )
     }
 
     private func holdDetachedCleanup(runID: UUID) {
+        holdDetachedRun(
+            runID: runID,
+            action: "Stopping orphaned agent process…"
+        )
+    }
+
+    private func holdDetachedVerification(runID: UUID) {
+        holdDetachedRun(
+            runID: runID,
+            action: "Verifying background agent safety…"
+        )
+    }
+
+    private func holdDetachedRun(runID: UUID, action: String) {
         verifiedDetachedRunIDs.remove(runID)
         pendingDetachedRunIDs.insert(runID)
+        guard let current = store.run(id: runID),
+              !current.status.isTerminal,
+              current.latestAction != action else { return }
         _ = store.update(id: runID) { current in
-            guard !current.status.isTerminal,
-                  current.latestAction != "Stopping orphaned agent process…" else { return }
-            current.latestAction = "Stopping orphaned agent process…"
+            guard !current.status.isTerminal else { return }
+            current.latestAction = action
             current.appendActivity(kind: .status, text: current.latestAction)
         }
         onRunsChanged?()
@@ -1240,6 +1374,7 @@ final class HeadlessAgentLauncher {
         detachedExpectedRunnerPIDs.removeValue(forKey: runID)
         detachedExpectedRunnerIdentities.removeValue(forKey: runID)
         detachedJournalByteCounts.removeValue(forKey: runID)
+        detachedSafetyHoldStartedAt.removeValue(forKey: runID)
         pendingDetachedRunIDs.remove(runID)
         verifiedDetachedRunIDs.remove(runID)
     }
