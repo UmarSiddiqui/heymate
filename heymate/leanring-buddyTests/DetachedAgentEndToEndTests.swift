@@ -4,6 +4,7 @@
 //
 
 import Darwin
+import AppKit
 import Foundation
 import Testing
 @testable import HeyMate
@@ -11,7 +12,7 @@ import Testing
 @MainActor
 struct DetachedAgentEndToEndTests {
 
-    @Test func sameBinaryRunnerSurvivesLauncherDropReattachesAndCancelsSafely() async throws {
+    @Test func embeddedRunnerSurvivesLauncherDropReattachesAndCancelsSafely() async throws {
         let fixture = FileManager.default.temporaryDirectory
             .appendingPathComponent("DetachedAgentE2E-\(UUID().uuidString)", isDirectory: true)
         let workspaceURL = fixture.appendingPathComponent("workspace", isDirectory: true)
@@ -22,8 +23,10 @@ struct DetachedAgentEndToEndTests {
             to: workspaceURL.appendingPathComponent("Existing.txt")
         )
         let fakeCLIURL = try makeLongRunningExecutable(in: fixture)
-        let runnerExecutableURL = try #require(Bundle.main.executableURL)
-        #expect(runnerExecutableURL.lastPathComponent == "HeyMate")
+        let runnerExecutableURL = try #require(DetachedAgentRunnerExecutable.bundledURL())
+        #expect(runnerExecutableURL.lastPathComponent == "HeyMateAgentRunner")
+        #expect(runnerExecutableURL.deletingLastPathComponent().lastPathComponent == "Helpers")
+        #expect(runnerExecutableURL != Bundle.main.executableURL)
 
         let runID = UUID()
         var run = AgentRun.queued(
@@ -83,6 +86,9 @@ struct DetachedAgentEndToEndTests {
         let liveRunnerIdentity = try #require(liveState.runnerIdentity)
         #expect(liveRunnerIdentity.pid != getpid())
         #expect(AgentProcessIdentityInspector.matchesLiveProcess(liveRunnerIdentity))
+        #expect(!NSRunningApplication.runningApplications(
+            withBundleIdentifier: "com.heymate.app"
+        ).contains(where: { $0.processIdentifier == liveRunnerIdentity.pid }))
 
         // Simulates app-owned launcher disappearing. Runner has no pipe or Task
         // ownership relationship with this object and must stay alive.

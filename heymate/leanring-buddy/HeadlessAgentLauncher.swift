@@ -63,12 +63,14 @@ final class HeadlessAgentLauncher {
     private var pendingStops: [UUID: PendingStop] = [:]
     private var receiptScansInFlight: Set<UUID> = []
 
-    /// Write-enabled legs run in a same-binary background runner. Planning,
-    /// replanning, and follow-ups remain short, read-only child processes owned
-    /// by the app so subscription-first session selection stays unchanged.
+    /// Write-enabled legs run in a signed embedded command-line helper.
+    /// Planning, replanning, and follow-ups remain short, read-only child
+    /// processes owned by the app so session selection stays unchanged.
     var detachedExecutionEnabled = true
     var detachedRuntimeRootURL = DetachedAgentRuntimePaths.defaultRootURL
-    var detachedRunnerExecutableURL: () -> URL? = { Bundle.main.executableURL }
+    var detachedRunnerExecutableURL: () -> URL? = {
+        DetachedAgentRunnerExecutable.bundledURL()
+    }
     var spawnDetachedRunner: (URL, DetachedAgentLaunchRequest) throws -> Int32 = {
         try DetachedAgentRunnerBootstrap.spawn(executableURL: $0, request: $1)
     }

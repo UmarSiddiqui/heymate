@@ -2,17 +2,21 @@
 //  HeyMateEntrypoint.swift
 //  leanring-buddy
 //
-//  Explicit entrypoint lets this signed executable start either SwiftUI or
-//  one detached coding-agent runner without constructing AppKit state first.
+//  Explicit entrypoint starts only SwiftUI. Detached work belongs to
+//  HeyMateAgentRunner, never to app's LaunchServices identity.
 //
 
+import Darwin
+import Foundation
 import SwiftUI
 
 @main
 nonisolated enum HeyMateEntrypoint {
     static func main() {
-        if let invocation = DetachedAgentRunnerInvocation() {
-            DetachedAgentRunnerProgram.run(invocation: invocation)
+        if DetachedAgentRunnerInvocation.containsRunnerFlag() {
+            let message = "HeyMate cannot run agent-helper mode.\n"
+            try? FileHandle.standardError.write(contentsOf: Data(message.utf8))
+            Darwin.exit(EX_USAGE)
         }
         leanring_buddyApp.main()
     }

@@ -2,7 +2,7 @@
 //  DetachedAgentLaunchRequest.swift
 //  leanring-buddy
 //
-//  One-leg bootstrap payload for the same-binary detached runner. This value
+//  One-leg bootstrap payload for signed embedded detached runner. This value
 //  can contain prompts, CLI arguments, environment values, and session IDs.
 //  It must travel only through the inherited bootstrap pipe; persistence APIs
 //  deliberately do not accept it.

@@ -31,10 +31,12 @@ struct DetachedAgentRunnerEngineTests {
             workspaceURL: fixture,
             runtimeLimit: 5
         )
+        var wakeCount = 0
         let engine = try DetachedAgentRunnerEngine(
             request: request,
             rootDirectoryURL: runtimeRoot,
-            exitProcess: { _ in }
+            exitProcess: { _ in },
+            wakeMainApp: { wakeCount += 1 }
         )
 
         engine.start()
@@ -58,6 +60,7 @@ struct DetachedAgentRunnerEngineTests {
         #expect(journal.contains { $0.kind == .progress && $0.safeSummary == "tool" })
         #expect(journal.last?.kind == .finished)
         #expect(journal.last?.phase == .succeeded)
+        #expect(wakeCount == 1)
     }
 
     @Test func bufferedFailureEventWinsOverZeroProcessExit() async throws {
@@ -88,10 +91,12 @@ struct DetachedAgentRunnerEngineTests {
             workspaceURL: fixture,
             runtimeLimit: 5
         )
+        var wakeCount = 0
         let engine = try DetachedAgentRunnerEngine(
             request: request,
             rootDirectoryURL: runtimeRoot,
-            exitProcess: { _ in }
+            exitProcess: { _ in },
+            wakeMainApp: { wakeCount += 1 }
         )
 
         engine.start()
@@ -104,6 +109,7 @@ struct DetachedAgentRunnerEngineTests {
         #expect(state.phase == .failed)
         #expect(state.exitCode == 0)
         #expect(state.terminalSafeError == "Coding agent reported an error")
+        #expect(wakeCount == 1)
     }
 
     @Test func cancelPublishesTerminalStateOnlyAfterChildAndGrandchildExit() async throws {
@@ -155,10 +161,12 @@ struct DetachedAgentRunnerEngineTests {
             workspaceURL: fixture,
             runtimeLimit: 30
         )
+        var wakeCount = 0
         let engine = try DetachedAgentRunnerEngine(
             request: request,
             rootDirectoryURL: runtimeRoot,
-            exitProcess: { _ in }
+            exitProcess: { _ in },
+            wakeMainApp: { wakeCount += 1 }
         )
         engine.start()
 
@@ -188,6 +196,7 @@ struct DetachedAgentRunnerEngineTests {
         #expect(state.phase == .cancelled)
         #expect(!Self.processExists(childPID))
         #expect(!Self.processExists(grandchildPID))
+        #expect(wakeCount == 0)
     }
 
     @Test func approvalWaitPersistsOpaqueTokenAndPausesWorkTimeout() async throws {
@@ -212,10 +221,12 @@ struct DetachedAgentRunnerEngineTests {
             usesDuplexStandardInput: true,
             runtimeLimit: 0.2
         )
+        var wakeCount = 0
         let engine = try DetachedAgentRunnerEngine(
             request: request,
             rootDirectoryURL: runtimeRoot,
-            exitProcess: { _ in }
+            exitProcess: { _ in },
+            wakeMainApp: { wakeCount += 1 }
         )
         engine.start()
 
@@ -223,6 +234,7 @@ struct DetachedAgentRunnerEngineTests {
             (try? Self.loadState(root: runtimeRoot, request: request))?.phase == .waitingForApproval
         }
         #expect(reachedApproval)
+        #expect(wakeCount == 1)
         let approvalState = try #require(try Self.loadState(root: runtimeRoot, request: request))
         let approvalToken = try #require(approvalState.pendingApprovalToken)
 
@@ -256,6 +268,7 @@ struct DetachedAgentRunnerEngineTests {
             (try? Self.loadState(root: runtimeRoot, request: request))?.phase == .cancelled
         }
         #expect(cancelled)
+        #expect(wakeCount == 1)
     }
 
     @Test func workTimeoutWritesFailureOnlyAfterProcessTreeIsGone() async throws {
@@ -279,10 +292,12 @@ struct DetachedAgentRunnerEngineTests {
             workspaceURL: fixture,
             runtimeLimit: 0.1
         )
+        var wakeCount = 0
         let engine = try DetachedAgentRunnerEngine(
             request: request,
             rootDirectoryURL: runtimeRoot,
-            exitProcess: { _ in }
+            exitProcess: { _ in },
+            wakeMainApp: { wakeCount += 1 }
         )
         engine.start()
 
@@ -294,6 +309,63 @@ struct DetachedAgentRunnerEngineTests {
         let state = try #require(try Self.loadState(root: runtimeRoot, request: request))
         #expect(state.terminalSafeError == "Timed out")
         #expect(!Self.processExists(childPID))
+        #expect(wakeCount == 1)
+    }
+
+    @Test func terminalTakeoverDoesNotWakeMainApp() async throws {
+        let fixture = try makeFixtureDirectory(named: "terminal-takeover")
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let runtimeRoot = fixture.appendingPathComponent("runtime", isDirectory: true)
+        let scriptURL = try makeExecutableScript(
+            in: fixture,
+            named: "takeover.sh",
+            contents: """
+            #!/bin/sh
+            trap 'exit 0' TERM INT
+            while :; do /bin/sleep 30; done
+            """
+        )
+        let request = makeRequest(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: [scriptURL.path],
+            workspaceURL: fixture,
+            runtimeLimit: 30
+        )
+        var wakeCount = 0
+        let engine = try DetachedAgentRunnerEngine(
+            request: request,
+            rootDirectoryURL: runtimeRoot,
+            exitProcess: { _ in },
+            wakeMainApp: { wakeCount += 1 }
+        )
+        engine.start()
+
+        let running = await waitUntil(timeout: 3) {
+            (try? Self.loadState(root: runtimeRoot, request: request))?.phase == .running
+        }
+        #expect(running)
+
+        let mailbox = try DetachedAgentCommandMailbox(
+            rootDirectoryURL: runtimeRoot,
+            runID: request.runID,
+            attemptID: request.attemptID
+        )
+        try mailbox.enqueue(
+            DetachedAgentCommandEnvelope(
+                runID: request.runID,
+                attemptID: request.attemptID,
+                command: .takeOverInTerminal
+            )
+        )
+
+        let handedOff = await waitUntil(timeout: 6) {
+            guard let state = try? Self.loadState(root: runtimeRoot, request: request) else {
+                return false
+            }
+            return state.phase == .cancelled && state.handedOffToTerminal == true
+        }
+        #expect(handedOff)
+        #expect(wakeCount == 0)
     }
 
     private func makeRequest(
@@ -546,8 +618,9 @@ struct DetachedAgentRunnerBootstrapSecurityTests {
         )
         defer { try? FileManager.default.removeItem(at: runDirectoryURL) }
 
-        let hostExecutable = try #require(Bundle.main.executableURL)
-        #expect(hostExecutable.lastPathComponent == "HeyMate")
+        let hostExecutable = try #require(DetachedAgentRunnerExecutable.bundledURL())
+        #expect(hostExecutable.lastPathComponent == "HeyMateAgentRunner")
+        #expect(hostExecutable.deletingLastPathComponent().lastPathComponent == "Helpers")
         let runnerPID = try DetachedAgentRunnerBootstrap.spawn(
             executableURL: hostExecutable,
             request: request

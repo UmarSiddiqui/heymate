@@ -12,6 +12,8 @@ APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
 # shellcheck source=process_scope.sh
 source "$ROOT_DIR/script/process_scope.sh"
+# shellcheck source=code_signature_checks.sh
+source "$ROOT_DIR/script/code_signature_checks.sh"
 
 HEYMATE_TEAM="${HEYMATE_DEVELOPMENT_TEAM:-}"
 SIGNING_IDENTITY="${HEYMATE_SIGNING_IDENTITY:-}"
@@ -56,8 +58,8 @@ case "$MODE" in
     ;;
 esac
 
-# Detached coding-agent runners use this same executable. Stop only GUI
-# instances from this build; name-only pkill would destroy background work.
+# Stop only GUI instances from this build. Embedded agent runners use distinct
+# HeyMateAgentRunner executable and remain alive across app rebuilds.
 heymate_stop_ui_app_processes "$APP_NAME" "$APP_BINARY"
 
 run_xcodebuild() {
@@ -74,40 +76,13 @@ run_xcodebuild() {
 
 run_xcodebuild build
 
-require_hardened_runtime() {
-  local code_path="$1"
-  local signing_details
-  if ! signing_details=$(codesign -dvv "$code_path" 2>&1); then
-    echo "Could not read code signature for $code_path" >&2
-    return 1
-  fi
-  if ! printf '%s\n' "$signing_details" | grep -q 'flags=.*runtime'; then
-    echo "Hardened runtime is missing from $code_path" >&2
-    return 1
-  fi
-}
-
-reject_app_only_nested_entitlements() {
-  local code_path="$1"
-  local entitlements
-  entitlements=$(codesign -d --entitlements - "$code_path" 2>/dev/null || true)
-
-  # Camera, microphone, and ScreenCaptureKit picker access belong only to the
-  # UI app. Finding any of them on nested code means an outer-app entitlement
-  # set was recursively applied with `codesign --deep`.
-  if printf '%s\n' "$entitlements" | grep -Eq \
-    'com\.apple\.security\.device\.(camera|audio-input)|com\.apple\.security\.temporary-exception\.mach-lookup\.global-name'; then
-    echo "App-only entitlements leaked into nested code at $code_path" >&2
-    return 1
-  fi
-}
-
 verify_debug_signatures() {
   local nested_code_count=0
   local code_path
 
   codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE" || return 1
-  require_hardened_runtime "$APP_BUNDLE" || return 1
+  heymate_require_hardened_runtime "$APP_BUNDLE" || return 1
+  heymate_verify_embedded_agent_runner "$APP_BUNDLE" debug || return 1
 
   # Inspect each signed executable independently. Deep verification proves the
   # seals are intact; these checks also catch valid-but-wrong recursive signing
@@ -116,8 +91,8 @@ verify_debug_signatures() {
     [ "$code_path" = "$APP_BINARY" ] && continue
     if codesign -d "$code_path" >/dev/null 2>&1; then
       nested_code_count=$((nested_code_count + 1))
-      require_hardened_runtime "$code_path" || return 1
-      reject_app_only_nested_entitlements "$code_path" || return 1
+      heymate_require_hardened_runtime "$code_path" || return 1
+      heymate_reject_app_only_nested_entitlements "$code_path" || return 1
     fi
   done < <(find "$APP_BUNDLE/Contents" -type f -perm -111 -print0)
 

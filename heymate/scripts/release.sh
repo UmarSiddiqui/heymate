@@ -41,6 +41,8 @@ DMG_OUTPUT_DIR="${BUILD_DIR}/dmg"
 RELEASES_DIR="${PROJECT_DIR}/releases"  # where generate_appcast reads DMGs from
 DMG_BACKGROUND="${PROJECT_DIR}/dmg-background.png"
 RELEASE_CHANNEL_CONFIG="${PROJECT_DIR}/ReleaseChannel.plist"
+# shellcheck source=../script/code_signature_checks.sh
+source "${PROJECT_DIR}/script/code_signature_checks.sh"
 
 # Release counts are not build numbers: API pagination, drafts, or deletion can
 # make them repeat. Require both values; later we also compare the build against
@@ -389,6 +391,13 @@ if [ "${ARCHIVED_BUILD_NUMBER}" != "${BUILD_NUMBER}" ]; then
 fi
 echo "✅ Archive contains verified version, build, Sparkle feed, and public key"
 
+ARCHIVED_APP="${ARCHIVE_PATH}/Products/Applications/${APP_NAME}.app"
+echo "🔎 Verifying archived agent runner signature..."
+codesign --verify --deep --strict --verbose=2 "${ARCHIVED_APP}"
+heymate_require_hardened_runtime "${ARCHIVED_APP}"
+heymate_verify_embedded_agent_runner "${ARCHIVED_APP}" release
+echo "✅ Archive contains distinct hardened agent runner"
+
 # ── Step 3: Export signed app ────────────────────────────────────────────────
 
 # Create an export options plist for Developer ID distribution.
@@ -423,6 +432,10 @@ echo "✅ Signed app export complete"
 echo "🔎 Verifying exported app signature..."
 codesign --verify --deep --strict --verbose=2 \
     "${EXPORT_DIR}/${APP_NAME}.app"
+heymate_require_hardened_runtime "${EXPORT_DIR}/${APP_NAME}.app"
+heymate_verify_embedded_agent_runner \
+    "${EXPORT_DIR}/${APP_NAME}.app" \
+    release
 echo "✅ Exported app signature verified"
 
 # ── Step 4: Create DMG ──────────────────────────────────────────────────────

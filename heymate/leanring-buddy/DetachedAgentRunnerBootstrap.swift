@@ -2,7 +2,7 @@
 //  DetachedAgentRunnerBootstrap.swift
 //  leanring-buddy
 //
-//  Spawns this signed executable in runner mode and sends one sensitive launch
+//  Spawns HeyMate's signed embedded runner and sends one sensitive launch
 //  request over an inherited pipe. argv contains only identifiers and an FD.
 //
 
@@ -16,30 +16,6 @@ nonisolated enum DetachedAgentRunnerBootstrapError: Error, Equatable {
     case spawnFailed(Int32)
     case fileActionFailed(Int32)
     case attributeFailed(Int32)
-}
-
-nonisolated struct DetachedAgentRunnerInvocation: Equatable, Sendable {
-    static let commandLineFlag = "--heymate-agent-runner"
-    static let inheritedBootstrapFileDescriptor: Int32 = 3
-
-    let runID: UUID
-    let attemptID: UUID
-    let bootstrapFileDescriptor: Int32
-
-    init?(arguments: [String] = ProcessInfo.processInfo.arguments) {
-        guard arguments.count == 5,
-              arguments[1] == Self.commandLineFlag,
-              let flagIndex = arguments.firstIndex(of: Self.commandLineFlag),
-              let runID = UUID(uuidString: arguments[flagIndex + 1]),
-              let attemptID = UUID(uuidString: arguments[flagIndex + 2]),
-              let bootstrapFileDescriptor = Int32(arguments[flagIndex + 3]),
-              bootstrapFileDescriptor == Self.inheritedBootstrapFileDescriptor else {
-            return nil
-        }
-        self.runID = runID
-        self.attemptID = attemptID
-        self.bootstrapFileDescriptor = bootstrapFileDescriptor
-    }
 }
 
 nonisolated enum DetachedAgentRunnerBootstrap {

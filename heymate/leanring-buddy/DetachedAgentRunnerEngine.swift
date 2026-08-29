@@ -9,7 +9,6 @@
 import Darwin
 import Dispatch
 import Foundation
-import UserNotifications
 
 @MainActor
 final class DetachedAgentRunnerEngine {
@@ -33,6 +32,7 @@ final class DetachedAgentRunnerEngine {
     private let commandMailbox: DetachedAgentCommandMailbox
     private let workClock = SuspendingClock()
     private let exitProcess: (Int32) -> Void
+    private let wakeMainApp: () -> Void
 
     private var state: DetachedAgentDurableState
     private var agentReportedFailure = false
@@ -52,13 +52,15 @@ final class DetachedAgentRunnerEngine {
     init(
         request: DetachedAgentLaunchRequest,
         rootDirectoryURL: URL = DetachedAgentRuntimePaths.defaultRootURL,
-        exitProcess: @escaping (Int32) -> Void = { Darwin.exit($0) }
+        exitProcess: @escaping (Int32) -> Void = { Darwin.exit($0) },
+        wakeMainApp: @escaping () -> Void = { DetachedAgentMainAppWake.wake() }
     ) throws {
         guard request.leg == .execute else {
             throw InitializationError.unsupportedLeg
         }
         self.request = request
         self.exitProcess = exitProcess
+        self.wakeMainApp = wakeMainApp
         adapter = HeadlessCLIAdapterFactory.adapter(for: request.executor)
         journal = try DetachedAgentRuntimeJournal(
             rootDirectoryURL: rootDirectoryURL,
@@ -229,13 +231,7 @@ final class DetachedAgentRunnerEngine {
             stopAfterPersistenceFailure()
             return
         }
-        Task {
-            await DetachedAgentRunnerNotifier.post(
-                runID: request.runID,
-                title: "Agent needs approval",
-                body: "Open HeyMate to review it."
-            )
-        }
+        wakeMainApp()
 
         approvalTimeoutTask?.cancel()
         approvalTimeoutTask = Task { [weak self] in
@@ -519,25 +515,10 @@ final class DetachedAgentRunnerEngine {
             return
         }
 
-        let notification: (String, String)?
-        switch phase {
-        case .succeeded:
-            notification = ("Agent finished", "Your workspace changes are ready in HeyMate.")
-        case .failed:
-            notification = ("Agent stopped", "Open HeyMate to review what happened.")
-        case .cancelled, .queued, .launching, .running, .waitingForApproval, .interrupting, .detached:
-            notification = nil
+        if phase == .succeeded || phase == .failed {
+            wakeMainApp()
         }
-        Task { [exitProcess] in
-            if let notification {
-                await DetachedAgentRunnerNotifier.post(
-                    runID: request.runID,
-                    title: notification.0,
-                    body: notification.1
-                )
-            }
-            exitProcess(phase == .failed ? 1 : 0)
-        }
+        exitProcess(phase == .failed ? 1 : 0)
     }
 
     private func append(
@@ -561,28 +542,6 @@ final class DetachedAgentRunnerEngine {
         progressFlushTask?.cancel()
         progressFlushTask = nil
         pendingProgressSummary = nil
-    }
-}
-
-@MainActor
-private enum DetachedAgentRunnerNotifier {
-    static func post(runID: UUID, title: String, body: String) async {
-        let center = UNUserNotificationCenter.current()
-        let settings = await center.notificationSettings()
-        guard settings.authorizationStatus == .authorized
-                || settings.authorizationStatus == .provisional else { return }
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = .default
-        content.threadIdentifier = runID.uuidString
-        content.userInfo = ["runID": runID.uuidString]
-        let request = UNNotificationRequest(
-            identifier: "agent-\(runID.uuidString)-detached-terminal",
-            content: content,
-            trigger: nil
-        )
-        try? await center.add(request)
     }
 }
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 # Process selection shared by build_and_run.sh and its regression tests.
-# HeyMate's detached agent runner intentionally uses the same signed binary as
-# the UI app, so matching only the executable name or path is not sufficient.
+# Embedded agent work uses distinct HeyMateAgentRunner executable. Exact app
+# path is authoritative; runner-flag check also protects older active builds.
 
 heymate_pgrep_by_name() {
   pgrep -x "$1" 2>/dev/null || true
