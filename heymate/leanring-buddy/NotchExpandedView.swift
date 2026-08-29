@@ -64,17 +64,25 @@ struct NotchExpandedView: View {
     @State private var isModelPickerOpen = false
 
     var body: some View {
-        // Lay out at the destination card size and let AppKit clip during the
-        // pill→card morph. A GeometryReader that both measured and set frame
-        // fought the hosting view on every outline-glow tick.
-        cardBody
-            .frame(
-                width: layoutSize.width > 0 ? layoutSize.width : nil,
-                height: layoutSize.height > 0 ? layoutSize.height : nil,
-                alignment: .top
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .clipped()
+        // Background follows live hosting-view bounds. Destination-sized
+        // controls stay top-centred underneath and reveal only after the
+        // unified silhouette has substantially formed.
+        GeometryReader { viewport in
+            let contentWidth = layoutSize.width > 0 ? layoutSize.width : viewport.size.width
+            let contentHeight = layoutSize.height > 0 ? layoutSize.height : viewport.size.height
+
+            cardBody
+                .frame(width: contentWidth, height: contentHeight, alignment: .top)
+                .position(x: viewport.size.width / 2, y: contentHeight / 2)
+                .opacity(transitionModel.morphContentOpacity)
+        }
+        .modifier(NotchLiquidGlassCardModifier(
+            transitionModel: transitionModel,
+            outlineColor: companionManager.themeColor,
+            isOutlineEnabled: companionManager.isNotchOutlineEnabled,
+            occludedTopInset: occludedTopInset
+        ))
+        .clipped()
     }
 
     private var cardBody: some View {
@@ -134,16 +142,6 @@ struct NotchExpandedView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .modifier(NotchLiquidGlassCardModifier(transitionModel: transitionModel, occludedTopInset: occludedTopInset))
-        .overlay(alignment: .top) {
-            if companionManager.isNotchOutlineEnabled, occludedTopInset >= 20, hardwareNotchWidth > 0 {
-                NotchOutlineGlow(
-                    color: companionManager.themeColor,
-                    cornerRadius: NotchLayoutMath.pillCornerRadius(forHeight: occludedTopInset)
-                )
-                    .frame(width: hardwareNotchWidth, height: occludedTopInset)
-            }
-        }
     }
 
     // MARK: Header

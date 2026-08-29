@@ -304,6 +304,19 @@ struct NotchLayoutMathTests {
         #expect(NotchLayoutMath.easeInCubic(0.5) < 0.5)
     }
 
+    @Test func swooshCurveMatchesPreviewMotionLanguage() {
+        #expect(NotchLayoutMath.swooshEase(0) == 0)
+        #expect(NotchLayoutMath.swooshEase(1) == 1)
+        #expect(NotchLayoutMath.swooshEase(-1) == 0)
+        #expect(NotchLayoutMath.swooshEase(2) == 1)
+        // Fast attack without exponential pop: ahead of cubic ease-out near
+        // the start, but still leaves visible settle travel after midpoint.
+        #expect(NotchLayoutMath.swooshEase(0.20) > 0.50)
+        #expect(NotchLayoutMath.swooshEase(0.50) > 0.80)
+        #expect(NotchLayoutMath.swooshEase(0.50) < 0.95)
+        #expect(NotchLayoutMath.swooshEase(0.85) < 1)
+    }
+
     @Test func interpolatedRectWithEasedProgressIsLinear() {
         let pill = CGRect(x: 100, y: 800, width: 200, height: 48)
         let card = CGRect(x: 0, y: 400, width: 400, height: 532)
@@ -319,16 +332,17 @@ struct NotchLayoutMathTests {
     }
 
     @Test func morphCardnessInvertsOnCollapse() {
-        #expect(NotchLayoutMath.morphCardness(easedProgress: 0.25, isExpanding: true) == 0.25)
-        #expect(NotchLayoutMath.morphCardness(easedProgress: 0.25, isExpanding: false) == 0.75)
+        let expanding = NotchLayoutMath.morphCardness(linearProgress: 0.25, isExpanding: true)
+        let collapsing = NotchLayoutMath.morphCardness(linearProgress: 0.25, isExpanding: false)
+        #expect(abs(expanding + collapsing - 1) < 0.001)
+        #expect(NotchLayoutMath.morphCardness(linearProgress: 1, isExpanding: true) == 1)
+        #expect(NotchLayoutMath.morphCardness(linearProgress: 1, isExpanding: false) == 0)
     }
 
-    @Test func morphContentOpacityFadesInFastOnExpand() {
-        // Still invisible at the very first beat, then ramps immediately —
-        // a late fade reads as the content chasing the fast-growing window.
-        #expect(NotchLayoutMath.morphContentOpacity(linearProgress: 0.05, isExpanding: true) == 0)
-        // Fully opaque by 40% of the duration.
-        #expect(NotchLayoutMath.morphContentOpacity(linearProgress: 0.40, isExpanding: true) == 1)
+    @Test func morphContentOpacityWaitsForSilhouetteOnExpand() {
+        #expect(NotchLayoutMath.morphContentOpacity(linearProgress: 0.42, isExpanding: true) == 0)
+        #expect(abs(NotchLayoutMath.morphContentOpacity(linearProgress: 0.635, isExpanding: true) - 0.5) < 0.001)
+        #expect(NotchLayoutMath.morphContentOpacity(linearProgress: 0.85, isExpanding: true) == 1)
         #expect(NotchLayoutMath.morphContentOpacity(linearProgress: 1, isExpanding: true) == 1)
     }
 

@@ -72,7 +72,7 @@ final class NotchSurfaceTransitionModel: ObservableObject {
     /// old matchedGeometry morph lost.
     func updateMorph(easedProgress: CGFloat, linearProgress: CGFloat) {
         morphCardness = NotchLayoutMath.morphCardness(
-            easedProgress: easedProgress,
+            linearProgress: linearProgress,
             isExpanding: isExpandingMorph
         )
         morphContentOpacity = NotchLayoutMath.morphContentOpacity(
@@ -113,6 +113,8 @@ final class NotchSurfaceTransitionModel: ObservableObject {
 ///     into a window too small to hold it.
 struct NotchLiquidGlassCardModifier: ViewModifier {
     @ObservedObject var transitionModel: NotchSurfaceTransitionModel
+    var outlineColor: Color
+    var isOutlineEnabled: Bool
 
     /// Height of the camera housing. Needed to derive the pill's bottom
     /// corner radius — the morph's starting shape.
@@ -121,17 +123,33 @@ struct NotchLiquidGlassCardModifier: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
         content
-            .opacity(transitionModel.morphContentOpacity)
             .background {
                 GeometryReader { geometry in
+                    let outlineInset = NotchLayoutMath.outlinePad * (1 - transitionModel.morphCardness)
+                    let surfaceSize = CGSize(
+                        width: max(geometry.size.width - outlineInset * 2, 1),
+                        height: max(geometry.size.height - outlineInset, 1)
+                    )
+
                     ZStack {
-                        glassSurface(size: geometry.size, bottomCornerRadius: bottomCornerRadius)
+                        glassSurface(size: surfaceSize, bottomCornerRadius: bottomCornerRadius)
                         cardShape(bottomCornerRadius: bottomCornerRadius)
                             .fill(Color.black)
                             .opacity(transitionModel.morphBezelOpacity)
                             .allowsHitTesting(false)
+                        if isOutlineEnabled {
+                            NotchOutlineGlow(
+                                color: outlineColor,
+                                cornerRadius: bottomCornerRadius
+                            )
+                        }
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .frame(width: surfaceSize.width, height: surfaceSize.height)
+                    .frame(
+                        width: geometry.size.width,
+                        height: geometry.size.height,
+                        alignment: .top
+                    )
                 }
             }
     }
@@ -325,15 +343,23 @@ struct NotchCompactChatCard: View {
     var onClose: () -> Void
 
     var body: some View {
-        compactBody
-            .frame(
-                width: layoutSize.width > 0 ? layoutSize.width : nil,
-                height: layoutSize.height > 0 ? layoutSize.height : nil,
-                alignment: .top
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .clipped()
-            .onExitCommand(perform: onClose)
+        GeometryReader { viewport in
+            let contentWidth = layoutSize.width > 0 ? layoutSize.width : viewport.size.width
+            let contentHeight = layoutSize.height > 0 ? layoutSize.height : viewport.size.height
+
+            compactBody
+                .frame(width: contentWidth, height: contentHeight, alignment: .top)
+                .position(x: viewport.size.width / 2, y: contentHeight / 2)
+                .opacity(transitionModel.morphContentOpacity)
+        }
+        .modifier(NotchLiquidGlassCardModifier(
+            transitionModel: transitionModel,
+            outlineColor: companionManager.themeColor,
+            isOutlineEnabled: companionManager.isNotchOutlineEnabled,
+            occludedTopInset: occludedTopInset
+        ))
+        .clipped()
+        .onExitCommand(perform: onClose)
     }
 
     private var compactBody: some View {
@@ -352,16 +378,6 @@ struct NotchCompactChatCard: View {
             .frame(maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .modifier(NotchLiquidGlassCardModifier(transitionModel: transitionModel, occludedTopInset: occludedTopInset))
-        .overlay(alignment: .top) {
-            if companionManager.isNotchOutlineEnabled, occludedTopInset >= 20, hardwareNotchWidth > 0 {
-                NotchOutlineGlow(
-                    color: companionManager.themeColor,
-                    cornerRadius: NotchLayoutMath.pillCornerRadius(forHeight: occludedTopInset)
-                )
-                    .frame(width: hardwareNotchWidth, height: occludedTopInset)
-            }
-        }
     }
 
     private var compactHeader: some View {

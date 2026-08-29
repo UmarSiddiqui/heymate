@@ -7,10 +7,10 @@
 //  the companion's live state (idle dot → listening waveform → thinking
 //  pulse → speaking rings). The tab is interactive:
 //
-//    • Hover the tab → it PEEKS: the window widens past the camera housing
-//      and reveals a compact leading indicator plus a trailing context chip.
-//      It does NOT open the card. Brushing the notch on the way to the menu
-//      bar therefore costs one cheap width animation instead of a full panel.
+//    • Hover the tab → it highlights without resizing. It does NOT open the
+//      card unless the user enables the open-on-hover preference. Keeping
+//      hover geometry stable lets click expansion begin as one width+height
+//      morph instead of a sideways peek followed by a separate card.
 //      (Users who preferred the old behavior can turn "open on hover" back
 //      on; it is off by default.)
 //    • Click the tab → the Home/Agents card drops below the notch, pinned.
@@ -23,10 +23,10 @@
 //  appearance, stationary across Spaces — plus exact notch geometry derived
 //  from NSScreen so the tab merges with the camera housing on any model.
 //
-//  Two panels cooperate: the collapsed tab and the expanded card overlap the
-//  same notch pixels. Expanded panel stays at its destination frame while a
-//  matched Liquid Glass surface morphs from the pill geometry. The tab is
-//  ordered out while the card is visible (see `presentSurface`).
+//  Two panels cooperate: the collapsed tab hands identical notch pixels to
+//  the expanded panel, whose real frame, unified surface, rim, corners, and
+//  shadow grow together from top centre. The tab is ordered out while the
+//  card is visible (see `presentSurface`).
 //
 
 import AppKit
@@ -63,7 +63,7 @@ final class NotchCompanionController {
     private static let hoverExpandDelayMilliseconds: UInt64 = 320
 
     /// UserDefaults key for the opt-in "hovering the notch opens the card"
-    /// behavior. Default OFF: hover peeks, click opens.
+    /// behavior. Default OFF: hover highlights, click opens.
     nonisolated static let hoverOpensCardPreferenceKey = "notchHoverOpensCard"
 
     static var hoverOpensCard: Bool {
@@ -87,8 +87,8 @@ final class NotchCompanionController {
     /// audio tick, which rebuilt the entire view graph 12 times a second.
     private let pillModel = NotchPillModel()
 
-    /// SwiftUI owns visible card morph. Expanded NSPanel stays fixed at its
-    /// destination frame so glass never re-renders against a moving window.
+    /// SwiftUI owns silhouette/rim/content staging while AppKit owns the
+    /// matching top-anchored panel frame on the same display-link clock.
     private let surfaceTransitionModel = NotchSurfaceTransitionModel()
 
     /// Live mic power subscription. Only alive while the pipeline is
@@ -121,8 +121,8 @@ final class NotchCompanionController {
     /// re-enters the card within the grace window.
     private var pendingGraceCollapseTask: Task<Void, Never>?
 
-    /// Vsync-driven frame animator — pill hover-widen, and the card's real
-    /// expand/collapse frame growth. Replaced a `Task.sleep(16.6 ms)` loop
+    /// Vsync-driven frame animator — compact activity resizing and the card's
+    /// real expand/collapse frame growth. Replaced a `Task.sleep(16.6 ms)` loop
     /// that assumed a 60 Hz display and landed its `setFrame` calls at
     /// arbitrary points inside each refresh, which is what made the morph
     /// look steppy on ProMotion. See `NotchFrameAnimator` below.
@@ -139,8 +139,7 @@ final class NotchCompanionController {
     private var escapeKeyMonitor: Any?
     private var outsideClickMonitor: Any?
 
-    /// Visual-only hover on the collapsed tab (brightens the peek, drops
-    /// the chevron) — does not change the window frame.
+    /// Visual-only hover on the collapsed tab — does not change window frame.
     private var isPillHovered = false
 
     /// Full Home card vs compact chat. Hover/click uses the full card;
@@ -572,7 +571,7 @@ final class NotchCompanionController {
         panel.isFloatingPanel = true
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = false
+        panel.hasShadow = true
         // Above both the menu bar (.mainMenu) and status items (.statusBar) —
         // lower levels get covered by / conformed out of the menu-bar strip
         // that surrounds the physical notch.
@@ -606,7 +605,7 @@ final class NotchCompanionController {
         panel.isFloatingPanel = true
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = false
+        panel.hasShadow = true
         // Same level as the tab: both surfaces must sit above the menu-bar
         // strip, and the card replaces the tab rather than stacking with it.
         panel.level = .mainMenu + 3
@@ -871,7 +870,7 @@ final class NotchCompanionController {
             of: expandedPanel,
             to: destinationFrame,
             duration: NotchLayoutMath.expandDuration,
-            curve: .easeOutExpo,
+            curve: .swoosh,
             onProgress: { [weak self] easedProgress, linearProgress in
                 self?.surfaceTransitionModel.updateMorph(
                     easedProgress: easedProgress,
@@ -922,7 +921,7 @@ final class NotchCompanionController {
             of: expandedPanel,
             to: collapseTargetFrame,
             duration: NotchLayoutMath.collapseDuration,
-            curve: .easeInCubic,
+            curve: .swoosh,
             onProgress: { [weak self] easedProgress, linearProgress in
                 self?.surfaceTransitionModel.updateMorph(
                     easedProgress: easedProgress,
@@ -1104,13 +1103,13 @@ final class NotchCompanionController {
 private final class NotchFrameAnimator: NSObject {
 
     /// Easing shape applied to linear time before interpolating the frame.
-    /// Expand and collapse deliberately use different curves: a grow eases
-    /// out (fast attack, gentle settle), a shrink eases in (accelerates
-    /// into the notch).
+    /// Expanded surface uses the portfolio preview's measured transition
+    /// curve in both directions. Pill hover keeps its smaller cubic motion.
     enum Curve {
         case easeOutCubic
         case easeOutExpo
         case easeInCubic
+        case swoosh
     }
 
     private weak var panel: NSPanel?
@@ -1192,12 +1191,14 @@ private final class NotchFrameAnimator: NSObject {
             display: true,
             animate: false
         )
+        panel.invalidateShadow()
         onProgress?(easedProgress, linearProgress)
 
         if linearProgress >= 1 {
             // Land exactly on the target before reporting completion — the
             // final interpolated frame can sit a fraction of a point short.
             panel.setFrame(targetFrame, display: true, animate: false)
+            panel.invalidateShadow()
             onProgress?(1, 1)
             let completion = self.completion
             displayLink.invalidate()
@@ -1214,6 +1215,7 @@ private final class NotchFrameAnimator: NSObject {
         case .easeOutCubic: return NotchLayoutMath.easeOutCubic(linearProgress)
         case .easeOutExpo: return NotchLayoutMath.easeOutExpo(linearProgress)
         case .easeInCubic: return NotchLayoutMath.easeInCubic(linearProgress)
+        case .swoosh: return NotchLayoutMath.swooshEase(linearProgress)
         }
     }
 }

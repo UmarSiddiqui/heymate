@@ -255,7 +255,7 @@ struct DesktopNotchView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Open the card on hover")
                         .font(DS.Fonts.headline)
-                    Text("Off: hovering widens the notch and shows a peek. On: resting for a moment drops the full card.")
+                    Text("Off: hovering highlights the notch. On: resting for a moment drops the full card.")
                         .font(DS.Fonts.caption)
                         .foregroundColor(DS.Colors.textTertiary)
                 }

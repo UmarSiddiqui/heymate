@@ -45,8 +45,8 @@ final class NotchPillModel: ObservableObject {
     /// `NotchCompanionController.observeStateChanges`.
     @Published var audioPowerLevel: CGFloat = 0
 
-    /// Pointer is resting on the tab. Widens the frame and reveals the
-    /// peek slots; never opens the card by itself.
+    /// Pointer is resting on the tab. Highlights compact surface without
+    /// changing geometry; open-on-hover remains controller policy.
     @Published var isHovered = false
 
     /// A file drag is hovering the notch. Outranks every other visual so
@@ -72,10 +72,11 @@ final class NotchPillModel: ObservableObject {
     /// this span so their content is never hidden behind the camera.
     @Published var hardwareNotchWidth: CGFloat = NotchLayoutMath.fallbackIdleWidth
 
-    /// True when the pill should render its widened form. Recomputed by the
-    /// controller alongside the window frame so pixels and layout agree.
+    /// True when compact state needs exposed side slots. Pointer hover alone
+    /// only highlights the housing: widening before a click makes expansion
+    /// read as two separate stages instead of one top-centre morph.
     var wantsWidenedFrame: Bool {
-        voiceState != .idle || isHovered || isDropTargeted || activity != nil
+        voiceState != .idle || isDropTargeted || activity != nil
     }
 }
 

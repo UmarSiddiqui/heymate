@@ -40,16 +40,18 @@ enum NotchLayoutMath {
     /// Bottom-corner radius of the expanded card.
     nonisolated static let cardCornerRadius: CGFloat = 18
 
-    /// Liquid Glass morph duration: pill → expanded card. Short enough to
-    /// feel instant on click — the card must read as "already there", not
-    /// as arriving. Paired with `easeOutExpo`, whose fast attack means the
-    /// window covers ~97% of the distance in the first half of this.
-    nonisolated static let expandDuration: TimeInterval = 0.18
+    /// Matches the portfolio preview's simultaneous width/height transition:
+    /// 210 ms with cubic-bezier(0.22, 0.75, 0.24, 1). Long enough to read as
+    /// a top-centre swoosh, still short enough to feel directly manipulated.
+    nonisolated static let expandDuration: TimeInterval = 0.21
 
-    /// Liquid Glass morph duration: card → pill. Faster than the expand so
-    /// dismissals feel decisive, paired with an ease-IN curve so the card
-    /// accelerates into the notch instead of lingering over the desktop.
-    nonisolated static let collapseDuration: TimeInterval = 0.20
+    /// Preview uses the same transition in reverse. Keeping one duration and
+    /// curve prevents the close from changing character or snapping at handoff.
+    nonisolated static let collapseDuration: TimeInterval = 0.21
+
+    /// Preview settles border radius over 180 ms while width/height continue
+    /// their final 30 ms. Expressed separately so silhouette lands cleanly.
+    nonisolated static let cornerSettleDuration: TimeInterval = 0.18
 
     /// Idle ↔ listening width change on the collapsed tab.
     nonisolated static let pillResizeDuration: TimeInterval = 0.22
@@ -340,6 +342,50 @@ enum NotchLayoutMath {
         return clampedProgress * clampedProgress * clampedProgress
     }
 
+    /// Portfolio preview motion curve: cubic-bezier(0.22, 0.75, 0.24, 1).
+    /// CSS cubic-bezier maps elapsed time through the x control points, so a
+    /// direct polynomial of y is incorrect. Binary search is stable, bounded,
+    /// and cheap at one evaluation per display refresh.
+    nonisolated static func swooshEase(_ progress: CGFloat) -> CGFloat {
+        cubicBezier(progress, x1: 0.22, y1: 0.75, x2: 0.24, y2: 1)
+    }
+
+    /// CSS `ease`, used by the preview's 180 ms border-radius transition.
+    nonisolated static func cssEase(_ progress: CGFloat) -> CGFloat {
+        cubicBezier(progress, x1: 0.25, y1: 0.1, x2: 0.25, y2: 1)
+    }
+
+    nonisolated static func cubicBezier(
+        _ progress: CGFloat,
+        x1: CGFloat,
+        y1: CGFloat,
+        x2: CGFloat,
+        y2: CGFloat
+    ) -> CGFloat {
+        let clampedProgress = min(max(progress, 0), 1)
+        guard clampedProgress > 0 else { return 0 }
+        guard clampedProgress < 1 else { return 1 }
+
+        func coordinate(_ parameter: CGFloat, _ first: CGFloat, _ second: CGFloat) -> CGFloat {
+            let inverse = 1 - parameter
+            return 3 * inverse * inverse * parameter * first
+                + 3 * inverse * parameter * parameter * second
+                + parameter * parameter * parameter
+        }
+
+        var lower: CGFloat = 0
+        var upper: CGFloat = 1
+        for _ in 0..<14 {
+            let midpoint = (lower + upper) / 2
+            if coordinate(midpoint, x1, x2) < clampedProgress {
+                lower = midpoint
+            } else {
+                upper = midpoint
+            }
+        }
+        return coordinate((lower + upper) / 2, y1, y2)
+    }
+
     nonisolated static func lerp(_ start: CGFloat, _ end: CGFloat, _ progress: CGFloat) -> CGFloat {
         start + (end - start) * progress
     }
@@ -373,25 +419,28 @@ enum NotchLayoutMath {
     /// How "card-shaped" the surface is at this point in the morph: 1 = full
     /// card, 0 = pill. Drives the bottom corner radius so the shape reads as
     /// one continuous liquid surface instead of a full-radius card clipped
-    /// by a pill-sized window. Expand reports eased progress directly;
-    /// collapse inverts it (the window shrinks as progress advances).
-    nonisolated static func morphCardness(easedProgress: CGFloat, isExpanding: Bool) -> CGFloat {
-        isExpanding ? easedProgress : 1 - easedProgress
+    /// by a pill-sized window. Radius uses the preview's independent 180 ms
+    /// CSS-ease settle; collapse inverts it.
+    nonisolated static func morphCardness(linearProgress: CGFloat, isExpanding: Bool) -> CGFloat {
+        let cornerTimeline = min(
+            linearProgress * CGFloat(expandDuration / cornerSettleDuration),
+            1
+        )
+        let settledProgress = cssEase(cornerTimeline)
+        return isExpanding ? settledProgress : 1 - settledProgress
     }
 
     /// Content fade locked to the morph clock, computed from LINEAR time
     /// rather than eased distance: legibility is a function of how long the
     /// window has been moving, not how far it has travelled.
     ///
-    /// Expand: content starts appearing almost immediately and is fully
-    /// opaque by 40% of the duration — the grow is fast enough that a late
-    /// fade would read as the content chasing the window. Collapse: content
-    /// is gone within the first 45% so text never visibly squashes against
-    /// the shrinking frame.
+    /// Expand: hold content until the silhouette is established, then reveal
+    /// from 42–85% of the clock. Collapse: remove content in the first 45% so
+    /// text never visibly squashes against the shrinking frame.
     nonisolated static func morphContentOpacity(linearProgress: CGFloat, isExpanding: Bool) -> CGFloat {
         let clampedProgress = min(max(linearProgress, 0), 1)
         if isExpanding {
-            return min(max((clampedProgress - 0.05) / 0.35, 0), 1)
+            return min(max((clampedProgress - 0.42) / 0.43, 0), 1)
         }
         return 1 - min(clampedProgress / 0.45, 1)
     }
