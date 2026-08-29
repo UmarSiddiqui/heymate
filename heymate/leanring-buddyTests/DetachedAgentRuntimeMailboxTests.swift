@@ -131,6 +131,46 @@ struct DetachedAgentCommandMailboxTests {
         #expect(try mailbox.drain { _ in true }.isEmpty)
     }
 
+    @Test func versionTwoCommandsAndProcessedLedgerRemainCompatible() throws {
+        #expect(DetachedAgentRuntimeProtocol.currentSchemaVersion == 3)
+        let rootURL = makeRootDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let runID = UUID()
+        let attemptID = UUID()
+        let mailbox = try DetachedAgentCommandMailbox(
+            rootDirectoryURL: rootURL,
+            runID: runID,
+            attemptID: attemptID
+        )
+        let command = DetachedAgentCommandEnvelope(
+            schemaVersion: 2,
+            runID: runID,
+            attemptID: attemptID,
+            sentAt: Date(timeIntervalSince1970: 123),
+            command: .cancel
+        )
+
+        #expect(try mailbox.enqueue(command))
+        let handled = try mailbox.drain { _ in true }
+        #expect(handled == [command])
+
+        let ledgerURL = mailbox.directoryURL.appendingPathComponent(
+            "processed-message-ids.json",
+            isDirectory: false
+        )
+        let ledgerData = try DetachedAgentSecureFiles.readRegularFile(ledgerURL)
+        var ledger = try #require(
+            JSONSerialization.jsonObject(with: ledgerData) as? [String: Any]
+        )
+        ledger["schemaVersion"] = 2
+        try DetachedAgentSecureFiles.atomicDurableWrite(
+            try JSONSerialization.data(withJSONObject: ledger, options: [.sortedKeys]),
+            to: ledgerURL
+        )
+
+        #expect(try mailbox.enqueue(command) == false)
+    }
+
     @Test func reusedMessageIDWithDifferentPayloadFailsClosed() throws {
         let rootURL = makeRootDirectoryURL()
         defer { try? FileManager.default.removeItem(at: rootURL) }

@@ -1303,6 +1303,7 @@ final class HeadlessAgentLauncher {
               let attemptID = run.detachedAttemptID else { return false }
 
         do {
+            let commandSchemaVersion: Int
             if let state = try DetachedAgentDurableStateStore.loadReadOnly(
                 rootDirectoryURL: detachedRuntimeRootURL,
                 runID: runID,
@@ -1313,9 +1314,11 @@ final class HeadlessAgentLauncher {
                       detachedExpectedRunnerPIDs[runID].map({ $0 == identity.pid }) ?? true,
                       detachedExpectedRunnerIdentities[runID].map({ $0 == identity }) ?? true,
                       matchesLiveProcessIdentity(identity) else { return false }
+                commandSchemaVersion = state.schemaVersion
             } else {
                 guard pendingDetachedRunIDs.contains(runID),
                       expectedSpawnIsStillLive(runID: runID) else { return false }
+                commandSchemaVersion = DetachedAgentRuntimeProtocol.currentSchemaVersion
             }
 
             let mailbox = try DetachedAgentCommandMailbox(
@@ -1325,6 +1328,7 @@ final class HeadlessAgentLauncher {
             )
             _ = try mailbox.enqueue(
                 DetachedAgentCommandEnvelope(
+                    schemaVersion: commandSchemaVersion,
                     runID: runID,
                     attemptID: attemptID,
                     command: command

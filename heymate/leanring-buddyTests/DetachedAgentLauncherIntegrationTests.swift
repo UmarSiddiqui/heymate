@@ -153,6 +153,21 @@ struct DetachedAgentLauncherIntegrationTests {
         )
     }
 
+    private func rewriteSchemaVersion(
+        at url: URL,
+        to schemaVersion: Int,
+        trailingNewline: Bool = false
+    ) throws {
+        let data = try DetachedAgentSecureFiles.readRegularFile(url)
+        var object = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        object["schemaVersion"] = schemaVersion
+        var rewritten = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        if trailingNewline { rewritten.append(0x0A) }
+        try DetachedAgentSecureFiles.atomicDurableWrite(rewritten, to: url)
+    }
+
     private func persistHandoff(
         rootURL: URL,
         runID: UUID,
@@ -283,6 +298,106 @@ struct DetachedAgentLauncherIntegrationTests {
         }
         #expect(commands.last?.kind == .cancel)
         #expect(harness.store.run(id: harness.runID)?.status.isTerminal == false)
+    }
+
+    @Test func recoveredVersionTwoRunnerReceivesVersionTwoApprovalAndCancelCommands() throws {
+        let attemptID = UUID()
+        let harness = try makeHarness(attemptID: attemptID, status: .running)
+        defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+        let token = DetachedAgentApprovalToken()
+        try persistState(
+            rootURL: harness.runtimeRootURL,
+            runID: harness.runID,
+            attemptID: attemptID,
+            phase: .waitingForApproval,
+            runnerIdentity: harness.runnerIdentity,
+            approvalToken: token
+        )
+        let attemptDirectoryURL = DetachedAgentRuntimePaths.attemptDirectoryURL(
+            rootDirectoryURL: harness.runtimeRootURL,
+            runID: harness.runID,
+            attemptID: attemptID
+        )
+        try rewriteSchemaVersion(
+            at: attemptDirectoryURL.appendingPathComponent("state.json"),
+            to: 2
+        )
+        try rewriteSchemaVersion(
+            at: attemptDirectoryURL.appendingPathComponent("events.jsonl"),
+            to: 2,
+            trailingNewline: true
+        )
+
+        harness.launcher.recoverPersistedRuns()
+        #expect(harness.store.run(id: harness.runID)?.status == .waitingForApproval)
+
+        harness.launcher.resolveApproval(runID: harness.runID, approve: true)
+        let mailbox = try DetachedAgentCommandMailbox(
+            rootDirectoryURL: harness.runtimeRootURL,
+            runID: harness.runID,
+            attemptID: attemptID
+        )
+        var received: [DetachedAgentCommandEnvelope] = []
+        _ = try mailbox.drain { envelope in
+            received.append(envelope)
+            return true
+        }
+        #expect(received.count == 1)
+        #expect(received[0].schemaVersion == 2)
+        #expect(received[0].command.kind == .respondToApproval)
+        #expect(received[0].command.approvalToken == token)
+
+        harness.launcher.cancel(runID: harness.runID)
+        _ = try mailbox.drain { envelope in
+            received.append(envelope)
+            return true
+        }
+        #expect(received.count == 2)
+        #expect(received[1].schemaVersion == 2)
+        #expect(received[1].command.kind == .cancel)
+    }
+
+    @Test func incompatibleRunnerSchemasKeepOwnershipLockedAndReceiveNoCommands() throws {
+        for unsupportedVersion in [1, 4] {
+            let attemptID = UUID()
+            let harness = try makeHarness(attemptID: attemptID, status: .running)
+            defer { try? FileManager.default.removeItem(at: harness.rootURL) }
+            _ = harness.store.update(id: harness.runID) { run in
+                run.pid = harness.runnerIdentity.pid
+            }
+            harness.launcher.detachedRunnerExecutableURL = {
+                URL(fileURLWithPath: harness.runnerIdentity.executablePath)
+            }
+            try persistState(
+                rootURL: harness.runtimeRootURL,
+                runID: harness.runID,
+                attemptID: attemptID,
+                phase: .running,
+                runnerIdentity: harness.runnerIdentity
+            )
+            let attemptDirectoryURL = DetachedAgentRuntimePaths.attemptDirectoryURL(
+                rootDirectoryURL: harness.runtimeRootURL,
+                runID: harness.runID,
+                attemptID: attemptID
+            )
+            try rewriteSchemaVersion(
+                at: attemptDirectoryURL.appendingPathComponent("state.json"),
+                to: unsupportedVersion
+            )
+
+            harness.launcher.recoverPersistedRuns()
+            #expect(harness.store.run(id: harness.runID)?.status.isTerminal == false)
+            #expect(harness.launcher.terminationBlockingRunCount == 1)
+            #expect(harness.undoLedger.latestReadyEntry() == nil)
+
+            harness.launcher.cancel(runID: harness.runID)
+            let commandDirectoryURL = attemptDirectoryURL.appendingPathComponent(
+                "commands",
+                isDirectory: true
+            )
+            #expect(!FileManager.default.fileExists(atPath: commandDirectoryURL.path))
+            #expect(harness.store.run(id: harness.runID)?.status.isTerminal == false)
+        }
     }
 
     @Test func terminalJournalWinsWhenFinalStateSaveWasLost() throws {

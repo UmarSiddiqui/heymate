@@ -10,7 +10,20 @@
 import Foundation
 
 nonisolated enum DetachedAgentRuntimeProtocol {
-    static let currentSchemaVersion = 2
+    /// Version 3 keeps version 2's durable state, journal, and command shapes.
+    /// That lets an updated app reconnect to a version 2 runner which was
+    /// already detached before the update replaced the app bundle.
+    static let currentSchemaVersion = 3
+
+    /// Add versions here only after proving their Codable shapes and event and
+    /// command meanings remain safe. Version 1 predates attempt binding,
+    /// process ownership, and opaque approval tokens, so it is not compatible.
+    private static let backwardCompatibleLiveAttemptSchemaVersions: Set<Int> = [2]
+
+    static func supportsLiveAttemptSchemaVersion(_ version: Int) -> Bool {
+        version == currentSchemaVersion
+            || backwardCompatibleLiveAttemptSchemaVersions.contains(version)
+    }
 }
 
 /// Public runtime approval handle. The detached runner keeps the provider's
@@ -238,13 +251,18 @@ nonisolated struct DetachedAgentCommandEnvelope: Codable, Equatable, Sendable {
     let command: DetachedAgentRuntimeCommand
 
     init(
+        schemaVersion: Int = DetachedAgentRuntimeProtocol.currentSchemaVersion,
         runID: UUID,
         attemptID: UUID,
         messageID: UUID = UUID(),
         sentAt: Date = Date(),
         command: DetachedAgentRuntimeCommand
     ) {
-        self.schemaVersion = DetachedAgentRuntimeProtocol.currentSchemaVersion
+        precondition(
+            DetachedAgentRuntimeProtocol.supportsLiveAttemptSchemaVersion(schemaVersion),
+            "Unsupported detached-agent command schema version"
+        )
+        self.schemaVersion = schemaVersion
         self.runID = runID
         self.attemptID = attemptID
         self.messageID = messageID

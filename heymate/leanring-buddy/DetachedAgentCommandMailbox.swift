@@ -141,7 +141,9 @@ nonisolated final class DetachedAgentCommandMailbox {
     }
 
     private func validate(_ envelope: DetachedAgentCommandEnvelope) throws {
-        guard envelope.schemaVersion == DetachedAgentRuntimeProtocol.currentSchemaVersion else {
+        guard DetachedAgentRuntimeProtocol.supportsLiveAttemptSchemaVersion(
+            envelope.schemaVersion
+        ) else {
             throw DetachedAgentPersistenceError.unsupportedSchemaVersion(envelope.schemaVersion)
         }
         guard envelope.runID == runID else {
@@ -179,7 +181,9 @@ nonisolated final class DetachedAgentCommandMailbox {
             ProcessedMessageIDs.self,
             from: DetachedAgentSecureFiles.readRegularFile(processedMessageIDsURL)
         )
-        guard ledger.schemaVersion == DetachedAgentRuntimeProtocol.currentSchemaVersion else {
+        guard DetachedAgentRuntimeProtocol.supportsLiveAttemptSchemaVersion(
+            ledger.schemaVersion
+        ) else {
             throw DetachedAgentPersistenceError.unsupportedSchemaVersion(ledger.schemaVersion)
         }
         guard ledger.runID == runID else {

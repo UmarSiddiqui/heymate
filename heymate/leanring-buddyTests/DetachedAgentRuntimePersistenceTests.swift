@@ -19,6 +19,20 @@ struct DetachedAgentRuntimePersistenceTests {
         return (attributes[.posixPermissions] as? NSNumber)?.intValue ?? -1
     }
 
+    private func replacingSchemaVersion(
+        in data: Data,
+        with schemaVersion: Int,
+        trailingNewline: Bool = false
+    ) throws -> Data {
+        var object = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        object["schemaVersion"] = schemaVersion
+        var result = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        if trailingNewline { result.append(0x0A) }
+        return result
+    }
+
     @Test func protocolEnvelopesRoundTripWithAttemptAndOpaqueApprovalToken() throws {
         let runID = UUID()
         let attemptID = UUID()
@@ -63,6 +77,116 @@ struct DetachedAgentRuntimePersistenceTests {
         let third = try reopened.append(DetachedAgentEventEnvelope(runID: runID, attemptID: attemptID, event: .heartbeat))
         #expect(firstTwoSequences + [third.sequence] == [1, 2, 3])
         #expect(reopened.records().map(\.sequence) == [1, 2, 3])
+    }
+
+    @Test func versionTwoStateAndJournalRemainReadableAfterVersionThreeUpdate() throws {
+        #expect(DetachedAgentRuntimeProtocol.currentSchemaVersion == 3)
+        let rootURL = makeRootDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let runID = UUID()
+        let attemptID = UUID()
+        let stateFileURL: URL
+        let journalFileURL: URL
+
+        do {
+            let journal = try DetachedAgentRuntimeJournal(
+                rootDirectoryURL: rootURL,
+                runID: runID,
+                attemptID: attemptID
+            )
+            _ = try journal.append(DetachedAgentEventEnvelope(
+                runID: runID,
+                attemptID: attemptID,
+                event: .phaseChanged(.running)
+            ))
+            journalFileURL = journal.journalFileURL
+
+            let stateStore = try DetachedAgentDurableStateStore(
+                rootDirectoryURL: rootURL,
+                runID: runID,
+                attemptID: attemptID
+            )
+            try stateStore.save(DetachedAgentDurableState(
+                runID: runID,
+                attemptID: attemptID,
+                leg: .execute,
+                phase: .running,
+                lastJournalSequence: 1,
+                latestSafeSummary: "Still running"
+            ))
+            stateFileURL = stateStore.stateFileURL
+        }
+
+        let versionTwoState = try replacingSchemaVersion(
+            in: DetachedAgentSecureFiles.readRegularFile(stateFileURL),
+            with: 2
+        )
+        try DetachedAgentSecureFiles.atomicDurableWrite(versionTwoState, to: stateFileURL)
+        let versionTwoJournal = try replacingSchemaVersion(
+            in: DetachedAgentSecureFiles.readRegularFile(journalFileURL),
+            with: 2,
+            trailingNewline: true
+        )
+        try DetachedAgentSecureFiles.atomicDurableWrite(versionTwoJournal, to: journalFileURL)
+
+        let loadedState = try DetachedAgentDurableStateStore.loadReadOnly(
+            rootDirectoryURL: rootURL,
+            runID: runID,
+            attemptID: attemptID
+        )
+        let state = try #require(loadedState)
+        let records = try DetachedAgentRuntimeJournal.loadReadOnly(
+            rootDirectoryURL: rootURL,
+            runID: runID,
+            attemptID: attemptID
+        )
+
+        #expect(state.schemaVersion == 2)
+        #expect(state.phase == .running)
+        #expect(state.latestSafeSummary == "Still running")
+        #expect(records.count == 1)
+        #expect(records.first?.schemaVersion == 2)
+        #expect(records.first?.phase == .running)
+    }
+
+    @Test func persistenceRejectsVersionOneAndUnknownFutureVersions() throws {
+        let rootURL = makeRootDirectoryURL()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let runID = UUID()
+        let attemptID = UUID()
+        let stateFileURL: URL
+
+        do {
+            let stateStore = try DetachedAgentDurableStateStore(
+                rootDirectoryURL: rootURL,
+                runID: runID,
+                attemptID: attemptID
+            )
+            try stateStore.save(DetachedAgentDurableState(
+                runID: runID,
+                attemptID: attemptID,
+                leg: .execute
+            ))
+            stateFileURL = stateStore.stateFileURL
+        }
+        let currentState = try DetachedAgentSecureFiles.readRegularFile(stateFileURL)
+
+        for unsupportedVersion in [1, 4] {
+            try DetachedAgentSecureFiles.atomicDurableWrite(
+                replacingSchemaVersion(in: currentState, with: unsupportedVersion),
+                to: stateFileURL
+            )
+            do {
+                _ = try DetachedAgentDurableStateStore.loadReadOnly(
+                    rootDirectoryURL: rootURL,
+                    runID: runID,
+                    attemptID: attemptID
+                )
+                Issue.record("Expected schema version \(unsupportedVersion) rejection")
+            } catch let error as DetachedAgentPersistenceError {
+                #expect(error == .unsupportedSchemaVersion(unsupportedVersion))
+            }
+        }
     }
 
     @Test func readOnlyJournalIgnoresPartialFinalRecordWithoutTruncatingWriterBytes() throws {

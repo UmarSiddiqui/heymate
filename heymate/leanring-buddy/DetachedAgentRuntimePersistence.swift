@@ -363,7 +363,9 @@ nonisolated final class DetachedAgentRuntimeJournal {
                 )
             }
 
-            guard record.schemaVersion == DetachedAgentRuntimeProtocol.currentSchemaVersion else {
+            guard DetachedAgentRuntimeProtocol.supportsLiveAttemptSchemaVersion(
+                record.schemaVersion
+            ) else {
                 throw DetachedAgentPersistenceError.unsupportedSchemaVersion(record.schemaVersion)
             }
             guard record.runID == expectedRunID else {
@@ -507,7 +509,9 @@ nonisolated final class DetachedAgentDurableStateStore {
             DetachedAgentDurableState.self,
             from: DetachedAgentSecureFiles.readRegularFile(stateFileURL)
         )
-        guard state.schemaVersion == DetachedAgentRuntimeProtocol.currentSchemaVersion else {
+        guard DetachedAgentRuntimeProtocol.supportsLiveAttemptSchemaVersion(
+            state.schemaVersion
+        ) else {
             throw DetachedAgentPersistenceError.unsupportedSchemaVersion(state.schemaVersion)
         }
         guard state.runID == expectedRunID else {
