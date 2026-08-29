@@ -357,7 +357,7 @@ final class HeadlessCLIProcess {
                 let terminationStatus = waitResult == processID
                     ? Self.terminationStatus(fromWaitStatus: waitStatus)
                     : 70
-                Self.removeTemporaryDirectories(temporaryDirectoriesToRemove)
+                OpenCodeTemporaryDirectoryCleaner.remove(temporaryDirectoriesToRemove)
                 Task { @MainActor in
                     // Distinguish expected cleanup from owner death. Crash
                     // closes pipe without marker, so monitor always kills
@@ -383,7 +383,7 @@ final class HeadlessCLIProcess {
             stderrPipe.fileHandleForReading.readabilityHandler = nil
             lifetimePipe.fileHandleForReading.closeFile()
             lifetimePipe.fileHandleForWriting.closeFile()
-            Self.removeTemporaryDirectories(temporaryDirectoriesToRemove)
+            OpenCodeTemporaryDirectoryCleaner.remove(temporaryDirectoriesToRemove)
             throw error
         }
     }
@@ -574,18 +574,6 @@ final class HeadlessCLIProcess {
             return (waitStatus >> 8) & 0xff
         }
         return terminationSignal
-    }
-
-    nonisolated private static func removeTemporaryDirectories(_ directories: [URL]) {
-        let allowedRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("com.heymate.app", isDirectory: true)
-            .appendingPathComponent("opencode-config", isDirectory: true)
-            .standardizedFileURL.path
-        for directory in directories {
-            let path = directory.standardizedFileURL.path
-            guard path.hasPrefix(allowedRoot + "/") else { continue }
-            try? FileManager.default.removeItem(at: directory)
-        }
     }
 
     @discardableResult
