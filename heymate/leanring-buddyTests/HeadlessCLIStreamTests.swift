@@ -490,8 +490,9 @@ struct HeadlessExecutorPolicyTests {
         #expect(HeadlessExecutor.codex.executableName == "codex")
     }
 
-    /// OpenCode may inherit provider credentials, but app-only credentials
-    /// still stay outside its agent-controlled shell.
+    /// The executor-specific denylist still rejects app/runtime control keys.
+    /// Provider keys are omitted earlier by HeadlessChildEnvironment's global
+    /// allowlist even though OpenCode does not name each provider here.
     @Test func openCodeStripsAppOnlySecrets() {
         #expect(HeadlessExecutor.openCode.usesSubscriptionSignIn == false)
         #expect(HeadlessExecutor.openCode.environmentKeysToRemove.contains("HEYMATE_CLIENT_TOKEN"))
@@ -504,21 +505,106 @@ struct HeadlessExecutorPolicyTests {
         #expect(HeadlessExecutor.openCode.environmentKeysToRemove.contains("OPENAI_API_KEY") == false)
     }
 
-    @Test func strippedKeysAreAbsentFromTheChildEnvironment() {
+    @Test func childEnvironmentKeepsOnlyRuntimeAndSubscriptionConfiguration() {
         let environment = HeadlessChildEnvironment.build(
-            stripping: ["ANTHROPIC_API_KEY", "HEYMATE_CLIENT_TOKEN"],
-            overrides: ["HEYMATE_BRIDGE_URL": "http://127.0.0.1:18732"],
+            stripping: [],
             processEnvironment: [
-                "PATH": "/usr/bin",
-                "ANTHROPIC_API_KEY": "provider-secret",
+                "HOME": "/Users/tester",
+                "USER": "tester",
+                "LOGNAME": "tester",
+                "SHELL": "/bin/zsh",
+                "TMPDIR": "/private/tmp/tester/",
+                "TMP": "/tmp",
+                "TEMP": "/tmp",
+                "LANG": "en_AU.UTF-8",
+                "LC_ALL": "en_AU.UTF-8",
+                "LC_CTYPE": "UTF-8",
+                "CLAUDE_CONFIG_DIR": "/Users/tester/.config/claude",
+                "CODEX_HOME": "/Users/tester/.config/codex",
+                "XDG_CONFIG_HOME": "/Users/tester/.config",
+                "XDG_DATA_HOME": "/Users/tester/.local/share",
+                "XDG_STATE_HOME": "/Users/tester/.local/state",
+                "XDG_CACHE_HOME": "/Users/tester/.cache"
+            ]
+        )
+
+        #expect(environment["HOME"] == "/Users/tester")
+        #expect(environment["USER"] == "tester")
+        #expect(environment["LOGNAME"] == "tester")
+        #expect(environment["SHELL"] == "/bin/zsh")
+        #expect(environment["TMPDIR"] == "/private/tmp/tester/")
+        #expect(environment["TMP"] == "/tmp")
+        #expect(environment["TEMP"] == "/tmp")
+        #expect(environment["LANG"] == "en_AU.UTF-8")
+        #expect(environment["LC_ALL"] == "en_AU.UTF-8")
+        #expect(environment["LC_CTYPE"] == "UTF-8")
+        #expect(environment["CLAUDE_CONFIG_DIR"] == "/Users/tester/.config/claude")
+        #expect(environment["CODEX_HOME"] == "/Users/tester/.config/codex")
+        #expect(environment["XDG_CONFIG_HOME"] == "/Users/tester/.config")
+        #expect(environment["XDG_DATA_HOME"] == "/Users/tester/.local/share")
+        #expect(environment["XDG_STATE_HOME"] == "/Users/tester/.local/state")
+        #expect(environment["XDG_CACHE_HOME"] == "/Users/tester/.cache")
+        #expect(environment["TERM"] == "dumb")
+        #expect(environment["NO_COLOR"] == "1")
+        #expect(environment["PATH"]?.isEmpty == false)
+    }
+
+    @Test func childEnvironmentNeverInheritsUnknownOrProviderSecrets() {
+        let environment = HeadlessChildEnvironment.build(
+            stripping: [],
+            processEnvironment: [
+                "HOME": "/Users/tester",
+                "AWS_SECRET_ACCESS_KEY": "aws-secret",
+                "GITHUB_TOKEN": "github-secret",
+                "RANDOM_NEW_SERVICE_SECRET": "future-secret",
+                "DATABASE_URL": "postgres://secret",
+                "ANTHROPIC_API_KEY": "anthropic-secret",
+                "OPENAI_API_KEY": "openai-secret",
                 "HEYMATE_CLIENT_TOKEN": "worker-secret"
             ]
         )
+
+        #expect(environment["HOME"] == "/Users/tester")
+        #expect(environment["AWS_SECRET_ACCESS_KEY"] == nil)
+        #expect(environment["GITHUB_TOKEN"] == nil)
+        #expect(environment["RANDOM_NEW_SERVICE_SECRET"] == nil)
+        #expect(environment["DATABASE_URL"] == nil)
         #expect(environment["ANTHROPIC_API_KEY"] == nil)
+        #expect(environment["OPENAI_API_KEY"] == nil)
         #expect(environment["HEYMATE_CLIENT_TOKEN"] == nil)
-        #expect(environment["HEYMATE_BRIDGE_URL"] == "http://127.0.0.1:18732")
-        #expect(environment["TERM"] == "dumb")
-        #expect(environment["PATH"]?.isEmpty == false)
+    }
+
+    @Test func strippingStillRemovesAllowedAndGeneratedValues() {
+        let environment = HeadlessChildEnvironment.build(
+            stripping: ["HOME", "LANG", "PATH", "TERM", "NO_COLOR"],
+            processEnvironment: [
+                "HOME": "/Users/tester",
+                "LANG": "en_AU.UTF-8"
+            ]
+        )
+
+        #expect(environment["HOME"] == nil)
+        #expect(environment["LANG"] == nil)
+        #expect(environment["PATH"] == nil)
+        #expect(environment["TERM"] == nil)
+        #expect(environment["NO_COLOR"] == nil)
+    }
+
+    @Test func configurationRootsMustBeAbsoluteAndAreStandardized() {
+        let environment = HeadlessChildEnvironment.build(
+            stripping: [],
+            processEnvironment: [
+                "HOME": "relative/home",
+                "CLAUDE_CONFIG_DIR": "../claude",
+                "CODEX_HOME": "/Users/tester/.config/../.codex",
+                "XDG_CONFIG_HOME": "/Users/tester/.config/./heymate"
+            ]
+        )
+
+        #expect(environment["HOME"] == nil)
+        #expect(environment["CLAUDE_CONFIG_DIR"] == nil)
+        #expect(environment["CODEX_HOME"] == "/Users/tester/.codex")
+        #expect(environment["XDG_CONFIG_HOME"] == "/Users/tester/.config/heymate")
     }
 
     @Test func trustedLegOverrideCanReintroduceScopedBridgeToken() {

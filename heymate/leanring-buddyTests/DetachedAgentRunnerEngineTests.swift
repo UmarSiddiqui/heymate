@@ -498,8 +498,8 @@ struct DetachedAgentRunnerBootstrapSecurityTests {
             named: "fake-runner.sh",
             contents: """
             #!/bin/sh
-            printf '%s\n' "$@" > "$HEYMATE_ARGUMENT_CAPTURE"
-            printf '%s' "${HEYMATE_PRIVATE_SECRET-unset}" > "$HEYMATE_ENVIRONMENT_CAPTURE"
+            printf '%s\n' "$@" > "$TMPDIR/arguments.txt"
+            /usr/bin/env | /usr/bin/sort > "$TMPDIR/environment.txt"
             /bin/cat <&3 >/dev/null
             """
         )
@@ -522,9 +522,16 @@ struct DetachedAgentRunnerBootstrapSecurityTests {
             request: request,
             environment: [
                 "PATH": "/usr/bin:/bin",
-                "HEYMATE_ARGUMENT_CAPTURE": argumentCaptureURL.path,
-                "HEYMATE_ENVIRONMENT_CAPTURE": environmentCaptureURL.path,
-                "HEYMATE_PRIVATE_SECRET": secret
+                "HOME": fixture.path,
+                "TMPDIR": fixture.path,
+                "LANG": "en_AU.UTF-8",
+                "CLAUDE_CONFIG_DIR": fixture.appendingPathComponent("claude").path,
+                "HEYMATE_PRIVATE_SECRET": secret,
+                "AWS_SECRET_ACCESS_KEY": secret,
+                "GITHUB_TOKEN": secret,
+                "DYLD_INSERT_LIBRARIES": "/tmp/untrusted.dylib",
+                "SSH_AUTH_SOCK": "/tmp/untrusted-agent.sock",
+                "CI": "true"
             ]
         )
         defer { Self.killAndReapIfNeeded(runnerPID) }
@@ -547,7 +554,18 @@ struct DetachedAgentRunnerBootstrapSecurityTests {
         )
         #expect(!arguments.joined().contains(prompt))
         #expect(!arguments.joined().contains(secret))
-        #expect(try String(contentsOf: environmentCaptureURL, encoding: .utf8) == "unset")
+        let environment = try String(contentsOf: environmentCaptureURL, encoding: .utf8)
+        #expect(environment.contains("HOME=\(fixture.path)\n"))
+        #expect(environment.contains("TMPDIR=\(fixture.path)\n"))
+        #expect(environment.contains("CLAUDE_CONFIG_DIR=\(fixture.path)/claude\n"))
+        #expect(environment.contains("TERM=dumb\n"))
+        #expect(environment.contains("NO_COLOR=1\n"))
+        #expect(!environment.contains("HEYMATE_PRIVATE_SECRET="))
+        #expect(!environment.contains("AWS_SECRET_ACCESS_KEY="))
+        #expect(!environment.contains("GITHUB_TOKEN="))
+        #expect(!environment.contains("DYLD_INSERT_LIBRARIES="))
+        #expect(!environment.contains("SSH_AUTH_SOCK="))
+        #expect(!environment.contains("CI="))
         let persistedText = try persistedUTF8Text(in: fixture)
         #expect(!persistedText.contains(prompt))
         #expect(!persistedText.contains(secret))

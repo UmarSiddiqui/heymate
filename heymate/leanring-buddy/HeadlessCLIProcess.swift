@@ -293,27 +293,55 @@ nonisolated final class HeadlessCLIStandardOutputReader: @unchecked Sendable {
     }
 }
 
-/// The environment every HeyMate-spawned CLI child receives.
+/// The deliberately small environment every HeyMate-spawned CLI child receives.
 ///
-/// `stripping` is the important argument. An executor running on a
-/// subscription sign-in must not see a provider API key: `claude` prefers
-/// `ANTHROPIC_API_KEY` when one is present, so a stray key in
-/// `~/.config/heymate/secrets.env` silently moves the user from the Claude
-/// subscription they are paying for onto metered API billing, with no visible
-/// change anywhere in the UI.
+/// Coding agents are a trust boundary: starting with the app's full launch
+/// environment and removing known credentials still exposes every secret we
+/// have not named yet. Persisted Claude, Codex, and OpenCode sign-ins need user
+/// and configuration paths, not ambient provider keys, so only those paths and
+/// basic process runtime values cross the boundary.
 nonisolated enum HeadlessChildEnvironment {
+
+    /// Non-secret process context used by the supported CLIs.
+    ///
+    /// `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, and the XDG roots preserve a user's
+    /// explicitly relocated CLI sign-in/configuration. Authentication tokens,
+    /// provider selection, proxy, package-manager, and cloud variables are
+    /// intentionally absent; a caller must pass any job-scoped value through
+    /// `overrides`.
+    private static let inheritedKeys = [
+        "HOME", "USER", "LOGNAME", "SHELL",
+        "TMPDIR", "TMP", "TEMP",
+        "LANG", "LC_ALL", "LC_CTYPE",
+        "CLAUDE_CONFIG_DIR", "CODEX_HOME",
+        "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"
+    ]
+    private static let configurationPathKeys: Set<String> = [
+        "HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME",
+        "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"
+    ]
 
     static func build(
         stripping environmentKeysToRemove: [String],
         overrides: [String: String] = [:],
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String: String] {
-        // Agent children inherit only the app's launch environment. Never
-        // overlay ~/.config/heymate/secrets.env here: that file holds app and
-        // Worker credentials which a coding agent has no reason to read.
-        // Narrow runtime values (bridge / connector credentials) are added
-        // explicitly through `overrides` for write-enabled legs only.
-        var environment = processEnvironment
+        var environment: [String: String] = [:]
+        for key in inheritedKeys {
+            guard let value = processEnvironment[key] else { continue }
+            if configurationPathKeys.contains(key) {
+                guard value.hasPrefix("/"), !value.contains("\0") else { continue }
+                environment[key] = URL(
+                    fileURLWithPath: value,
+                    isDirectory: true
+                ).standardizedFileURL.path
+            } else {
+                environment[key] = value
+            }
+        }
+
+        // Resolve executable/package-runner lookup from the login shell rather
+        // than trusting the GUI app's commonly incomplete launch PATH.
         environment["PATH"] = LoginShellExecutableResolver.loginPATH()
         // Keep CLIs from paging / prompting a TTY we do not own.
         environment["TERM"] = "dumb"
