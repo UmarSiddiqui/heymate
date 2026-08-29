@@ -296,6 +296,13 @@ nonisolated struct AgentRun: Codable, Equatable, Identifiable {
     var startedAt: Date?
     var finishedAt: Date?
     var pid: Int32?
+    /// Active detached attempt. Empty means this run is still owned by app or
+    /// has never entered runner mode. UUID is stored as text for migration
+    /// compatibility with older persisted run records.
+    var detachedAttemptIdentifier: String
+    /// Highest durable runtime event merged into this card. Relaunch resumes
+    /// after this sequence so progress and terminal events apply once.
+    var lastDetachedJournalSequence: UInt64
     /// The CLI session both legs share. HeyMate mints this for Claude Code and
     /// learns it from the stream for OpenCode; either way leg two resumes it,
     /// so the model that executes is the one that wrote the approved plan.
@@ -318,6 +325,10 @@ nonisolated struct AgentRun: Codable, Equatable, Identifiable {
 
     var workspaceURL: URL {
         URL(fileURLWithPath: workspacePath, isDirectory: true)
+    }
+
+    var detachedAttemptID: UUID? {
+        UUID(uuidString: detachedAttemptIdentifier)
     }
 
     static func queued(
@@ -346,6 +357,8 @@ nonisolated struct AgentRun: Codable, Equatable, Identifiable {
             startedAt: nil,
             finishedAt: nil,
             pid: nil,
+            detachedAttemptIdentifier: "",
+            lastDetachedJournalSequence: 0,
             sessionIdentifier: sessionIdentifier,
             planText: "",
             undoEntryIdentifier: "",
@@ -381,6 +394,14 @@ extension AgentRun {
         startedAt = try container.decodeIfPresent(Date.self, forKey: .startedAt)
         finishedAt = try container.decodeIfPresent(Date.self, forKey: .finishedAt)
         pid = try container.decodeIfPresent(Int32.self, forKey: .pid)
+        detachedAttemptIdentifier = try container.decodeIfPresent(
+            String.self,
+            forKey: .detachedAttemptIdentifier
+        ) ?? ""
+        lastDetachedJournalSequence = try container.decodeIfPresent(
+            UInt64.self,
+            forKey: .lastDetachedJournalSequence
+        ) ?? 0
         sessionIdentifier = try container.decodeIfPresent(String.self, forKey: .sessionIdentifier) ?? ""
         planText = try container.decodeIfPresent(String.self, forKey: .planText) ?? ""
         undoEntryIdentifier = try container.decodeIfPresent(String.self, forKey: .undoEntryIdentifier) ?? ""
