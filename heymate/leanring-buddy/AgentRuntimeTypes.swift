@@ -45,9 +45,9 @@ nonisolated enum HeadlessExecutor: String, Codable, CaseIterable, Equatable {
     /// preventing accidental API billing, this keeps Worker, transcription,
     /// speech, and bridge credentials outside an agent-controlled shell.
     ///
-    /// OpenCode may legitimately need provider credentials inherited from the
-    /// app's launch environment, but still gets no app-only credential. The
-    /// local HeyMate secrets file is never merged into any child environment.
+    /// OpenCode may use provider auth persisted under approved XDG paths, but
+    /// the shared child-environment allowlist excludes ambient provider and
+    /// app credentials. HeyMate's local secrets file is never merged either.
     var environmentKeysToRemove: [String] {
         let appOnlySecrets = [
             "ASSEMBLYAI_API_KEY",
