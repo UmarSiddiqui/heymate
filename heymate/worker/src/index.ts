@@ -5,12 +5,10 @@
  * ships with raw API keys. Keys are stored as Cloudflare secrets.
  *
  * Legacy routes (Bearer-gated; kept only for existing app clients):
- *   POST /chat             → Anthropic Messages API (streaming)
  *   POST /tts              → ElevenLabs TTS API
  *   POST /transcribe-token → AssemblyAI realtime websocket token
  *
  * Versioned routes (Bearer-gated):
- *   POST /v1/chat/stream        → Anthropic Messages API (streaming)
  *   POST /v1/tts/stream         → ElevenLabs TTS API
  *   POST /v1/stt/session-token  → AssemblyAI realtime websocket token
  *   GET  /v1/me                 → placeholder account info
@@ -19,7 +17,6 @@
  */
 
 interface Env {
-  ANTHROPIC_API_KEY: string;
   ELEVENLABS_API_KEY: string;
   ELEVENLABS_VOICE_ID: string;
   ASSEMBLYAI_API_KEY: string;
@@ -57,16 +54,12 @@ export default {
     }
 
     const isLegacyProviderPath =
-      path === "/chat" || path === "/tts" || path === "/transcribe-token";
+      path === "/tts" || path === "/transcribe-token";
     if (isLegacyProviderPath && !bearerOk(request, env)) {
       return json({ error: "unauthorized" }, 401);
     }
 
     try {
-      if (path === "/chat") {
-        return await handleChat(request, env, path);
-      }
-
       if (path === "/tts") {
         return await handleTTS(request, env, path);
       }
@@ -106,10 +99,6 @@ async function handleVersionedRequest(
   }
 
   const method = request.method;
-
-  if (method === "POST" && path === "/v1/chat/stream") {
-    return await handleChat(request, env, path);
-  }
 
   if (method === "POST" && path === "/v1/tts/stream") {
     return await handleTTS(request, env, path);
@@ -175,41 +164,6 @@ function logProviderFailure(path: string, status: number, responseBody: string):
   console.error(
     `[${path}] Provider error status=${status} response_bytes=${responseBytes}`
   );
-}
-
-async function handleChat(
-  request: Request,
-  env: Env,
-  path: string
-): Promise<Response> {
-  const body = await request.text();
-
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": env.ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body,
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.text();
-    logProviderFailure(path, response.status, errorBody);
-    return new Response(errorBody, {
-      status: response.status,
-      headers: { "content-type": "application/json" },
-    });
-  }
-
-  return new Response(response.body, {
-    status: response.status,
-    headers: {
-      "content-type": response.headers.get("content-type") || "text/event-stream",
-      "cache-control": "no-cache",
-    },
-  });
 }
 
 async function handleTranscribeToken(env: Env, path: string): Promise<Response> {

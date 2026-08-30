@@ -6,17 +6,14 @@ import worker from "./index.ts";
 const CLIENT_TOKEN = "unit-test-client-token";
 const UNSET_CLIENT_TOKEN = Symbol("unset-client-token");
 const PROVIDER_ROUTES = [
-  { path: "/chat", body: { messages: [] } },
   { path: "/tts", body: { text: "hello" } },
   { path: "/transcribe-token", body: {} },
-  { path: "/v1/chat/stream", body: { messages: [] } },
   { path: "/v1/tts/stream", body: { text: "hello" } },
   { path: "/v1/stt/session-token", body: {} },
 ];
 
 function makeEnv(clientToken = CLIENT_TOKEN) {
   const env = {
-    ANTHROPIC_API_KEY: "unit-test-anthropic-key",
     ELEVENLABS_API_KEY: "unit-test-elevenlabs-key",
     ELEVENLABS_VOICE_ID: "UnitTestVoice1",
     ASSEMBLYAI_API_KEY: "unit-test-assemblyai-key",
@@ -58,12 +55,6 @@ async function withMockedProviderFetch(run, providerFailure) {
       });
     }
 
-    if (url.startsWith("https://api.anthropic.com/")) {
-      return new Response("chat-ok", {
-        status: 200,
-        headers: { "content-type": "text/event-stream" },
-      });
-    }
     if (url.startsWith("https://api.elevenlabs.io/")) {
       return new Response(new Uint8Array([1, 2, 3]), {
         status: 200,
@@ -145,10 +136,6 @@ test("correct Bearer token reaches every legacy and versioned provider route", a
 
     assert.equal(calls.length, PROVIDER_ROUTES.length);
     assert.equal(
-      calls.filter(({ url }) => url.startsWith("https://api.anthropic.com/")).length,
-      2
-    );
-    assert.equal(
       calls.filter(({ url }) => url.startsWith("https://api.elevenlabs.io/")).length,
       2
     );
@@ -223,7 +210,7 @@ test("authorized account routes return locally without provider fetch", async ()
 
 test("versioned OPTIONS preflight stays open and never reaches a provider", async () => {
   await withMockedProviderFetch(async (calls) => {
-    for (const path of ["/v1/chat/stream", "/v1/future-route"]) {
+    for (const path of ["/v1/tts/stream", "/v1/future-route"]) {
       const response = await worker.fetch(
         makeRequest(path, { method: "OPTIONS" }),
         makeEnv(UNSET_CLIENT_TOKEN)
