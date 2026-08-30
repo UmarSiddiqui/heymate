@@ -28,6 +28,8 @@ enum NotchActivityKind: String, CaseIterable, Identifiable, Sendable {
     case focus
     case calendar
     case clipboard
+    case volume
+    case reminder
 
     var id: String { rawValue }
 
@@ -43,6 +45,8 @@ enum NotchActivityKind: String, CaseIterable, Identifiable, Sendable {
         case .focus: return "moon.fill"
         case .calendar: return "calendar"
         case .clipboard: return "doc.on.clipboard"
+        case .volume: return "speaker.wave.2.fill"
+        case .reminder: return "checklist"
         }
     }
 
@@ -60,6 +64,8 @@ enum NotchActivityKind: String, CaseIterable, Identifiable, Sendable {
         case .calendar: return 40
         case .focus: return 30
         case .clipboard: return 20
+        case .volume: return 75
+        case .reminder: return 65
         }
     }
 }

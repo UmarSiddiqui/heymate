@@ -13,9 +13,11 @@ import SwiftUI
 
 // MARK: - Tabs
 
-/// The two surfaces of the expanded card. Agents lists live headless jobs.
+/// Primary surfaces in the expanded card. Apps owns ambient notch tools;
+/// Agents lists headless jobs.
 enum NotchExpandedTab: String, CaseIterable, Identifiable {
     case home
+    case apps
     case agents
 
     var id: String { rawValue }
@@ -23,6 +25,7 @@ enum NotchExpandedTab: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .home: return "Home"
+        case .apps: return "Apps"
         case .agents: return "Agents"
         }
     }
@@ -30,6 +33,7 @@ enum NotchExpandedTab: String, CaseIterable, Identifiable {
     var iconName: String {
         switch self {
         case .home: return "house"
+        case .apps: return "square.grid.2x2"
         case .agents: return "sparkles"
         }
     }
@@ -87,11 +91,8 @@ struct NotchExpandedView: View {
 
     private var cardBody: some View {
         VStack(spacing: 0) {
-            Spacer(minLength: occludedTopInset)
-
-            headerRow
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
+            notchWingHeader
+                .frame(height: max(occludedTopInset, 24))
 
             VStack(spacing: 0) {
                 if isShowingSettings {
@@ -103,10 +104,6 @@ struct NotchExpandedView: View {
                         .padding(.top, 10)
                         .frame(maxHeight: .infinity, alignment: .top)
                 } else {
-                    NotchTabSwitcher(selectedTab: $selectedTab)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 10)
-
                     Group {
                         switch selectedTab {
                         case .home:
@@ -114,6 +111,8 @@ struct NotchExpandedView: View {
                                 companionManager: companionManager,
                                 isModelPickerOpen: $isModelPickerOpen
                             )
+                        case .apps:
+                            NotchMicroAppsView(companionManager: companionManager)
                         case .agents:
                             NotchAgentsTab(companionManager: companionManager)
                         }
@@ -121,10 +120,6 @@ struct NotchExpandedView: View {
                     .frame(maxHeight: .infinity, alignment: .top)
                 }
 
-                footerRow
-                    .padding(.horizontal, 16)
-                    .padding(.top, 6)
-                    .padding(.bottom, 12)
             }
             .animation(.easeInOut(duration: 0.2), value: isShowingSettings)
             .animation(.easeInOut(duration: 0.2), value: isModelPickerOpen)
@@ -134,64 +129,129 @@ struct NotchExpandedView: View {
                     companionManager.shouldRevealAgentsTab = false
                 }
             }
+            .onChange(of: companionManager.shouldRevealAppsTab) { _, shouldReveal in
+                if shouldReveal {
+                    selectedTab = .apps
+                    companionManager.shouldRevealAppsTab = false
+                }
+            }
             .onAppear {
                 if companionManager.shouldRevealAgentsTab {
                     selectedTab = .agents
                     companionManager.shouldRevealAgentsTab = false
+                } else if companionManager.shouldRevealAppsTab {
+                    selectedTab = .apps
+                    companionManager.shouldRevealAppsTab = false
                 }
             }
+
+            bottomActionBar
+                .frame(height: 36)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: Header
 
-    private var headerRow: some View {
-        HStack(spacing: 8) {
-            if isShowingSettings {
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isShowingSettings = false
-                    }
-                }) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(DS.Colors.textSecondary)
-                        .frame(width: 24, height: 24)
-                        .background(Circle().fill(DS.Colors.surface3))
+    private var notchWingHeader: some View {
+        HStack(spacing: 0) {
+            HStack(spacing: 4) {
+                if isShowingSettings {
+                    headerBackButton { isShowingSettings = false }
+                } else if isModelPickerOpen {
+                    headerBackButton { isModelPickerOpen = false }
+                } else {
+                    NotchTabSwitcher(selectedTab: $selectedTab)
                 }
-                .buttonStyle(.plain)
-                .pointerCursor()
-                .help("Back")
-            } else {
-                Circle()
-                    .fill(statusDotColor)
-                    .frame(width: 8, height: 8)
-                    .shadow(color: statusDotColor.opacity(0.6), radius: 4)
-                    .animation(.easeInOut(duration: 0.2), value: companionManager.voiceState)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(isShowingSettings ? "Models" : "heymate")
-                .font(DS.Fonts.titleCompact)
-                .foregroundColor(DS.Colors.textPrimary)
+            Rectangle()
+                .fill(Color.black)
+                .frame(width: max(hardwareNotchWidth, 0))
+                .accessibilityHidden(true)
 
-            Spacer()
-
-            Text(isShowingSettings ? "Brain & audio" : headerStatusText)
-                .font(DS.Fonts.caption)
-                .foregroundColor(DS.Colors.textSecondary)
-
-            Button(action: onClose) {
-                Image(systemName: "chevron.up")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .frame(width: 24, height: 24)
-                    .background(Circle().fill(DS.Colors.surface3))
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .help("Collapse")
+            Color.clear
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
+        .padding(.horizontal, 12)
+        .background(Color.black)
+    }
+
+    private var bottomActionBar: some View {
+        HStack(spacing: 5) {
+            Spacer(minLength: 0)
+
+            Circle()
+                .fill(statusDotColor)
+                .frame(width: 7, height: 7)
+                .shadow(color: statusDotColor.opacity(0.6), radius: 4)
+                .animation(.easeInOut(duration: 0.2), value: companionManager.voiceState)
+                .help(headerStatusText)
+
+            if !isShowingSettings && !isModelPickerOpen {
+                headerIconButton(systemName: "cpu", help: "Choose engine and model") {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isModelPickerOpen = true
+                    }
+                }
+
+                headerIconButton(systemName: "macwindow", help: "Open HeyMate window") {
+                    companionManager.openDesktopWindow(section: .chat)
+                }
+
+                NotchCursorDock(companionManager: companionManager)
+
+                headerIconButton(systemName: "info.circle", help: "About HeyMate") {
+                    isShowingAboutPopover.toggle()
+                }
+                .popover(isPresented: $isShowingAboutPopover, arrowEdge: .bottom) {
+                    notchAboutPopover
+                }
+
+                headerIconButton(systemName: "gearshape", help: "Settings") {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isShowingSettings = true
+                    }
+                }
+            }
+
+            headerIconButton(systemName: "chevron.up", help: "Collapse", action: onClose)
+        }
+        .padding(.horizontal, 12)
+        .background(Color.black)
+    }
+
+    private func headerBackButton(action: @escaping () -> Void) -> some View {
+        Button(action: {
+            withAnimation(.easeInOut(duration: 0.2), action)
+        }) {
+            Image(systemName: "chevron.left")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(DS.Colors.textSecondary)
+                .frame(width: 24, height: 24)
+                .background(Circle().fill(DS.Colors.surface3))
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .help("Back")
+    }
+
+    private func headerIconButton(
+        systemName: String,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(DS.Colors.textSecondary)
+                .frame(width: 24, height: 24)
+                .background(Circle().fill(DS.Colors.surface3.opacity(0.82)))
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .help(help)
     }
 
     private var statusDotColor: Color {
@@ -214,7 +274,7 @@ struct NotchExpandedView: View {
         }
     }
 
-    // MARK: Footer
+    // MARK: About
 
     /// Version, what this thing is, and the way out to help. Small on
     /// purpose — anything longer belongs in the window.
@@ -250,88 +310,6 @@ struct NotchExpandedView: View {
         .padding(14)
     }
 
-    private var footerRow: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 8) {
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        isShowingSettings = false
-                        isModelPickerOpen = true
-                    }
-                }) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "cpu")
-                            .font(.system(size: 10, weight: .medium))
-                        Text(companionManager.activeEngineDisplayName)
-                            .font(DS.Fonts.caption)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
-                    .background(Capsule().fill(DS.Colors.surface3.opacity(0.7)))
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
-                .help("Choose engine and model")
-
-                Spacer()
-
-                // Hand off to the full app. The notch is for glanceable work;
-                // anything that needs a list, a catalog, or a long transcript
-                // belongs in a real window.
-                footerIconButton(systemName: "macwindow", help: "Open the HeyMate window") {
-                    companionManager.openDesktopWindow(section: .chat)
-                }
-
-                footerIconButton(
-                    systemName: "gearshape",
-                    help: isShowingSettings ? "Back to Home" : "Models",
-                    isActive: isShowingSettings
-                ) {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isShowingSettings.toggle()
-                    }
-                }
-
-                if !isShowingSettings {
-                    NotchCursorDock(companionManager: companionManager)
-                }
-
-                footerIconButton(systemName: "info.circle", help: "About HeyMate") {
-                    isShowingAboutPopover.toggle()
-                }
-                .accessibilityLabel("About HeyMate")
-                .popover(isPresented: $isShowingAboutPopover, arrowEdge: .bottom) {
-                    notchAboutPopover
-                }
-
-                footerIconButton(systemName: "power", help: "Quit HeyMate") {
-                    NSApp.terminate(nil)
-                }
-            }
-        }
-    }
-
-    /// The footer's small round utility buttons, all one temperature.
-    private func footerIconButton(
-        systemName: String,
-        help: String,
-        isActive: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(isActive ? DS.Colors.textPrimary : DS.Colors.textSecondary)
-                .frame(width: 24, height: 24)
-                .background(Circle().fill(isActive ? DS.Colors.surface4 : DS.Colors.surface3.opacity(0.7)))
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
-        .help(help)
-    }
 }
 
 // MARK: - Tab Switcher
@@ -344,7 +322,6 @@ private struct NotchTabSwitcher: View {
             ForEach(NotchExpandedTab.allCases) { tab in
                 tabButton(for: tab)
             }
-            Spacer()
         }
     }
 
@@ -353,15 +330,10 @@ private struct NotchTabSwitcher: View {
         return Button(action: {
             withAnimation(DS.Animation.controlSpring) { selectedTab = tab }
         }) {
-            HStack(spacing: 5) {
-                Image(systemName: tab.iconName)
-                    .font(.system(size: 10, weight: .semibold))
-                Text(tab.title)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-            }
+            Image(systemName: tab.iconName)
+                .font(.system(size: 10, weight: .semibold))
+                .frame(width: 26, height: 24)
             .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textTertiary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
             .background(
                 Capsule().fill(isSelected ? DS.Colors.accentSubtle : Color.clear)
             )
@@ -374,6 +346,8 @@ private struct NotchTabSwitcher: View {
         }
         .buttonStyle(.plain)
         .pointerCursor()
+        .help(tab.title)
+        .accessibilityLabel(tab.title)
     }
 }
 
@@ -390,46 +364,54 @@ private struct NotchHomeTab: View {
     }
 
     var body: some View {
-        // The card is a fixed height and the Home content is short, so the
-        // zones are spaced out across the pane instead of stacking at the
-        // top and leaving a dead void above the footer. The GeometryReader
-        // only measures the viewport to set a min-height — the content
-        // still scrolls when it genuinely overflows.
         GeometryReader { viewport in
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 14) {
-                    if needsSetup {
-                        setupCopySection
-                        if !companionManager.allPermissionsGranted {
-                            permissionsSection
+            if needsSetup {
+                ScrollView(.vertical, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            setupCopySection
+                            startButton
                         }
-                        startButton
-                    } else {
-                        // The buddy's face card, in the order you'd want it:
-                        // the buddy and its state, the way to talk to it, what
-                        // is happening right now, and the doors out to the
-                        // window. Configuration (shortcuts, skills, connectors)
-                        // lives behind those doors in the HeyMate window — a
-                        // card hanging off the camera is the wrong place to
-                        // browse a settings list.
-                        NotchStatusCard(companionManager: companionManager)
-                        typedMessageInputRow
-                        ContextualConnectorSuggestionBanner(companionManager: companionManager)
-                        Spacer(minLength: 2)
-                        NotchTrayStrip(
-                            activityCenter: companionManager.notchActivityCenter,
-                            onOpenDesktop: { section in
-                                companionManager.openDesktopWindow(section: section)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            if !companionManager.allPermissionsGranted {
+                                permissionsSection
                             }
-                        )
-                        Spacer(minLength: 2)
-                        doorsRow
+                        }
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .frame(minHeight: viewport.size.height, alignment: .top)
+                }
+            } else {
+                HStack(alignment: .top, spacing: 12) {
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 9) {
+                            NotchStatusCard(companionManager: companionManager)
+                            typedMessageInputRow
+                            ContextualConnectorSuggestionBanner(companionManager: companionManager)
+                        }
+                    }
+                    .frame(width: 326)
+
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            NotchTrayStrip(
+                                activityCenter: companionManager.notchActivityCenter,
+                                onOpenDesktop: { section in
+                                    companionManager.openDesktopWindow(section: section)
+                                }
+                            )
+                            doorsRow
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
-                .frame(minHeight: viewport.size.height - 20, alignment: .top)
+                .padding(.vertical, 10)
+                .frame(width: viewport.size.width, height: viewport.size.height, alignment: .top)
             }
         }
     }
@@ -474,7 +456,6 @@ private struct NotchHomeTab: View {
                         .font(DS.Fonts.sectionLabel)
                         .foregroundColor(DS.Colors.textSecondary)
                     ThemeColorPicker(companionManager: companionManager)
-                    NotchToggleRow(label: "Notch outline", isOn: $companionManager.isNotchOutlineEnabled)
                 }
                 .padding(.top, 4)
             }
@@ -655,7 +636,7 @@ private struct NotchHomeTab: View {
 
     /// The four ways out of Home. Everything that used to be an inline
     /// section here — shortcuts, skills, connectors, memory, privacy — is
-    /// a list or a form, which is exactly what a 420-point card hanging
+    /// a list or a form, which is exactly what a shallow notch card hanging
     /// off a camera housing is worst at. Those live in the window now;
     /// this row is the door.
     private var doorsRow: some View {
@@ -843,26 +824,32 @@ private struct NotchAgentsTab: View {
     @State private var isShowingAttachedPrompt = false
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 12) {
-                if let proposal = companionManager.standingOrderProposal {
-                    standingOrderProposalCard(proposal)
+        HStack(alignment: .top, spacing: 12) {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 10) {
+                    if let proposal = companionManager.standingOrderProposal {
+                        standingOrderProposalCard(proposal)
+                    }
+                    composeCard
+                    if isShowingAttachedPrompt {
+                        attachedPromptCard
+                    }
+                    if !companionManager.agentRevealErrorText.isEmpty {
+                        Text(companionManager.agentRevealErrorText)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(DS.Colors.warning)
+                    }
                 }
-                composeCard
-                if isShowingAttachedPrompt {
-                    attachedPromptCard
-                }
-                if !companionManager.agentRevealErrorText.isEmpty {
-                    Text(companionManager.agentRevealErrorText)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(DS.Colors.warning)
-                }
+            }
+            .frame(width: 310)
+
+            ScrollView(.vertical, showsIndicators: false) {
                 agentList
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 10)
-            .padding(.bottom, 8)
+            .frame(maxWidth: .infinity)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
 
     private func standingOrderProposalCard(_ proposal: StandingOrderProposal) -> some View {

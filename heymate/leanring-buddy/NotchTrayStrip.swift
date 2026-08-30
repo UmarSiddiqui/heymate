@@ -25,6 +25,9 @@ struct NotchTrayStrip: View {
     @ObservedObject var nowPlayingMonitor: NowPlayingMonitor
     @ObservedObject var timerStore: NotchTimerStore
     @ObservedObject var calendarMonitor: CalendarPeekMonitor
+    @ObservedObject var downloadsMonitor: DownloadsActivityMonitor
+    @ObservedObject var volumeHUDInterceptor: VolumeHUDInterceptor
+    @ObservedObject var reminderMonitor: ReminderPeekMonitor
 
     /// Opens the matching page of the HeyMate window.
     var onOpenDesktop: (DesktopSection) -> Void
@@ -35,6 +38,9 @@ struct NotchTrayStrip: View {
         self.nowPlayingMonitor = activityCenter.nowPlayingMonitor
         self.timerStore = activityCenter.timerStore
         self.calendarMonitor = activityCenter.calendarMonitor
+        self.downloadsMonitor = activityCenter.downloadsMonitor
+        self.volumeHUDInterceptor = activityCenter.volumeHUDInterceptor
+        self.reminderMonitor = activityCenter.reminderMonitor
         self.onOpenDesktop = onOpenDesktop
     }
 
@@ -56,6 +62,15 @@ struct NotchTrayStrip: View {
                     if activityCenter.isEnabled(.calendar), let nextEvent = calendarMonitor.nextEvent {
                         calendarChip(nextEvent)
                     }
+                    if activityCenter.isEnabled(.downloads), let download = downloadsMonitor.activity {
+                        downloadChip(download)
+                    }
+                    if activityCenter.isEnabled(.volumeHUD), let volume = volumeHUDInterceptor.activity {
+                        volumeChip(volume)
+                    }
+                    if activityCenter.isEnabled(.reminders), let reminder = reminderMonitor.nextReminder {
+                        reminderChip(reminder)
+                    }
                     if isTrayEmpty {
                         emptyChip
                     }
@@ -69,7 +84,10 @@ struct NotchTrayStrip: View {
         let hasTimer = activityCenter.isEnabled(.timer) && timerStore.runningTimer != nil
         let hasShelf = activityCenter.isEnabled(.shelf) && !shelfStore.items.isEmpty
         let hasEvent = activityCenter.isEnabled(.calendar) && calendarMonitor.nextEvent != nil
-        return !(hasMedia || hasTimer || hasShelf || hasEvent)
+        let hasDownload = activityCenter.isEnabled(.downloads) && downloadsMonitor.activity != nil
+        let hasVolume = activityCenter.isEnabled(.volumeHUD) && volumeHUDInterceptor.activity != nil
+        let hasReminder = activityCenter.isEnabled(.reminders) && reminderMonitor.nextReminder != nil
+        return !(hasMedia || hasTimer || hasShelf || hasEvent || hasDownload || hasVolume || hasReminder)
     }
 
     // MARK: Chips
@@ -104,6 +122,20 @@ struct NotchTrayStrip: View {
                 transportButton("forward.fill", action: { nowPlayingMonitor.skipToNextTrack() })
             }
         }
+        .contentShape(Rectangle())
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 24)
+                .onEnded { value in
+                    guard abs(value.translation.width) > abs(value.translation.height),
+                          abs(value.translation.width) >= 46 else { return }
+                    if value.translation.width < 0 {
+                        nowPlayingMonitor.skipToNextTrack()
+                    } else {
+                        nowPlayingMonitor.skipToPreviousTrack()
+                    }
+                }
+        )
+        .help("Swipe horizontally to change track")
     }
 
     private func timerChip(_ runningTimer: NotchTimerStore.RunningTimer) -> some View {
@@ -148,6 +180,16 @@ struct NotchTrayStrip: View {
                         .font(DS.Fonts.micro)
                         .foregroundColor(DS.Colors.textTertiary)
                 }
+                Button {
+                    shareShelfViaAirDrop()
+                } label: {
+                    Image(systemName: "airplayaudio")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(DS.Colors.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .help("Share shelf with AirDrop")
                 Button("Clear") { shelfStore.removeAll() }
                     .buttonStyle(.plain)
                     .font(DS.Fonts.micro)
@@ -155,6 +197,12 @@ struct NotchTrayStrip: View {
                     .pointerCursor()
             }
         }
+    }
+
+    private func shareShelfViaAirDrop() {
+        let fileURLs = shelfStore.items.map(\.fileURL)
+        guard !fileURLs.isEmpty else { return }
+        NSSharingService(named: .sendViaAirDrop)?.perform(withItems: fileURLs)
     }
 
     /// Draggable back out: the shelf is only half a feature if files can go
@@ -210,13 +258,79 @@ struct NotchTrayStrip: View {
         }
     }
 
+    private func downloadChip(_ download: NotchActivity) -> some View {
+        trayChip {
+            HStack(spacing: 7) {
+                Image(systemName: download.progress == 1 ? "checkmark.circle.fill" : "arrow.down.circle")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(download.progress == 1 ? DS.Colors.success : DS.Colors.accentText)
+                Text(download.trailingText)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .lineLimit(1)
+                Button("Show") {
+                    NSWorkspace.shared.open(
+                        FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+                            ?? FileManager.default.homeDirectoryForCurrentUser
+                    )
+                }
+                .buttonStyle(.plain)
+                .font(DS.Fonts.micro)
+                .foregroundColor(DS.Colors.textSecondary)
+                .pointerCursor()
+            }
+        }
+    }
+
+    private func volumeChip(_ volume: NotchActivity) -> some View {
+        trayChip {
+            HStack(spacing: 7) {
+                Image(systemName: volume.progress == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(DS.Colors.accentText)
+                Text(volume.trailingText)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundColor(DS.Colors.textPrimary)
+            }
+        }
+    }
+
+    private func reminderChip(_ reminder: ReminderPeekMonitor.DueReminder) -> some View {
+        trayChip {
+            HStack(spacing: 7) {
+                Image(systemName: reminder.isOverdue ? "exclamationmark.circle.fill" : "checklist")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(reminder.isOverdue ? DS.Colors.warning : DS.Colors.accentText)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(reminder.title)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .lineLimit(1)
+                    Text(reminder.isOverdue ? "Overdue" : reminder.dueDate.formatted(date: .omitted, time: .shortened))
+                        .font(DS.Fonts.micro)
+                        .foregroundColor(DS.Colors.textTertiary)
+                }
+                .fixedSize()
+                Button("Done") { reminderMonitor.completeNextReminder() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundColor(DS.Colors.textOnAccent)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(DS.Colors.accent))
+                    .pointerCursor()
+            }
+        }
+    }
+
     private var emptyChip: some View {
         Button(action: { onOpenDesktop(.notch) }) {
             HStack(spacing: 7) {
                 Image(systemName: "square.grid.2x2")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(DS.Colors.textTertiary)
-                Text("Drag a file onto the notch, or set up the tray")
+                Text("Drop files or start a micro app")
                     .font(DS.Fonts.caption)
                     .foregroundColor(DS.Colors.textSecondary)
                 Image(systemName: "arrow.up.forward")

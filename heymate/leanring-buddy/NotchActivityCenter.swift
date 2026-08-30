@@ -25,6 +25,10 @@ enum NotchMicroApp: String, CaseIterable, Identifiable, Sendable {
     case battery
     case calendar
     case clipboard
+    case mirror
+    case downloads
+    case volumeHUD
+    case reminders
 
     var id: String { rawValue }
 
@@ -36,6 +40,27 @@ enum NotchMicroApp: String, CaseIterable, Identifiable, Sendable {
         case .battery: return "Battery"
         case .calendar: return "Next Event"
         case .clipboard: return "Clipboard"
+        case .mirror: return "Camera Mirror"
+        case .downloads: return "Downloads"
+        case .volumeHUD: return "Volume HUD"
+        case .reminders: return "Reminders"
+        }
+    }
+
+    /// Short label for 2-column notch launcher. Full name remains available
+    /// to accessibility and Settings.
+    var compactDisplayName: String {
+        switch self {
+        case .shelf: return "Shelf"
+        case .media: return "Music"
+        case .timer: return "Timer"
+        case .battery: return "Battery"
+        case .calendar: return "Event"
+        case .clipboard: return "Clipboard"
+        case .mirror: return "Mirror"
+        case .downloads: return "Download"
+        case .volumeHUD: return "Volume"
+        case .reminders: return "Tasks"
         }
     }
 
@@ -47,6 +72,10 @@ enum NotchMicroApp: String, CaseIterable, Identifiable, Sendable {
         case .battery: return "Plug-in and low-battery moments."
         case .calendar: return "Your next meeting, with a join button."
         case .clipboard: return "Recent copies, in memory only."
+        case .mirror: return "Check framing before joining a call."
+        case .downloads: return "See browser downloads finish in the notch."
+        case .volumeHUD: return "Replace macOS volume overlay with the notch."
+        case .reminders: return "See and complete your next due reminder."
         }
     }
 
@@ -58,6 +87,10 @@ enum NotchMicroApp: String, CaseIterable, Identifiable, Sendable {
         case .battery: return "bolt.fill"
         case .calendar: return "calendar"
         case .clipboard: return "doc.on.clipboard"
+        case .mirror: return "camera"
+        case .downloads: return "arrow.down.circle"
+        case .volumeHUD: return "speaker.wave.2"
+        case .reminders: return "checklist"
         }
     }
 
@@ -67,14 +100,17 @@ enum NotchMicroApp: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .calendar: return "Calendar access"
         case .media: return "Automation access when you use the controls"
-        case .shelf, .timer, .battery, .clipboard: return nil
+        case .mirror: return "Camera access"
+        case .volumeHUD: return "Accessibility access"
+        case .reminders: return "Reminders access"
+        case .shelf, .timer, .battery, .clipboard, .downloads: return nil
         }
     }
 
     /// Defaults chosen so a fresh install feels alive without asking for
     /// anything: shelf and timer are pure local state, battery is a free
     /// IOKit callback.
-    static let defaultEnabled: Set<NotchMicroApp> = [.shelf, .timer, .battery]
+    static let defaultEnabled: Set<NotchMicroApp> = [.shelf, .timer, .battery, .downloads]
 }
 
 @MainActor
@@ -94,6 +130,9 @@ final class NotchActivityCenter: ObservableObject {
     let batteryMonitor = BatteryActivityMonitor()
     let calendarMonitor = CalendarPeekMonitor()
     let clipboardStore = ClipboardHistoryStore()
+    let downloadsMonitor = DownloadsActivityMonitor()
+    let volumeHUDInterceptor = VolumeHUDInterceptor()
+    let reminderMonitor = ReminderPeekMonitor()
 
     private var cancellables: Set<AnyCancellable> = []
 
@@ -112,9 +151,15 @@ final class NotchActivityCenter: ObservableObject {
         observeProducers()
     }
 
+    /// Launch restore. Producers come back exactly as the user left them,
+    /// but none of them may open a permission panel: the user has not
+    /// touched anything yet, and a dialog on top of a just-launched app is
+    /// a demand rather than an answer. A producer whose permission is still
+    /// outstanding stays dark and reports `needsPermissionPrompt`, which the
+    /// next tap on its tile resolves.
     func start() {
         for microApp in enabledMicroApps {
-            startProducer(for: microApp)
+            startProducer(for: microApp, promptForPermission: false)
         }
         recomputeFrontmostActivity()
     }
@@ -135,7 +180,7 @@ final class NotchActivityCenter: ObservableObject {
     func setEnabled(_ isEnabled: Bool, for microApp: NotchMicroApp) {
         if isEnabled {
             enabledMicroApps.insert(microApp)
-            startProducer(for: microApp)
+            startProducer(for: microApp, promptForPermission: true)
         } else {
             enabledMicroApps.remove(microApp)
             stopProducer(for: microApp)
@@ -147,15 +192,38 @@ final class NotchActivityCenter: ObservableObject {
         recomputeFrontmostActivity()
     }
 
-    private func startProducer(for microApp: NotchMicroApp) {
+    private func startProducer(for microApp: NotchMicroApp, promptForPermission: Bool) {
         switch microApp {
         case .media: nowPlayingMonitor.start()
         case .battery: batteryMonitor.start()
         case .clipboard: clipboardStore.setEnabled(true)
-        case .calendar: Task { await calendarMonitor.start() }
+        case .calendar: Task { await calendarMonitor.start(promptForAccess: promptForPermission) }
         case .shelf: shelfStore.pruneExpiredItems()
         case .timer: break   // purely user-initiated; nothing to spin up
+        case .mirror: break  // session lives only while mirror UI is visible
+        case .downloads: downloadsMonitor.start()
+        case .volumeHUD: volumeHUDInterceptor.start()
+        case .reminders: Task { await reminderMonitor.start(promptForAccess: promptForPermission) }
         }
+    }
+
+    /// Whether this micro-app is on but still waiting for macOS to be
+    /// asked — the state a launch restore deliberately leaves behind.
+    func needsPermissionPrompt(for microApp: NotchMicroApp) -> Bool {
+        guard isEnabled(microApp) else { return false }
+        switch microApp {
+        case .calendar: return calendarMonitor.needsPermissionPrompt
+        case .reminders: return reminderMonitor.needsPermissionPrompt
+        default: return false
+        }
+    }
+
+    /// Tapping an already-on tile that never got its permission asks now,
+    /// rather than toggling the micro-app off. Without this the tile would
+    /// need two taps — off, then on — to reach the panel.
+    func grantPendingPermission(for microApp: NotchMicroApp) {
+        guard needsPermissionPrompt(for: microApp) else { return }
+        startProducer(for: microApp, promptForPermission: true)
     }
 
     private func stopProducer(for microApp: NotchMicroApp) {
@@ -166,6 +234,10 @@ final class NotchActivityCenter: ObservableObject {
         case .calendar: calendarMonitor.stop()
         case .shelf: shelfStore.removeAll()
         case .timer: timerStore.cancel()
+        case .mirror: break
+        case .downloads: downloadsMonitor.stop()
+        case .volumeHUD: volumeHUDInterceptor.stop()
+        case .reminders: reminderMonitor.stop()
         }
     }
 
@@ -179,7 +251,10 @@ final class NotchActivityCenter: ObservableObject {
             timerStore.$activity.map { _ in () }.eraseToAnyPublisher(),
             nowPlayingMonitor.$activity.map { _ in () }.eraseToAnyPublisher(),
             batteryMonitor.$activity.map { _ in () }.eraseToAnyPublisher(),
-            calendarMonitor.$activity.map { _ in () }.eraseToAnyPublisher()
+            calendarMonitor.$activity.map { _ in () }.eraseToAnyPublisher(),
+            downloadsMonitor.$activity.map { _ in () }.eraseToAnyPublisher(),
+            volumeHUDInterceptor.$activity.map { _ in () }.eraseToAnyPublisher(),
+            reminderMonitor.$activity.map { _ in () }.eraseToAnyPublisher()
         ]
 
         Publishers.MergeMany(activityChangeSignals)
@@ -188,6 +263,19 @@ final class NotchActivityCenter: ObservableObject {
                 self?.recomputeFrontmostActivity()
             }
             .store(in: &cancellables)
+
+        // Permission state lives on the monitors, but the tiles observe the
+        // center, so forward the change or a tile would keep rendering as
+        // "on" after its permission resolved.
+        Publishers.MergeMany([
+            calendarMonitor.$needsPermissionPrompt.map { _ in () }.eraseToAnyPublisher(),
+            reminderMonitor.$needsPermissionPrompt.map { _ in () }.eraseToAnyPublisher()
+        ])
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        .store(in: &cancellables)
     }
 
     private func recomputeFrontmostActivity() {
@@ -198,6 +286,9 @@ final class NotchActivityCenter: ObservableObject {
         if isEnabled(.media), let mediaActivity = nowPlayingMonitor.activity { candidates.append(mediaActivity) }
         if isEnabled(.battery), let batteryActivity = batteryMonitor.activity { candidates.append(batteryActivity) }
         if isEnabled(.calendar), let calendarActivity = calendarMonitor.activity { candidates.append(calendarActivity) }
+        if isEnabled(.downloads), let downloadActivity = downloadsMonitor.activity { candidates.append(downloadActivity) }
+        if isEnabled(.volumeHUD), let volumeActivity = volumeHUDInterceptor.activity { candidates.append(volumeActivity) }
+        if isEnabled(.reminders), let reminderActivity = reminderMonitor.activity { candidates.append(reminderActivity) }
 
         let winner = NotchActivityArbiter.frontmostActivity(among: candidates)
         guard winner != frontmostActivity else { return }

@@ -133,3 +133,58 @@ struct NowPlayingLabelTests {
         #expect(label == "Supercalifragi…")
     }
 }
+
+struct DownloadsActivityMonitorTests {
+
+    @Test(arguments: [
+        ("video.mov.crdownload", "video.mov"),
+        ("archive.zip.download", "archive.zip"),
+        ("installer.dmg.part", "installer.dmg")
+    ])
+    func recognizesBrowserTemporaryDownloadNames(fileName: String, expected: String) {
+        let url = URL(fileURLWithPath: "/tmp/\(fileName)")
+        #expect(DownloadsActivityMonitor.activeDownloadName(for: url) == expected)
+    }
+
+    @Test func ignoresFinishedAndUnrelatedFiles() {
+        #expect(DownloadsActivityMonitor.activeDownloadName(
+            for: URL(fileURLWithPath: "/tmp/archive.zip")
+        ) == nil)
+    }
+
+    @Test func keepsCollapsedDownloadLabelShort() {
+        let label = DownloadsActivityMonitor.pillLabel(for: "an-extremely-long-filename.zip")
+        #expect(label == "an-extremely-…")
+        #expect(label.count == 14)
+    }
+}
+
+struct ReminderPeekMonitorTests {
+
+    private let now = Date(timeIntervalSince1970: 1_700_000_000)
+
+    @Test func overdueReminderUsesUrgentLabel() {
+        let reminder = ReminderPeekMonitor.DueReminder(
+            id: "1",
+            title: "Send invoice",
+            dueDate: now.addingTimeInterval(-60),
+            isOverdue: true
+        )
+        #expect(ReminderPeekMonitor.pillLabel(for: reminder, now: now) == "due now")
+    }
+
+    @Test(arguments: [
+        (TimeInterval(30 * 60), "due 30m"),
+        (TimeInterval(3 * 60 * 60), "due 3h"),
+        (TimeInterval(2 * 24 * 60 * 60), "due 2d")
+    ])
+    func formatsCompactDueTime(offset: TimeInterval, expected: String) {
+        let reminder = ReminderPeekMonitor.DueReminder(
+            id: "2",
+            title: "Follow up",
+            dueDate: now.addingTimeInterval(offset),
+            isOverdue: false
+        )
+        #expect(ReminderPeekMonitor.pillLabel(for: reminder, now: now) == expected)
+    }
+}

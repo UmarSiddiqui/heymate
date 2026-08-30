@@ -33,6 +33,10 @@ final class CalendarPeekMonitor: ObservableObject {
     @Published private(set) var nextEvent: UpcomingEvent?
     @Published private(set) var activity: NotchActivity?
     @Published private(set) var authorizationDenied = false
+    /// Left on at the end of a previous session, but macOS has never been
+    /// asked. The micro-app stays dark until the user taps it again, which
+    /// is the moment a permission panel belongs on screen.
+    @Published private(set) var needsPermissionPrompt = false
 
     /// Only events starting inside this window are worth ambient space.
     private static let lookaheadWindow: TimeInterval = 60 * 60 * 12
@@ -44,15 +48,26 @@ final class CalendarPeekMonitor: ObservableObject {
     private var storeChangedObserver: NSObjectProtocol?
     private var refreshCancellable: AnyCancellable?
 
-    func start() async {
+    /// - Parameter promptForAccess: `true` only when the user just turned
+    ///   this micro-app on. Restoring it at launch passes `false`, so a
+    ///   session that starts with the app already enabled never opens with
+    ///   a permission panel the user did not ask for.
+    func start(promptForAccess: Bool) async {
         guard storeChangedObserver == nil else { return }
 
-        let granted = await requestAccess()
-        guard granted else {
+        switch await resolveAccess(promptForAccess: promptForAccess) {
+        case .granted:
+            authorizationDenied = false
+            needsPermissionPrompt = false
+        case .denied:
             authorizationDenied = true
+            needsPermissionPrompt = false
+            return
+        case .notAsked:
+            authorizationDenied = false
+            needsPermissionPrompt = true
             return
         }
-        authorizationDenied = false
 
         storeChangedObserver = NotificationCenter.default.addObserver(
             forName: .EKEventStoreChanged,
@@ -82,11 +97,29 @@ final class CalendarPeekMonitor: ObservableObject {
         activity = nil
     }
 
-    private func requestAccess() async -> Bool {
-        await withCheckedContinuation { continuation in
-            eventStore.requestFullAccessToEvents { granted, _ in
-                continuation.resume(returning: granted)
+    private enum AccessOutcome {
+        case granted
+        case denied
+        /// macOS has never asked, and this call was not allowed to.
+        case notAsked
+    }
+
+    private func resolveAccess(promptForAccess: Bool) async -> AccessOutcome {
+        switch EKEventStore.authorizationStatus(for: .event) {
+        case .fullAccess, .authorized:
+            return .granted
+        case .denied, .restricted, .writeOnly:
+            return .denied
+        case .notDetermined:
+            guard promptForAccess else { return .notAsked }
+            let granted = await withCheckedContinuation { continuation in
+                eventStore.requestFullAccessToEvents { granted, _ in
+                    continuation.resume(returning: granted)
+                }
             }
+            return granted ? .granted : .denied
+        @unknown default:
+            return .denied
         }
     }
 
