@@ -105,10 +105,7 @@ final class NotchSurfaceTransitionModel: ObservableObject {
 ///   • The bottom corner radius interpolates pill (8pt) → card (18pt) on
 ///     the animator's clock, so a pill-sized window still has pill-shaped
 ///     corners at the start of the morph.
-///   • A solid bezel-black fill covers the glass at the pill end of the
-///     morph — the card's glass is visibly lighter than the pill's solid
-///     black, and without this cover the click flashes color before it
-///     grows, which reads as a different object.
+///   • Pitch-black fill matches camera housing throughout the morph.
 ///   • The content fade is locked to that same clock, so text never pops
 ///     into a window too small to hold it.
 struct NotchLiquidGlassCardModifier: ViewModifier {
@@ -125,26 +122,20 @@ struct NotchLiquidGlassCardModifier: ViewModifier {
         content
             .background {
                 GeometryReader { geometry in
-                    let outlineInset = NotchLayoutMath.outlinePad * (1 - transitionModel.morphCardness)
-                    let surfaceSize = CGSize(
-                        width: max(geometry.size.width - outlineInset * 2, 1),
-                        height: max(geometry.size.height - outlineInset, 1)
-                    )
+                    // Collapsed panel carries transparent padding for its
+                    // glow. Start inside that padding so swapping panels
+                    // does not turn the outline bounds into a larger black
+                    // rectangle on the first morph frame. The inset melts
+                    // away with the corner transition as the card forms.
+                    let surfaceInset = isOutlineEnabled
+                        ? NotchLayoutMath.outlinePad * (1 - transitionModel.morphCardness)
+                        : 0
+                    let surfaceWidth = max(geometry.size.width - surfaceInset * 2, 1)
+                    let surfaceHeight = max(geometry.size.height - surfaceInset, 1)
 
-                    ZStack {
-                        glassSurface(size: surfaceSize, bottomCornerRadius: bottomCornerRadius)
-                        cardShape(bottomCornerRadius: bottomCornerRadius)
-                            .fill(Color.black)
-                            .opacity(transitionModel.morphBezelOpacity)
-                            .allowsHitTesting(false)
-                        if isOutlineEnabled {
-                            NotchOutlineGlow(
-                                color: outlineColor,
-                                cornerRadius: bottomCornerRadius
-                            )
-                        }
-                    }
-                    .frame(width: surfaceSize.width, height: surfaceSize.height)
+                    cardShape(bottomCornerRadius: bottomCornerRadius)
+                        .fill(Color.black)
+                        .frame(width: surfaceWidth, height: surfaceHeight)
                     .frame(
                         width: geometry.size.width,
                         height: geometry.size.height,
@@ -160,42 +151,6 @@ struct NotchLiquidGlassCardModifier: ViewModifier {
             NotchLayoutMath.cardCornerRadius,
             transitionModel.morphCardness
         )
-    }
-
-    @ViewBuilder
-    private func glassSurface(size: CGSize, bottomCornerRadius: CGFloat) -> some View {
-        if #available(macOS 26.0, *) {
-            GlassEffectContainer(spacing: 0) {
-                glassElement(size: size, bottomCornerRadius: bottomCornerRadius)
-            }
-        } else {
-            fallbackMaterialElement(size: size, bottomCornerRadius: bottomCornerRadius)
-        }
-    }
-
-    @available(macOS 26.0, *)
-    private func glassElement(size: CGSize, bottomCornerRadius: CGFloat) -> some View {
-        let shape = cardShape(bottomCornerRadius: bottomCornerRadius)
-        return ZStack {
-            Color.clear
-                .glassEffect(.regular, in: shape)
-
-            // Liquid Glass samples whatever is behind the notch. Without a
-            // dark scrim, a white window turns the whole control surface gray
-            // and destroys the contrast that makes a notch HUD glanceable.
-            shape
-                .fill(Color.black.opacity(0.72))
-                .allowsHitTesting(false)
-        }
-        .frame(width: max(size.width, 1), height: max(size.height, 1))
-    }
-
-    private func fallbackMaterialElement(size: CGSize, bottomCornerRadius: CGFloat) -> some View {
-        let shape = cardShape(bottomCornerRadius: bottomCornerRadius)
-        return shape
-            .fill(.ultraThinMaterial)
-            .overlay(shape.fill(Color.black.opacity(0.76)))
-            .frame(width: max(size.width, 1), height: max(size.height, 1))
     }
 
     private func cardShape(bottomCornerRadius: CGFloat) -> UnevenRoundedRectangle {

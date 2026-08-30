@@ -366,7 +366,7 @@ struct DesktopSettingsView: View {
     private var appearanceCard: some View {
         DesktopCard(
             title: "Appearance",
-            footnote: "The accent tints the notch rim, the cursor companion, and the buttons in both surfaces."
+            footnote: "The accent tints the cursor companion and action buttons. The notch stays pitch black."
         ) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
@@ -393,22 +393,6 @@ struct DesktopSettingsView: View {
                     Spacer(minLength: 0)
                 }
 
-                Divider().opacity(0.25)
-
-                Toggle(isOn: Binding(
-                    get: { companionManager.isNotchOutlineEnabled },
-                    set: { companionManager.setNotchOutlineEnabled($0) }
-                )) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Notch rim")
-                            .font(DS.Fonts.body)
-                            .foregroundColor(DS.Colors.textPrimary)
-                        Text("A thin accent line around the camera housing.")
-                            .font(DS.Fonts.caption)
-                            .foregroundColor(DS.Colors.textSecondary)
-                    }
-                }
-                .toggleStyle(.switch)
             }
         }
     }

@@ -68,16 +68,7 @@ struct AISettingsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     settingLabel("Color")
                     ThemeColorPicker(companionManager: companionManager)
-                    HStack {
-                        settingLabel("Notch outline")
-                        Spacer()
-                        Toggle("", isOn: $companionManager.isNotchOutlineEnabled)
-                            .toggleStyle(.switch)
-                            .controlSize(.mini)
-                            .labelsHidden()
-                            .tint(DS.Colors.accent)
-                    }
-                    settingFootnote("A small chasing rim on the camera housing. Same color as the cursor.")
+                    settingFootnote("Notch stays pitch black; accent applies to cursor and actions.")
                 }
             }
         }

@@ -3,13 +3,12 @@
 //  leanring-buddy
 //
 //  One color the user picks on onboarding (and can change later). Drives
-//  the notch outline, cursor, and accent fills. Outline can be switched
-//  off without losing the color.
+//  the cursor and accent fills. Notch chrome stays solid black.
 //
 //  Notch geometry still comes from NSScreen: safeAreaInsets.top is the
 //  camera-housing height; auxiliaryTopLeftArea / auxiliaryTopRightArea
 //  bracket the cutout. Apple: content in that inset is obscured — we
-//  only draw a rim on the housing, never put controls there.
+//  never put controls there.
 //
 
 import Foundation
@@ -58,11 +57,8 @@ enum AppTheme {
         return match.hex
     }
 
-    static func outlineEnabled(storedObject: Any?) -> Bool {
-        if storedObject == nil { return true }
-        if let flag = storedObject as? Bool { return flag }
-        if let number = storedObject as? NSNumber { return number.boolValue }
-        return true
+    static func outlineEnabled(storedObject _: Any?) -> Bool {
+        false
     }
 }
 
@@ -94,7 +90,7 @@ struct ThemeColorPicker: View {
                 }
             }
 
-            Text("Same color on the notch, cursor, and buttons.")
+            Text("Same color on the cursor and buttons.")
                 .font(.system(size: 10))
                 .foregroundColor(.white.opacity(0.4))
         }

@@ -2,8 +2,8 @@
 //  AppThemeTests.swift
 //  leanring-buddyTests
 //
-//  Theme color and notch-outline preference: onboarding pick persists,
-//  unknown values fall back to Signal blue, outline defaults on.
+//  Theme color persists, unknown values fall back to Signal blue, and
+//  notch chrome remains solid black regardless of old rim preferences.
 //
 
 import CoreGraphics
@@ -20,10 +20,10 @@ struct AppThemeTests {
         #expect(AppTheme.resolvedHex(storedRawValue: "ff6b5a") == "FF6B5A")
     }
 
-    @Test func outlineDefaultsOnWhenUnset() {
-        #expect(AppTheme.outlineEnabled(storedObject: nil) == true)
+    @Test func outlineStaysDisabledForOldPreferences() {
+        #expect(AppTheme.outlineEnabled(storedObject: nil) == false)
         #expect(AppTheme.outlineEnabled(storedObject: false) == false)
-        #expect(AppTheme.outlineEnabled(storedObject: true) == true)
+        #expect(AppTheme.outlineEnabled(storedObject: true) == false)
     }
 
     @Test func outlinePaddingHugsHardwareWithoutMovingOffTheScreenTop() {
@@ -44,19 +44,19 @@ struct AppThemeTests {
 @MainActor
 struct AppThemePersistenceTests {
 
-    @Test func companionPersistsThemeAndOutlineToggle() {
+    @Test func companionPersistsThemeAndRejectsOldOutlineToggle() {
         UserDefaults.standard.removeObject(forKey: CompanionManager.themeColorPreferenceKey)
         UserDefaults.standard.removeObject(forKey: CompanionManager.notchOutlinePreferenceKey)
         let manager = CompanionManager()
 
         #expect(manager.themeColorHex == AppTheme.defaultHex)
-        #expect(manager.isNotchOutlineEnabled == true)
+        #expect(manager.isNotchOutlineEnabled == false)
 
         manager.setThemeColorHex("FF6B5A")
-        manager.setNotchOutlineEnabled(false)
+        manager.setNotchOutlineEnabled(true)
 
         #expect(UserDefaults.standard.string(forKey: CompanionManager.themeColorPreferenceKey) == "FF6B5A")
-        #expect(UserDefaults.standard.bool(forKey: CompanionManager.notchOutlinePreferenceKey) == false)
+        #expect(UserDefaults.standard.object(forKey: CompanionManager.notchOutlinePreferenceKey) == nil)
         #expect(manager.themeColorHex == "FF6B5A")
         #expect(manager.isNotchOutlineEnabled == false)
 

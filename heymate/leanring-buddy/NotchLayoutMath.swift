@@ -40,14 +40,12 @@ enum NotchLayoutMath {
     /// Bottom-corner radius of the expanded card.
     nonisolated static let cardCornerRadius: CGFloat = 18
 
-    /// Matches the portfolio preview's simultaneous width/height transition:
-    /// 210 ms with cubic-bezier(0.22, 0.75, 0.24, 1). Long enough to read as
-    /// a top-centre swoosh, still short enough to feel directly manipulated.
-    nonisolated static let expandDuration: TimeInterval = 0.21
+    /// Boring Notch-style relaxed spring cadence. Real panel geometry still
+    /// moves on the display-link clock; content and corners settle with it.
+    nonisolated static let expandDuration: TimeInterval = 0.38
 
-    /// Preview uses the same transition in reverse. Keeping one duration and
-    /// curve prevents the close from changing character or snapping at handoff.
-    nonisolated static let collapseDuration: TimeInterval = 0.21
+    /// Closing is slightly faster than opening, matching pointer intent.
+    nonisolated static let collapseDuration: TimeInterval = 0.30
 
     /// Preview settles border radius over 180 ms while width/height continue
     /// their final 30 ms. Expressed separately so silhouette lands cleanly.
@@ -117,13 +115,13 @@ enum NotchLayoutMath {
     /// hover/click). Wide enough for the Home tab's controls; the final
     /// frame width never goes below the idle tab + margin so the card always
     /// visually contains the notch.
-    nonisolated static let expandedWidth: CGFloat = 420
+    nonisolated static let expandedWidth: CGFloat = 680
 
     /// Visible content height of the expanded card BELOW the camera housing.
     /// The panel's total frame height is `topSafeAreaInset + expandedHeight`.
-    /// Tall enough that permissions, typed input, and the main Home sections
-    /// are usable without feeling like a tiny peek of a much larger panel.
-    nonisolated static let expandedHeight: CGFloat = 500
+    /// Wide, shallow Boring Notch-style surface. Dense tools lay out in
+    /// columns instead of turning the notch into a vertical popover.
+    nonisolated static let expandedHeight: CGFloat = 250
 
     /// Compact chat that drops from the notch on ctrl+command: wide enough
     /// for a composer + bubbles, short enough that it still reads as the
@@ -133,7 +131,7 @@ enum NotchLayoutMath {
     /// Visible chat height BELOW the camera housing. Toolbar + a few
     /// messages + composer; the panel's total height is
     /// `topSafeAreaInset + compactChatHeight`.
-    nonisolated static let compactChatHeight: CGFloat = 260
+    nonisolated static let compactChatHeight: CGFloat = 200
 
     /// Assumed menu-bar strip height when placing the software-notch fallback
     /// on a display that has no camera housing. Matches `NSStatusBar` thickness.
@@ -422,8 +420,9 @@ enum NotchLayoutMath {
     /// by a pill-sized window. Radius uses the preview's independent 180 ms
     /// CSS-ease settle; collapse inverts it.
     nonisolated static func morphCardness(linearProgress: CGFloat, isExpanding: Bool) -> CGFloat {
+        let transitionDuration = isExpanding ? expandDuration : collapseDuration
         let cornerTimeline = min(
-            linearProgress * CGFloat(expandDuration / cornerSettleDuration),
+            linearProgress * CGFloat(transitionDuration / cornerSettleDuration),
             1
         )
         let settledProgress = cssEase(cornerTimeline)

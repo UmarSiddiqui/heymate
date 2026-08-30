@@ -341,20 +341,14 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Color picked on onboarding (and later in Models). One accent for the
-    /// notch rim, cursor, and buttons.
+    /// cursor and buttons.
     @Published var themeColorHex: String = AppTheme.resolvedHex(
         storedRawValue: UserDefaults.standard.string(forKey: CompanionManager.themeColorPreferenceKey)
     )
 
-    /// Chasing rim around the hardware camera housing. Independent of color;
-    /// default on, can be switched off.
-    @Published var isNotchOutlineEnabled: Bool = AppTheme.outlineEnabled(
-        storedObject: UserDefaults.standard.object(forKey: CompanionManager.notchOutlinePreferenceKey)
-    ) {
-        didSet {
-            UserDefaults.standard.set(isNotchOutlineEnabled, forKey: Self.notchOutlinePreferenceKey)
-        }
-    }
+    /// Compatibility state for old preferences. Product chrome is always
+    /// black now, so stale saved rim settings cannot revive an outline.
+    @Published private(set) var isNotchOutlineEnabled = false
 
     var themeColor: Color { Color(hex: themeColorHex) }
 
@@ -665,9 +659,9 @@ final class CompanionManager: ObservableObject {
         UserDefaults.standard.set(resolved, forKey: Self.themeColorPreferenceKey)
     }
 
-    func setNotchOutlineEnabled(_ enabled: Bool) {
-        isNotchOutlineEnabled = enabled
-        UserDefaults.standard.set(enabled, forKey: Self.notchOutlinePreferenceKey)
+    func setNotchOutlineEnabled(_: Bool) {
+        isNotchOutlineEnabled = false
+        UserDefaults.standard.removeObject(forKey: Self.notchOutlinePreferenceKey)
     }
     let overlayWindowManager = OverlayWindowManager()
     // Response text is now displayed inline on the cursor overlay via
@@ -1167,6 +1161,10 @@ final class CompanionManager: ObservableObject {
 
     /// Flipped true when a job starts so the expanded card can switch to Agents.
     @Published var shouldRevealAgentsTab = false
+
+    /// Flipped when a file drag reaches the notch so the Apps shelf appears
+    /// before the pointer drops the files.
+    @Published var shouldRevealAppsTab = false
 
     @Published private(set) var isOpenCodeCLIAvailable: Bool?
     @Published private(set) var isClaudeCLIAvailable: Bool?

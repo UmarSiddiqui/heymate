@@ -141,6 +141,10 @@ struct NotchLayoutMathTests {
         #expect(frame.width >= NotchLayoutMath.expandedWidth)
     }
 
+    @Test func expandedCardIsDeliberatelyHorizontal() {
+        #expect(NotchLayoutMath.expandedWidth / NotchLayoutMath.expandedHeight >= 2.5)
+    }
+
     @Test func sixteenInchClassUsesLiveGeometryNotA14InchTable() throws {
         // 16″ MacBook Pro default scaling: 1728×1117 pt, 38 pt housing,
         // ~220 pt cutout. Same formula as this 14″ Mac — no model switch.
@@ -331,12 +335,27 @@ struct NotchLayoutMathTests {
         #expect(abs(mid.midX - card.midX) < 0.01)
     }
 
-    @Test func morphCardnessInvertsOnCollapse() {
+    @Test func morphCardnessReversesOnCollapse() {
         let expanding = NotchLayoutMath.morphCardness(linearProgress: 0.25, isExpanding: true)
         let collapsing = NotchLayoutMath.morphCardness(linearProgress: 0.25, isExpanding: false)
-        #expect(abs(expanding + collapsing - 1) < 0.001)
+        #expect(expanding > 0)
+        #expect(collapsing < 1)
         #expect(NotchLayoutMath.morphCardness(linearProgress: 1, isExpanding: true) == 1)
         #expect(NotchLayoutMath.morphCardness(linearProgress: 1, isExpanding: false) == 0)
+    }
+
+    @Test func morphCornersUseDirectionSpecificDuration() {
+        let expandSettleProgress = CGFloat(NotchLayoutMath.cornerSettleDuration / NotchLayoutMath.expandDuration)
+        let collapseSettleProgress = CGFloat(NotchLayoutMath.cornerSettleDuration / NotchLayoutMath.collapseDuration)
+
+        #expect(NotchLayoutMath.morphCardness(
+            linearProgress: expandSettleProgress,
+            isExpanding: true
+        ) == 1)
+        #expect(NotchLayoutMath.morphCardness(
+            linearProgress: collapseSettleProgress,
+            isExpanding: false
+        ) == 0)
     }
 
     @Test func morphContentOpacityWaitsForSilhouetteOnExpand() {
