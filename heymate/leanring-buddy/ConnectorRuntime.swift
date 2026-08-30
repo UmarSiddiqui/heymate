@@ -60,9 +60,15 @@ final class ConnectorRuntime: ObservableObject {
 
     // MARK: Restore
 
-    /// Re-prove every previously enabled connector at launch. Connection is
-    /// never assumed from persisted state — a CLI can be uninstalled and a
-    /// token can expire while the app is closed.
+    /// Re-prove every previously enabled connector. Connection is never
+    /// assumed from persisted state — a CLI can be uninstalled and a token
+    /// can expire while the app is closed.
+    ///
+    /// Restoring is *silent*: it may verify a permission the user has
+    /// already granted, but it never asks for one. A permission panel is a
+    /// response to an action, and restoring is not an action the user took —
+    /// so a connector whose permission is still outstanding comes back as
+    /// `.needsAttention` with a Connect button rather than as a dialog.
     func restoreEnabledConnectors() async {
         for connector in ConnectorCatalog.all where store.record(for: connector.id).isEnabled {
             await connect(connector, isRestoring: true)
@@ -72,10 +78,18 @@ final class ConnectorRuntime: ObservableObject {
     // MARK: Connect
 
     func connect(_ connector: Connector, isRestoring: Bool = false) async {
+        // A hand-driven connect is exactly the action that earns another
+        // look at a panel the user waved away earlier this session.
+        if !isRestoring { ConnectorSecretStore.retryRefusedSecrets() }
         store.markConnecting(connectorID: connector.id)
         do {
             let accountLabel = try await performConnection(for: connector, isRestoring: isRestoring)
             store.markConnected(connectorID: connector.id, accountLabel: accountLabel)
+        } catch ConnectorRuntimeError.permissionNotYetGranted {
+            // Not a failure — the ask is simply still owed. Presenting it as
+            // plain "Connect" rather than a warning keeps the card honest:
+            // nothing is broken, the user just has not been asked yet.
+            store.markAwaitingConnect(connectorID: connector.id)
         } catch {
             store.markFailed(connectorID: connector.id, reason: error.localizedDescription)
         }
@@ -85,7 +99,7 @@ final class ConnectorRuntime: ObservableObject {
     private func performConnection(for connector: Connector, isRestoring: Bool) async throws -> String? {
         switch connector.transport {
         case .appleNative:
-            return try await connectAppleNative(connector)
+            return try await connectAppleNative(connector, isRestoring: isRestoring)
         case .localCLI:
             return try connectLocalCLI(connector)
         case .mcp:
@@ -100,19 +114,38 @@ final class ConnectorRuntime: ObservableObject {
 
     // MARK: Apple native
 
-    private func connectAppleNative(_ connector: Connector) async throws -> String? {
+    private func connectAppleNative(_ connector: Connector, isRestoring: Bool) async throws -> String? {
         switch connector.id {
         case "apple-calendar", "apple-reminders":
-            let store = EKEventStore()
             let entityType: EKEntityType = connector.id == "apple-reminders" ? .reminder : .event
-            let granted = try await requestEventKitAccess(store: store, entityType: entityType)
-            guard granted else { throw ConnectorRuntimeError.permissionDenied(connector.displayName) }
-            return "Allowed"
+            switch EKEventStore.authorizationStatus(for: entityType) {
+            case .fullAccess, .authorized:
+                return "Allowed"
+            case .denied, .restricted, .writeOnly:
+                throw ConnectorRuntimeError.permissionRevoked(connector.displayName)
+            default:
+                guard !isRestoring else {
+                    throw ConnectorRuntimeError.permissionNotYetGranted(connector.displayName)
+                }
+                let granted = try await requestEventKitAccess(store: EKEventStore(), entityType: entityType)
+                guard granted else { throw ConnectorRuntimeError.permissionDenied(connector.displayName) }
+                return "Allowed"
+            }
 
         case "apple-contacts":
-            let granted = try await CNContactStore().requestAccess(for: .contacts)
-            guard granted else { throw ConnectorRuntimeError.permissionDenied(connector.displayName) }
-            return "Allowed"
+            switch CNContactStore.authorizationStatus(for: .contacts) {
+            case .authorized:
+                return "Allowed"
+            case .denied, .restricted:
+                throw ConnectorRuntimeError.permissionRevoked(connector.displayName)
+            default:
+                guard !isRestoring else {
+                    throw ConnectorRuntimeError.permissionNotYetGranted(connector.displayName)
+                }
+                let granted = try await CNContactStore().requestAccess(for: .contacts)
+                guard granted else { throw ConnectorRuntimeError.permissionDenied(connector.displayName) }
+                return "Allowed"
+            }
 
         case "apple-screen":
             // Screen Recording is already managed by the companion's own
@@ -193,8 +226,13 @@ final class ConnectorRuntime: ObservableObject {
         // A stored secret becomes the server's API-key environment variable.
         // MCP servers overwhelmingly read one; passing it in the environment
         // keeps it off the command line, where `ps` would expose it.
+        //
+        // Guarded by the silent existence check so a server with no stored
+        // key never touches the encrypted item at all — reading it is what
+        // raises the keychain panel, and most servers have nothing to read.
         var environmentOverrides: [String: String] = [:]
-        if let secret = ConnectorSecretStore.secret(forConnectorID: connector.id) {
+        if ConnectorSecretStore.hasSecret(forConnectorID: connector.id),
+           let secret = ConnectorSecretStore.secret(forConnectorID: connector.id) {
             environmentOverrides[Self.environmentVariableName(forConnectorID: connector.id)] = secret
         }
 
@@ -306,6 +344,12 @@ final class ConnectorRuntime: ObservableObject {
 
 enum ConnectorRuntimeError: LocalizedError {
     case permissionDenied(String)
+    /// Was granted once, and macOS has since had it turned off. Only System
+    /// Settings can undo this — asking again would do nothing.
+    case permissionRevoked(String)
+    /// Never granted, and this is a silent restore, so the ask is being
+    /// held back until the user clicks Connect.
+    case permissionNotYetGranted(String)
     case executableNotFound(String, installHint: String?)
     case missingLaunchCommand(String)
     case missingAPIKey(String)
@@ -316,6 +360,10 @@ enum ConnectorRuntimeError: LocalizedError {
         switch self {
         case .permissionDenied(let name):
             return "\(name) needs permission in System Settings › Privacy & Security."
+        case .permissionRevoked(let name):
+            return "macOS is blocking \(name). Re-allow it in System Settings › Privacy & Security."
+        case .permissionNotYetGranted(let name):
+            return "Click Connect to let macOS ask for \(name) access."
         case .executableNotFound(let executable, let installHint):
             if let installHint {
                 return "`\(executable)` is not on your PATH. Install it with: \(installHint)"

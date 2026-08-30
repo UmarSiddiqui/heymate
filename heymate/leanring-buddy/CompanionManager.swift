@@ -403,6 +403,7 @@ final class CompanionManager: ObservableObject {
     /// Open (or focus) the HeyMate desktop window at a given section.
     /// Called from the notch card and from the `heymate://open` deep link.
     func openDesktopWindow(section: DesktopSection = .chat) {
+        activateConnectorsIfNeeded()
         NotificationCenter.default.post(name: .clickyDismissPanel, object: nil)
         desktopWindowController.show(initialSection: section)
     }
@@ -1663,6 +1664,30 @@ final class CompanionManager: ObservableObject {
         set { UserDefaults.standard.set(newValue, forKey: "hasCompletedOnboarding") }
     }
 
+    // MARK: Deferred connector activation
+
+    private var hasActivatedConnectors = false
+
+    /// Reconnect everything the user had enabled — but not at launch.
+    ///
+    /// Restoring reads the Keychain, and macOS answers a Keychain read with
+    /// a password panel of its own. Doing that during `start()` puts a
+    /// dialog on screen before the user has clicked anything, which is the
+    /// bug this exists to prevent. Instead the work runs the first time the
+    /// user actually reaches for HeyMate — hovering the notch, opening the
+    /// window, or speaking — by which point a panel reads as a response.
+    ///
+    /// The two passes run in one task rather than two, so a Keychain panel
+    /// and a permission panel can never stack on top of each other.
+    func activateConnectorsIfNeeded() {
+        guard !hasActivatedConnectors else { return }
+        hasActivatedConnectors = true
+        Task {
+            await connectorRuntime.restoreEnabledConnectors()
+            await composioConnections.revalidate()
+        }
+    }
+
     func start() {
         refreshAllPermissions()
         print("🔑 HeyMate start — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
@@ -1678,8 +1703,6 @@ final class CompanionManager: ObservableObject {
         startStandingOrders()
         startComputerUseCursorBridge()
         contextualConnectorSuggestionMonitor.start()
-        Task { await connectorRuntime.restoreEnabledConnectors() }
-        Task { await composioConnections.revalidate() }
         // Escape clears any on-screen drawing annotations (master spec).
         annotationClearKeyMonitor.start()
         // Load skill files + refresh the published memory snapshot. Bundled
@@ -2544,6 +2567,9 @@ final class CompanionManager: ObservableObject {
     func sendTypedMessage(_ typedMessageText: String) -> Bool {
         let trimmedTypedMessageText = typedMessageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTypedMessageText.isEmpty else { return false }
+        // Backstop for the hover trigger: a first turn driven by a shortcut
+        // still needs connector tools to come online.
+        activateConnectorsIfNeeded()
 
         if let typedMessageBusyReason {
             commandBarFeedback = typedMessageBusyReason
@@ -2747,6 +2773,7 @@ final class CompanionManager: ObservableObject {
 
     private func sendToTalk(_ transcript: String, requiresIdle: Bool) {
         if requiresIdle, voiceState != .idle { return }
+        activateConnectorsIfNeeded()
         sendTranscriptToClaudeWithScreenshot(
             transcript: transcript,
             shouldCaptureScreen: TalkContextPolicy.shouldCaptureScreen(

@@ -178,6 +178,10 @@ final class ComposioConnectionsRuntime: ObservableObject {
     /// Re-prove every stored connection. Cheap, and the only honest way to
     /// show "Connected" after a relaunch.
     func revalidate() async {
+        // Nothing signed in means nothing to re-prove, and reaching for the
+        // API key would raise a keychain panel to answer a question that has
+        // no consequences. Check the cheap, non-secret state first.
+        guard !records.isEmpty else { return }
         guard let apiKey else { return }
         var synchronizedAccountIDs: Set<String> = []
         do {
