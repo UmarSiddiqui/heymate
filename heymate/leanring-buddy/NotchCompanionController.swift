@@ -7,12 +7,8 @@
 //  the companion's live state (idle dot → listening waveform → thinking
 //  pulse → speaking rings). The tab is interactive:
 //
-//    • Hover the tab → it highlights without resizing. It does NOT open the
-//      card unless the user enables the open-on-hover preference. Keeping
-//      hover geometry stable lets click expansion begin as one width+height
-//      morph instead of a sideways peek followed by a separate card.
-//      (Users who preferred the old behavior can turn "open on hover" back
-//      on; it is off by default.)
+//    • Hover the tab → the card opens after a short intent delay. Users can
+//      disable open-on-hover and keep click-only expansion in Settings.
 //    • Click the tab → the Home/Agents card drops below the notch, pinned.
 //    • Press ctrl+command (configurable) → a compact chat drops from the
 //      notch, pinned, with the composer focused. Press again or Escape
@@ -57,17 +53,20 @@ private final class KeyableNotchPanel: NSPanel {
 final class NotchCompanionController {
 
     /// How long the pointer must rest on the collapsed tab before the card
-    /// opens — only consulted when the user has opted into open-on-hover.
-    /// Longer than the old 150 ms because opening a panel is a commitment
-    /// and should require intent, not a passing pointer.
-    private static let hoverExpandDelayMilliseconds: UInt64 = 320
+    /// opens. Short enough to feel attached to the pointer, long enough to
+    /// ignore a fast trip across the menu bar.
+    private static let hoverExpandDelayMilliseconds: UInt64 = 180
 
-    /// UserDefaults key for the opt-in "hovering the notch opens the card"
-    /// behavior. Default OFF: hover highlights, click opens.
+    /// UserDefaults key for "hovering the notch opens the card". New installs
+    /// default ON, matching the direct expansion model used by Boring Notch.
     nonisolated static let hoverOpensCardPreferenceKey = "notchHoverOpensCard"
 
     static var hoverOpensCard: Bool {
-        get { UserDefaults.standard.bool(forKey: hoverOpensCardPreferenceKey) }
+        get {
+            let defaults = UserDefaults.standard
+            guard defaults.object(forKey: hoverOpensCardPreferenceKey) != nil else { return true }
+            return defaults.bool(forKey: hoverOpensCardPreferenceKey)
+        }
         set { UserDefaults.standard.set(newValue, forKey: hoverOpensCardPreferenceKey) }
     }
 
@@ -75,7 +74,7 @@ final class NotchCompanionController {
     /// auto-collapses. Absorbs the two ways a pointer "briefly" leaves the
     /// card in practice: crossing the hairline seam between tab and card,
     /// and overshooting the card's bottom edge mid-scroll.
-    private static let mouseExitCollapseGraceMilliseconds: UInt64 = 400
+    private static let mouseExitCollapseGraceMilliseconds: UInt64 = 180
 
     private var pillPanel: NSPanel?
     private var expandedPanel: NSPanel?
@@ -224,6 +223,7 @@ final class NotchCompanionController {
         if isExpanded, presentedSurface == .compactChat, expandedPanel?.isVisible == true {
             collapseAndUnpin()
         } else {
+            companionManager?.activateConnectorsIfNeeded()
             presentSurface(.compactChat, pinned: true)
         }
     }
@@ -295,6 +295,15 @@ final class NotchCompanionController {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.expandPinned()
+            }
+            .store(in: &cancellables)
+
+        companionManager.$shouldRevealAppsTab
+            .removeDuplicates()
+            .filter { $0 }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.expandForShelfDrag()
             }
             .store(in: &cancellables)
 
@@ -405,8 +414,11 @@ final class NotchCompanionController {
             }
             pillPanel.orderOut(nil)
         } else {
-            expandedPanel?.orderOut(nil)
             pillPanel.orderFrontRegardless()
+            // Put the identical collapsed pixels in front before removing
+            // the morph panel. Reverse ordering can expose one compositor
+            // frame between windows and makes the notch appear to blink.
+            expandedPanel?.orderOut(nil)
         }
     }
 
@@ -571,7 +583,7 @@ final class NotchCompanionController {
         panel.isFloatingPanel = true
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        panel.hasShadow = false
         // Above both the menu bar (.mainMenu) and status items (.statusBar) —
         // lower levels get covered by / conformed out of the menu-bar strip
         // that surrounds the physical notch.
@@ -605,7 +617,7 @@ final class NotchCompanionController {
         panel.isFloatingPanel = true
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        panel.hasShadow = false
         // Same level as the tab: both surfaces must sit above the menu-bar
         // strip, and the card replaces the tab rather than stacking with it.
         panel.level = .mainMenu + 3
@@ -653,7 +665,7 @@ final class NotchCompanionController {
         hostingView.setAccessibilityLabel("HeyMate notch")
         hostingView.setAccessibilityHelp("Opens HeyMate")
         hostingView.registerAsFileDropTarget()
-        hostingView.onDragEnter = { [weak self] in self?.setPillDragTargeting(true) }
+        hostingView.onDragEnter = { [weak self] in self?.beginShelfDrag() }
         hostingView.onDragExit = { [weak self] in self?.setPillDragTargeting(false) }
         hostingView.onFileDrop = { [weak self] droppedURLs in
             self?.acceptDroppedFiles(droppedURLs) ?? false
@@ -679,6 +691,17 @@ final class NotchCompanionController {
         hostingView.onMouseEnter = { [weak self] in self?.handleExpandedCardMouseEnter() }
         hostingView.onMouseExit = { [weak self] in self?.handleExpandedCardMouseExit() }
         hostingView.onClick = { [weak self] in self?.pinExpandedCardAndTakeKey() }
+        if surface == .fullCard {
+            hostingView.registerAsFileDropTarget()
+            hostingView.onDragEnter = { [weak self] in self?.cancelPendingGraceCollapse() }
+            hostingView.onDragExit = { [weak self] in
+                guard self?.isPinned == false else { return }
+                self?.scheduleGraceCollapse()
+            }
+            hostingView.onFileDrop = { [weak self] droppedURLs in
+                self?.acceptDroppedFiles(droppedURLs) ?? false
+            }
+        }
         return hostingView
     }
 
@@ -701,8 +724,8 @@ final class NotchCompanionController {
 
     // MARK: Expand / collapse state machine
 
-    /// Hover PEEKS. It widens the tab and lights up the two slots beside
-    /// the camera; it does not open the card unless the user opted in.
+    /// Hover widens the tab, lights its peek slots, then opens the card when
+    /// open-on-hover is enabled (the default for new installs).
     private func handlePillMouseEnter() {
         cancelPendingGraceCollapse()
         guard !isExpanded, !isTransitioning else { return }
@@ -729,6 +752,16 @@ final class NotchCompanionController {
         syncPillFrameToModel()
     }
 
+    private func beginShelfDrag() {
+        setPillDragTargeting(true)
+        companionManager?.shouldRevealAppsTab = true
+    }
+
+    private func expandForShelfDrag() {
+        guard !isExpanded, !isTransitioning else { return }
+        presentSurface(.fullCard, pinned: false)
+    }
+
     private func acceptDroppedFiles(_ droppedURLs: [URL]) -> Bool {
         guard let companionManager else { return false }
         let shelfStore = companionManager.notchActivityCenter.shelfStore
@@ -739,6 +772,10 @@ final class NotchCompanionController {
         }
         let acceptedCount = shelfStore.accept(fileURLs: droppedURLs)
         setPillDragTargeting(false)
+        if acceptedCount > 0 {
+            isPinned = true
+            expandedPanel?.makeKey()
+        }
         return acceptedCount > 0
     }
 
@@ -765,6 +802,10 @@ final class NotchCompanionController {
     /// auto-collapses again.
     private func expandAfterHover() {
         guard !isExpanded, !isTransitioning else { return }
+        // Deliberately does NOT kick off connector restore. A hover is often
+        // just a cursor crossing the notch on its way somewhere else, and a
+        // password panel is far too heavy an answer to that. Restore waits
+        // for an act of intent: opening chat, the window, or speaking.
         presentSurface(.fullCard, pinned: false)
     }
 
@@ -855,6 +896,10 @@ final class NotchCompanionController {
         } else {
             expandedPanel.orderFrontRegardless()
         }
+        // Force the prepared pill-state surface through AppKit before the
+        // original pill disappears. Both windows now overlap with identical
+        // black pixels for the handoff frame.
+        expandedPanel.contentView?.displayIfNeeded()
         pillPanel?.orderOut(nil)
 
         if prefersReducedMotion {
@@ -940,7 +985,6 @@ final class NotchCompanionController {
         isExpanded = false
         isPinned = false
         presentedSurface = .fullCard
-        expandedPanel?.orderOut(nil)
         showIfPossible()
     }
 
@@ -1103,8 +1147,8 @@ final class NotchCompanionController {
 private final class NotchFrameAnimator: NSObject {
 
     /// Easing shape applied to linear time before interpolating the frame.
-    /// Expanded surface uses the portfolio preview's measured transition
-    /// curve in both directions. Pill hover keeps its smaller cubic motion.
+    /// Expanded surface uses a relaxed Boring Notch-style cadence in both
+    /// directions. Pill hover keeps its smaller cubic motion.
     enum Curve {
         case easeOutCubic
         case easeOutExpo
