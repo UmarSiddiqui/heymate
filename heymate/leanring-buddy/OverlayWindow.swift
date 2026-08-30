@@ -85,6 +85,13 @@ struct NavigationBubbleSizePreferenceKey: PreferenceKey {
     }
 }
 
+struct ResponseBubbleSizePreferenceKey: PreferenceKey {
+    static var defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        value = nextValue()
+    }
+}
+
 /// The buddy's behavioral mode. Controls whether it follows the cursor,
 /// is flying toward a detected UI element, or is pointing at an element.
 enum BuddyNavigationMode {
@@ -133,6 +140,7 @@ struct BlueCursorView: View {
     @State private var showWelcome: Bool = true
     @State private var bubbleSize: CGSize = .zero
     @State private var bubbleOpacity: Double = 1.0
+    @State private var responseBubbleSize: CGSize = .zero
     @State private var cursorOpacity: Double = 0.0
     @State private var isRocketTrailVisible = false
     @State private var launchBayGlowOpacity: Double = 0
@@ -260,6 +268,45 @@ struct BlueCursorView: View {
                     .onPreferenceChange(SizePreferenceKey.self) { newSize in
                         bubbleSize = newSize
                     }
+            }
+
+            // Live answer beside the buddy. Clicky's separate response panel
+            // was never wired into its manager; this uses HeyMate's existing
+            // streaming source and stays inside the click-through overlay.
+            if buddyIsVisibleOnThisScreen && !companionManager.streamingAssistantText.isEmpty {
+                Text(companionManager.streamingAssistantText)
+                    .font(.system(size: 12, weight: .regular, design: .rounded))
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .lineSpacing(2)
+                    .lineLimit(8)
+                    .frame(maxWidth: 300, alignment: .leading)
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 9)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(DS.Colors.surface1.opacity(0.96))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(companionManager.themeColor.opacity(0.38), lineWidth: 0.8)
+                            )
+                            .shadow(color: Color.black.opacity(0.34), radius: 14, y: 7)
+                    )
+                    .fixedSize(horizontal: false, vertical: true)
+                    .overlay(
+                        GeometryReader { geometry in
+                            Color.clear.preference(
+                                key: ResponseBubbleSizePreferenceKey.self,
+                                value: geometry.size
+                            )
+                        }
+                    )
+                    .position(responseBubblePosition)
+                    .transition(.scale(scale: 0.92, anchor: .topLeading).combined(with: .opacity))
+                    .animation(.easeOut(duration: 0.16), value: companionManager.streamingAssistantText.isEmpty)
+                    .onPreferenceChange(ResponseBubbleSizePreferenceKey.self) { newSize in
+                        responseBubbleSize = newSize
+                    }
+                    .allowsHitTesting(false)
             }
 
             // Navigation pointer bubble — shown when buddy arrives at a detected element.
@@ -440,6 +487,17 @@ struct BlueCursorView: View {
         case .navigatingToTarget, .pointingAtTarget:
             return true
         }
+    }
+
+    private var responseBubblePosition: CGPoint {
+        let halfWidth = responseBubbleSize.width / 2
+        let halfHeight = responseBubbleSize.height / 2
+        let desiredX = cursorPosition.x + 20 + halfWidth
+        let desiredY = cursorPosition.y + 22 + halfHeight
+        return CGPoint(
+            x: min(max(desiredX, halfWidth + 12), screenFrame.width - halfWidth - 12),
+            y: min(max(desiredY, halfHeight + 12), screenFrame.height - halfHeight - 12)
+        )
     }
 
     // MARK: - Cursor Tracking
