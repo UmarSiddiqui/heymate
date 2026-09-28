@@ -95,6 +95,32 @@ Read-only calls run quietly. Anything that sends, deletes, or pays always asks f
 </tr>
 </table>
 
+## Everything a notch app does, plus an AI
+
+If you use a notch app like [Boring Notch](https://github.com/TheBoredTeam/boring.notch), HeyMate covers the same everyday jobs and then adds a buddy that can see your screen, talk back, and do real work.
+
+| | Boring Notch | HeyMate |
+| --- | :---: | :---: |
+| Now Playing controls, swipe to change track | ✅ | ✅ |
+| Live audio visualizer | ✅ | ✅ |
+| Calendar: next event | ✅ | ✅ |
+| File shelf with AirDrop | ✅ | ✅ |
+| Battery and charging | ✅ | ✅ |
+| Volume HUD replacement | ✅ | ✅ |
+| Camera mirror | ✅ | ✅ |
+| Opens on hover, expands on file drag | ✅ | ✅ |
+| Brightness and keyboard-backlight HUD | ✅ | Planned |
+| Bluetooth connect/disconnect activity | ✅ | Planned |
+| Focus timers, clipboard history, downloads, reminders | — | ✅ |
+| Push-to-talk questions about your screen, answered out loud | — | ✅ |
+| Cursor that points at what it's talking about | — | ✅ |
+| Claude Code / Codex / OpenCode agents with plan approval and undo | — | ✅ |
+| Mates with memory, workspaces, and schedules | — | ✅ |
+| Connectors: Apple apps, local CLIs, MCP, Composio | — | ✅ |
+| License | GPL-3.0 | MIT |
+
+<sub>Comparison based on Boring Notch's public README as of September 2026. Not affiliated.</sub>
+
 ## Install
 
 1. Download **[HeyMate.dmg](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg)** from the latest release and drag HeyMate into Applications.

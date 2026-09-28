@@ -34,6 +34,10 @@
 - Unlike hosted agent products, coding agents run through the user's own Claude Code, Codex, or OpenCode CLI and cannot write files before the user approves a plan.
 - Unlike menu-bar utilities, it uses the otherwise unused space around the MacBook camera notch.
 
+## HeyMate vs Boring Notch
+
+HeyMate is an alternative to Boring Notch (a popular open-source notch utility) that adds an AI assistant. Both offer Now Playing controls with a visualizer, calendar, a file shelf with AirDrop, battery and charging status, a volume HUD, a camera mirror, and hover-to-open. HeyMate adds focus timers, clipboard history, downloads, and reminders in the notch, plus push-to-talk screen-aware answers, a pointing cursor, approval-gated Claude Code/Codex/OpenCode agents, and mates with scheduled routines. Boring Notch additionally replaces the brightness and keyboard-backlight HUDs and shows Bluetooth connection activity, which HeyMate has planned. Boring Notch is GPL-3.0; HeyMate is MIT.
+
 ## Install
 
 1. Download HeyMate.dmg from the latest GitHub release and drag HeyMate to Applications.
