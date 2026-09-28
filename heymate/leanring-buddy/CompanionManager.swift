@@ -50,6 +50,8 @@ final class CompanionManager: ObservableObject {
 
     nonisolated static let codexModelPreferenceKey = "selectedCodexModel"
     nonisolated static let codexReasoningEffortPreferenceKey = "selectedCodexReasoningEffort"
+    nonisolated static let claudeEffortPreferenceKey = "selectedClaudeEffort"
+    nonisolated static let chatConnectorExclusionsPreferenceKey = "chatConnectorExclusions"
 
     nonisolated static let openCodeBasicAuthPasswordKeychainIdentifier =
         "heymate.opencode.basicAuthPassword"
@@ -65,6 +67,18 @@ final class CompanionManager: ObservableObject {
 
     /// Injectable so tests can point chats at a temp file.
     let chatHistoryStore: FileChatHistoryStore
+
+    /// Mates and their routines. Chats stay in `chatHistoryStore`.
+    let mateDirectory: MateDirectory
+    let mateRoutineScheduler: MateRoutineScheduler
+
+    @Published var mates: [Mate] = []
+    @Published var routines: [MateRoutine] = []
+    @Published var activeMateID: UUID?
+
+    /// Set while a routine is answering into a mate who is not on screen.
+    var backgroundRoutineSession: ChatSession?
+    var activeRoutineTurn: ActiveRoutineTurn?
 
     /// Injectable so tests never touch the real agent-runs.json.
     let agentRunStore: FileAgentRunStore
@@ -90,7 +104,9 @@ final class CompanionManager: ObservableObject {
         chatHistoryStore: FileChatHistoryStore? = nil,
         agentRunStore: FileAgentRunStore? = nil,
         standingOrderRepository: FileStandingOrderRepository? = nil,
-        agentUndoLedger: FileAgentUndoLedger? = nil
+        agentUndoLedger: FileAgentUndoLedger? = nil,
+        mateStore: FileMateStore? = nil,
+        routineStore: FileMateRoutineStore? = nil
     ) {
         let repository = memoryRepository
             ?? FileMemoryRepository(fileURL: FileMemoryRepository.appSupportFileURL())
@@ -100,8 +116,15 @@ final class CompanionManager: ObservableObject {
         let chats = chatHistoryStore
             ?? FileChatHistoryStore(fileURL: FileChatHistoryStore.appSupportFileURL())
         self.chatHistoryStore = chats
-        self.savedChats = chats.loadAll()
-        self.currentChat = ChatSession.empty()
+        let mateFileStore = mateStore ?? FileMateStore(fileURL: FileMateStore.appSupportFileURL())
+        let routineFileStore = routineStore
+            ?? FileMateRoutineStore(fileURL: FileMateRoutineStore.appSupportFileURL())
+        self.mateDirectory = MateDirectory(
+            mateStore: mateFileStore,
+            routineStore: routineFileStore,
+            chatHistoryStore: chats
+        )
+        self.mateRoutineScheduler = MateRoutineScheduler()
 
         let store = agentRunStore
             ?? FileAgentRunStore(fileURL: FileAgentRunStore.appSupportFileURL())
@@ -136,6 +159,9 @@ final class CompanionManager: ObservableObject {
         if let executor = selectedBrain.executor {
             defaultHeadlessExecutor = executor
         }
+        finishMateLaunch()
+        mateRoutineScheduler.owner = self
+        isRecordingMeeting = meetingNotes.isRecording
     }
     /// Canonical interaction state. Every change goes through dispatch(_:)
     /// so illegal transitions are rejected instead of corrupting the pipeline.
@@ -330,6 +356,17 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    /// Updates Claude, Codex, and OpenCode when HeyMate opens. On until the
+    /// user turns it off, because those CLIs are where the model lists come from.
+    @Published var keepsSubscriptionCLIsUpdated: Bool = SubscriptionCLIUpdatePreference.isEnabled() {
+        didSet {
+            SubscriptionCLIUpdatePreference.setEnabled(keepsSubscriptionCLIsUpdated)
+        }
+    }
+
+    @Published private(set) var isSubscriptionCLIUpdateInFlight = false
+    @Published private(set) var subscriptionCLIUpdateStatusText: String?
+
     /// Subtle interaction sounds (mic-open blip, response-ready chime).
     /// Persisted so the choice survives app restarts.
     @Published var isUISoundEnabled: Bool = UserDefaults.standard.object(forKey: CompanionManager.uiSoundPreferenceKey) == nil
@@ -389,6 +426,78 @@ final class CompanionManager: ObservableObject {
     let composioConnections = ComposioConnectionsRuntime()
     let composioToolkitDirectory = ComposioToolkitDirectory()
     let contextualConnectorSuggestionMonitor = ContextualConnectorSuggestionMonitor()
+
+    /// Connected apps excluded from chat tool context. Empty means every
+    /// connected app is available, matching existing behavior.
+    @Published private(set) var chatConnectorExclusions: Set<String> = Set(
+        UserDefaults.standard.stringArray(forKey: CompanionManager.chatConnectorExclusionsPreferenceKey) ?? []
+    )
+
+    nonisolated static func chatConnectorSelectionID(forConnectorID connectorID: String) -> String {
+        "connector:\(connectorID)"
+    }
+
+    nonisolated static func chatConnectorSelectionID(forComposioSlug slug: String) -> String {
+        "composio:\(slug.lowercased())"
+    }
+
+    func isChatConnectorEnabled(_ selectionID: String) -> Bool {
+        !chatConnectorExclusions.contains(selectionID)
+    }
+
+    func setChatConnectorEnabled(_ enabled: Bool, selectionID: String) {
+        if enabled {
+            chatConnectorExclusions.remove(selectionID)
+        } else {
+            chatConnectorExclusions.insert(selectionID)
+        }
+        UserDefaults.standard.set(
+            chatConnectorExclusions.sorted(),
+            forKey: Self.chatConnectorExclusionsPreferenceKey
+        )
+        persistConnectorExclusionsOnActiveMate()
+    }
+
+    /// Replaces the chat connector exclusion set. Used when a mate becomes active.
+    func replaceChatConnectorExclusions(_ ids: Set<String>) {
+        if chatConnectorExclusions != ids {
+            chatConnectorExclusions = ids
+            UserDefaults.standard.set(
+                chatConnectorExclusions.sorted(),
+                forKey: Self.chatConnectorExclusionsPreferenceKey
+            )
+        }
+        persistConnectorExclusionsOnActiveMate()
+    }
+
+    /// Exclusions for the turn in flight. A routine firing in the background
+    /// speaks as its own mate, so it carries that mate's connector choices
+    /// rather than those of whichever chat happens to be open. The open chat
+    /// keeps `chatConnectorExclusions`, which is already the active mate's.
+    private var turnConnectorExclusions: Set<String> {
+        guard backgroundRoutineSession != nil,
+              let ids = speakingMateForTurn()?.connectorExclusionIDs else {
+            return chatConnectorExclusions
+        }
+        return Set(ids)
+    }
+
+    private func isConnectorSelectionEnabledForTurn(_ selectionID: String) -> Bool {
+        !turnConnectorExclusions.contains(selectionID)
+    }
+
+    private var enabledChatComposioSlugs: Set<String> {
+        Set(composioConnections.connectedSlugs.filter {
+            isConnectorSelectionEnabledForTurn(Self.chatConnectorSelectionID(forComposioSlug: $0))
+        })
+    }
+
+    func isConnectorEnabledForChat(_ connectorID: String) -> Bool {
+        if connectorID == ComposioSessionStore.connectorID {
+            return !enabledChatComposioSlugs.isEmpty
+        }
+        return isConnectorSelectionEnabledForTurn(Self.chatConnectorSelectionID(forConnectorID: connectorID))
+    }
 
     /// The full desktop window. Built lazily — a user who never opens it
     /// never pays for it, and the app stays menu-bar-only until they do.
@@ -721,13 +830,42 @@ final class CompanionManager: ObservableObject {
             if let executor = selectedBrain.executor {
                 defaultHeadlessExecutor = executor
             }
+            persistBrainOnActiveMate()
         }
     }
 
-    @Published var selectedClaudeModel: ClaudeModelChoice = ClaudeModelChoice.fromUserDefaults() {
+    /// Alias (`opus`) or exact id (`claude-opus-4-8`). Whatever the installed
+    /// Claude CLI listed last time the catalog was read.
+    @Published var selectedClaudeModelID: String =
+        UserDefaults.standard.string(forKey: ClaudeModelChoice.persistenceKey) ?? ClaudeModelChoice.sonnet.rawValue {
         didSet {
-            UserDefaults.standard.set(selectedClaudeModel.rawValue, forKey: ClaudeModelChoice.persistenceKey)
+            UserDefaults.standard.set(selectedClaudeModelID, forKey: ClaudeModelChoice.persistenceKey)
         }
+    }
+
+    @Published private(set) var claudeModels: [ClaudeModelOption] = ClaudeModelCatalogParser.fallbackOptions
+
+    /// `claude --effort` level. Empty leaves the CLI's own default in charge.
+    @Published var selectedClaudeEffort: String =
+        UserDefaults.standard.string(forKey: CompanionManager.claudeEffortPreferenceKey) ?? "" {
+        didSet {
+            UserDefaults.standard.set(selectedClaudeEffort, forKey: Self.claudeEffortPreferenceKey)
+        }
+    }
+
+    /// Levels the installed Claude CLI lists for `--effort`. Empty when the
+    /// CLI is too old to have the flag, which hides the effort control.
+    @Published private(set) var claudeEfforts: [ClaudeEffortOption] = ClaudeEffortCatalog.fallbackOptions
+    @Published private(set) var isClaudeModelRefreshInFlight = false
+    @Published private(set) var claudeModelCatalogErrorText: String?
+
+    var selectedClaudeModel: ClaudeModelChoice {
+        ClaudeModelChoice(rawValue: selectedClaudeModelID) ?? .sonnet
+    }
+
+    var selectedClaudeModelLabel: String {
+        claudeModels.first { $0.id == selectedClaudeModelID }?.displayName
+            ?? selectedClaudeModel.displayName
     }
 
     @Published var selectedCodexModelID: String =
@@ -872,32 +1010,45 @@ final class CompanionManager: ObservableObject {
             }
             return SubscriptionCLIVisionClient(
                 backend: .claude,
-                model: selectedClaudeModel.cliIdentifier
+                model: selectedClaudeModelID,
+                reasoningEffort: selectedClaudeEffortIfSupported ?? "",
+                connectedAppsReachable: connectedAppsReachableFromChildCLI
             )
         case .codex:
             if CustomAPIConfiguration.isUsableForTalk {
                 return customAPIClient
             }
+            let trimmedModel = selectedCodexModelID.trimmingCharacters(in: .whitespacesAndNewlines)
             return SubscriptionCLIVisionClient(
                 backend: .codex,
-                model: selectedCodexModelID,
+                model: trimmedModel.isEmpty
+                    ? SubscriptionCLIVisionClient.codexFastTalkModelIdentifier
+                    : trimmedModel,
                 reasoningEffort: selectedCodexReasoningEffort,
-                textOnlyModel: SubscriptionCLIVisionClient.codexFastTalkModelIdentifier
+                connectedAppsReachable: connectedAppsReachableFromChildCLI
             )
+        case .onDevice:
+            return onDeviceLanguageClient
         }
     }
 
-    /// Codex text-only Talk prefers subscription Spark even when user also
-    /// configured vision endpoint. Visual turns keep existing endpoint/model.
+    /// Whether a subscription CLI child would find anything behind HeyMate's
+    /// loopback server this turn: Composio, or any other connector with a
+    /// live session that this chat has left on.
+    private var connectedAppsReachableFromChildCLI: Bool {
+        ComposioAgentAttachment.isAttachable()
+            || connectorRuntime.availableMCPTools.contains { namespaced in
+                namespaced.connectorID != ComposioSessionStore.connectorID
+                    && isConnectorEnabledForChat(namespaced.connectorID)
+                    && !Self.isWithheldFromTalk(namespaced.tool.name)
+            }
+    }
+
+    /// The model the user picked is the model that answers, with or without
+    /// a screenshot. Spark is only the stand-in before Codex has a selection.
     private func conversationClient(hasScreenContext: Bool) -> any VisionConversationClient {
-        guard selectedBrain == .codex, !hasScreenContext else {
-            return activeConversationClient
-        }
-        return SubscriptionCLIVisionClient(
-            backend: .codex,
-            model: SubscriptionCLIVisionClient.codexFastTalkModelIdentifier,
-            textOnlyModel: SubscriptionCLIVisionClient.codexFastTalkModelIdentifier
-        )
+        _ = hasScreenContext
+        return activeConversationClient
     }
 
     /// Trims user-edited server URLs (trailing slashes/spaces) and falls back
@@ -924,7 +1075,83 @@ final class CompanionManager: ObservableObject {
     }
 
     func setSelectedClaudeModel(_ choice: ClaudeModelChoice) {
-        selectedClaudeModel = choice
+        selectedClaudeModelID = choice.rawValue
+    }
+
+    func setSelectedClaudeModel(_ option: ClaudeModelOption) {
+        selectedClaudeModelID = option.id
+    }
+
+    /// Empty string returns effort to the Claude CLI's default.
+    func setSelectedClaudeEffort(_ effort: String) {
+        guard effort.isEmpty || claudeEfforts.contains(where: { $0.effort == effort }) else { return }
+        selectedClaudeEffort = effort
+    }
+
+    /// The saved level, dropped when this CLI no longer lists it.
+    var selectedClaudeEffortIfSupported: String? {
+        guard !selectedClaudeEffort.isEmpty,
+              claudeEfforts.contains(where: { $0.effort == selectedClaudeEffort }) else { return nil }
+        return selectedClaudeEffort
+    }
+
+    /// Updates Claude, Codex, and OpenCode now, then reloads their model lists.
+    func updateSubscriptionCLIsNow() async {
+        await runSubscriptionCLIUpdate(automatic: false)
+    }
+
+    private func refreshSubscriptionCLICatalogs(updatingWhenDue: Bool) async {
+        await refreshClaudeModelCatalog()
+        await refreshCodexModelCatalog()
+        await refreshOpenCodeServerStatus()
+        if updatingWhenDue && SubscriptionCLIUpdatePreference.shouldUpdateAutomatically() {
+            await runSubscriptionCLIUpdate(automatic: true)
+        }
+    }
+
+    private func runSubscriptionCLIUpdate(automatic: Bool) async {
+        guard !isSubscriptionCLIUpdateInFlight else { return }
+        isSubscriptionCLIUpdateInFlight = true
+        subscriptionCLIUpdateStatusText = "Updating Claude, Codex, and OpenCode…"
+        let outcomes = await Task.detached(priority: .utility) {
+            SubscriptionCLIUpdater.updateInstalledCLIs()
+        }.value
+        subscriptionCLIUpdateStatusText = SubscriptionCLIUpdater.summary(of: outcomes)
+        isSubscriptionCLIUpdateInFlight = false
+        if automatic {
+            SubscriptionCLIUpdatePreference.markAutomaticUpdateFinished()
+        }
+        await waitForSubscriptionCLICatalogRefreshToFinish()
+        await refreshClaudeModelCatalog()
+        await refreshCodexModelCatalog()
+        await refreshOpenCodeServerStatus()
+    }
+
+    private func waitForSubscriptionCLICatalogRefreshToFinish() async {
+        for _ in 0..<60 {
+            if !isClaudeModelRefreshInFlight && !isCodexModelRefreshInFlight && !isOpenCodeRefreshInFlight {
+                return
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+    }
+
+    /// Reads the model ids embedded in the Claude CLI on this Mac.
+    func refreshClaudeModelCatalog() async {
+        guard !isClaudeModelRefreshInFlight else { return }
+        isClaudeModelRefreshInFlight = true
+        defer { isClaudeModelRefreshInFlight = false }
+        do {
+            let available = try await ClaudeModelCatalogLoader.fetchAvailableModels()
+            claudeModels = available
+            claudeModelCatalogErrorText = nil
+        } catch {
+            if claudeModels.isEmpty {
+                claudeModels = ClaudeModelCatalogParser.fallbackOptions
+            }
+            claudeModelCatalogErrorText = error.localizedDescription
+        }
+        claudeEfforts = await ClaudeEffortCatalog.fetchAvailableEfforts()
     }
 
     func setSelectedCodexModel(_ option: CodexModelOption) {
@@ -979,6 +1206,71 @@ final class CompanionManager: ObservableObject {
     func selectOpenCodeModel(_ option: OpenCodeModelOption) {
         openCodeProviderID = option.providerID
         openCodeModelID = option.modelID
+        if openCodeTrainingNotice?.modelKey != OpenCodeTrainingPolicy.modelKey(
+            providerID: option.providerID,
+            modelID: option.modelID
+        ) {
+            cancelOpenCodeTrainingSend()
+        }
+    }
+
+    func confirmOpenCodeTrainingSend() {
+        guard let pending = pendingOpenCodeTrainingSend else { return }
+        OpenCodeTrainingConsent.acknowledge(pending.modelKey)
+        let images = pendingOpenCodeTrainingImages
+        let handoff = pending.handoff
+        let text = pending.text
+        pendingOpenCodeTrainingSend = nil
+        pendingOpenCodeTrainingImages = []
+        openCodeTrainingNotice = nil
+        commandBarFeedback = nil
+        if let handoff {
+            beginHandoff(handoff)
+            return
+        }
+        _ = sendTypedMessage(text, imageAttachments: images)
+    }
+
+    func cancelOpenCodeTrainingSend() {
+        pendingOpenCodeTrainingSend = nil
+        pendingOpenCodeTrainingImages = []
+        openCodeTrainingNotice = nil
+    }
+
+    /// True when the send was held back. The composer keeps the text.
+    func holdForOpenCodeTrainingConsent(
+        _ text: String,
+        imageAttachments: [ChatImageAttachment],
+        handoff: MateHandoff? = nil
+    ) -> Bool {
+        guard selectedBrain == .openCode else { return false }
+        let modelKey = OpenCodeTrainingPolicy.modelKey(
+            providerID: openCodeProviderID,
+            modelID: openCodeModelID
+        )
+        guard !OpenCodeTrainingConsent.isAcknowledged(modelKey) else { return false }
+        let modelName = openCodeModels.first {
+            $0.providerID == openCodeProviderID && $0.modelID == openCodeModelID
+        }?.modelName ?? openCodeModelID
+        guard case .mayTrain(let detail) = OpenCodeTrainingPolicy.dataUse(
+            providerID: openCodeProviderID,
+            modelID: openCodeModelID,
+            modelName: modelName
+        ) else { return false }
+        openCodeTrainingNotice = OpenCodeTrainingNotice(
+            modelKey: modelKey,
+            modelLabel: modelName.isEmpty ? modelKey : modelName,
+            detail: detail
+        )
+        pendingOpenCodeTrainingSend = PendingOpenCodeSend(
+            modelKey: modelKey,
+            text: text,
+            imageAttachmentCount: imageAttachments.count,
+            handoff: handoff
+        )
+        pendingOpenCodeTrainingImages = imageAttachments
+        commandBarFeedback = detail
+        return true
     }
 
     func openCodeProviderGroups(
@@ -1075,31 +1367,113 @@ final class CompanionManager: ObservableObject {
     /// status lines). Falls back to the raw model id when unknown.
     var activeEngineDisplayName: String {
         switch selectedBrain {
-        case .claudeCode: return selectedClaudeModel.displayName
+        case .claudeCode: return selectedClaudeModelLabel
         case .codex: return selectedCodexModel?.displayName ?? selectedCodexModelID
         case .customAPI: return CustomAPIConfiguration.model
         case .openCode:
             return openCodeModelID.isEmpty ? "OpenCode (no model)" : "\(openCodeProviderID)/\(openCodeModelID)"
+        case .onDevice: return "Apple Intelligence"
         }
     }
 
     /// Live chat shown in the notch Chat tab. Past sessions live in `savedChats`.
-    @Published private(set) var currentChat: ChatSession = .empty()
+    @Published var currentChat: ChatSession = .empty()
+
+    /// Listen, the ChatGPT or Claude plan answers, this Mac speaks, then listen again.
+    @Published var isSubscriptionVoiceChatActive = false
+
+    /// Set when the selected OpenCode model may train on the next send.
+    @Published var openCodeTrainingNotice: OpenCodeTrainingNotice?
+
+    /// Non-nil while Apple's Image Playground sheet should be up.
+    @Published var imagePlaygroundConcept: String?
+
+    @Published var isRecordingMeeting = false
+
+    private var pendingOpenCodeTrainingSend: PendingOpenCodeSend?
+    private var pendingOpenCodeTrainingImages: [ChatImageAttachment] = []
+    var pendingHandoffs: [MateHandoff] = []
+    var activeHandoffMateID: UUID?
+    let meetingNotes = MeetingNotes(fileURL: MeetingNotes.appSupportFileURL())
+    private let onDeviceLanguageClient = OnDeviceLanguageClient()
 
     /// Persisted chats, newest first. Empty when "Remember conversations" is off.
-    @Published private(set) var savedChats: [ChatSession] = []
+    @Published var savedChats: [ChatSession] = []
 
     /// Assistant text currently streaming into the Chat tab (and cursor overlay).
-    @Published private(set) var streamingAssistantText: String = ""
+    @Published var streamingAssistantText: String = ""
 
     /// Completed user/assistant turns from the open chat, for the vision API.
+    private func speakingMateForTurn() -> Mate? {
+        let session = backgroundRoutineSession ?? currentChat
+        let id = session.mateID ?? mateDirectory.defaultMateID
+        return mateDirectory.mates.first { $0.id == id }
+    }
+
+    private func mateIdentityBlock(for mate: Mate?) -> String? {
+        guard let mate else { return nil }
+        if mate.conductsOthers {
+            return FirstMateBrief.promptBlock(
+                mate: mate,
+                others: mateDirectory.mates,
+                memoryExcerpts: SubscriptionMemoryIndex.excerpts(
+                    root: FileManager.default.homeDirectoryForCurrentUser
+                ),
+                meetingNotesAreOn: isRecordingMeeting
+            )
+        }
+        return MateSoul.promptBlock(name: mate.name, job: mate.job, soul: mate.soul)
+    }
+
+    func toggleSubscriptionVoiceChat() {
+        if isSubscriptionVoiceChatActive {
+            isSubscriptionVoiceChatActive = false
+            if voiceState == .listening {
+                finishVoiceInputFromNotch()
+            }
+            return
+        }
+        guard selectedBrain.offersSubscriptionVoiceChat else {
+            commandBarFeedback = "Voice chat runs on a ChatGPT or Claude plan. Pick Codex or Claude."
+            return
+        }
+        isSubscriptionVoiceChatActive = true
+        commandBarFeedback = nil
+        if handsFreeSilenceCancellable == nil, !buddyDictationManager.isDictationInProgress {
+            handleHandsFreeDoubleTap()
+        }
+    }
+
+    private func continueSubscriptionVoiceChat() {
+        guard isSubscriptionVoiceChatActive, selectedBrain.offersSubscriptionVoiceChat else {
+            isSubscriptionVoiceChatActive = false
+            return
+        }
+        guard handsFreeSilenceCancellable == nil, !buddyDictationManager.isDictationInProgress else { return }
+        handleHandsFreeDoubleTap()
+    }
+
+    func scheduleNextHandoffIfNeeded() {
+        guard activeHandoffMateID == nil, activeRoutineTurn == nil, !pendingHandoffs.isEmpty else { return }
+        let next = pendingHandoffs.removeFirst()
+        Task { @MainActor in
+            self.beginHandoff(next)
+        }
+    }
+
     private var conversationHistory: [(userTranscript: String, assistantResponse: String)] {
-        currentChat.apiHistoryPairs(limit: 10)
+        let session = backgroundRoutineSession ?? currentChat
+        return session.apiHistoryPairs(limit: 10).map { pair in
+            (
+                userTranscript: TalkContextPolicy.withoutPriorScreenshots(pair.userTranscript),
+                assistantResponse: TalkContextPolicy.withoutPriorScreenshots(pair.assistantResponse)
+            )
+        }
     }
 
     /// The currently running AI response task, if any. Cancelled when the user
     /// speaks again so a new response can begin immediately.
-    private var currentResponseTask: Task<Void, Never>?
+    var currentResponseTask: Task<Void, Never>?
     /// Guards stale Talk completions after a newer turn cancelled the task.
     private var currentResponseCompletion: HeyMateRequestCompletionState?
 
@@ -1139,14 +1513,14 @@ final class CompanionManager: ObservableObject {
     @Published private(set) var isOverlayVisible: Bool = false
 
     /// Newest-first snapshot of agent jobs for the Agents tab.
-    @Published private(set) var agentRuns: [AgentRun] = []
+    @Published var agentRuns: [AgentRun] = []
 
     /// Exactly one proactive nudge at a time. Matching a rule only populates
     /// this value; approval starts normal read-only planning.
     @Published private(set) var loadedStandingOrders: [StandingOrder] = []
     @Published private(set) var standingOrderProposal: StandingOrderProposal?
-    @Published private(set) var latestAgentUndoEntry: AgentUndoEntry?
-    @Published private(set) var agentUndoErrorText = ""
+    @Published var latestAgentUndoEntry: AgentUndoEntry?
+    @Published var agentUndoErrorText = ""
     private var standingOrderCancellables: Set<AnyCancellable> = []
     private var standingOrderEvaluator = StandingOrderEvaluator()
     private var latestStandingOrderSignals: [StandingOrderSignalKind: StandingOrderSignal] = [:]
@@ -1259,7 +1633,7 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Memory & Skills
 
-    @Published private(set) var memoryItems: [MemoryItem] = []
+    @Published internal(set) var memoryItems: [MemoryItem] = []
 
     /// When off, nothing is written to durable memory (in-session context
     /// still works — that's just conversation history, not storage).
@@ -1365,24 +1739,33 @@ final class CompanionManager: ObservableObject {
     var notchDockModelLabel: String {
         switch selectedBrain {
         case .claudeCode:
-            return selectedClaudeModel.displayName
+            return "Claude · \(selectedClaudeModelLabel)"
         case .codex:
-            return selectedCodexModel?.displayName ?? (selectedCodexModelID.isEmpty ? "Model" : selectedCodexModelID)
+            let modelName = selectedCodexModel?.displayName
+                ?? (selectedCodexModelID.isEmpty ? "Spark" : selectedCodexModelID)
+            return "Codex · \(modelName)"
         case .customAPI:
-            return CustomAPIConfiguration.model
+            return "API · \(CustomAPIConfiguration.model)"
+        case .onDevice:
+            return "On this Mac · Apple Intelligence"
         case .openCode:
             if let selected = openCodeModels.first(where: {
                 $0.providerID == openCodeProviderID && $0.modelID == openCodeModelID
             }) {
-                return selected.shortLabel
+                return "OpenCode · \(selected.shortLabel)"
             }
-            return openCodeModelID.isEmpty ? "Model" : openCodeModelID
+            if openCodeModelID.isEmpty {
+                return isOpenCodeServerReachable == false ? "OpenCode · offline" : "OpenCode · pick a model"
+            }
+            return "OpenCode · \(openCodeModelID)"
         }
     }
 
     func startNewChat() {
         persistCurrentChatIfNeeded()
-        currentChat = ChatSession.empty()
+        var session = ChatSession.empty()
+        session.mateID = activeMateID ?? mateDirectory.defaultMateID
+        currentChat = session
         streamingAssistantText = ""
         savedChats = rememberConversationsEnabled ? chatHistoryStore.loadAll() : []
     }
@@ -1394,13 +1777,19 @@ final class CompanionManager: ObservableObject {
         }
         currentChat = session
         streamingAssistantText = ""
+        let mateID = session.mateID ?? mateDirectory.defaultMateID
+        mateDirectory.activeMateID = mateID
+        mateDirectory.markRead(id: mateID)
+        syncMatePublications()
     }
 
     func deleteChat(id: UUID) {
         chatHistoryStore.delete(id: id)
         savedChats = chatHistoryStore.loadAll()
         if currentChat.id == id {
-            currentChat = ChatSession.empty()
+            var session = ChatSession.empty()
+            session.mateID = activeMateID ?? mateDirectory.defaultMateID
+            currentChat = session
             streamingAssistantText = ""
         }
     }
@@ -1408,22 +1797,72 @@ final class CompanionManager: ObservableObject {
     func clearAllChats() {
         chatHistoryStore.deleteAll()
         savedChats = []
-        currentChat = ChatSession.empty()
+        var session = ChatSession.empty()
+        session.mateID = activeMateID ?? mateDirectory.defaultMateID
+        currentChat = session
         streamingAssistantText = ""
     }
 
-    private func persistCurrentChatIfNeeded() {
+    func persistCurrentChatIfNeeded() {
         guard rememberConversationsEnabled else { return }
-        guard !currentChat.messages.isEmpty else { return }
+        let draft = currentChat.draftText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !currentChat.messages.isEmpty || !draft.isEmpty else { return }
         chatHistoryStore.upsert(currentChat)
         savedChats = chatHistoryStore.loadAll()
     }
 
-    private func appendUserMessage(_ text: String) {
+    /// Send becomes Stop while a reply is streaming, queued, or being spoken.
+    /// A finished task stays referenced, so Stop hides once that turn has completed.
+    var isComposerStopVisible: Bool {
+        if !streamingAssistantText.isEmpty { return true }
+        switch state {
+        case .thinking, .capturingContext, .speaking:
+            return true
+        default:
+            break
+        }
+        guard currentResponseTask != nil else { return false }
+        return currentResponseCompletion?.didComplete != true
+    }
+
+    /// Stops the open reply: the in-flight task, streamed text, and speech.
+    /// Returns to idle so the composer cannot stay on thinking, capturing, or speaking.
+    func cancelInFlightChatTurn() {
+        let completion = currentResponseCompletion
+        completion?.didComplete = true
+        currentResponseTask?.cancel()
+        currentResponseTask = nil
+        streamingAssistantText = ""
+        voiceSynthesisClient.stopPlayback()
+        if activeRoutineTurn != nil {
+            completeActiveRoutineTurn(.cancelled)
+        }
+        dispatch(.cancel)
+        // The reply task calls beginContextCapture before it notices cancellation.
+        // If that prefix runs after this return, idle those states again.
+        Task { @MainActor in
+            guard currentResponseTask == nil, currentResponseCompletion === completion else { return }
+            streamingAssistantText = ""
+            switch state {
+            case .thinking, .capturingContext, .speaking:
+                dispatch(.cancel)
+            default:
+                break
+            }
+        }
+    }
+
+    func appendUserMessage(_ text: String, attachmentNames: [String] = []) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        let names = attachmentNames.isEmpty ? nil : attachmentNames
+        if backgroundRoutineSession != nil {
+            appendUserMessageToBackground(trimmed, attachmentNames: names)
+            return
+        }
         if currentChat.messages.last?.role == .user,
-           currentChat.messages.last?.text == trimmed {
+           currentChat.messages.last?.text == trimmed,
+           currentChat.messages.last?.attachmentNames == names {
             return
         }
         var session = currentChat
@@ -1431,7 +1870,8 @@ final class CompanionManager: ObservableObject {
             id: UUID(),
             role: .user,
             text: trimmed,
-            createdAt: Date()
+            createdAt: Date(),
+            attachmentNames: names
         ))
         session.updatedAt = Date()
         if session.title == ChatSession.defaultTitle {
@@ -1439,12 +1879,47 @@ final class CompanionManager: ObservableObject {
         }
         currentChat = session
         persistCurrentChatIfNeeded()
+        if isRecordingMeeting, backgroundRoutineSession == nil {
+            meetingNotes.append(speaker: "You", text: trimmed)
+        }
     }
 
-    private func appendAssistantMessage(_ text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func appendUserMessageToBackground(_ trimmed: String, attachmentNames: [String]?) {
+        guard var session = backgroundRoutineSession else { return }
+        if session.messages.last?.role == .user,
+           session.messages.last?.text == trimmed,
+           session.messages.last?.attachmentNames == attachmentNames {
+            return
+        }
+        session.messages.append(ChatMessage(
+            id: UUID(),
+            role: .user,
+            text: trimmed,
+            createdAt: Date(),
+            attachmentNames: attachmentNames
+        ))
+        session.updatedAt = Date()
+        if session.title == ChatSession.defaultTitle {
+            session.title = ChatSession.title(from: trimmed)
+        }
+        backgroundRoutineSession = session
+        if rememberConversationsEnabled {
+            chatHistoryStore.upsert(session)
+            savedChats = chatHistoryStore.loadAll()
+        }
+    }
+
+    func appendAssistantMessage(_ text: String) {
+        var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             streamingAssistantText = ""
+            return
+        }
+        if let activeRoutineTurn {
+            trimmed = MateRoutineMessage.format(task: activeRoutineTurn.task, outcome: trimmed)
+        }
+        if backgroundRoutineSession != nil {
+            appendAssistantMessageToBackground(trimmed)
             return
         }
         var session = currentChat
@@ -1458,6 +1933,26 @@ final class CompanionManager: ObservableObject {
         currentChat = session
         streamingAssistantText = ""
         persistCurrentChatIfNeeded()
+        if isRecordingMeeting, backgroundRoutineSession == nil {
+            meetingNotes.append(speaker: "HeyMate", text: trimmed)
+        }
+    }
+
+    private func appendAssistantMessageToBackground(_ trimmed: String) {
+        guard var session = backgroundRoutineSession else { return }
+        session.messages.append(ChatMessage(
+            id: UUID(),
+            role: .assistant,
+            text: trimmed,
+            createdAt: Date()
+        ))
+        session.updatedAt = Date()
+        backgroundRoutineSession = session
+        if rememberConversationsEnabled {
+            chatHistoryStore.upsert(session)
+            savedChats = chatHistoryStore.loadAll()
+        }
+        streamingAssistantText = ""
     }
 
     /// Replaces the single rolling session-summary item with a fresh digest
@@ -1542,7 +2037,11 @@ final class CompanionManager: ObservableObject {
             case .local:
                 return "- \(talkTool.toolDefinition.name): \(talkTool.toolDefinition.description)"
             case .connector(_, let connectorDisplayName, _):
-                return "- \(talkTool.toolDefinition.name) (\(connectorDisplayName))"
+                // The description carries what the tool actually does. Naming
+                // the connector alone reads as noise next to the local tools
+                // and gives the model no reason to prefer a real lookup over
+                // answering from memory.
+                return "- \(talkTool.toolDefinition.name) (\(connectorDisplayName)): \(talkTool.toolDefinition.description)"
             }
         }
         return """
@@ -1576,6 +2075,10 @@ final class CompanionManager: ObservableObject {
         return ExcludedApps.isCurrentlyExcluded(bundleId: bundleId)
     }
 
+    private var frontmostIsHeyMate: Bool {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Bundle.main.bundleIdentifier
+    }
+
     /// User preference for persistent cursor deployment. Off keeps the buddy
     /// docked until an interaction launches it transiently. Persisted so the
     /// launch-bay choice survives app restarts.
@@ -1599,6 +2102,24 @@ final class CompanionManager: ObservableObject {
     func updateCursorDockAnchorScreenPoint(_ point: CGPoint) {
         guard point.x.isFinite, point.y.isFinite else { return }
         cursorDockAnchorScreenPoint = point
+    }
+
+    /// True while the user is typing and the pointer has not moved yet.
+    @Published private(set) var hidesCursorForTyping = false
+    private var typingHideAnchor: CGPoint = .zero
+
+    func hideCursorForTyping(anchor: CGPoint) {
+        guard !cursorDockPhase.isTransitioning else { return }
+        guard anchor.x.isFinite, anchor.y.isFinite else { return }
+        guard !hidesCursorForTyping else { return }
+        typingHideAnchor = anchor
+        hidesCursorForTyping = true
+    }
+
+    func revealCursorIfPointerMoved(to point: CGPoint) {
+        guard hidesCursorForTyping else { return }
+        guard BuddyCursorTypingPolicy.shouldReveal(from: typingHideAnchor, to: point) else { return }
+        hidesCursorForTyping = false
     }
 
     func setClickyCursorEnabled(_ enabled: Bool) {
@@ -1665,6 +2186,7 @@ final class CompanionManager: ObservableObject {
     // MARK: Deferred connector activation
 
     private var hasActivatedConnectors = false
+    private var connectorActivationTask: Task<Void, Never>?
 
     /// Reconnect everything the user had enabled — but not at launch.
     ///
@@ -1680,10 +2202,19 @@ final class CompanionManager: ObservableObject {
     func activateConnectorsIfNeeded() {
         guard !hasActivatedConnectors else { return }
         hasActivatedConnectors = true
-        Task {
+        connectorActivationTask = Task {
             await connectorRuntime.restoreEnabledConnectors()
             await composioConnections.revalidate()
         }
+    }
+
+    /// First Talk turn must wait for deferred MCP discovery. Starting the
+    /// model alongside that work gives it an empty tool list, so it reports a
+    /// connected account as missing even though the server appears seconds
+    /// later.
+    func awaitConnectorActivation() async {
+        activateConnectorsIfNeeded()
+        await connectorActivationTask?.value
     }
 
     func start() {
@@ -1699,6 +2230,7 @@ final class CompanionManager: ObservableObject {
         bindDoubleTapShortcuts()
         startNotchActivityCenter()
         startStandingOrders()
+        mateRoutineScheduler.start()
         startComputerUseCursorBridge()
         contextualConnectorSuggestionMonitor.start()
         // Escape clears any on-screen drawing annotations (master spec).
@@ -1717,15 +2249,11 @@ final class CompanionManager: ObservableObject {
         if !hasCompletedOnboarding || !allPermissionsGranted {
             notchCompanionController.expandPinned()
         }
-        // OpenCode gets an immediate health + model-catalog fetch (which
-        // also auto-selects a model if needed). Custom API warms TLS.
+        // Catalogs load immediately. When an update is due, they reload after
+        // Claude, Codex, and OpenCode finish so the new models show.
         rebuildOpenCodeClient()
-        switch selectedBrain {
-        case .openCode:
-            Task { await refreshOpenCodeServerStatus() }
-        case .claudeCode, .codex, .customAPI:
-            _ = customAPIClient
-        }
+        _ = customAPIClient
+        Task { await refreshSubscriptionCLICatalogs(updatingWhenDue: true) }
 
         // If the user already completed onboarding AND all permissions are
         // still granted, show the cursor overlay immediately. If permissions
@@ -2297,9 +2825,11 @@ final class CompanionManager: ObservableObject {
             do {
                 // Privacy gate: excluded apps never get screenshotted even in
                 // Smart mode — degrade to Literal insertion instead.
-                let smartModePermitted = usesSmartMode && !isFrontmostAppScreenExcluded
+                let smartModePermitted = usesSmartMode
+                    && !isFrontmostAppScreenExcluded
+                    && !frontmostIsHeyMate
                 if usesSmartMode && !smartModePermitted {
-                    print("🛡️ Dictation: frontmost app excluded — falling back to literal insert")
+                    print("🛡️ Dictation: frontmost app excluded or HeyMate is in front — literal insert")
                 }
 
                 if smartModePermitted {
@@ -2522,7 +3052,7 @@ final class CompanionManager: ObservableObject {
     - if you receive multiple screen images, the one labeled "primary focus" is where the cursor is — prioritize that one but reference others if relevant.
 
     element pointing:
-    you have a small blue triangle cursor that can fly to and point at things on screen. use it whenever pointing would genuinely help the user — if they're asking how to do something, looking for a menu, trying to find a button, or need help navigating an app, point at the relevant element. err on the side of pointing rather than not pointing, because it makes your help way more useful and concrete.
+    you have a small blue shaftless cursor arrowhead that can fly to and point at things on screen. use it whenever pointing would genuinely help the user — if they're asking how to do something, looking for a menu, trying to find a button, or need help navigating an app, point at the relevant element. err on the side of pointing rather than not pointing, because it makes your help way more useful and concrete.
 
     don't point at things when it would be pointless — like if the user asks a general knowledge question, or the conversation has nothing to do with what's on screen, or you'd just be pointing at something obvious they're already looking at. but if there's a specific UI element, menu, button, or area on screen that's relevant to what you're helping with, point at it.
 
@@ -2562,9 +3092,12 @@ final class CompanionManager: ObservableObject {
     /// Returns false when the message was not accepted, so the composer can
     /// keep the text on screen instead of clearing a message nobody answered.
     @discardableResult
-    func sendTypedMessage(_ typedMessageText: String) -> Bool {
+    func sendTypedMessage(
+        _ typedMessageText: String,
+        imageAttachments: [ChatImageAttachment] = []
+    ) -> Bool {
         let trimmedTypedMessageText = typedMessageText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTypedMessageText.isEmpty else { return false }
+        guard !trimmedTypedMessageText.isEmpty || !imageAttachments.isEmpty else { return false }
         // Backstop for the hover trigger: a first turn driven by a shortcut
         // still needs connector tools to come online.
         activateConnectorsIfNeeded()
@@ -2576,7 +3109,10 @@ final class CompanionManager: ObservableObject {
 
         // "/" and "@" are handled before anything reaches the model, so a
         // command never gets answered as if it were a question.
-        switch CommandBarParser.parse(trimmedTypedMessageText) {
+        let effectiveInput = trimmedTypedMessageText.isEmpty
+            ? "Describe what is in the attached image."
+            : trimmedTypedMessageText
+        switch CommandBarParser.parse(effectiveInput) {
         case .slashCommand(let command, _):
             runSlashCommand(command)
             return true
@@ -2593,6 +3129,10 @@ final class CompanionManager: ObservableObject {
                 commandBarFeedback = "Add a question to go with that context."
                 return false
             }
+            if acceptLocalMateCommand(messageText) { return true }
+            if holdForOpenCodeTrainingConsent(messageText, imageAttachments: imageAttachments) {
+                return false
+            }
 
             commandBarFeedback = nil
             let messageWithContext = messageText.appending(contextPreamble(for: contextTokens))
@@ -2601,7 +3141,16 @@ final class CompanionManager: ObservableObject {
             // Not `requiresIdle`: a busy Talk pipeline is something a second
             // question deliberately interrupts, and the states where typing
             // genuinely cannot be served were refused above by name.
-            routeUserTranscript(messageWithContext, requiresIdle: false)
+            if imageAttachments.isEmpty {
+                routeUserTranscript(messageWithContext, requiresIdle: false, typedInsideHeyMate: true)
+            } else {
+                sendToTalk(
+                    messageWithContext,
+                    requiresIdle: false,
+                    imageAttachments: imageAttachments,
+                    typedInsideHeyMate: true
+                )
+            }
             return true
         }
     }
@@ -2692,13 +3241,36 @@ final class CompanionManager: ObservableObject {
     private func handleTalkTranscript(_ transcript: String) {
         let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTranscript.isEmpty else { return }
+        if acceptLocalMateCommand(trimmedTranscript) { return }
+        if holdForOpenCodeTrainingConsent(trimmedTranscript, imageAttachments: []) {
+            speakLine("That OpenCode model may use this for training. Confirm it in the chat and I'll send it.")
+            return
+        }
         routeUserTranscript(trimmedTranscript, requiresIdle: false)
     }
 
     /// Fast-path first (open app / volume). AgentInvocation remains the
     /// coding-agent authority. Hybrid and destructive confirmation stay Talk
     /// — they are not a 13-guard classifier.
-    private func routeUserTranscript(_ transcript: String, requiresIdle: Bool) {
+    private func routeUserTranscript(
+        _ transcript: String,
+        requiresIdle: Bool,
+        typedInsideHeyMate: Bool = false,
+        alreadyRoutedToMate: Bool = false
+    ) {
+        if !alreadyRoutedToMate,
+           let address = MateAddressParser.parse(transcript),
+           let mate = MateAddressParser.match(address.mateName, mates: mates) {
+            openMate(id: mate.id)
+            routeUserTranscript(
+                address.message,
+                requiresIdle: requiresIdle,
+                typedInsideHeyMate: typedInsideHeyMate,
+                alreadyRoutedToMate: true
+            )
+            return
+        }
+        if acceptLocalMateCommand(transcript) { return }
         if let instruction = StandingOrderVoiceInstruction.parse(transcript) {
             let created = createStandingOrder(
                 name: instruction.name,
@@ -2717,9 +3289,13 @@ final class CompanionManager: ObservableObject {
         case .agent:
             startSandboxAgentFromTranscript(transcript)
         case .hybrid, .confirmDestructive, .talk:
-            sendToTalk(transcript, requiresIdle: requiresIdle)
+            sendToTalk(transcript, requiresIdle: requiresIdle, typedInsideHeyMate: typedInsideHeyMate)
         case .needsClassification:
-            classifyThenRoute(transcript, requiresIdle: requiresIdle)
+            classifyThenRoute(
+                transcript,
+                requiresIdle: requiresIdle,
+                typedInsideHeyMate: typedInsideHeyMate
+            )
         }
     }
 
@@ -2729,7 +3305,11 @@ final class CompanionManager: ObservableObject {
     /// first — a screen question never reaches here. If the call fails or is
     /// slow, the old prefix-and-word-list behaviour is the floor: worst case
     /// the app routes exactly as well as it did before, never worse.
-    private func classifyThenRoute(_ transcript: String, requiresIdle: Bool) {
+    private func classifyThenRoute(
+        _ transcript: String,
+        requiresIdle: Bool,
+        typedInsideHeyMate: Bool = false
+    ) {
         Task { [weak self] in
             guard let self else { return }
             self.voiceIntentClassifier.configure(
@@ -2739,7 +3319,11 @@ final class CompanionManager: ObservableObject {
             let decision = await self.voiceIntentClassifier.classify(transcript)
 
             guard let decision else {
-                self.applyFallbackRoute(transcript, requiresIdle: requiresIdle)
+                self.applyFallbackRoute(
+                    transcript,
+                    requiresIdle: requiresIdle,
+                    typedInsideHeyMate: typedInsideHeyMate
+                )
                 return
             }
 
@@ -2753,31 +3337,55 @@ final class CompanionManager: ObservableObject {
                 if let action = LocalVoiceAction.parse(transcript) {
                     self.performLocalVoiceAction(action)
                 } else {
-                    self.sendToTalk(transcript, requiresIdle: requiresIdle)
+                    self.sendToTalk(
+                        transcript,
+                        requiresIdle: requiresIdle,
+                        typedInsideHeyMate: typedInsideHeyMate
+                    )
                 }
             case .talk:
-                self.sendToTalk(transcript, requiresIdle: requiresIdle)
+                self.sendToTalk(
+                    transcript,
+                    requiresIdle: requiresIdle,
+                    typedInsideHeyMate: typedInsideHeyMate
+                )
             }
         }
     }
 
-    private func applyFallbackRoute(_ transcript: String, requiresIdle: Bool) {
+    private func applyFallbackRoute(
+        _ transcript: String,
+        requiresIdle: Bool,
+        typedInsideHeyMate: Bool = false
+    ) {
         if case .agent = VoiceRouter.fallbackDecision(transcript) {
             startSandboxAgentFromTranscript(transcript)
         } else {
-            sendToTalk(transcript, requiresIdle: requiresIdle)
+            sendToTalk(transcript, requiresIdle: requiresIdle, typedInsideHeyMate: typedInsideHeyMate)
         }
     }
 
-    private func sendToTalk(_ transcript: String, requiresIdle: Bool) {
+    private func sendToTalk(
+        _ transcript: String,
+        requiresIdle: Bool,
+        imageAttachments: [ChatImageAttachment] = [],
+        typedInsideHeyMate: Bool = false
+    ) {
         if requiresIdle, voiceState != .idle { return }
         activateConnectorsIfNeeded()
+        let wantsScreen = TalkContextPolicy.shouldCaptureScreen(
+            for: transcript,
+            hasSpatialSelection: activeSpatialSelection != nil
+        )
         sendTranscriptToClaudeWithScreenshot(
             transcript: transcript,
-            shouldCaptureScreen: TalkContextPolicy.shouldCaptureScreen(
-                for: transcript,
+            shouldCaptureScreen: TalkContextPolicy.allowCapture(
+                wantsScreen: wantsScreen,
+                typedInsideHeyMate: typedInsideHeyMate,
+                frontmostIsHeyMate: frontmostIsHeyMate,
                 hasSpatialSelection: activeSpatialSelection != nil
-            )
+            ),
+            imageAttachments: imageAttachments
         )
     }
 
@@ -2795,7 +3403,8 @@ final class CompanionManager: ObservableObject {
     /// audio begins. A [POINT:] tag or visualActions JSON can fly the buddy.
     private func sendTranscriptToClaudeWithScreenshot(
         transcript: String,
-        shouldCaptureScreen: Bool
+        shouldCaptureScreen: Bool,
+        imageAttachments: [ChatImageAttachment] = []
     ) {
         currentResponseCompletion?.didComplete = true
         currentResponseTask?.cancel()
@@ -2804,12 +3413,18 @@ final class CompanionManager: ObservableObject {
         let completion = HeyMateRequestCompletionState()
         currentResponseCompletion = completion
         currentResponseTask = Task {
-            appendUserMessage(transcript)
+            appendUserMessage(
+                transcript,
+                attachmentNames: imageAttachments.map(\.fileName)
+            )
             streamingAssistantText = ""
 
             dispatch(.beginContextCapture)
 
             do {
+                await awaitConnectorActivation()
+                guard !Task.isCancelled, !completion.didComplete else { return }
+
                 let screenCaptures: [CompanionScreenCapture]
                 var contextUnavailableNote = ""
                 if !shouldCaptureScreen {
@@ -2834,10 +3449,14 @@ final class CompanionManager: ObservableObject {
 
                 dispatch(.contextCaptured)
 
-                let labeledImages = screenCaptures.map { capture in
+                let screenImages = screenCaptures.map { capture in
                     let dimensionInfo = " (image dimensions: \(capture.screenshotWidthInPixels)x\(capture.screenshotHeightInPixels) pixels)"
                     return (data: capture.imageData, label: capture.label + dimensionInfo)
                 }
+                let attachedImages = imageAttachments.map {
+                    (data: $0.data, label: $0.modelLabel)
+                }
+                let labeledImages = screenImages + attachedImages
 
                 let historyForAPI = conversationHistory.map { entry in
                     (userPlaceholder: entry.userTranscript, assistantResponse: entry.assistantResponse)
@@ -2860,6 +3479,11 @@ final class CompanionManager: ObservableObject {
                 if let topicAnchor = Self.topicAnchorPromptFragment(mostRecentExchange: historyForAPI.last) {
                     promptParts.append(topicAnchor)
                 }
+                if !imageAttachments.isEmpty {
+                    promptParts.append(
+                        "The user explicitly attached \(imageAttachments.count) image(s). Analyze those attachments as primary context. They are not live screens, so never emit pointer coordinates for them."
+                    )
+                }
                 promptParts.append(transcript)
 
                 let matchedSkills = SkillRetrieval.relevant(
@@ -2874,14 +3498,34 @@ final class CompanionManager: ObservableObject {
                 // about having done something.
                 let toolCallingTalkClient = talkClient as? ToolCallingConversationClient
                 let availableTalkTools = toolCallingTalkClient != nil
-                    ? TalkToolCatalog.availableTools(connectorRuntime: connectorRuntime)
+                    ? TalkToolCatalog.availableTools(connectorRuntime: connectorRuntime).filter { talkTool in
+                        guard case .connector(let identifier, _, _) = talkTool.origin else { return true }
+                        return isConnectorEnabledForChat(identifier)
+                    }
                     : []
 
+                // A CLI-backed brain loads Composio inside its own child, so
+                // its tools never appear in `availableTalkTools`. Both cases
+                // have to be checked or the prompt tells the wrong half of
+                // the turns that connected apps are out of reach.
+                let composioIsReachableThisTurn = availableTalkTools.contains { talkTool in
+                    guard case .connector(let identifier, _, _) = talkTool.origin else { return false }
+                    return identifier == ComposioSessionStore.connectorID
+                } || (talkClient as? SubscriptionCLIVisionClient)?.carriesComposioTools == true
+                let composioBlock = composioIsReachableThisTurn
+                    ? ComposioAgentAttachment.talkPromptBlock(
+                        enabledToolkitSlugs: enabledChatComposioSlugs
+                    )
+                    : ComposioAgentAttachment.unreachablePromptBlock()
+
+                let speakingMate = speakingMateForTurn()
                 let effectiveSystemPrompt = BehaviorContract.combinedSystemPrompt(
                     voicePersonaPrompt: Self.companionVoiceResponseSystemPrompt,
                     matchedSkillsBlock: Self.skillsPromptBlock(skills: matchedSkills),
                     isComputerControlEnabled: computerUseCoordinator.isEnabled,
-                    connectedToolsBlock: Self.connectorsPromptBlock(talkTools: availableTalkTools)
+                    connectedToolsBlock: Self.connectorsPromptBlock(talkTools: availableTalkTools),
+                    connectedAppsBlock: composioBlock,
+                    mateIdentityBlock: mateIdentityBlock(for: speakingMate)
                 )
 
                 let fullResponseText: String
@@ -2893,9 +3537,9 @@ final class CompanionManager: ObservableObject {
                         userPrompt: promptParts.joined(separator: "\n\n"),
                         availableTools: availableTalkTools.map(\.toolDefinition),
                         onTextChunk: { [weak self] chunk in
-                            self?.streamingAssistantText = PointingTagParser.stripTrailingFragment(
+                            self?.publishStreamingAssistantText(PointingTagParser.stripTrailingFragment(
                                 VisualActionParser.extract(from: chunk).spokenText
-                            )
+                            ))
                         },
                         onToolCallRequested: { [weak self] toolCall in
                             guard let self else { return ("HeyMate is no longer available.", true) }
@@ -2909,9 +3553,9 @@ final class CompanionManager: ObservableObject {
                         conversationHistory: historyForAPI,
                         userPrompt: promptParts.joined(separator: "\n\n"),
                         onTextChunk: { [weak self] chunk in
-                            self?.streamingAssistantText = PointingTagParser.stripTrailingFragment(
+                            self?.publishStreamingAssistantText(PointingTagParser.stripTrailingFragment(
                                 VisualActionParser.extract(from: chunk).spokenText
-                            )
+                            ))
                         }
                     )
                 }
@@ -2927,9 +3571,14 @@ final class CompanionManager: ObservableObject {
                 applyPointingParseResult(parseResult, screenCaptures: screenCaptures)
                 // Strip any [ACT:…] directives before the text is spoken —
                 // the user should hear "I'll click Send", not the markup.
-                let spokenText = ComputerUseTagParser.strippingActionTags(
+                let withoutActions = ComputerUseTagParser.strippingActionTags(
                     from: parseResult.spokenText
                 )
+                let handoff = MateHandoffParser.extract(from: withoutActions, mates: mateDirectory.mates)
+                if !handoff.handoffs.isEmpty {
+                    pendingHandoffs.append(contentsOf: handoff.handoffs)
+                }
+                let spokenText = handoff.spokenText
 
                 appendAssistantMessage(spokenText)
                 print("🧠 Conversation history: \(conversationHistory.count) exchanges")
@@ -2940,16 +3589,34 @@ final class CompanionManager: ObservableObject {
                 if AgentEscalation.shouldEscalate(responseText: spokenText, transcript: transcript) {
                     completion.didComplete = true
                     startSandboxAgent(prompt: AgentEscalation.agentInstruction(from: transcript))
+                    if activeRoutineTurn != nil {
+                        completeActiveRoutineTurn(.success(spokenText))
+                    }
                     return
                 }
 
-                if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if activeRoutineTurn != nil {
+                    completeActiveRoutineTurn(.success(spokenText))
+                } else if activeHandoffMateID != nil {
+                    let shouldSpeak = backgroundRoutineSession == nil
+                    completeActiveHandoff(succeeded: true)
+                    if shouldSpeak, !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        do {
+                            try await voiceSynthesisClient.speakText(spokenText)
+                            dispatch(.beginSpeaking)
+                        } catch {
+                            Self.recordPipelineError(error, category: .textToSpeech)
+                            speakPipelineFailure(error)
+                        }
+                    }
+                } else if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     do {
                         try await voiceSynthesisClient.speakText(spokenText)
                         dispatch(.beginSpeaking)
                     } catch {
                         Self.recordPipelineError(error, category: .textToSpeech)
                         speakPipelineFailure(error)
+                        isSubscriptionVoiceChatActive = false
                     }
                 }
 
@@ -2960,11 +3627,22 @@ final class CompanionManager: ObservableObject {
                     appendAssistantMessage(actionOutcome)
                 }
             } catch is CancellationError {
-                // User spoke again — response was interrupted
+                if activeRoutineTurn != nil {
+                    completeActiveRoutineTurn(.cancelled)
+                } else if activeHandoffMateID != nil {
+                    completeActiveHandoff(succeeded: false)
+                }
             } catch {
                 Self.recordPipelineError(error, category: .responsePipeline)
                 dispatch(.fail(error.localizedDescription))
-                speakPipelineFailure(error)
+                if activeRoutineTurn != nil {
+                    completeActiveRoutineTurn(.failure(error.localizedDescription))
+                } else if activeHandoffMateID != nil {
+                    completeActiveHandoff(succeeded: false)
+                } else {
+                    speakPipelineFailure(error)
+                    isSubscriptionVoiceChatActive = false
+                }
             }
 
             guard !completion.didComplete else { return }
@@ -2972,7 +3650,12 @@ final class CompanionManager: ObservableObject {
             if !Task.isCancelled {
                 dispatch(.interactionFinished)
                 restoreAgentForegroundIfNeeded()
-                scheduleTransientHideIfNeeded()
+                if isSubscriptionVoiceChatActive {
+                    continueSubscriptionVoiceChat()
+                } else {
+                    scheduleTransientHideIfNeeded()
+                }
+                scheduleNextHandoffIfNeeded()
             }
         }
     }
@@ -3064,21 +3747,45 @@ final class CompanionManager: ObservableObject {
     /// `ConnectorRuntime.callTool`. Reads run freely under the default
     /// policy; anything that writes, sends, or is destructive stops for a
     /// yes first.
-    private func executeConnectorTalkTool(
+    /// Internal rather than private: the loopback bridge routes a child
+    /// CLI's connector call through this same gate, so a tool called from a
+    /// Talk turn and one called from a spawned `claude`/`codex` obey one
+    /// approval policy instead of two.
+    func executeConnectorTalkTool(
         namespacedToolID: String,
         connectorIdentifier: String,
         connectorDisplayName: String,
         maximumRisk: ConnectorToolRisk,
         arguments: [String: Any]
     ) async -> (text: String, isError: Bool) {
+        guard isConnectorEnabledForChat(connectorIdentifier) else {
+            return ("That connector is disabled for this chat.", true)
+        }
+        if connectorIdentifier == ComposioSessionStore.connectorID,
+           let disabledApp = disabledComposioAppRequested(
+                byToolNamed: namespacedToolID,
+                arguments: arguments
+           ) {
+            return ("\(disabledApp) is disabled for this chat.", true)
+        }
+
+        // Judged per tool, capped by what the connector can do at worst. The
+        // ceiling alone would put a destructive-red card in front of a tool
+        // search, and a turn that has to wait on a click to discover anything
+        // runs out of time before it answers.
+        let risk = ConnectorToolRisk.inferred(
+            forToolNamed: namespacedToolID,
+            arguments: arguments,
+            ceiling: maximumRisk
+        )
         let approvalPolicy = connectorStore.record(for: connectorIdentifier).approvalPolicy
-        if approvalPolicy.requiresApproval(forRisk: maximumRisk) {
+        if approvalPolicy.requiresApproval(forRisk: risk) {
             let wasApproved = await connectorToolCoordinator.requestApproval(
                 for: ConnectorToolApprovalRequest(
                     connectorDisplayName: connectorDisplayName,
                     toolName: namespacedToolID,
                     argumentsSummary: TalkToolCatalog.argumentsSummary(arguments),
-                    risk: maximumRisk
+                    risk: risk
                 )
             )
             guard wasApproved else {
@@ -3092,6 +3799,31 @@ final class CompanionManager: ObservableObject {
         } catch {
             return (error.localizedDescription, true)
         }
+    }
+
+    /// Composio exposes one meta execute tool for every connected app. Chat
+    /// scope therefore must inspect inner tool slugs, not only connector id.
+    private func disabledComposioAppRequested(
+        byToolNamed toolName: String,
+        arguments: [String: Any]
+    ) -> String? {
+        guard toolName.uppercased().contains("COMPOSIO_MULTI_EXECUTE_TOOL"),
+              let tools = arguments["tools"] as? [[String: Any]] else { return nil }
+        let connectedSlugs = composioConnections.connectedSlugs
+        for tool in tools {
+            guard let innerName = (tool["tool_slug"] as? String)
+                ?? (tool["tool_name"] as? String)
+                ?? (tool["slug"] as? String) else { continue }
+            let uppercaseInnerName = innerName.uppercased()
+            guard let matchedSlug = connectedSlugs.first(where: {
+                uppercaseInnerName.hasPrefix($0.uppercased().replacingOccurrences(of: "-", with: "_") + "_")
+            }) else { continue }
+            let selectionID = Self.chatConnectorSelectionID(forComposioSlug: matchedSlug)
+            if !isConnectorSelectionEnabledForTurn(selectionID) {
+                return composioConnections.records[matchedSlug]?.displayName ?? matchedSlug
+            }
+        }
+        return nil
     }
 
     /// Speaks a classified failure. Credits only when the *model* is out of
@@ -3440,7 +4172,10 @@ final class CompanionManager: ObservableObject {
             self?.selectedOpenCodeModelIdentifier
         }
         agentLauncher.claudeModelIdentifier = { [weak self] in
-            self?.selectedClaudeModel.cliIdentifier
+            self?.selectedClaudeModelID
+        }
+        agentLauncher.claudeEffort = { [weak self] in
+            self?.selectedClaudeEffortIfSupported
         }
         agentLauncher.codexModelIdentifier = { [weak self] in
             guard let modelIdentifier = self?.selectedCodexModelID,
@@ -3452,11 +4187,23 @@ final class CompanionManager: ObservableObject {
                   !reasoningEffort.isEmpty else { return nil }
             return reasoningEffort
         }
+        // Authorising a new app has to re-mint the router session: the old
+        // one was scoped without it, so every search would keep answering as
+        // though the app were never connected.
+        composioConnections.onConnectedToolkitsChanged = { [weak self] in
+            await self?.connectorRuntime.refreshComposioForChangedToolkits()
+        }
         agentLauncher.openCodeMCPConfigurationJSON = {
             HeyMateMCPServer.openCodeConfigurationJSON()
         }
+        agentLauncher.claudeMCPConfigurationJSON = {
+            HeyMateMCPServer.claudeCodeConfigurationJSON()
+        }
+        // No allow-list: connector tools are discovered from the user's live
+        // sessions at `tools/list` time, so naming only the overlay tools here
+        // would filter out every connected app a mate's job needs.
         agentLauncher.codexMCPConfigurationArguments = {
-            HeyMateMCPServer.codexConfigurationArguments()
+            HeyMateMCPServer.codexConfigurationArguments(enabledTools: nil)
         }
         agentLauncher.mcpChildEnvironment = { executor in
             _ = executor
@@ -3514,6 +4261,7 @@ final class CompanionManager: ObservableObject {
     /// Says one plain sentence. `speak(_:)` is for `SpokenFailure` only, and
     /// an agent milestone is not a failure.
     private func speakLine(_ utterance: String) {
+        guard activeRoutineTurn == nil else { return }
         Task { [weak self] in
             guard let self else { return }
             do {

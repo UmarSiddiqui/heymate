@@ -15,7 +15,6 @@ struct leanring_buddyApp: App {
         Settings {
             DesktopSettingsView(companionManager: appDelegate.companionManager)
                 .frame(minWidth: 820, minHeight: 560)
-                .preferredColorScheme(.dark)
         }
     }
 }
@@ -35,6 +34,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard !isHostingUnitTests else { return }
+        guard !surrenderToRunningInstance() else { return }
 
         print("🎯 HeyMate: Starting...")
         print("🎯 HeyMate: Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
@@ -47,6 +47,40 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         companionManager.start()
         AppPresencePreferences.shared.applyOnLaunch()
         AppUpdateController.shared.start()
+    }
+
+    /// Every copy of HeyMate carries the same bundle identifier — a stale build
+    /// on the Desktop, an older one in /Applications, the Debug product in
+    /// DerivedData — and Launch Services will happily run each of them at once,
+    /// leaving the user with two notch cards fighting over the same hotkeys and
+    /// the same on-disk state. Whichever copy launched first keeps the session;
+    /// any later copy hands over and exits before starting a single service.
+    ///
+    /// Returns `true` when this process is bowing out.
+    private func surrenderToRunningInstance() -> Bool {
+        guard let identifier = Bundle.main.bundleIdentifier else { return false }
+
+        let ownProcessIdentifier = ProcessInfo.processInfo.processIdentifier
+        let incumbent = NSRunningApplication
+            .runningApplications(withBundleIdentifier: identifier)
+            .first { other in
+                guard other.processIdentifier != ownProcessIdentifier else { return false }
+                // Two copies launched together each see the other, so pick a
+                // stable winner instead of letting both quit: the earlier launch
+                // date wins, and identical dates fall back to the lower pid.
+                guard let otherLaunch = other.launchDate else { return false }
+                guard let ownLaunch = NSRunningApplication.current.launchDate else { return true }
+                if otherLaunch != ownLaunch { return otherLaunch < ownLaunch }
+                return other.processIdentifier < ownProcessIdentifier
+            }
+
+        guard let incumbent else { return false }
+
+        print("🎯 HeyMate: Already running as pid \(incumbent.processIdentifier) from \(incumbent.bundleURL?.path ?? "an unknown path") — this copy is quitting.")
+        incumbent.activate()
+        // Nothing has been started yet, so leave immediately rather than going
+        // through NSApp.terminate and the teardown path for a live session.
+        exit(0)
     }
 
     func applicationWillTerminate(_ notification: Notification) {

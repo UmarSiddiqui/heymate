@@ -9,36 +9,29 @@
 /* Begin PBXBuildFile section */
 		A10000012F90000100000001 /* HeyMateAgentRunner in Embed Agent Runner */ = {isa = PBXBuildFile; fileRef = A10003012F90030100000301 /* HeyMateAgentRunner */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003112F90031100000311 /* HeyMateAgentRunnerMain.swift */; };
-		A10001022F90010200000102 /* AgentRuntimeTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003122F90031200000312 /* AgentRuntimeTypes.swift */; };
-		A10001032F90010300000103 /* AgentPlanBrief.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003132F90031300000313 /* AgentPlanBrief.swift */; };
-		A10001042F90010400000104 /* AgentProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003142F90031400000314 /* AgentProcessIdentity.swift */; };
-		A10001052F90010500000105 /* ClaudeStreamJSONParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003152F90031500000315 /* ClaudeStreamJSONParser.swift */; };
-		A10001062F90010600000106 /* CodexJSONLParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003162F90031600000316 /* CodexJSONLParser.swift */; };
-		A10001072F90010700000107 /* OpenCodeRunParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003172F90031700000317 /* OpenCodeRunParser.swift */; };
-		A10001082F90010800000108 /* OpenCodeTemporaryDirectoryCleaner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003182F90031800000318 /* OpenCodeTemporaryDirectoryCleaner.swift */; };
-		A10001092F90010900000109 /* LoginShellExecutableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003192F90031900000319 /* LoginShellExecutableResolver.swift */; };
-		A100010A2F90010A0000010A /* HeadlessCLIAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100031A2F90031A0000031A /* HeadlessCLIAdapter.swift */; };
-		A100010B2F90010B0000010B /* HeadlessCLIProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100031B2F90031B0000031B /* HeadlessCLIProcess.swift */; };
-		A100010C2F90010C0000010C /* DetachedAgentCommandMailbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100031C2F90031C0000031C /* DetachedAgentCommandMailbox.swift */; };
-		A100010D2F90010D0000010D /* DetachedAgentLaunchRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100031D2F90031D0000031D /* DetachedAgentLaunchRequest.swift */; };
-		A100010E2F90010E0000010E /* DetachedAgentRuntimePaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100031E2F90031E0000031E /* DetachedAgentRuntimePaths.swift */; };
-		A100010F2F90010F0000010F /* DetachedAgentRuntimePersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100031F2F90031F0000031F /* DetachedAgentRuntimePersistence.swift */; };
-		A10001102F90011000000110 /* DetachedAgentRuntimeProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003202F90032000000320 /* DetachedAgentRuntimeProtocol.swift */; };
-		A10001112F90011100000111 /* DetachedAgentRunnerInvocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003212F90032100000321 /* DetachedAgentRunnerInvocation.swift */; };
-		A10001122F90011200000112 /* DetachedAgentRunnerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003222F90032200000322 /* DetachedAgentRunnerEngine.swift */; };
-		A10001132F90011300000113 /* DetachedAgentRunnerExecutable.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003232F90032300000323 /* DetachedAgentRunnerExecutable.swift */; };
+		A10001022F90010200000102 /* leanring-buddy/AgentRuntimeTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003122F90031200000312 /* leanring-buddy/AgentRuntimeTypes.swift */; };
+		A10001032F90010300000103 /* leanring-buddy/AgentPlanBrief.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003132F90031300000313 /* leanring-buddy/AgentPlanBrief.swift */; };
+		A10001042F90010400000104 /* leanring-buddy/AgentProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003142F90031400000314 /* leanring-buddy/AgentProcessIdentity.swift */; };
+		A10001052F90010500000105 /* leanring-buddy/ClaudeStreamJSONParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003152F90031500000315 /* leanring-buddy/ClaudeStreamJSONParser.swift */; };
+		A10001062F90010600000106 /* leanring-buddy/CodexJSONLParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003162F90031600000316 /* leanring-buddy/CodexJSONLParser.swift */; };
+		A10001072F90010700000107 /* leanring-buddy/OpenCodeRunParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003172F90031700000317 /* leanring-buddy/OpenCodeRunParser.swift */; };
+		A10001082F90010800000108 /* leanring-buddy/OpenCodeTemporaryDirectoryCleaner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003182F90031800000318 /* leanring-buddy/OpenCodeTemporaryDirectoryCleaner.swift */; };
+		A10001092F90010900000109 /* leanring-buddy/LoginShellExecutableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003192F90031900000319 /* leanring-buddy/LoginShellExecutableResolver.swift */; };
+		A100010A2F90010A0000010A /* leanring-buddy/HeadlessCLIAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100031A2F90031A0000031A /* leanring-buddy/HeadlessCLIAdapter.swift */; };
+		A100010B2F90010B0000010B /* leanring-buddy/HeadlessCLIProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100031B2F90031B0000031B /* leanring-buddy/HeadlessCLIProcess.swift */; };
+		A100010C2F90010C0000010C /* leanring-buddy/DetachedAgentCommandMailbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100031C2F90031C0000031C /* leanring-buddy/DetachedAgentCommandMailbox.swift */; };
+		A100010D2F90010D0000010D /* leanring-buddy/DetachedAgentLaunchRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100031D2F90031D0000031D /* leanring-buddy/DetachedAgentLaunchRequest.swift */; };
+		A100010E2F90010E0000010E /* leanring-buddy/DetachedAgentRuntimePaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100031E2F90031E0000031E /* leanring-buddy/DetachedAgentRuntimePaths.swift */; };
+		A100010F2F90010F0000010F /* leanring-buddy/DetachedAgentRuntimePersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100031F2F90031F0000031F /* leanring-buddy/DetachedAgentRuntimePersistence.swift */; };
+		A10001102F90011000000110 /* leanring-buddy/DetachedAgentRuntimeProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003202F90032000000320 /* leanring-buddy/DetachedAgentRuntimeProtocol.swift */; };
+		A10001112F90011100000111 /* leanring-buddy/DetachedAgentRunnerInvocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003212F90032100000321 /* leanring-buddy/DetachedAgentRunnerInvocation.swift */; };
+		A10001122F90011200000112 /* leanring-buddy/DetachedAgentRunnerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003222F90032200000322 /* leanring-buddy/DetachedAgentRunnerEngine.swift */; };
+		A10001132F90011300000113 /* leanring-buddy/DetachedAgentRunnerExecutable.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003232F90032300000323 /* leanring-buddy/DetachedAgentRunnerExecutable.swift */; };
 		AA00BB032F6500030039DA55 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB022F6500020039DA55 /* Sparkle */; };
 		AA00BB062F6500060039DA55 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB052F6500050039DA55 /* PostHog */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		A10002012F90020100000201 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 28F22CB72F56440300A0FC59 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = A10006012F90060100000601;
-			remoteInfo = HeyMateAgentRunner;
-		};
 		28F22CCD2F56440300A0FC59 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 28F22CB72F56440300A0FC59 /* Project object */;
@@ -52,6 +45,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 28F22CBE2F56440300A0FC59;
 			remoteInfo = "leanring-buddy";
+		};
+		A10002012F90020100000201 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 28F22CB72F56440300A0FC59 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A10006012F90060100000601;
+			remoteInfo = HeyMateAgentRunner;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -70,29 +70,29 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		A10003012F90030100000301 /* HeyMateAgentRunner */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = HeyMateAgentRunner; sourceTree = BUILT_PRODUCTS_DIR; };
-		A10003112F90031100000311 /* HeyMateAgentRunnerMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeyMateAgentRunnerMain.swift; sourceTree = "<group>"; };
-		A10003122F90031200000312 /* AgentRuntimeTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/AgentRuntimeTypes.swift"; sourceTree = SOURCE_ROOT; };
-		A10003132F90031300000313 /* AgentPlanBrief.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/AgentPlanBrief.swift"; sourceTree = SOURCE_ROOT; };
-		A10003142F90031400000314 /* AgentProcessIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/AgentProcessIdentity.swift"; sourceTree = SOURCE_ROOT; };
-		A10003152F90031500000315 /* ClaudeStreamJSONParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/ClaudeStreamJSONParser.swift"; sourceTree = SOURCE_ROOT; };
-		A10003162F90031600000316 /* CodexJSONLParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/CodexJSONLParser.swift"; sourceTree = SOURCE_ROOT; };
-		A10003172F90031700000317 /* OpenCodeRunParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/OpenCodeRunParser.swift"; sourceTree = SOURCE_ROOT; };
-		A10003182F90031800000318 /* OpenCodeTemporaryDirectoryCleaner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/OpenCodeTemporaryDirectoryCleaner.swift"; sourceTree = SOURCE_ROOT; };
-		A10003192F90031900000319 /* LoginShellExecutableResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/LoginShellExecutableResolver.swift"; sourceTree = SOURCE_ROOT; };
-		A100031A2F90031A0000031A /* HeadlessCLIAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/HeadlessCLIAdapter.swift"; sourceTree = SOURCE_ROOT; };
-		A100031B2F90031B0000031B /* HeadlessCLIProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/HeadlessCLIProcess.swift"; sourceTree = SOURCE_ROOT; };
-		A100031C2F90031C0000031C /* DetachedAgentCommandMailbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/DetachedAgentCommandMailbox.swift"; sourceTree = SOURCE_ROOT; };
-		A100031D2F90031D0000031D /* DetachedAgentLaunchRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/DetachedAgentLaunchRequest.swift"; sourceTree = SOURCE_ROOT; };
-		A100031E2F90031E0000031E /* DetachedAgentRuntimePaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/DetachedAgentRuntimePaths.swift"; sourceTree = SOURCE_ROOT; };
-		A100031F2F90031F0000031F /* DetachedAgentRuntimePersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/DetachedAgentRuntimePersistence.swift"; sourceTree = SOURCE_ROOT; };
-		A10003202F90032000000320 /* DetachedAgentRuntimeProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/DetachedAgentRuntimeProtocol.swift"; sourceTree = SOURCE_ROOT; };
-		A10003212F90032100000321 /* DetachedAgentRunnerInvocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/DetachedAgentRunnerInvocation.swift"; sourceTree = SOURCE_ROOT; };
-		A10003222F90032200000322 /* DetachedAgentRunnerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/DetachedAgentRunnerEngine.swift"; sourceTree = SOURCE_ROOT; };
-		A10003232F90032300000323 /* DetachedAgentRunnerExecutable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/DetachedAgentRunnerExecutable.swift"; sourceTree = SOURCE_ROOT; };
 		28F22CBF2F56440300A0FC59 /* Clicky.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = Clicky.app; path = HeyMate.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		28F22CCC2F56440300A0FC59 /* leanring-buddyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "leanring-buddyTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		28F22CD62F56440300A0FC59 /* leanring-buddyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "leanring-buddyUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10003012F90030100000301 /* HeyMateAgentRunner */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = HeyMateAgentRunner; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10003112F90031100000311 /* HeyMateAgentRunnerMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeyMateAgentRunnerMain.swift; sourceTree = "<group>"; };
+		A10003122F90031200000312 /* leanring-buddy/AgentRuntimeTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/AgentRuntimeTypes.swift"; sourceTree = SOURCE_ROOT; };
+		A10003132F90031300000313 /* leanring-buddy/AgentPlanBrief.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/AgentPlanBrief.swift"; sourceTree = SOURCE_ROOT; };
+		A10003142F90031400000314 /* leanring-buddy/AgentProcessIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/AgentProcessIdentity.swift"; sourceTree = SOURCE_ROOT; };
+		A10003152F90031500000315 /* leanring-buddy/ClaudeStreamJSONParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/ClaudeStreamJSONParser.swift"; sourceTree = SOURCE_ROOT; };
+		A10003162F90031600000316 /* leanring-buddy/CodexJSONLParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/CodexJSONLParser.swift"; sourceTree = SOURCE_ROOT; };
+		A10003172F90031700000317 /* leanring-buddy/OpenCodeRunParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/OpenCodeRunParser.swift"; sourceTree = SOURCE_ROOT; };
+		A10003182F90031800000318 /* leanring-buddy/OpenCodeTemporaryDirectoryCleaner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/OpenCodeTemporaryDirectoryCleaner.swift"; sourceTree = SOURCE_ROOT; };
+		A10003192F90031900000319 /* leanring-buddy/LoginShellExecutableResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/LoginShellExecutableResolver.swift"; sourceTree = SOURCE_ROOT; };
+		A100031A2F90031A0000031A /* leanring-buddy/HeadlessCLIAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/HeadlessCLIAdapter.swift"; sourceTree = SOURCE_ROOT; };
+		A100031B2F90031B0000031B /* leanring-buddy/HeadlessCLIProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/HeadlessCLIProcess.swift"; sourceTree = SOURCE_ROOT; };
+		A100031C2F90031C0000031C /* leanring-buddy/DetachedAgentCommandMailbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/DetachedAgentCommandMailbox.swift"; sourceTree = SOURCE_ROOT; };
+		A100031D2F90031D0000031D /* leanring-buddy/DetachedAgentLaunchRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/DetachedAgentLaunchRequest.swift"; sourceTree = SOURCE_ROOT; };
+		A100031E2F90031E0000031E /* leanring-buddy/DetachedAgentRuntimePaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/DetachedAgentRuntimePaths.swift"; sourceTree = SOURCE_ROOT; };
+		A100031F2F90031F0000031F /* leanring-buddy/DetachedAgentRuntimePersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/DetachedAgentRuntimePersistence.swift"; sourceTree = SOURCE_ROOT; };
+		A10003202F90032000000320 /* leanring-buddy/DetachedAgentRuntimeProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/DetachedAgentRuntimeProtocol.swift"; sourceTree = SOURCE_ROOT; };
+		A10003212F90032100000321 /* leanring-buddy/DetachedAgentRunnerInvocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/DetachedAgentRunnerInvocation.swift"; sourceTree = SOURCE_ROOT; };
+		A10003222F90032200000322 /* leanring-buddy/DetachedAgentRunnerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/DetachedAgentRunnerEngine.swift"; sourceTree = SOURCE_ROOT; };
+		A10003232F90032300000323 /* leanring-buddy/DetachedAgentRunnerExecutable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/DetachedAgentRunnerExecutable.swift"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -127,13 +127,6 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		A10004022F90040200000402 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		28F22CBC2F56440300A0FC59 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -151,6 +144,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		28F22CD32F56440300A0FC59 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10004022F90040200000402 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -186,24 +186,24 @@
 			isa = PBXGroup;
 			children = (
 				A10003112F90031100000311 /* HeyMateAgentRunnerMain.swift */,
-				A10003122F90031200000312 /* AgentRuntimeTypes.swift */,
-				A10003132F90031300000313 /* AgentPlanBrief.swift */,
-				A10003142F90031400000314 /* AgentProcessIdentity.swift */,
-				A10003152F90031500000315 /* ClaudeStreamJSONParser.swift */,
-				A10003162F90031600000316 /* CodexJSONLParser.swift */,
-				A10003172F90031700000317 /* OpenCodeRunParser.swift */,
-				A10003182F90031800000318 /* OpenCodeTemporaryDirectoryCleaner.swift */,
-				A10003192F90031900000319 /* LoginShellExecutableResolver.swift */,
-				A100031A2F90031A0000031A /* HeadlessCLIAdapter.swift */,
-				A100031B2F90031B0000031B /* HeadlessCLIProcess.swift */,
-				A100031C2F90031C0000031C /* DetachedAgentCommandMailbox.swift */,
-				A100031D2F90031D0000031D /* DetachedAgentLaunchRequest.swift */,
-				A100031E2F90031E0000031E /* DetachedAgentRuntimePaths.swift */,
-				A100031F2F90031F0000031F /* DetachedAgentRuntimePersistence.swift */,
-				A10003202F90032000000320 /* DetachedAgentRuntimeProtocol.swift */,
-				A10003212F90032100000321 /* DetachedAgentRunnerInvocation.swift */,
-				A10003222F90032200000322 /* DetachedAgentRunnerEngine.swift */,
-				A10003232F90032300000323 /* DetachedAgentRunnerExecutable.swift */,
+				A10003122F90031200000312 /* leanring-buddy/AgentRuntimeTypes.swift */,
+				A10003132F90031300000313 /* leanring-buddy/AgentPlanBrief.swift */,
+				A10003142F90031400000314 /* leanring-buddy/AgentProcessIdentity.swift */,
+				A10003152F90031500000315 /* leanring-buddy/ClaudeStreamJSONParser.swift */,
+				A10003162F90031600000316 /* leanring-buddy/CodexJSONLParser.swift */,
+				A10003172F90031700000317 /* leanring-buddy/OpenCodeRunParser.swift */,
+				A10003182F90031800000318 /* leanring-buddy/OpenCodeTemporaryDirectoryCleaner.swift */,
+				A10003192F90031900000319 /* leanring-buddy/LoginShellExecutableResolver.swift */,
+				A100031A2F90031A0000031A /* leanring-buddy/HeadlessCLIAdapter.swift */,
+				A100031B2F90031B0000031B /* leanring-buddy/HeadlessCLIProcess.swift */,
+				A100031C2F90031C0000031C /* leanring-buddy/DetachedAgentCommandMailbox.swift */,
+				A100031D2F90031D0000031D /* leanring-buddy/DetachedAgentLaunchRequest.swift */,
+				A100031E2F90031E0000031E /* leanring-buddy/DetachedAgentRuntimePaths.swift */,
+				A100031F2F90031F0000031F /* leanring-buddy/DetachedAgentRuntimePersistence.swift */,
+				A10003202F90032000000320 /* leanring-buddy/DetachedAgentRuntimeProtocol.swift */,
+				A10003212F90032100000321 /* leanring-buddy/DetachedAgentRunnerInvocation.swift */,
+				A10003222F90032200000322 /* leanring-buddy/DetachedAgentRunnerEngine.swift */,
+				A10003232F90032300000323 /* leanring-buddy/DetachedAgentRunnerExecutable.swift */,
 			);
 			path = HeyMateAgentRunner;
 			sourceTree = "<group>";
@@ -211,24 +211,6 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		A10006012F90060100000601 /* HeyMateAgentRunner */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = A10008032F90080300000803 /* Build configuration list for PBXNativeTarget "HeyMateAgentRunner" */;
-			buildPhases = (
-				A10004032F90040300000403 /* Sources */,
-				A10004022F90040200000402 /* Frameworks */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = HeyMateAgentRunner;
-			packageProductDependencies = (
-			);
-			productName = HeyMateAgentRunner;
-			productReference = A10003012F90030100000301 /* HeyMateAgentRunner */;
-			productType = "com.apple.product-type.tool";
-		};
 		28F22CBE2F56440300A0FC59 /* leanring-buddy */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 28F22CE02F56440300A0FC59 /* Build configuration list for PBXNativeTarget "leanring-buddy" */;
@@ -301,6 +283,24 @@
 			productReference = 28F22CD62F56440300A0FC59 /* leanring-buddyUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		A10006012F90060100000601 /* HeyMateAgentRunner */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10008032F90080300000803 /* Build configuration list for PBXNativeTarget "HeyMateAgentRunner" */;
+			buildPhases = (
+				A10004032F90040300000403 /* Sources */,
+				A10004022F90040200000402 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = HeyMateAgentRunner;
+			packageProductDependencies = (
+			);
+			productName = HeyMateAgentRunner;
+			productReference = A10003012F90030100000301 /* HeyMateAgentRunner */;
+			productType = "com.apple.product-type.tool";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -311,9 +311,6 @@
 				LastSwiftUpdateCheck = 2620;
 				LastUpgradeCheck = 2620;
 				TargetAttributes = {
-					A10006012F90060100000601 = {
-						CreatedOnToolsVersion = 26.2;
-					};
 					28F22CBE2F56440300A0FC59 = {
 						CreatedOnToolsVersion = 26.2;
 					};
@@ -324,6 +321,9 @@
 					28F22CD52F56440300A0FC59 = {
 						CreatedOnToolsVersion = 26.2;
 						TestTargetID = 28F22CBE2F56440300A0FC59;
+					};
+					A10006012F90060100000601 = {
+						CreatedOnToolsVersion = 26.2;
 					};
 				};
 			};
@@ -378,32 +378,6 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		A10004032F90040300000403 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */,
-				A10001022F90010200000102 /* AgentRuntimeTypes.swift in Sources */,
-				A10001032F90010300000103 /* AgentPlanBrief.swift in Sources */,
-				A10001042F90010400000104 /* AgentProcessIdentity.swift in Sources */,
-				A10001052F90010500000105 /* ClaudeStreamJSONParser.swift in Sources */,
-				A10001062F90010600000106 /* CodexJSONLParser.swift in Sources */,
-				A10001072F90010700000107 /* OpenCodeRunParser.swift in Sources */,
-				A10001082F90010800000108 /* OpenCodeTemporaryDirectoryCleaner.swift in Sources */,
-				A10001092F90010900000109 /* LoginShellExecutableResolver.swift in Sources */,
-				A100010A2F90010A0000010A /* HeadlessCLIAdapter.swift in Sources */,
-				A100010B2F90010B0000010B /* HeadlessCLIProcess.swift in Sources */,
-				A100010C2F90010C0000010C /* DetachedAgentCommandMailbox.swift in Sources */,
-				A100010D2F90010D0000010D /* DetachedAgentLaunchRequest.swift in Sources */,
-				A100010E2F90010E0000010E /* DetachedAgentRuntimePaths.swift in Sources */,
-				A100010F2F90010F0000010F /* DetachedAgentRuntimePersistence.swift in Sources */,
-				A10001102F90011000000110 /* DetachedAgentRuntimeProtocol.swift in Sources */,
-				A10001112F90011100000111 /* DetachedAgentRunnerInvocation.swift in Sources */,
-				A10001122F90011200000112 /* DetachedAgentRunnerEngine.swift in Sources */,
-				A10001132F90011300000113 /* DetachedAgentRunnerExecutable.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		28F22CBB2F56440300A0FC59 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -425,14 +399,35 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A10004032F90040300000403 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */,
+				A10001022F90010200000102 /* leanring-buddy/AgentRuntimeTypes.swift in Sources */,
+				A10001032F90010300000103 /* leanring-buddy/AgentPlanBrief.swift in Sources */,
+				A10001042F90010400000104 /* leanring-buddy/AgentProcessIdentity.swift in Sources */,
+				A10001052F90010500000105 /* leanring-buddy/ClaudeStreamJSONParser.swift in Sources */,
+				A10001062F90010600000106 /* leanring-buddy/CodexJSONLParser.swift in Sources */,
+				A10001072F90010700000107 /* leanring-buddy/OpenCodeRunParser.swift in Sources */,
+				A10001082F90010800000108 /* leanring-buddy/OpenCodeTemporaryDirectoryCleaner.swift in Sources */,
+				A10001092F90010900000109 /* leanring-buddy/LoginShellExecutableResolver.swift in Sources */,
+				A100010A2F90010A0000010A /* leanring-buddy/HeadlessCLIAdapter.swift in Sources */,
+				A100010B2F90010B0000010B /* leanring-buddy/HeadlessCLIProcess.swift in Sources */,
+				A100010C2F90010C0000010C /* leanring-buddy/DetachedAgentCommandMailbox.swift in Sources */,
+				A100010D2F90010D0000010D /* leanring-buddy/DetachedAgentLaunchRequest.swift in Sources */,
+				A100010E2F90010E0000010E /* leanring-buddy/DetachedAgentRuntimePaths.swift in Sources */,
+				A100010F2F90010F0000010F /* leanring-buddy/DetachedAgentRuntimePersistence.swift in Sources */,
+				A10001102F90011000000110 /* leanring-buddy/DetachedAgentRuntimeProtocol.swift in Sources */,
+				A10001112F90011100000111 /* leanring-buddy/DetachedAgentRunnerInvocation.swift in Sources */,
+				A10001122F90011200000112 /* leanring-buddy/DetachedAgentRunnerEngine.swift in Sources */,
+				A10001132F90011300000113 /* leanring-buddy/DetachedAgentRunnerExecutable.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		A10007012F90070100000701 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = A10006012F90060100000601 /* HeyMateAgentRunner */;
-			targetProxy = A10002012F90020100000201 /* PBXContainerItemProxy */;
-		};
 		28F22CCE2F56440300A0FC59 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 28F22CBE2F56440300A0FC59 /* leanring-buddy */;
@@ -443,55 +438,17 @@
 			target = 28F22CBE2F56440300A0FC59 /* leanring-buddy */;
 			targetProxy = 28F22CD72F56440300A0FC59 /* PBXContainerItemProxy */;
 		};
+		A10007012F90070100000701 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A10006012F90060100000601 /* HeyMateAgentRunner */;
+			targetProxy = A10002012F90020100000201 /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		A10008012F90080100000801 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				ENABLE_HARDENED_RUNTIME = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.2;
-				MARKETING_VERSION = 1.0;
-				OTHER_CODE_SIGN_FLAGS = "$(inherited) -i $(PRODUCT_BUNDLE_IDENTIFIER)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.heymate.app.agent-runner;
-				PRODUCT_NAME = HeyMateAgentRunner;
-				SKIP_INSTALL = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-			};
-			name = Debug;
-		};
-		A10008022F90080200000802 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				ENABLE_HARDENED_RUNTIME = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.2;
-				MARKETING_VERSION = 1.0;
-				OTHER_CODE_SIGN_FLAGS = "$(inherited) -i $(PRODUCT_BUNDLE_IDENTIFIER)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.heymate.app.agent-runner;
-				PRODUCT_NAME = HeyMateAgentRunner;
-				SKIP_INSTALL = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-			};
-			name = Release;
-		};
 		28F22CDE2F56440300A0FC59 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				DEVELOPMENT_TEAM = 7YQZYBU8Y7;
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -524,6 +481,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 7YQZYBU8Y7;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -555,7 +513,6 @@
 		28F22CDF2F56440300A0FC59 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				DEVELOPMENT_TEAM = 7YQZYBU8Y7;
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -588,6 +545,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 7YQZYBU8Y7;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -633,6 +591,13 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-weak_framework",
+					FoundationModels,
+					"-weak_framework",
+					ImagePlayground,
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.heymate.app;
 				PRODUCT_NAME = HeyMate;
 				REGISTER_APP_GROUPS = YES;
@@ -672,6 +637,13 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-weak_framework",
+					FoundationModels,
+					"-weak_framework",
+					ImagePlayground,
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.heymate.app;
 				PRODUCT_NAME = HeyMate;
 				REGISTER_APP_GROUPS = YES;
@@ -762,18 +734,51 @@
 			};
 			name = Release;
 		};
+		A10008012F90080100000801 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.2;
+				MARKETING_VERSION = 1.0;
+				OTHER_CODE_SIGN_FLAGS = "$(inherited) -i $(PRODUCT_BUNDLE_IDENTIFIER)";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.heymate.app.agent-runner";
+				PRODUCT_NAME = HeyMateAgentRunner;
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A10008022F90080200000802 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.2;
+				MARKETING_VERSION = 1.0;
+				OTHER_CODE_SIGN_FLAGS = "$(inherited) -i $(PRODUCT_BUNDLE_IDENTIFIER)";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.heymate.app.agent-runner";
+				PRODUCT_NAME = HeyMateAgentRunner;
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A10008032F90080300000803 /* Build configuration list for PBXNativeTarget "HeyMateAgentRunner" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				A10008012F90080100000801 /* Debug */,
-				A10008022F90080200000802 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		28F22CBA2F56440300A0FC59 /* Build configuration list for PBXProject "leanring-buddy" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -806,6 +811,15 @@
 			buildConfigurations = (
 				28F22CE72F56440300A0FC59 /* Debug */,
 				28F22CE82F56440300A0FC59 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A10008032F90080300000803 /* Build configuration list for PBXNativeTarget "HeyMateAgentRunner" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10008012F90080100000801 /* Debug */,
+				A10008022F90080200000802 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
