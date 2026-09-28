@@ -44,6 +44,26 @@
     }
   });
 
+  // Silent feature loops play only while on screen, and never with reduced motion.
+  var loops = document.querySelectorAll("video[data-autoloop]");
+  if (reduce || !("IntersectionObserver" in window)) {
+    loops.forEach(function (v) { v.setAttribute("controls", ""); });
+  } else {
+    var vio = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        var v = entry.target;
+        if (entry.isIntersecting) {
+          if (v.preload === "none") { v.preload = "auto"; v.load(); }
+          var p = v.play();
+          if (p && p.catch) p.catch(function () {});
+        } else {
+          v.pause();
+        }
+      });
+    }, { threshold: 0.35 });
+    loops.forEach(function (v) { vio.observe(v); });
+  }
+
   if (reduce) return;
 
   var nodes = document.querySelectorAll(".reveal");

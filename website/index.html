@@ -70,7 +70,7 @@
         <p class="sub lede">An AI buddy that lives in your Mac's notch. Hold a key, ask about anything on your screen, and it answers out loud — using the Claude or ChatGPT subscription you already pay for.</p>
         <div class="cta-row center">
           <a class="btn" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download free</a>
-          <a class="link" href="#notch">See how it works ›</a>
+          <a class="link" href="#demo">Watch the demo ›</a>
         </div>
       </div>
       <!-- Screens: real HeyMate captures with demo data, composed at 3024x1964 (MacBook Pro 14") -->
@@ -82,6 +82,20 @@
           </div>
         </div>
         <p class="caption center">Requires macOS 14.2 or later. Works on Macs with or without a notch.</p>
+      </div>
+    </section>
+
+    <section class="film" id="demo">
+      <div class="wrap center reveal">
+        <p class="eyebrow">The 38-second tour</p>
+        <h2>See it in action.</h2>
+      </div>
+      <div class="wrap">
+        <div class="film-frame reveal">
+          <video controls preload="none" playsinline poster="assets/video/demo-poster.jpg" aria-label="HeyMate demo: the notch, screen-aware answers, approved coding agents, and mates">
+            <source src="assets/video/heymate-demo.mp4" type="video/mp4">
+          </video>
+        </div>
       </div>
     </section>
 
@@ -140,10 +154,11 @@
         <h2 class="center reveal">Three things it does that nothing else on your Mac does.</h2>
         <div class="grid-3">
           <article class="card reveal">
-            <!-- IMG-06 -->
-            <div class="mini-approve">
-              <div class="q">It's pointing at the error.</div>
-              <p class="d">The cursor lands on the line, then answers out loud.</p>
+            <!-- IMG-06: loop from marketing/demo-video (clip-vision) -->
+            <div class="card-clip">
+              <video data-autoloop muted loop playsinline preload="none" poster="assets/video/clip-vision-poster.jpg" aria-label="HeyMate's cursor flies to the broken line and explains the fix">
+                <source src="assets/video/clip-vision.mp4" type="video/mp4">
+              </video>
             </div>
             <h3>It sees what you see.</h3>
             <p>Hold <kbd>⌃</kbd><kbd>⌥</kbd>, ask "what's wrong with this error?", release. HeyMate looks at your screen only for that question, answers out loud, and points its cursor at what it means.</p>
@@ -159,11 +174,11 @@
             <p>Claude Code, Codex, or OpenCode — whichever you already have installed and logged in. No HeyMate account. No second API bill. Ever.</p>
           </article>
           <article class="card reveal">
-            <!-- IMG-08 -->
-            <div class="mini-approve">
-              <div class="q">Approve this?</div>
-              <p class="d">Send a message in Slack.</p>
-              <div class="choice"><span>Not now</span><span class="go">Do it</span></div>
+            <!-- IMG-08: loop from marketing/demo-video (clip-agents) -->
+            <div class="card-clip">
+              <video data-autoloop muted loop playsinline preload="none" poster="assets/video/clip-agents-poster.jpg" aria-label="An agent's plan is approved, runs, and finishes with an undo snapshot">
+                <source src="assets/video/clip-agents.mp4" type="video/mp4">
+              </video>
             </div>
             <h3>It asks before it acts.</h3>
             <p>Agents plan read-only first. Nothing is written, clicked, or sent without an approval card. Every change is snapshotted so you can undo.</p>
