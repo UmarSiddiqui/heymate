@@ -22,7 +22,7 @@
 ## Features
 
 - Notch home: hover the notch to open Home, Apps, and Agents. No dock icon, no menu-bar clutter.
-- Notch micro-apps: File Shelf, focus timers, Clipboard history, Now Playing, Downloads, Camera Mirror, Volume HUD, Battery, Next Event, Reminders.
+- Notch micro-apps: File Shelf with AirDrop, focus timers, Clipboard history, Now Playing with album art, Downloads, Camera Mirror, Volume and Brightness/keyboard-backlight HUDs, Bluetooth devices, Battery, Next Event, Reminders.
 - Coding agents with an approval gate: the agent first writes a read-only plan in a sandbox folder (~/Projects/heymate). Nothing is written until the user approves. Approved work runs in a background helper that survives quitting the app, with undo snapshots and Terminal takeover.
 - Standing Orders: HeyMate proposes work but never starts it unasked.
 - Mates: persistent helpers with a name, job, personality, face, memory, and workspace folder. Routines run a mate daily at a set time or every N hours.
@@ -36,7 +36,7 @@
 
 ## HeyMate vs Boring Notch
 
-HeyMate is an alternative to Boring Notch (a popular open-source notch utility) that adds an AI assistant. Both offer Now Playing controls with a visualizer, calendar, a file shelf with AirDrop, battery and charging status, a volume HUD, a camera mirror, and hover-to-open. HeyMate adds focus timers, clipboard history, downloads, and reminders in the notch, plus push-to-talk screen-aware answers, a pointing cursor, approval-gated Claude Code/Codex/OpenCode agents, and mates with scheduled routines. Boring Notch additionally replaces the brightness and keyboard-backlight HUDs and shows Bluetooth connection activity, which HeyMate has planned. Boring Notch is GPL-3.0; HeyMate is MIT.
+HeyMate is an alternative to Boring Notch (a popular open-source notch utility) that adds an AI assistant. Both offer Now Playing controls with album art and a visualizer, calendar, a file shelf with AirDrop, battery and charging status, volume, brightness, and keyboard-backlight HUDs, Bluetooth connect/disconnect activity, a camera mirror, and hover-to-open. HeyMate adds focus timers, clipboard history, downloads, and reminders in the notch, plus push-to-talk screen-aware answers, a pointing cursor, approval-gated Claude Code/Codex/OpenCode agents, and mates with scheduled routines. Boring Notch is GPL-3.0; HeyMate is MIT.
 
 ## Install
 

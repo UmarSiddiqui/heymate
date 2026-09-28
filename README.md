@@ -47,7 +47,7 @@ Hold a key, ask about anything on your screen, and it answers out loud. It can a
 ### Lives in the notch
 Folds into the camera housing and opens on hover into **Home**, **Apps**, and **Agents**. Macs without a notch get a top-center pill. There is no dock icon and no menu-bar clutter.
 
-Micro-apps for the space you never used: File Shelf, focus timers, Clipboard history, Now Playing, Downloads, Camera Mirror, Volume HUD, Battery, Next Event, and Reminders.
+Micro-apps for the space you never used: File Shelf with AirDrop, focus timers, Clipboard history, Now Playing with album art, Downloads, Camera Mirror, Volume and Brightness HUDs, Bluetooth devices, Battery, Next Event, and Reminders.
 
 </td>
 <td width="50%" valign="top">
@@ -97,11 +97,12 @@ Read-only calls run quietly. Anything that sends, deletes, or pays always asks f
 
 ## Everything a notch app does, plus an AI
 
-If you use a notch app like [Boring Notch](https://github.com/TheBoredTeam/boring.notch), HeyMate covers the same everyday jobs and then adds a buddy that can see your screen, talk back, and do real work.
+If you use a notch app like [Boring Notch](https://github.com/TheBoredTeam/boring.notch), HeyMate covers every one of its shipped notch features and then adds a buddy that can see your screen, talk back, and do real work.
 
 | | Boring Notch | HeyMate |
 | --- | :---: | :---: |
 | Now Playing controls, swipe to change track | ✅ | ✅ |
+| Album art | ✅ | ✅ |
 | Live audio visualizer | ✅ | ✅ |
 | Calendar: next event | ✅ | ✅ |
 | File shelf with AirDrop | ✅ | ✅ |
@@ -109,8 +110,8 @@ If you use a notch app like [Boring Notch](https://github.com/TheBoredTeam/borin
 | Volume HUD replacement | ✅ | ✅ |
 | Camera mirror | ✅ | ✅ |
 | Opens on hover, expands on file drag | ✅ | ✅ |
-| Brightness and keyboard-backlight HUD | ✅ | Planned |
-| Bluetooth connect/disconnect activity | ✅ | Planned |
+| Brightness and keyboard-backlight HUD | ✅ | ✅ |
+| Bluetooth connect/disconnect activity | ✅ | ✅ |
 | Focus timers, clipboard history, downloads, reminders | — | ✅ |
 | Push-to-talk questions about your screen, answered out loud | — | ✅ |
 | Cursor that points at what it's talking about | — | ✅ |
