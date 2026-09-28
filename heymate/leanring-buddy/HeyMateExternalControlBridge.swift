@@ -9,6 +9,7 @@
 //
 
 import CoreGraphics
+import Darwin
 import Foundation
 import Network
 
@@ -18,6 +19,16 @@ private let heyMateExternalControlMaximumBodyBytes = 1 * 1024 * 1024
 nonisolated enum HeyMateExternalControlBridge {
     static let defaultPort: UInt16 = 18732
     static let portEnvironmentKey = "HEYMATE_BRIDGE_PORT"
+
+    /// Port owned by this process. The public default stays stable for the
+    /// normal one-instance case, while a second copy (usually an Xcode build
+    /// beside the installed app) gets its own loopback endpoint instead of
+    /// silently borrowing the first copy's empty connector runtime.
+    static let processPort: UInt16 = selectAvailablePort(
+        preferredPort: resolvedPort(),
+        isAvailable: canBind,
+        fallbackPort: availableEphemeralPort
+    )
 
     static func resolvedPort(
         environment: [String: String] = ProcessInfo.processInfo.environment
@@ -31,6 +42,56 @@ nonisolated enum HeyMateExternalControlBridge {
         }
         return parsed
     }
+
+    /// Pure selection seam keeps collision behavior covered without opening
+    /// sockets in unit tests.
+    static func selectAvailablePort(
+        preferredPort: UInt16,
+        isAvailable: (UInt16) -> Bool,
+        fallbackPort: () -> UInt16?
+    ) -> UInt16 {
+        if isAvailable(preferredPort) { return preferredPort }
+        return fallbackPort() ?? preferredPort
+    }
+
+    private static func canBind(_ port: UInt16) -> Bool {
+        bindProbe(port: port) != nil
+    }
+
+    private static func availableEphemeralPort() -> UInt16? {
+        bindProbe(port: 0)
+    }
+
+    /// Bind only long enough to prove ownership or let the kernel choose an
+    /// unused fallback. `processPort` caches the result before NWListener
+    /// starts, so every child spawned by this app receives the same endpoint.
+    private static func bindProbe(port: UInt16) -> UInt16? {
+        let descriptor = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        guard descriptor >= 0 else { return nil }
+        defer { Darwin.close(descriptor) }
+
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = port.bigEndian
+        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard bindResult == 0 else { return nil }
+
+        var addressLength = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let nameResult = withUnsafeMutablePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.getsockname(descriptor, $0, &addressLength)
+            }
+        }
+        guard nameResult == 0 else { return nil }
+        return UInt16(bigEndian: address.sin_port)
+    }
 }
 
 nonisolated enum HeyMateExternalControlCommand: Equatable {
@@ -40,6 +101,21 @@ nonisolated enum HeyMateExternalControlCommand: Equatable {
     case captureScreenshot(focused: Bool)
     case speak(text: String)
     case clear
+    /// The tools every connected MCP connector currently exposes, so a child
+    /// CLI can advertise them without opening its own session to the vendor.
+    case listConnectorTools
+    /// Run one of those tools through the session HeyMate already holds. The
+    /// user's approval policy is applied on this side, never by the caller.
+    case callConnectorTool(namespacedID: String, argumentsJSON: String)
+
+    /// Reaches the user's connected accounts rather than the overlay, so it
+    /// is held to the stricter of the bridge's two auth rules.
+    var touchesConnectedAccounts: Bool {
+        switch self {
+        case .listConnectorTools, .callConnectorTool: return true
+        default: return false
+        }
+    }
 }
 
 nonisolated struct HeyMateExternalControlResponse {
@@ -134,6 +210,22 @@ nonisolated enum HeyMateExternalControlRouter {
             return .accepted(.speak(text: text))
         case "/clear":
             return .accepted(.clear)
+        case "/connector/tools":
+            return .accepted(.listConnectorTools)
+        case "/connector/call":
+            guard let namespacedID = string(json["tool"])?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !namespacedID.isEmpty else {
+                return .rejected(statusCode: 400, message: "Missing tool")
+            }
+            // Carried as text rather than a nested object: the schema belongs
+            // to the vendor's server, and re-modelling arbitrary JSON here
+            // would only add a place for it to be mangled.
+            let argumentsJSON = string(json["arguments"]) ?? "{}"
+            return .accepted(.callConnectorTool(
+                namespacedID: namespacedID,
+                argumentsJSON: argumentsJSON.isEmpty ? "{}" : argumentsJSON
+            ))
         default:
             return .rejected(statusCode: 404, message: "Unknown endpoint")
         }
@@ -237,6 +329,40 @@ nonisolated enum HeyMateExternalControlAuth {
         }
 
         return false
+    }
+
+    /// Keychain account holding the token minted when the secrets file has
+    /// none. Same store as every other HeyMate secret.
+    static let mintedTokenConnectorID = "heymate.bridge"
+
+    /// The configured token when there is one, otherwise a minted one. Only
+    /// the connector routes consult this; pointing and captions keep the
+    /// original rule, where the loopback bind is gate enough.
+    static func resolvedToken(
+        configuredToken: String? = HeyMateSecrets.lookup(secretsKey)
+    ) -> String? {
+        if let configuredToken, !configuredToken.isEmpty { return configuredToken }
+        if let stored = ConnectorSecretStore.secret(forConnectorID: mintedTokenConnectorID),
+           !stored.isEmpty {
+            return stored
+        }
+        let minted = UUID().uuidString
+        guard ConnectorSecretStore.setSecret(minted, forConnectorID: mintedTokenConnectorID) else {
+            return nil
+        }
+        return minted
+    }
+
+    /// Stricter rule for routes that reach the user's connected accounts: a
+    /// missing token is a refusal, not a pass. Drawing on the screen is
+    /// harmless if some other local process does it; reading the user's mail
+    /// is not, so "no token configured" cannot mean "everyone is welcome".
+    static func isAuthorizedForConnectedAccounts(
+        headers: [String: String],
+        expectedToken: String?
+    ) -> Bool {
+        guard let expectedToken, !expectedToken.isEmpty else { return false }
+        return isAuthorized(headers: headers, configuredToken: expectedToken)
     }
 }
 
@@ -364,7 +490,7 @@ nonisolated final class HeyMateExternalControlBridgeServer: @unchecked Sendable 
     private var listener: NWListener?
 
     init(
-        port: UInt16 = HeyMateExternalControlBridge.defaultPort,
+        port: UInt16 = HeyMateExternalControlBridge.processPort,
         handler: @escaping HeyMateExternalControlHandler
     ) {
         self.port = port
@@ -481,6 +607,16 @@ nonisolated final class HeyMateExternalControlBridgeServer: @unchecked Sendable 
             path: request.path,
             json: request.jsonBody
         )
+
+        if case .accepted(let command) = route, command.touchesConnectedAccounts {
+            guard HeyMateExternalControlAuth.isAuthorizedForConnectedAccounts(
+                headers: request.headers,
+                expectedToken: HeyMateExternalControlAuth.resolvedToken()
+            ) else {
+                sendJSON(["ok": false, "error": "Unauthorized"], statusCode: 401, on: connection)
+                return
+            }
+        }
 
         switch route {
         case .rejected(let statusCode, let message):

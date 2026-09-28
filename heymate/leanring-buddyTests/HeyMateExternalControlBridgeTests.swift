@@ -131,6 +131,61 @@ struct HeyMateExternalControlBridgeTests {
         )
     }
 
+    @Test func connectorRoutesCarryTheToolAndItsRawArguments() {
+        let route = HeyMateExternalControlRouter.route(
+            method: "POST",
+            path: "/connector/call",
+            json: ["tool": "composio__COMPOSIO_SEARCH_TOOLS", "arguments": #"{"query":"youtube"}"#]
+        )
+        #expect(route == .accepted(.callConnectorTool(
+            namespacedID: "composio__COMPOSIO_SEARCH_TOOLS",
+            argumentsJSON: #"{"query":"youtube"}"#
+        )))
+
+        #expect(HeyMateExternalControlRouter.route(
+            method: "POST",
+            path: "/connector/tools",
+            json: [:]
+        ) == .accepted(.listConnectorTools))
+
+        // A call with no tool named is a bad request, never a call against
+        // whatever happens to be first in the list.
+        #expect(HeyMateExternalControlRouter.route(
+            method: "POST",
+            path: "/connector/call",
+            json: ["arguments": "{}"]
+        ) == .rejected(statusCode: 400, message: "Missing tool"))
+    }
+
+    /// Pointing at the screen is harmless if some other local process does
+    /// it; reading the user's mail is not. So the connector routes cannot
+    /// inherit the "no token configured means everyone is welcome" rule.
+    @Test func connectorRoutesRefuseWhenNoTokenIsResolved() {
+        #expect(HeyMateExternalControlCommand.listConnectorTools.touchesConnectedAccounts)
+        #expect(HeyMateExternalControlCommand.callConnectorTool(
+            namespacedID: "composio__X",
+            argumentsJSON: "{}"
+        ).touchesConnectedAccounts)
+        #expect(HeyMateExternalControlCommand.clear.touchesConnectedAccounts == false)
+
+        #expect(HeyMateExternalControlAuth.isAuthorizedForConnectedAccounts(
+            headers: [:],
+            expectedToken: nil
+        ) == false)
+        #expect(HeyMateExternalControlAuth.isAuthorizedForConnectedAccounts(
+            headers: [:],
+            expectedToken: "tok"
+        ) == false)
+        #expect(HeyMateExternalControlAuth.isAuthorizedForConnectedAccounts(
+            headers: ["authorization": "Bearer tok"],
+            expectedToken: "tok"
+        ))
+        #expect(HeyMateExternalControlAuth.isAuthorizedForConnectedAccounts(
+            headers: ["x-heymate-token": "wrong"],
+            expectedToken: "tok"
+        ) == false)
+    }
+
     @Test func defaultPortIsNotOpenClickyPort() {
         #expect(HeyMateExternalControlBridge.defaultPort == 18732)
         #expect(
@@ -143,6 +198,24 @@ struct HeyMateExternalControlBridgeTests {
         )
         #expect(HeyMateExternalControlLoopback.isAllowed(host: "127.0.0.1"))
         #expect(!HeyMateExternalControlLoopback.isAllowed(host: "8.8.8.8"))
+    }
+
+    @Test func occupiedDefaultGetsAProcessLocalFallback() {
+        let selected = HeyMateExternalControlBridge.selectAvailablePort(
+            preferredPort: 18732,
+            isAvailable: { _ in false },
+            fallbackPort: { 49152 }
+        )
+        #expect(selected == 49152)
+    }
+
+    @Test func availableDefaultStaysStableForExternalClients() {
+        let selected = HeyMateExternalControlBridge.selectAvailablePort(
+            preferredPort: 18732,
+            isAvailable: { $0 == 18732 },
+            fallbackPort: { 49152 }
+        )
+        #expect(selected == 18732)
     }
 
     @Test func missingBridgeTokenIsAuthorizedWhenNoneIsConfigured() {

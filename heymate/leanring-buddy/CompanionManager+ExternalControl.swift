@@ -25,7 +25,7 @@ extension CompanionManager {
     func startExternalControlBridgeIfNeeded() {
         guard HeyMateExternalControlRuntime.server == nil else { return }
         let server = HeyMateExternalControlBridgeServer(
-            port: HeyMateExternalControlBridge.resolvedPort()
+            port: HeyMateExternalControlBridge.processPort
         ) { [weak self] command in
             guard let self else {
                 return .error(503, "HeyMate is not ready")
@@ -73,7 +73,94 @@ extension CompanionManager {
         case .clear:
             clearDetectedElementLocation()
             return .ok(["cleared": true])
+        case .listConnectorTools:
+            // A job can start before the user has opened a chat, and until
+            // then no connector session exists to list.
+            await awaitConnectorActivation()
+            return listExternalControlConnectorTools()
+        case .callConnectorTool(let namespacedID, let argumentsJSON):
+            return await callExternalControlConnectorTool(
+                namespacedID: namespacedID,
+                argumentsJSON: argumentsJSON
+            )
         }
+    }
+
+    // MARK: - Connector tools
+
+    /// The live tool surface, described well enough for a child CLI to
+    /// advertise it verbatim. The schema is passed through as the vendor
+    /// wrote it; anything unparseable degrades to an empty object schema
+    /// rather than dropping the tool, because a tool with a vague schema is
+    /// still callable and a missing one is not.
+    private func listExternalControlConnectorTools() -> HeyMateExternalControlResponse {
+        let tools: [[String: Any]] = connectorRuntime.availableMCPTools
+            .filter { isConnectorEnabledForChat($0.connectorID) }
+            .filter { !Self.isWithheldFromTalk($0.tool.name) }
+            .map { namespaced in
+            let parsedSchema = (try? JSONSerialization.jsonObject(
+                with: Data(namespaced.tool.inputSchemaJSON.utf8)
+            )) as? [String: Any]
+            return [
+                "name": namespaced.id,
+                "description": "[\(namespaced.connectorDisplayName)] \(namespaced.tool.description)",
+                "inputSchema": parsedSchema ?? ["type": "object", "properties": [String: Any]()]
+            ]
+        }
+        return .ok(["tools": tools])
+    }
+
+    /// Tools a Talk turn is not offered, whatever the connector exposes.
+    ///
+    /// Connection management is the sharp one. Asked about a connected app,
+    /// the model would call it to "verify" the account before reading
+    /// anything — inventing a session id to do it (`session_id: wind`), then
+    /// reading the empty answer as proof the app was never connected and
+    /// handing the user a sign-in link for an account that already works.
+    /// HeyMate owns connecting apps in Settings → Integrations, so the model
+    /// has no reason to hold that lever at all.
+    ///
+    /// The remote shells go for a different reason: a spoken question is not
+    /// a mandate to run code on someone else's machine.
+    nonisolated static func isWithheldFromTalk(_ toolName: String) -> Bool {
+        withheldToolNames.contains(toolName.uppercased())
+    }
+
+    nonisolated static let withheldToolNames: Set<String> = [
+        "COMPOSIO_MANAGE_CONNECTIONS",
+        "COMPOSIO_REMOTE_BASH_TOOL",
+        "COMPOSIO_REMOTE_WORKBENCH"
+    ]
+
+    /// Runs the call against the session `ConnectorRuntime` already holds —
+    /// no second sign-in, no per-turn server spawn — behind the same approval
+    /// policy a Talk turn uses.
+    private func callExternalControlConnectorTool(
+        namespacedID: String,
+        argumentsJSON: String
+    ) async -> HeyMateExternalControlResponse {
+        await awaitConnectorActivation()
+        guard let namespaced = connectorRuntime.availableMCPTools.first(where: { $0.id == namespacedID }),
+              let connector = ConnectorCatalog.connector(withID: namespaced.connectorID) else {
+            return .error(404, "No connected server provides \(namespacedID)")
+        }
+        // Withheld at the call as well as the listing: a name learned from
+        // somewhere other than `tools/list` must not become a way in.
+        guard !Self.isWithheldFromTalk(namespaced.tool.name) else {
+            return .error(403, "\(namespaced.tool.name) is not available from a conversation.")
+        }
+
+        let result = await executeConnectorTalkTool(
+            namespacedToolID: namespacedID,
+            connectorIdentifier: namespaced.connectorID,
+            connectorDisplayName: connector.displayName,
+            maximumRisk: connector.maximumRisk,
+            arguments: TalkToolCatalog.arguments(fromInputArgumentsJSON: argumentsJSON)
+        )
+        // A refused or failed tool is a fact the model should read and react
+        // to, so it comes back as a 200 carrying `isError` rather than as an
+        // HTTP failure the MCP server would have to invent wording for.
+        return .ok(["text": result.text, "isError": result.isError])
     }
 
     @discardableResult

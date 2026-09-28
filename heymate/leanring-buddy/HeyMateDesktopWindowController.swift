@@ -28,8 +28,8 @@ final class HeyMateDesktopWindowController: NSObject, NSWindowDelegate {
 
     /// Big enough for a sidebar plus a content column at a comfortable
     /// reading measure, small enough to open on a 13-inch display.
-    private static let defaultContentSize = CGSize(width: 1_080, height: 720)
-    private static let minimumContentSize = CGSize(width: 820, height: 560)
+    private static let defaultContentSize = CGSize(width: 1_240, height: 800)
+    private static let minimumContentSize = CGSize(width: 960, height: 620)
 
     /// Frame autosave name so macOS restores the user's size and position.
     private static let frameAutosaveName = "HeyMateDesktopWindow"
@@ -112,6 +112,9 @@ final class HeyMateDesktopWindowController: NSObject, NSWindowDelegate {
         newWindow.titlebarAppearsTransparent = true
         newWindow.titleVisibility = .hidden
         newWindow.toolbarStyle = .unified
+        // Matte fill behind the titlebar so the toolbar strip is the same
+        // black (or white) as the page instead of AppKit's default gray.
+        newWindow.backgroundColor = NSColor(DS.Colors.background)
 
         newWindow.setFrameAutosaveName(Self.frameAutosaveName)
         if newWindow.frame.size.width < Self.minimumContentSize.width {

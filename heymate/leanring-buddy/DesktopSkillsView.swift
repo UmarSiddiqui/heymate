@@ -21,6 +21,7 @@ struct DesktopSkillsView: View {
     @State private var hoveredActiveIdentifier: String?
     @State private var mutationError: String?
     @State private var skillPendingRemoval: RemoteSkillDescriptor?
+    @State private var skillFilePendingRemoval: DiscoveredSkill?
     @State private var showsResetConfirmation = false
 
     private var activeSkills: [DiscoveredSkill] {
@@ -102,6 +103,20 @@ struct DesktopSkillsView: View {
             Button("Cancel", role: .cancel) { skillPendingRemoval = nil }
         } message: {
             Text("Removes HeyMate's installed copy. Source repository stays unchanged.")
+        }
+        .confirmationDialog(
+            "Remove this skill file from this Mac?",
+            isPresented: Binding(
+                get: { skillFilePendingRemoval != nil },
+                set: { if !$0 { skillFilePendingRemoval = nil } }
+            )
+        ) {
+            Button("Remove", role: .destructive) {
+                guard let skill = skillFilePendingRemoval else { return }
+                skillFilePendingRemoval = nil
+                removeLocalSkillFile(skill)
+            }
+            Button("Cancel", role: .cancel) { skillFilePendingRemoval = nil }
         }
         .confirmationDialog("Reset all skill choices?", isPresented: $showsResetConfirmation) {
             Button("Reset activation and priority", role: .destructive) {
@@ -388,6 +403,10 @@ struct DesktopSkillsView: View {
                     Button("Remove", role: .destructive) { skillPendingRemoval = descriptor }
                         .buttonStyle(DSTertiaryButtonStyle())
                 } else {
+                    if canRemoveLocalSkillFile(skill) {
+                        Button("Remove", role: .destructive) { skillFilePendingRemoval = skill }
+                            .buttonStyle(DSTertiaryButtonStyle())
+                    }
                     Button("Reveal") { NSWorkspace.shared.activateFileViewerSelecting([skill.fileURL]) }
                         .buttonStyle(DSTertiaryButtonStyle())
                 }
@@ -601,6 +620,34 @@ struct DesktopSkillsView: View {
     private func uniqueBadges(_ badges: [String]) -> [String] {
         var seen: Set<String> = []
         return badges.filter { seen.insert($0).inserted }
+    }
+
+    /// User-owned files on this Mac can be deleted. Shipped HeyMate defaults
+    /// and remote installs cannot — remote copies already have their own Remove.
+    private func canRemoveLocalSkillFile(_ skill: DiscoveredSkill) -> Bool {
+        if skill.remoteMetadata != nil { return false }
+        switch skill.origin {
+        case .bundledDefault:
+            return false
+        case .userSkillsFolder, .claudeCodeUserFolder, .claudeCodeProjectFolder:
+            return true
+        case .remoteRegistry:
+            return false
+        }
+    }
+
+    private func removeLocalSkillFile(_ skill: DiscoveredSkill) {
+        guard canRemoveLocalSkillFile(skill) else { return }
+        do {
+            try FileManager.default.removeItem(at: skill.fileURL)
+            if selectedSkillIdentifier == skill.identifier {
+                selectedSkillIdentifier = nil
+            }
+            companionManager.reloadSkills()
+            selectFirstSkillIfNeeded()
+        } catch {
+            mutationError = error.localizedDescription
+        }
     }
 
     private func localAuthor(for origin: SkillOrigin) -> String? {

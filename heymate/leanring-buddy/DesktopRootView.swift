@@ -36,7 +36,7 @@ enum DesktopSection: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .chat: return "Chat"
         case .agents: return "Agents"
-        case .connectors: return "Integrations"
+        case .connectors: return "Tools"
         case .notch: return "Notch Apps"
         case .skills: return "Skills"
         case .memory: return "Memory"
@@ -58,25 +58,6 @@ enum DesktopSection: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    /// Sidebar grouping, named for what the user is doing rather than how
-    /// the feature is built: the buddy (talk and agents), what the buddy
-    /// can do (integrations, notch apps, skills), and how it behaves
-    /// (memory, privacy, settings).
-    enum Group: String, CaseIterable, Identifiable {
-        case companion = "HeyMate"
-        case abilities = "Abilities"
-        case preferences = "Preferences"
-
-        var id: String { rawValue }
-
-        var sections: [DesktopSection] {
-            switch self {
-            case .companion: return [.chat, .agents]
-            case .abilities: return [.connectors, .notch, .skills]
-            case .preferences: return [.memory, .privacy, .settings]
-            }
-        }
-    }
 }
 
 // MARK: - Root
@@ -93,17 +74,27 @@ struct DesktopRootView: View {
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $sidebarVisibility) {
-            sidebar
-                .navigationSplitViewColumnWidth(min: 196, ideal: 216, max: 260)
-        } detail: {
-            detail
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(DS.Colors.background)
+        Group {
+            if selectedSection == .chat {
+                MateHomeView(
+                    companionManager: companionManager,
+                    isCompactLayout: false,
+                    onOpenSection: { selectedSection = $0 }
+                )
+                .navigationTitle("")
+            } else {
+                NavigationSplitView(columnVisibility: $sidebarVisibility) {
+                    workspaceSidebar
+                        .navigationSplitViewColumnWidth(min: 220, ideal: 237, max: 260)
+                } detail: {
+                    detail
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(CelestialWorkspaceBackground(accent: companionManager.themeColor))
+                }
+                .navigationTitle(selectedSection.displayName)
+            }
         }
-        .navigationTitle(selectedSection.displayName)
-        .tint(companionManager.themeColor)
-        .preferredColorScheme(.dark)
+        .tint(DS.Colors.accent)
         .onReceive(NotificationCenter.default.publisher(for: .heyMateDesktopSelectSection)) { notification in
             guard let rawValue = notification.userInfo?["section"] as? String,
                   let section = DesktopSection(rawValue: rawValue) else { return }
@@ -113,81 +104,82 @@ struct DesktopRootView: View {
 
     // MARK: Sidebar
 
-    private var sidebar: some View {
+    /// Settings and the other non-chat pages. The mate rail is the chat app;
+    /// this list is only how you leave it.
+    private var workspaceSidebar: some View {
         List(selection: $selectedSection) {
-            Button {
-                selectedSection = .chat
-            } label: {
-                statusHeader
-            }
+            Section {
+                Button {
+                    selectedSection = .chat
+                } label: {
+                    Label("Back to chat", systemImage: "bubble.left.and.bubble.right")
+                        .font(DS.Fonts.headline)
+                }
                 .buttonStyle(.plain)
                 .pointerCursor()
-                .help("Open Chat")
-                .listRowInsets(EdgeInsets(top: 12, leading: 8, bottom: 16, trailing: 8))
-                .listRowSeparator(.hidden)
                 .selectionDisabled()
+            }
 
-            ForEach(DesktopSection.Group.allCases) { group in
-                Section(group.rawValue) {
-                    ForEach(group.sections) { section in
-                        Label(section.displayName, systemImage: section.symbolName)
-                            .badge(badgeCount(for: section))
-                            .tag(section)
-                    }
-                }
+            Section {
+                Label("Agents", systemImage: DesktopSection.agents.symbolName)
+                    .badge(badgeCount(for: .agents))
+                    .tag(DesktopSection.agents)
+
+                Label("Tools", systemImage: DesktopSection.connectors.symbolName)
+                    .badge(badgeCount(for: .connectors))
+                    .tag(DesktopSection.connectors)
+
+                Label("Notch Apps", systemImage: DesktopSection.notch.symbolName)
+                    .tag(DesktopSection.notch)
+
+                Label("Skills", systemImage: DesktopSection.skills.symbolName)
+                    .tag(DesktopSection.skills)
+            }
+
+            Section {
+                Label(DesktopSection.memory.displayName, systemImage: DesktopSection.memory.symbolName)
+                    .tag(DesktopSection.memory)
+                Label(DesktopSection.privacy.displayName, systemImage: DesktopSection.privacy.symbolName)
+                    .tag(DesktopSection.privacy)
+                Label(DesktopSection.settings.displayName, systemImage: DesktopSection.settings.symbolName)
+                    .tag(DesktopSection.settings)
             }
         }
         .listStyle(.sidebar)
+        .environment(\.defaultMinListRowHeight, 27)
         .scrollContentBackground(.hidden)
-        .background(DS.Colors.surface1)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            sidebarStatusBar
+        }
+        .background(CelestialSidebarBackground(accent: companionManager.themeColor))
     }
 
-    /// The buddy's presence at the top of the sidebar: the mark, its name,
-    /// and what it is doing right now, on a soft wash of the theme color —
-    /// the same hero treatment the notch Home opens with, so the two
-    /// surfaces read as one place.
-    private var statusHeader: some View {
-        HStack(spacing: 11) {
-            BuddyMark(
-                size: .standard,
-                state: companionManager.voiceState,
-                color: companionManager.themeColor
-            )
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("HeyMate")
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                Text(statusWord)
-                    .font(DS.Fonts.statusWord)
-                    .foregroundStyle(statusColor)
-            }
+    private var sidebarStatusBar: some View {
+        HStack(spacing: 8) {
+            BrandAppIcon(size: 22, state: companionManager.voiceState)
+            Circle()
+                .fill(statusColor)
+                .frame(width: 5, height: 5)
+            Text(statusWord)
+                .font(DS.Fonts.micro)
+                .foregroundColor(DS.Colors.textSecondary)
             Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 10)
-        .background(
-            ZStack {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(DS.Colors.surface2)
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(
-                        RadialGradient(
-                            colors: [companionManager.themeColor.opacity(0.22), Color.clear],
-                            center: .topLeading,
-                            startRadius: 0,
-                            endRadius: 150
-                        )
-                    )
+            Button { selectedSection = .settings } label: {
+                Image(systemName: "gearshape")
+                    .font(DS.Glyph.small)
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .frame(width: 22, height: 22)
             }
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(companionManager.themeColor.opacity(0.18), lineWidth: 1)
-        )
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("HeyMate, \(statusWord)")
-        .accessibilityHint("Opens Chat")
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .help("Settings")
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 34)
+        .background(DS.Colors.surface1.opacity(0.90))
+        .overlay(alignment: .top) {
+            Rectangle().fill(DS.Colors.borderSubtle).frame(height: 1)
+        }
     }
 
     private var statusColor: Color {
@@ -230,8 +222,7 @@ struct DesktopRootView: View {
     private var detail: some View {
         switch selectedSection {
         case .chat:
-            NotchChatView(companionManager: companionManager, isCompactLayout: false)
-                .padding(.top, 6)
+            Color.clear
         case .agents:
             DesktopAgentsView(companionManager: companionManager)
         case .connectors:
@@ -342,7 +333,7 @@ struct DesktopEmptyState: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            BuddyMark(size: .hero, color: DS.Colors.accent)
+            BrandAppIcon(size: 58)
 
             VStack(spacing: 5) {
                 Text(title)

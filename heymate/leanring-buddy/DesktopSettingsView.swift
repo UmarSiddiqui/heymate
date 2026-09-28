@@ -13,6 +13,7 @@
 //
 
 import AppKit
+import Combine
 import SwiftUI
 
 struct DesktopSettingsView: View {
@@ -50,6 +51,11 @@ struct DesktopSettingsView: View {
     @State private var composioAPIKeyDraft = ""
     @State private var composioStatusMessage: String?
     @State private var isSavingComposioAPIKey = false
+    @State private var isConfirmingComposioKeyRemoval = false
+    @State private var showsBehaviorContractEditor = false
+    @State private var persistErrorMessage: String?
+    @State private var isConfirmingLocalDataErase = false
+    @State private var localDataEraseNote: String?
 
     init(companionManager: CompanionManager) {
         self.companionManager = companionManager
@@ -81,6 +87,7 @@ struct DesktopSettingsView: View {
                     presentation: .desktop
                 )
             }
+            localDataCard
         }
         .onAppear {
             availableAudioInputDevices = AudioInputDeviceCatalog.availableInputDevices()
@@ -127,7 +134,7 @@ struct DesktopSettingsView: View {
             footnote: "Stored in macOS Keychain. HeyMate never receives tokens for Gmail, Slack, or other connected apps."
         ) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("One Composio API key powers browser sign-in and tools for supported integrations. Composio's free tier is enough to get started.")
+                Text("One Composio API key powers browser sign-in and tools for supported apps. Composio's free tier is enough to get started.")
                     .font(DS.Fonts.caption)
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -138,6 +145,14 @@ struct DesktopSettingsView: View {
                         text: $composioAPIKeyDraft
                     )
                     .textFieldStyle(.roundedBorder)
+
+                    if companionManager.composioConnections.isConfigured {
+                        Button("Remove key") {
+                            isConfirmingComposioKeyRemoval = true
+                        }
+                        .buttonStyle(DSSecondaryButtonStyle())
+                        .disabled(isSavingComposioAPIKey)
+                    }
 
                     Button(companionManager.composioConnections.isConfigured ? "Replace key" : "Save key") {
                         saveComposioAPIKey()
@@ -150,7 +165,7 @@ struct DesktopSettingsView: View {
                 }
 
                 if isSavingComposioAPIKey {
-                    ProgressView("Preparing integrations…")
+                    ProgressView("Preparing tools…")
                         .controlSize(.small)
                 } else if let composioStatusMessage {
                     Text(composioStatusMessage)
@@ -162,6 +177,18 @@ struct DesktopSettingsView: View {
                         .foregroundColor(DS.Colors.success)
                 }
             }
+        }
+        .confirmationDialog(
+            "Remove the Composio API key?",
+            isPresented: $isConfirmingComposioKeyRemoval,
+            titleVisibility: .visible
+        ) {
+            Button("Remove key", role: .destructive) {
+                removeComposioAPIKey()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("HeyMate will delete it from the Keychain and sign out of Composio on this Mac.")
         }
     }
 
@@ -182,7 +209,7 @@ struct DesktopSettingsView: View {
             let state = companionManager.connectorStore.connectionState(for: ComposioSessionStore.connectorID)
             switch state {
             case .connected:
-                composioStatusMessage = "Ready. Supported apps can now connect from Integrations."
+                composioStatusMessage = "Ready. Supported apps can now connect from Tools."
                 await companionManager.composioToolkitDirectory.loadDefaultPage(
                     apiKey: companionManager.composioConnections.apiKey
                 )
@@ -195,6 +222,25 @@ struct DesktopSettingsView: View {
         }
     }
 
+    /// Deletes the Keychain item and tears down the Tool Router session the
+    /// same way disconnecting the Composio connector does. The key is never
+    /// read back or logged.
+    private func removeComposioAPIKey() {
+        composioAPIKeyDraft = ""
+        composioStatusMessage = nil
+        guard let composioConnector = ConnectorCatalog.connector(withID: ComposioSessionStore.connectorID) else {
+            ConnectorSecretStore.deleteSecret(forConnectorID: ComposioSessionStore.connectorID)
+            ComposioSessionStore.clear()
+            companionManager.connectorStore.setCustomLaunchCommand(nil, for: ComposioSessionStore.connectorID)
+            composioStatusMessage = "Key removed."
+            return
+        }
+        Task {
+            await companionManager.connectorRuntime.disconnect(composioConnector)
+            composioStatusMessage = "Key removed."
+        }
+    }
+
     private var behaviorCard: some View {
         DesktopCard(title: "Behavior") {
             VStack(alignment: .leading, spacing: 12) {
@@ -203,7 +249,7 @@ struct DesktopSettingsView: View {
                         Text("Dictation mode")
                             .font(DS.Fonts.body)
                             .foregroundColor(DS.Colors.textPrimary)
-                        Text("Smart cleans up filler and punctuation. Literal types exactly what you said.")
+                        Text("Smart drafts from the screen into the field you are in. Literal types what you said. Smart stays quiet while HeyMate itself is in front.")
                             .font(DS.Fonts.caption)
                             .foregroundColor(DS.Colors.textSecondary)
                     }
@@ -281,7 +327,7 @@ struct DesktopSettingsView: View {
 
                 Divider().opacity(0.25)
 
-                HStack {
+                HStack(spacing: 8) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Behavior contract")
                             .font(DS.Fonts.body)
@@ -292,8 +338,13 @@ struct DesktopSettingsView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 12)
+                    Button("Edit") { showsBehaviorContractEditor = true }
+                        .buttonStyle(DSSecondaryButtonStyle(isFullWidth: false))
                     Button("Reveal") { companionManager.revealBehaviorContractFile() }
-                        .buttonStyle(DSSecondaryButtonStyle())
+                        .buttonStyle(DSSecondaryButtonStyle(isFullWidth: false))
+                }
+                .sheet(isPresented: $showsBehaviorContractEditor) {
+                    BehaviorContractEditorSheet()
                 }
             }
         }
@@ -354,7 +405,7 @@ struct DesktopSettingsView: View {
     private func ruleLine(_ text: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: "checkmark")
-                .font(.system(size: 9, weight: .bold))
+                .font(DS.Glyph.micro)
                 .foregroundColor(DS.Colors.success)
             Text(text)
                 .font(DS.Fonts.caption)
@@ -773,6 +824,164 @@ struct DesktopSettingsView: View {
             return "Automatic updates are unavailable because the update service could not start. Restart HeyMate or download the next release manually."
         case .ready:
             return "Automatic updates are ready."
+        }
+    }
+
+    // MARK: Data on this Mac
+
+    private var localDataCard: some View {
+        DesktopCard(
+            title: "Data on this Mac",
+            footnote: "Project folders under ~/Projects are not deleted."
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Erases HeyMate data stored on this Mac. You will be asked to confirm first.")
+                    .font(DS.Fonts.body)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let persistErrorMessage {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Text(persistErrorMessage)
+                            .font(DS.Fonts.body)
+                            .foregroundColor(DS.Colors.destructiveText)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Button("Dismiss", action: dismissPersistedError)
+                            .buttonStyle(DSTertiaryButtonStyle())
+                    }
+                }
+
+                if let localDataEraseNote {
+                    Text(localDataEraseNote)
+                        .font(DS.Fonts.caption)
+                        .foregroundColor(DS.Colors.warningText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Button("Erase HeyMate data") {
+                    isConfirmingLocalDataErase = true
+                }
+                .buttonStyle(DSDestructiveButtonStyle())
+            }
+        }
+        .onAppear(perform: refreshPersistedError)
+        .onReceive(NotificationCenter.default.publisher(for: LocalDataErase.persistFailedNotification)) { _ in
+            refreshPersistedError()
+        }
+        .confirmationDialog(
+            "Erase HeyMate data?",
+            isPresented: $isConfirmingLocalDataErase,
+            titleVisibility: .visible
+        ) {
+            Button("Erase HeyMate data", role: .destructive) {
+                localDataEraseNote = LocalDataErase.erase(companionManager: companionManager)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(LocalDataErase.confirmationMessage)
+        }
+    }
+
+    private func refreshPersistedError() {
+        let stored = UserDefaults.standard.string(forKey: LocalDataErase.persistErrorDefaultsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        persistErrorMessage = (stored?.isEmpty == false) ? stored : nil
+    }
+
+    private func dismissPersistedError() {
+        UserDefaults.standard.removeObject(forKey: LocalDataErase.persistErrorDefaultsKey)
+        persistErrorMessage = nil
+    }
+}
+
+/// Edits `behavior-contract.md`. Save writes the draft. Reset rewrites the
+/// file from the shipped rules and does not change those rules.
+private struct BehaviorContractEditorSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft: String
+    @State private var showsResetConfirmation = false
+    @State private var saveError: String?
+
+    init() {
+        let existing = (try? String(contentsOf: BehaviorContract.fileURL(), encoding: .utf8))
+            ?? BehaviorContract.resetContractText()
+        _draft = State(initialValue: existing)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Behavior contract")
+                .font(DS.Fonts.title)
+                .foregroundColor(DS.Colors.textPrimary)
+            Text("Honesty and safety rules bound to every reply.")
+                .font(DS.Fonts.caption)
+                .foregroundColor(DS.Colors.textSecondary)
+
+            TextEditor(text: $draft)
+                .font(.custom("Avenir Next", size: 14))
+                .foregroundColor(DS.Colors.textPrimary)
+                .scrollContentBackground(.hidden)
+                .padding(10)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(
+                    DS.Colors.surface2,
+                    in: RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                        .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                )
+
+            HStack(spacing: 8) {
+                Button("Reset to shipped text") { showsResetConfirmation = true }
+                    .buttonStyle(DSSecondaryButtonStyle(isFullWidth: false))
+                Spacer(minLength: 8)
+                Button("Cancel") { dismiss() }
+                    .buttonStyle(DSSecondaryButtonStyle(isFullWidth: false))
+                Button("Save") { saveDraft() }
+                    .buttonStyle(DSPrimaryButtonStyle(isFullWidth: false))
+            }
+        }
+        .padding(20)
+        .frame(width: 640, height: 520)
+        .background(DS.Colors.surface1)
+        .presentationBackground(DS.Colors.surface1)
+        .confirmationDialog(
+            "Reset to the shipped honesty and safety rules?",
+            isPresented: $showsResetConfirmation
+        ) {
+            Button("Reset to shipped text", role: .destructive) { resetToShippedText() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Replaces this file with the rules that shipped with HeyMate.")
+        }
+        .alert("Could not update the behavior contract", isPresented: Binding(
+            get: { saveError != nil },
+            set: { if !$0 { saveError = nil } }
+        )) {
+            Button("OK", role: .cancel) { saveError = nil }
+        } message: {
+            Text(saveError ?? "Unknown error")
+        }
+    }
+
+    private func saveDraft() {
+        do {
+            try BehaviorContract.writeContractText(draft, to: BehaviorContract.fileURL())
+            dismiss()
+        } catch {
+            saveError = error.localizedDescription
+        }
+    }
+
+    private func resetToShippedText() {
+        let shipped = BehaviorContract.resetContractText()
+        do {
+            try BehaviorContract.writeContractText(shipped, to: BehaviorContract.fileURL())
+            draft = shipped
+        } catch {
+            saveError = error.localizedDescription
         }
     }
 }

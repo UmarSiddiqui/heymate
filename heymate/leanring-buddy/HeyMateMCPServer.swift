@@ -45,16 +45,12 @@ nonisolated enum HeyMateMCPServer {
     /// "Claude requested permissions to use mcp__heymate__heymate_point, but
     /// you haven't granted it yet" and the call never reaches the bridge.
     /// Verified against a live child.
-    static func claudeCodeToolNames(
-        userDefaults: UserDefaults = .standard
-    ) -> [String] {
-        // Composio's meta-tools ride the same allow-list. They are read from
-        // storage rather than passed in because the adapter that builds the
-        // argument list has no injection point; `ComposioAgentAttachment`
-        // applies the same gate the config JSON does, so the two cannot
-        // disagree about whether Composio is attached.
-        toolNames.map { "mcp__\(serverName)__\($0)" }
-            + ComposioAgentAttachment.claudeCodeToolNames(userDefaults: userDefaults)
+    static func claudeCodeToolNames() -> [String] {
+        // The bare server name allows every tool this server exposes, which
+        // is the only form that can cover the connector tools: those are
+        // discovered from the user's live sessions at `tools/list` time and
+        // have no names to enumerate when this list is built.
+        ["mcp__\(serverName)"] + toolNames.map { "mcp__\(serverName)__\($0)" }
     }
 
     /// Runtimes tried in order. Both are checked against the login PATH, so a
@@ -119,8 +115,8 @@ nonisolated enum HeyMateMCPServer {
     /// token embedded in `--mcp-config` or `-c` is visible to every process
     /// that can inspect the child command line.
     static func childEnvironment(
-        bridgePort: UInt16 = HeyMateExternalControlBridge.resolvedPort(),
-        bridgeToken: String? = HeyMateSecrets.lookup(HeyMateExternalControlAuth.secretsKey)
+        bridgePort: UInt16 = HeyMateExternalControlBridge.processPort,
+        bridgeToken: String? = HeyMateExternalControlAuth.resolvedToken()
     ) -> [String: String] {
         var environment = [
             "HEYMATE_BRIDGE_URL": "http://127.0.0.1:\(bridgePort)"
@@ -190,34 +186,52 @@ nonisolated enum HeyMateMCPServer {
     /// hooks leaking into a HeyMate job. These overrides add back only
     /// HeyMate's loopback server for write-enabled legs.
     static func codexConfigurationArguments(
-        bridgeEnvironment: [String: String] = childEnvironment()
+        bridgeEnvironment: [String: String] = childEnvironment(),
+        enabledTools: [String]? = toolNames
     ) -> [String] {
         guard let runtime = availableRuntime(), let scriptURL = seedScript() else { return [] }
         return codexConfigurationArguments(
             runtimeURL: runtime.runtimeURL,
             scriptURL: scriptURL,
-            bridgeEnvironment: bridgeEnvironment
+            bridgeEnvironment: bridgeEnvironment,
+            enabledTools: enabledTools
         )
     }
 
     /// Pure argument construction kept separate from runtime discovery and
     /// script seeding so the approval-to-execution boundary can be tested.
+    /// `enabledTools: nil` omits the allow-list entirely, which is what a
+    /// Talk turn needs: its connector tools are discovered from the user's
+    /// live sessions when the child asks for `tools/list`, so naming them
+    /// here would filter out exactly the ones the turn exists to reach.
     static func codexConfigurationArguments(
         runtimeURL: URL,
         scriptURL: URL,
-        bridgeEnvironment: [String: String]
+        bridgeEnvironment: [String: String],
+        enabledTools: [String]? = toolNames
     ) -> [String] {
         let command = jsonString(runtimeURL.path)
         let args = "[\(jsonString(scriptURL.path))]"
         let environmentVariables = bridgeEnvironment.keys.sorted().map(jsonString).joined(separator: ",")
-        let tools = toolNames.map(jsonString).joined(separator: ",")
-        return [
+        var arguments = [
             "-c", "mcp_servers.\(serverName).command=\(command)",
             "-c", "mcp_servers.\(serverName).args=\(args)",
-            "-c", "mcp_servers.\(serverName).env_vars=[\(environmentVariables)]",
-            "-c", "mcp_servers.\(serverName).enabled_tools=[\(tools)]",
-            "-c", "mcp_servers.\(serverName).default_tools_approval_mode=\"auto\""
+            "-c", "mcp_servers.\(serverName).env_vars=[\(environmentVariables)]"
         ]
+        if let enabledTools {
+            let tools = enabledTools.map(jsonString).joined(separator: ",")
+            arguments.append(contentsOf: ["-c", "mcp_servers.\(serverName).enabled_tools=[\(tools)]"])
+        }
+        // `approve`, not `auto`: under `codex exec` the approval policy is
+        // `never`, and `auto` still asks — the call comes back "MCP tool call
+        // requires approval, but approval policy is never" and never reaches
+        // the bridge. Verified against a live child. Auto-approving here is
+        // the codex layer only; a connector tool still passes HeyMate's own
+        // approval gate on the far side of the bridge.
+        arguments.append(contentsOf: [
+            "-c", "mcp_servers.\(serverName).default_tools_approval_mode=\"approve\""
+        ])
+        return arguments
     }
 
     private static func jsonString(_ value: String) -> String {
@@ -345,14 +359,48 @@ nonisolated enum HeyMateMCPServer {
       return text;
     }
 
-    async function handleToolCall(id, params) {
-      const tool = TOOLS.find((candidate) => candidate.name === params?.name);
-      if (!tool) {
-        respondError(id, -32602, "Unknown tool: " + params?.name);
-        return;
+    // The user's connected apps, borrowed rather than re-opened. HeyMate
+    // already holds one live session per connector; asking it what that
+    // session exposes is what lets a turn reach Gmail or YouTube without
+    // spawning a second server and paying a cold start for every question.
+    async function fetchConnectorTools() {
+      try {
+        const parsed = JSON.parse(await callBridge("/connector/tools", {}));
+        if (!parsed || !Array.isArray(parsed.tools)) return [];
+        return parsed.tools
+          .filter((tool) => tool && typeof tool.name === "string" && tool.name)
+          .map((tool) => ({
+            name: tool.name,
+            description: tool.description || "",
+            inputSchema: tool.inputSchema || { type: "object", properties: {} },
+            connector: true
+          }));
+      } catch {
+        // A HeyMate that is not listening, or a token this server was not
+        // given, means no connected apps this turn — not a dead server. The
+        // overlay tools still work.
+        return [];
       }
+    }
+
+    async function handleToolCall(id, params) {
+      const name = params?.name;
+      const tool = TOOLS.find((candidate) => candidate.name === name);
 
       try {
+        if (!tool) {
+          const raw = await callBridge("/connector/call", {
+            tool: name,
+            arguments: JSON.stringify(params?.arguments || {})
+          });
+          const parsed = JSON.parse(raw);
+          respond(id, {
+            content: [{ type: "text", text: String(parsed.text ?? "") }],
+            isError: parsed.isError === true
+          });
+          return;
+        }
+
         const body = { ...(params.arguments || {}) };
         await callBridge(tool.path, body);
         respond(id, {
@@ -385,15 +433,17 @@ nonisolated enum HeyMateMCPServer {
         case "ping":
           respond(id, {});
           return;
-        case "tools/list":
+        case "tools/list": {
+          const connectorTools = await fetchConnectorTools();
           respond(id, {
-            tools: TOOLS.map(({ name, description, inputSchema }) => ({
+            tools: TOOLS.concat(connectorTools).map(({ name, description, inputSchema }) => ({
               name,
               description,
               inputSchema
             }))
           });
           return;
+        }
         case "tools/call":
           await handleToolCall(id, params);
           return;
