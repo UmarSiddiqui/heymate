@@ -449,8 +449,74 @@ enum ConnectorCatalog {
         appleNativeConnectors + localCLIConnectors + mcpConnectors
     )
 
+    /// The first bring-your-own server. Further servers use
+    /// `additionalCustomMCPIDPrefix` plus a UUID so each keeps its own
+    /// launch command in `ConnectorStore`.
+    static let customMCPConnectorID = "mcp-custom"
+    static let additionalCustomMCPIDPrefix = "mcp-custom-"
+
+    static func isAdditionalCustomMCPID(_ id: String) -> Bool {
+        id.hasPrefix(additionalCustomMCPIDPrefix)
+    }
+
+    static func isUserSuppliedMCPID(_ id: String) -> Bool {
+        id == customMCPConnectorID || isAdditionalCustomMCPID(id)
+    }
+
+    /// A connector the existing MCP runtime already knows how to launch:
+    /// transport `.mcp`, no baked-in command, id stable for the Keychain
+    /// and the live session. The saved command lives on the store record.
+    static func userSuppliedMCPConnector(
+        id: String,
+        displayName: String,
+        summary: String? = nil
+    ) -> Connector {
+        let trimmedSummary = summary?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedSummary = (trimmedSummary?.isEmpty == false)
+            ? trimmedSummary!
+            : "Point HeyMate at any MCP server — local command or remote URL."
+        return Connector(
+            id: id,
+            displayName: displayName,
+            summary: resolvedSummary,
+            category: .automation,
+            transport: .mcp,
+            symbolName: "plus.rectangle.on.folder",
+            maximumRisk: .destructive,
+            capabilities: ["Any tools that server exposes", "You choose the approval policy"],
+            mcpLaunchCommand: nil
+        )
+    }
+
+    /// Short label for a saved command. URLs show their host; launch
+    /// commands show the package or executable, not `npx` itself.
+    static func displayName(forCustomLaunchCommand command: String?) -> String {
+        let trimmed = command?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return "Custom MCP server" }
+        let tokens = trimmed.split(whereSeparator: \.isWhitespace).map(String.init)
+        if let urlToken = tokens.first(where: { $0.hasPrefix("https://") || $0.hasPrefix("http://") }),
+           let host = URL(string: urlToken)?.host,
+           !host.isEmpty {
+            return host
+        }
+        let ignored: Set<String> = ["npx", "npm", "pnpm", "yarn", "uvx", "node", "python", "python3", "bash", "sh", "zsh"]
+        if let meaningful = tokens.reversed().first(where: { token in
+            !token.hasPrefix("-") && !ignored.contains(token)
+        }) {
+            return meaningful
+        }
+        return "Custom MCP server"
+    }
+
     static func connector(withID id: String) -> Connector? {
-        all.first { $0.id == id }
+        if let match = all.first(where: { $0.id == id }) {
+            return match
+        }
+        // Extra custom servers are not in the static catalog. Synthesizing
+        // one here lets connect, tool listing, and record loading treat them
+        // as ordinary MCP connectors.
+        guard isAdditionalCustomMCPID(id) else { return nil }
+        return userSuppliedMCPConnector(id: id, displayName: "Custom MCP server")
     }
 
     static func connectors(in category: ConnectorCategory) -> [Connector] {

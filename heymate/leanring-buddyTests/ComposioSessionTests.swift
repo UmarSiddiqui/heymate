@@ -18,7 +18,14 @@ struct ComposioProvisionerTests {
     }
 
     @Test func requestCarriesKeyInHeaderAndAsksForConnectionManagement() throws {
-        let request = try ComposioProvisioner.makeRequest(apiKey: "comp_test_key", userID: "heymate-abc")
+        let request = try ComposioProvisioner.makeRequest(
+            apiKey: "comp_test_key",
+            userID: "heymate-abc",
+            connectedAccounts: [
+                "youtube": ["ca_youtube"],
+                "gmail": ["ca_gmail"]
+            ]
+        )
 
         #expect(request.httpMethod == "POST")
         #expect(request.url == ComposioProvisioner.sessionEndpoint)
@@ -31,6 +38,9 @@ struct ComposioProvisionerTests {
         // authorises a new app, which is the entire point of the connector.
         let manageConnections = try #require(decoded["manage_connections"] as? [String: Any])
         #expect(manageConnections["enable"] as? Bool == true)
+        let connectedAccounts = try #require(decoded["connected_accounts"] as? [String: [String]])
+        #expect(connectedAccounts["youtube"] == ["ca_youtube"])
+        #expect(connectedAccounts["gmail"] == ["ca_gmail"])
     }
 
     @Test func sessionIsParsedFromTheToolRouterResponse() throws {
@@ -112,9 +122,207 @@ struct ComposioProvisionerTests {
     @Test func anUnconnectedComposioContributesNothingToAnAgentLeg() {
         let defaults = makeDefaults()
         #expect(ComposioAgentAttachment.isAttachable(userDefaults: defaults) == false)
-        #expect(ComposioAgentAttachment.mcpServerConfiguration(userDefaults: defaults) == nil)
-        #expect(ComposioAgentAttachment.claudeCodeToolNames(userDefaults: defaults).isEmpty)
-        #expect(ComposioAgentAttachment.childEnvironment(userDefaults: defaults).isEmpty)
+        #expect(ComposioAgentAttachment.talkPromptBlock(userDefaults: defaults) == nil)
+    }
+
+    /// The failure this guards is the one that shipped: a user connects
+    /// YouTube through Composio, asks about their channel, and the model
+    /// answers from general knowledge because nothing ever told it the
+    /// account was reachable or how the two meta-tools pair up.
+    @Test func theTalkPromptNamesTheConnectedAppsAndTheSearchThenExecutePair() throws {
+        let defaults = makeDefaults()
+        attachComposio(to: defaults)
+        defaults.set(
+            try JSONEncoder().encode([
+                "youtube": ComposioConnectionRecord(
+                    toolkitSlug: "youtube",
+                    connectedAccountID: "ca_1",
+                    displayName: "YouTube"
+                )
+            ]),
+            forKey: ComposioConnectionsRuntime.recordsPreferenceKey
+        )
+
+        #expect(ComposioAgentAttachment.connectedAppNames(userDefaults: defaults) == ["YouTube"])
+        let block = try #require(ComposioAgentAttachment.talkPromptBlock(userDefaults: defaults, hasStoredKey: true))
+        #expect(block.contains("YouTube"))
+        #expect(block.contains("COMPOSIO_SEARCH_TOOLS"))
+        #expect(block.contains("COMPOSIO_MULTI_EXECUTE_TOOL"))
+        // Codex keeps MCP tools behind its own search, so a turn told only
+        // the tool names still reports "no connection" without this.
+        #expect(block.contains("tool search"))
+    }
+
+    @Test func chatScopeOnlyNamesEnabledComposioApps() throws {
+        let defaults = makeDefaults()
+        attachComposio(to: defaults)
+        defaults.set(
+            try JSONEncoder().encode([
+                "youtube": ComposioConnectionRecord(
+                    toolkitSlug: "youtube",
+                    connectedAccountID: "ca_1",
+                    displayName: "YouTube"
+                ),
+                "gmail": ComposioConnectionRecord(
+                    toolkitSlug: "gmail",
+                    connectedAccountID: "ca_2",
+                    displayName: "Gmail"
+                )
+            ]),
+            forKey: ComposioConnectionsRuntime.recordsPreferenceKey
+        )
+
+        let block = try #require(ComposioAgentAttachment.talkPromptBlock(
+            userDefaults: defaults,
+            hasStoredKey: true,
+            enabledToolkitSlugs: ["youtube"]
+        ))
+        #expect(block.contains("YouTube"))
+        #expect(!block.contains("Gmail"))
+    }
+
+    /// A brain with no tool loop must say so rather than answer as if it had
+    /// read the account.
+    @Test func anUnreachableTurnIsToldToSaySoRatherThanAnswerFromMemory() throws {
+        let defaults = makeDefaults()
+        attachComposio(to: defaults)
+        let block = try #require(ComposioAgentAttachment.unreachablePromptBlock(userDefaults: defaults, hasStoredKey: true))
+        #expect(block.contains("cannot call tools"))
+        #expect(block.contains("Settings"))
+    }
+
+    /// The failure this guards: a router session minted before the user
+    /// authorised YouTube keeps answering searches as though YouTube were
+    /// never connected, so the model reports no connection and falls back to
+    /// asking for a screenshot.
+    @Test func aSessionMintedBeforeAToolkitWasAuthorisedCountsAsStale() throws {
+        let defaults = makeDefaults()
+        let scope = ["gmail:ca_1"]
+        var session = ComposioSession(
+            sessionID: "trs_abc",
+            mcpURL: "https://example.invalid/mcp",
+            toolNames: ["COMPOSIO_SEARCH_TOOLS"],
+            createdAt: Date()
+        )
+        session.scopedConnections = scope
+        session.connectedAccountsWerePinned = true
+        ComposioSessionStore.save(session, userDefaults: defaults)
+        defaults.set(
+            try JSONEncoder().encode([
+                "gmail": ComposioConnectionRecord(
+                    toolkitSlug: "gmail",
+                    connectedAccountID: "ca_1",
+                    displayName: "gmail"
+                )
+            ]),
+            forKey: ComposioConnectionsRuntime.recordsPreferenceKey
+        )
+        #expect(ComposioAgentAttachment.connectedScope(userDefaults: defaults) == scope)
+        #expect(ComposioAgentAttachment.isSessionStale(userDefaults: defaults) == false)
+
+        // YouTube authorised after the session was minted.
+        defaults.set(
+            try JSONEncoder().encode([
+                "gmail": ComposioConnectionRecord(
+                    toolkitSlug: "gmail",
+                    connectedAccountID: "ca_1",
+                    displayName: "gmail"
+                ),
+                "youtube": ComposioConnectionRecord(
+                    toolkitSlug: "youtube",
+                    connectedAccountID: "ca_2",
+                    displayName: "YouTube"
+                )
+            ]),
+            forKey: ComposioConnectionsRuntime.recordsPreferenceKey
+        )
+        #expect(ComposioAgentAttachment.isSessionStale(userDefaults: defaults))
+    }
+
+    @Test func connectedAccountSelectorsOmitNoAuthToolkits() throws {
+        let defaults = makeDefaults()
+        defaults.set(
+            try JSONEncoder().encode([
+                "youtube": ComposioConnectionRecord(
+                    toolkitSlug: "youtube",
+                    connectedAccountID: "ca_youtube",
+                    displayName: "YouTube"
+                ),
+                "weather": ComposioConnectionRecord(
+                    toolkitSlug: "weather",
+                    connectedAccountID: "",
+                    displayName: "Weather"
+                )
+            ]),
+            forKey: ComposioConnectionsRuntime.recordsPreferenceKey
+        )
+
+        #expect(ComposioAgentAttachment.connectedAccounts(userDefaults: defaults) == [
+            "youtube": ["ca_youtube"]
+        ])
+    }
+
+    @Test func aSessionMintedWithoutPinnedAccountsIsStale() {
+        let defaults = makeDefaults()
+        var session = ComposioSession(
+            sessionID: "trs_abc",
+            mcpURL: "https://example.invalid/mcp",
+            toolNames: [],
+            createdAt: Date()
+        )
+        session.scopedConnections = []
+        ComposioSessionStore.save(session, userDefaults: defaults)
+
+        #expect(session.connectedAccountsWerePinned == nil)
+        #expect(ComposioAgentAttachment.isSessionStale(userDefaults: defaults))
+    }
+
+    /// Sessions stored before the scope was recorded decode with the key
+    /// missing. Unknown scope has to count as stale, or the one already on
+    /// disk would never be replaced.
+    @Test func aSessionWithNoRecordedScopeIsStale() {
+        let defaults = makeDefaults()
+        ComposioSessionStore.save(
+            ComposioSession(
+                sessionID: "trs_abc",
+                mcpURL: "https://example.invalid/mcp",
+                toolNames: [],
+                createdAt: Date()
+            ),
+            userDefaults: defaults
+        )
+        let restored = ComposioSessionStore.session(userDefaults: defaults)
+        #expect(restored?.scopedConnections == nil)
+        #expect(ComposioAgentAttachment.isSessionStale(userDefaults: defaults))
+    }
+
+    @Test func anUnattachedComposioContributesNoPromptEvenWithAKey() {
+        let defaults = makeDefaults()
+        // Key present, nothing else: an unenabled connector with no session
+        // stays off regardless of what the Keychain holds.
+        #expect(ComposioAgentAttachment.talkPromptBlock(userDefaults: defaults, hasStoredKey: true) == nil)
+        #expect(ComposioAgentAttachment.unreachablePromptBlock(userDefaults: defaults, hasStoredKey: true) == nil)
+    }
+
+    /// Enabled record + session, so everything except the Keychain half of
+    /// `isAttachable` is satisfied. Tests that need attachment run only when
+    /// the machine actually holds the key, the same honesty the user-id test
+    /// already uses.
+    private func attachComposio(to defaults: UserDefaults) {
+        ComposioSessionStore.save(
+            ComposioSession(
+                sessionID: "trs_abc",
+                mcpURL: "https://example.invalid/mcp",
+                toolNames: ["COMPOSIO_SEARCH_TOOLS"],
+                createdAt: Date()
+            ),
+            userDefaults: defaults
+        )
+        var record = ConnectorRecord(connectorID: ComposioSessionStore.connectorID)
+        record.isEnabled = true
+        if let encoded = try? JSONEncoder().encode([ComposioSessionStore.connectorID: record]) {
+            defaults.set(encoded, forKey: ConnectorStore.recordsPreferenceKey)
+        }
     }
 
     @Test func aDisabledRecordKeepsComposioOffTheAgentLegEvenWithASession() {

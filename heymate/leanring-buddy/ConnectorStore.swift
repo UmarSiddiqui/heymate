@@ -125,11 +125,33 @@ final class ConnectorStore: ObservableObject {
     }
 
     /// Connectors the agent runtime is allowed to build tools from right
-    /// now: enabled AND currently connected.
+    /// now: enabled AND currently connected. Extra custom MCP servers are
+    /// not in the static catalog, so they are appended from stored records.
     var activeConnectors: [Connector] {
-        ConnectorCatalog.all.filter { connector in
+        let catalogued = ConnectorCatalog.all.filter { connector in
             record(for: connector.id).isEnabled && connectionState(for: connector.id).isConnected
         }
+        let additional = additionalCustomMCPConnectors().filter { connector in
+            record(for: connector.id).isEnabled && connectionState(for: connector.id).isConnected
+        }
+        return catalogued + additional
+    }
+
+    /// Every stored server whose id is `mcp-custom-` plus a UUID, whether
+    /// or not it is currently connected. `ConnectorRuntime` restores the
+    /// enabled ones through the same connect path as catalog MCP servers.
+    func additionalCustomMCPConnectors() -> [Connector] {
+        records.keys
+            .filter { ConnectorCatalog.isAdditionalCustomMCPID($0) }
+            .sorted()
+            .map { id in
+                let command = records[id]?.customLaunchCommand
+                return ConnectorCatalog.userSuppliedMCPConnector(
+                    id: id,
+                    displayName: ConnectorCatalog.displayName(forCustomLaunchCommand: command),
+                    summary: command
+                )
+            }
     }
 
     var enabledConnectorCount: Int {
@@ -209,6 +231,17 @@ final class ConnectorStore: ObservableObject {
         ConnectorSecretStore.deleteSecret(forConnectorID: connectorID)
     }
 
+    /// Drops an extra custom MCP server entirely. The first server
+    /// (`mcp-custom`) stays in the catalog, so clearing it is
+    /// `setCustomLaunchCommand(nil:)` rather than deleting the record.
+    func removeAdditionalCustomMCP(connectorID: String) {
+        guard ConnectorCatalog.isAdditionalCustomMCPID(connectorID) else { return }
+        records.removeValue(forKey: connectorID)
+        connectionStates.removeValue(forKey: connectorID)
+        persistRecords()
+        ConnectorSecretStore.deleteSecret(forConnectorID: connectorID)
+    }
+
     private func save(_ record: ConnectorRecord) {
         records[record.connectorID] = record
         persistRecords()
@@ -226,8 +259,9 @@ final class ConnectorStore: ObservableObject {
               let decoded = try? JSONDecoder().decode([String: ConnectorRecord].self, from: data) else {
             return
         }
-        // Drop records for connectors that no longer exist in the catalog
-        // so a removed integration cannot linger as an orphan toggle.
+        // Drop records for connectors that no longer exist. Extra custom
+        // MCP servers are synthesized by `connector(withID:)`, so a
+        // `mcp-custom-` record survives a relaunch.
         records = decoded.filter { ConnectorCatalog.connector(withID: $0.key) != nil }
     }
 }

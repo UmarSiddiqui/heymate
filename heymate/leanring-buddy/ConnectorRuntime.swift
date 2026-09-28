@@ -73,6 +73,9 @@ final class ConnectorRuntime: ObservableObject {
         for connector in ConnectorCatalog.all where store.record(for: connector.id).isEnabled {
             await connect(connector, isRestoring: true)
         }
+        for connector in store.additionalCustomMCPConnectors() where store.record(for: connector.id).isEnabled {
+            await connect(connector, isRestoring: true)
+        }
     }
 
     // MARK: Connect
@@ -93,7 +96,7 @@ final class ConnectorRuntime: ObservableObject {
         } catch {
             store.markFailed(connectorID: connector.id, reason: error.localizedDescription)
         }
-        refreshAvailableMCPTools()
+        await refreshAvailableMCPTools()
     }
 
     private func performConnection(for connector: Connector, isRestoring: Bool) async throws -> String? {
@@ -264,17 +267,33 @@ final class ConnectorRuntime: ObservableObject {
     private func ensureComposioSession() async throws {
         let connectorID = ComposioSessionStore.connectorID
         let hasStoredCommand = store.record(for: connectorID).customLaunchCommand?.isEmpty == false
-        if ComposioSessionStore.session() != nil, hasStoredCommand { return }
+        // A router session is scoped to the toolkits that were authorised
+        // when it was minted, so reusing one after the user connects another
+        // app leaves that app invisible to every search the session answers.
+        if hasStoredCommand, !ComposioAgentAttachment.isSessionStale() { return }
         guard let apiKey = ConnectorSecretStore.secret(forConnectorID: connectorID),
               !apiKey.isEmpty else {
             throw ComposioProvisioningError.missingAPIKey
         }
-        let session = try await composioProvisioner.createSession(
+        var session = try await composioProvisioner.createSession(
             apiKey: apiKey,
-            userID: ComposioSessionStore.userID()
+            userID: ComposioSessionStore.userID(),
+            connectedAccounts: ComposioAgentAttachment.connectedAccounts()
         )
+        session.scopedConnections = ComposioAgentAttachment.connectedScope()
         ComposioSessionStore.save(session)
         store.setCustomLaunchCommand(session.launchCommand, for: connectorID)
+    }
+
+    /// Re-prove Composio after the user authorises or removes a toolkit. The
+    /// stale session is dropped first so `ensureComposioSession` cannot take
+    /// its early return, and the live MCP client is restarted against the new
+    /// URL — otherwise the new app stays unreachable until the next launch.
+    func refreshComposioForChangedToolkits() async {
+        guard let connector = ConnectorCatalog.connector(withID: ComposioSessionStore.connectorID),
+              store.record(for: connector.id).isEnabled else { return }
+        clearComposioSession()
+        await connect(connector)
     }
 
     /// Forget the session so the next connect mints a fresh one. Called on
@@ -295,7 +314,7 @@ final class ConnectorRuntime: ObservableObject {
         if connector.id == ComposioSessionStore.connectorID {
             clearComposioSession()
         }
-        refreshAvailableMCPTools()
+        await refreshAvailableMCPTools()
     }
 
     func stopAll() async {
@@ -308,24 +327,35 @@ final class ConnectorRuntime: ObservableObject {
 
     // MARK: Tool surface
 
-    private func refreshAvailableMCPTools() {
-        Task { [weak self] in
-            guard let self else { return }
-            var flattened: [NamespacedMCPTool] = []
-            for (connectorID, client) in self.mcpClients {
-                guard let connector = ConnectorCatalog.connector(withID: connectorID) else { continue }
-                let tools = await client.discoveredTools
-                flattened.append(contentsOf: tools.map { tool in
-                    NamespacedMCPTool(
-                        connectorID: connectorID,
-                        connectorDisplayName: connector.displayName,
-                        tool: tool
-                    )
-                })
-            }
-            let sorted = flattened.sorted { $0.id < $1.id }
-            await MainActor.run { self.availableMCPTools = sorted }
+    private func refreshAvailableMCPTools() async {
+        var flattened: [NamespacedMCPTool] = []
+        for (connectorID, client) in mcpClients {
+            guard let connector = mcpConnector(forSessionID: connectorID) else { continue }
+            let tools = await client.discoveredTools
+            flattened.append(contentsOf: tools.map { tool in
+                NamespacedMCPTool(
+                    connectorID: connectorID,
+                    connectorDisplayName: connector.displayName,
+                    tool: tool
+                )
+            })
         }
+        availableMCPTools = flattened.sorted { $0.id < $1.id }
+    }
+
+    /// Catalog entries resolve as themselves. A user-supplied server uses
+    /// the saved command for its display name so two custom servers are
+    /// not both labeled with the generic catalog title.
+    private func mcpConnector(forSessionID connectorID: String) -> Connector? {
+        guard ConnectorCatalog.isUserSuppliedMCPID(connectorID) else {
+            return ConnectorCatalog.connector(withID: connectorID)
+        }
+        let command = store.record(for: connectorID).customLaunchCommand
+        return ConnectorCatalog.userSuppliedMCPConnector(
+            id: connectorID,
+            displayName: ConnectorCatalog.displayName(forCustomLaunchCommand: command),
+            summary: command
+        )
     }
 
     /// Route a namespaced tool call back to the server that owns it.

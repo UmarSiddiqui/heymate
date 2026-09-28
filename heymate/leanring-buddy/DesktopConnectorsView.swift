@@ -29,10 +29,12 @@ struct DesktopConnectorsView: View {
     @State private var selectedComposioCategory = "All"
     @State private var areMCPPresetsExpanded = false
     @State private var isShowingAPIContractHelp = false
+    @State private var disconnectPrompt: DisconnectPrompt?
+    @State private var commandRemovalPrompt: Connector?
 
     var body: some View {
         DesktopPage(
-            title: "Integrations",
+            title: "Tools",
             subtitle: connectedSummary,
             accessory: AnyView(searchField)
         ) {
@@ -52,6 +54,53 @@ struct DesktopConnectorsView: View {
         }
         .sheet(isPresented: $isShowingAPIContractHelp) {
             apiContractHelpSheet
+        }
+        .confirmationDialog(
+            disconnectPrompt.map { "Disconnect \($0.name)?" } ?? "Disconnect?",
+            isPresented: Binding(
+                get: { disconnectPrompt != nil },
+                set: { isPresented in
+                    if !isPresented { disconnectPrompt = nil }
+                }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Disconnect", role: .destructive) {
+                let prompt = disconnectPrompt
+                disconnectPrompt = nil
+                switch prompt?.kind {
+                case .connector(let connector):
+                    Task { await runtime.disconnect(connector) }
+                case .composio(let slug, _):
+                    Task { await composioConnections.disconnect(slug) }
+                case nil:
+                    break
+                }
+            }
+            Button("Cancel", role: .cancel) { disconnectPrompt = nil }
+        } message: {
+            Text("HeyMate will forget this connection on this Mac.")
+        }
+        .confirmationDialog(
+            commandRemovalPrompt.map { "Remove the command for \($0.displayName)?" } ?? "Remove the command?",
+            isPresented: Binding(
+                get: { commandRemovalPrompt != nil },
+                set: { isPresented in
+                    if !isPresented { commandRemovalPrompt = nil }
+                }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Remove command", role: .destructive) {
+                let connector = commandRemovalPrompt
+                commandRemovalPrompt = nil
+                if let connector {
+                    removeCustomMCPCommand(connector)
+                }
+            }
+            Button("Cancel", role: .cancel) { commandRemovalPrompt = nil }
+        } message: {
+            Text("HeyMate will disconnect it and forget this command on this Mac.")
         }
         .task {
             await composioToolkitDirectory.loadDefaultPage(apiKey: composioConnections.apiKey)
@@ -79,7 +128,7 @@ struct DesktopConnectorsView: View {
             Image(systemName: "magnifyingglass")
                 .font(DS.Fonts.sectionLabel)
                 .foregroundColor(DS.Colors.textTertiary)
-            TextField("Search integrations", text: $searchText)
+            TextField("Search apps and tools", text: $searchText)
                 .textFieldStyle(.plain)
                 .font(DS.Fonts.body)
                 .frame(width: 180)
@@ -140,10 +189,10 @@ struct DesktopConnectorsView: View {
             composioCategoryChips
         }
         if composioToolkitDirectory.isLoading && composioToolkitDirectory.toolkits.isEmpty {
-            ProgressView("Loading integrations…")
+            ProgressView("Loading tools…")
                 .controlSize(.small)
         } else if let failure = composioToolkitDirectory.loadFailureMessage {
-            DesktopEmptyState(symbolName: "exclamationmark.triangle", title: "Could not load integrations", message: failure)
+            DesktopEmptyState(symbolName: "exclamationmark.triangle", title: "Could not load tools", message: failure)
         } else if visibleComposioToolkits.isEmpty {
             DesktopEmptyState(
                 symbolName: "magnifyingglass",
@@ -160,7 +209,7 @@ struct DesktopConnectorsView: View {
                         toolkit: toolkit,
                         state: composioConnections.state(for: toolkit.slug),
                         onConnect: { Task { await composioConnections.connect(toolkit) } },
-                        onDisconnect: { Task { await composioConnections.disconnect(toolkit.slug) } }
+                        onDisconnect: { requestComposioDisconnect(toolkit) }
                     )
                 }
             }
@@ -227,12 +276,34 @@ struct DesktopConnectorsView: View {
 
     @ViewBuilder
     private var localSection: some View {
-        let connectors = filteredConnectors(ConnectorCatalog.appleNativeConnectors + ConnectorCatalog.localCLIConnectors)
-        if !connectors.isEmpty {
+        let nativeApps = filteredConnectors(ConnectorCatalog.appleNativeConnectors)
+        let localTools = filteredConnectors(ConnectorCatalog.localCLIConnectors)
+
+        if !nativeApps.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                sectionHeader(title: "Mac apps", subtitle: "Connect apps already on this Mac")
+
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 250, maximum: 360), spacing: 10)],
+                    spacing: 10
+                ) {
+                    ForEach(nativeApps) { connector in
+                        NativeAppConnectionCard(
+                            connector: connector,
+                            state: store.connectionState(for: connector.id),
+                            onConnect: { connect(connector) },
+                            onDisconnect: { requestDisconnect(connector) }
+                        )
+                    }
+                }
+            }
+        }
+
+        if !localTools.isEmpty {
             connectorSection(
-                title: "On this Mac",
-                subtitle: "Native permissions and tools already signed in locally",
-                connectors: connectors
+                title: "Local tools",
+                subtitle: "Command-line tools already signed in locally",
+                connectors: localTools
             )
         }
     }
@@ -246,18 +317,21 @@ struct DesktopConnectorsView: View {
             }
         )
 
+        let primaryNeedsCommand = customMCPConnector.map { !shouldListCustomMCP(id: $0.id) } ?? true
+        let savedCustomServers = listedCustomMCPConnectors
+
         VStack(alignment: .leading, spacing: 10) {
             sectionHeader(title: "Custom", subtitle: "Bring tools HeyMate can inspect before use")
 
             HStack(alignment: .top, spacing: 10) {
-                if let customMCPConnector {
+                if customMCPConnector != nil {
                     CustomIntegrationChoiceCard(
                         symbolName: "cable.connector",
                         title: "MCP server",
                         detail: "Add a local command or remote MCP URL. HeyMate discovers its tools before connecting.",
-                        actionTitle: "Add MCP",
+                        actionTitle: primaryNeedsCommand ? "Add MCP" : "Add another MCP server",
                         isEnabled: true,
-                        action: { connect(customMCPConnector) }
+                        action: { addCustomMCPServer() }
                     )
                 }
 
@@ -269,6 +343,28 @@ struct DesktopConnectorsView: View {
                     isEnabled: false,
                     action: { isShowingAPIContractHelp = true }
                 )
+            }
+
+            if !savedCustomServers.isEmpty {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 340, maximum: 420), spacing: 12)],
+                    spacing: 12
+                ) {
+                    ForEach(savedCustomServers) { connector in
+                        ConnectorCard(
+                            connector: connector,
+                            state: store.connectionState(for: connector.id),
+                            record: store.record(for: connector.id),
+                            onConnect: { connect(connector) },
+                            onDisconnect: { requestDisconnect(connector) },
+                            onChangePolicy: { store.setApprovalPolicy($0, for: connector.id) },
+                            onAddKey: { beginKeyEntry(for: connector) },
+                            onEditCommand: { beginLaunchCommandEntry(for: connector) },
+                            onRemoveCommand: { commandRemovalPrompt = connector },
+                            showsReplaceKey: showsReplaceKey(for: connector)
+                        )
+                    }
+                }
             }
 
             if !presetConnectors.isEmpty {
@@ -283,12 +379,10 @@ struct DesktopConnectorsView: View {
                                 state: store.connectionState(for: connector.id),
                                 record: store.record(for: connector.id),
                                 onConnect: { connect(connector) },
-                                onDisconnect: { Task { await runtime.disconnect(connector) } },
+                                onDisconnect: { requestDisconnect(connector) },
                                 onChangePolicy: { store.setApprovalPolicy($0, for: connector.id) },
-                                onAddKey: {
-                                    apiKeyDraft = ""
-                                    connectorAwaitingKeyEntry = connector
-                                }
+                                onAddKey: { beginKeyEntry(for: connector) },
+                                showsReplaceKey: showsReplaceKey(for: connector)
                             )
                         }
                     }
@@ -368,14 +462,12 @@ struct DesktopConnectorsView: View {
                             state: store.connectionState(for: connector.id),
                             record: store.record(for: connector.id),
                             onConnect: { connect(connector) },
-                            onDisconnect: { Task { await runtime.disconnect(connector) } },
+                            onDisconnect: { requestDisconnect(connector) },
                             onChangePolicy: { policy in
                                 store.setApprovalPolicy(policy, for: connector.id)
                             },
-                            onAddKey: {
-                                apiKeyDraft = ""
-                                connectorAwaitingKeyEntry = connector
-                            }
+                            onAddKey: { beginKeyEntry(for: connector) },
+                            showsReplaceKey: showsReplaceKey(for: connector)
                         )
                     }
                 }
@@ -396,10 +488,9 @@ struct DesktopConnectorsView: View {
     }
 
     private func connect(_ connector: Connector) {
-        if connector.id == "mcp-custom",
+        if ConnectorCatalog.isUserSuppliedMCPID(connector.id),
            store.record(for: connector.id).customLaunchCommand?.isEmpty != false {
-            launchCommandDraft = ""
-            connectorAwaitingCommandEntry = connector
+            beginLaunchCommandEntry(for: connector)
             return
         }
         // MCP servers commonly need a key before they will even start, so
@@ -407,11 +498,99 @@ struct DesktopConnectorsView: View {
         let needsKeyFirst = connector.transport == .apiKey
             || (connector.transport == .mcp && Self.mcpConnectorsRequiringKey.contains(connector.id))
         if needsKeyFirst, !ConnectorSecretStore.hasSecret(forConnectorID: connector.id) {
-            apiKeyDraft = ""
-            connectorAwaitingKeyEntry = connector
+            beginKeyEntry(for: connector)
             return
         }
         Task { await runtime.connect(connector) }
+    }
+
+    private func showsReplaceKey(for connector: Connector) -> Bool {
+        connector.transport == .apiKey || Self.mcpConnectorsRequiringKey.contains(connector.id)
+    }
+
+    private func beginKeyEntry(for connector: Connector) {
+        apiKeyDraft = ""
+        connectorAwaitingKeyEntry = connector
+    }
+
+    private func requestDisconnect(_ connector: Connector) {
+        disconnectPrompt = DisconnectPrompt(kind: .connector(connector))
+    }
+
+    private func requestComposioDisconnect(_ toolkit: ComposioToolkit) {
+        disconnectPrompt = DisconnectPrompt(kind: .composio(slug: toolkit.slug, name: toolkit.name))
+    }
+
+    private func beginLaunchCommandEntry(for connector: Connector) {
+        launchCommandDraft = store.record(for: connector.id).customLaunchCommand ?? ""
+        connectorAwaitingCommandEntry = connector
+    }
+
+    /// The first server occupies `mcp-custom`. Once that command is saved,
+    /// another tap mints `mcp-custom-` plus a UUID and opens the same sheet.
+    private func addCustomMCPServer() {
+        if let primary = ConnectorCatalog.connector(withID: ConnectorCatalog.customMCPConnectorID),
+           !shouldListCustomMCP(id: primary.id) {
+            beginLaunchCommandEntry(for: primary)
+            return
+        }
+        let identifier = ConnectorCatalog.additionalCustomMCPIDPrefix + UUID().uuidString
+        let connector = ConnectorCatalog.userSuppliedMCPConnector(
+            id: identifier,
+            displayName: "Custom MCP server"
+        )
+        beginLaunchCommandEntry(for: connector)
+    }
+
+    private func removeCustomMCPCommand(_ connector: Connector) {
+        Task {
+            await runtime.disconnect(connector)
+            store.setCustomLaunchCommand(nil, for: connector.id)
+            if ConnectorCatalog.isAdditionalCustomMCPID(connector.id) {
+                store.removeAdditionalCustomMCP(connectorID: connector.id)
+            }
+        }
+    }
+
+    private var listedCustomMCPConnectors: [Connector] {
+        var listed: [Connector] = []
+        if shouldListCustomMCP(id: ConnectorCatalog.customMCPConnectorID) {
+            let primary = presentedCustomMCP(id: ConnectorCatalog.customMCPConnectorID)
+            if matchesCustomMCPSearch(primary) {
+                listed.append(primary)
+            }
+        }
+        let additional = store.additionalCustomMCPConnectors()
+            .filter { shouldListCustomMCP(id: $0.id) && matchesCustomMCPSearch($0) }
+            .sorted {
+                $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+            }
+        return listed + additional
+    }
+
+    private func presentedCustomMCP(id: String) -> Connector {
+        let command = store.record(for: id).customLaunchCommand
+        return ConnectorCatalog.userSuppliedMCPConnector(
+            id: id,
+            displayName: ConnectorCatalog.displayName(forCustomLaunchCommand: command),
+            summary: command
+        )
+    }
+
+    private func shouldListCustomMCP(id: String) -> Bool {
+        let record = store.record(for: id)
+        if record.customLaunchCommand?.isEmpty == false { return true }
+        if record.isEnabled { return true }
+        if record.lastErrorMessage?.isEmpty == false { return true }
+        return store.connectionState(for: id) != .notConnected
+    }
+
+    private func matchesCustomMCPSearch(_ connector: Connector) -> Bool {
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
+        let command = store.record(for: connector.id).customLaunchCommand ?? ""
+        let haystack = [connector.displayName, connector.summary, command].joined(separator: " ")
+        return haystack.range(of: trimmed, options: [.caseInsensitive, .diacriticInsensitive]) != nil
     }
 
     /// Servers whose published packages exit immediately without a key.
@@ -455,8 +634,10 @@ struct DesktopConnectorsView: View {
     }
 
     private func launchCommandSheet(for connector: Connector) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Add custom MCP server")
+        let savedCommand = store.record(for: connector.id).customLaunchCommand ?? ""
+        let isEditing = !savedCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return VStack(alignment: .leading, spacing: 14) {
+            Text(isEditing ? "Edit MCP server" : "Add custom MCP server")
                 .font(DS.Fonts.title)
             Text("Paste a local launch command or remote MCP URL. HeyMate discovers its tools before marking it connected.")
                 .font(DS.Fonts.body)
@@ -466,8 +647,11 @@ struct DesktopConnectorsView: View {
                 .textFieldStyle(.roundedBorder)
             HStack {
                 Spacer()
-                Button("Cancel") { connectorAwaitingCommandEntry = nil }
-                    .buttonStyle(DSSecondaryButtonStyle())
+                Button("Cancel") {
+                    launchCommandDraft = ""
+                    connectorAwaitingCommandEntry = nil
+                }
+                .buttonStyle(DSSecondaryButtonStyle())
                 Button("Save and connect") {
                     let command = launchCommandDraft.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !command.isEmpty else { return }
@@ -482,6 +666,109 @@ struct DesktopConnectorsView: View {
         }
         .padding(22)
         .frame(width: 500)
+        .onAppear {
+            if launchCommandDraft.isEmpty, !savedCommand.isEmpty {
+                launchCommandDraft = savedCommand
+            }
+        }
+    }
+}
+
+private struct DisconnectPrompt: Identifiable {
+    enum Kind {
+        case connector(Connector)
+        case composio(slug: String, name: String)
+    }
+
+    let id = UUID()
+    let kind: Kind
+
+    var name: String {
+        switch kind {
+        case .connector(let connector):
+            return connector.displayName
+        case .composio(_, let name):
+            return name
+        }
+    }
+}
+
+// MARK: - Native app connection card
+
+/// Native apps use the same short connection treatment as hosted apps. Their
+/// per-action permission rules remain enforced by the tool runtime; showing
+/// the full MCP/CLI policy surface here made this simple opt-in needlessly tall.
+private struct NativeAppConnectionCard: View {
+    let connector: Connector
+    let state: ConnectorConnectionState
+    let onConnect: () -> Void
+    let onDisconnect: () -> Void
+
+    @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+
+    var body: some View {
+        HStack(spacing: 13) {
+            Image(systemName: connector.symbolName)
+                .font(DS.Fonts.title)
+                .foregroundColor(DS.Colors.textPrimary)
+                .frame(width: 38, height: 38)
+                .background(
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                        .fill(DS.Colors.surface3)
+                )
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(connector.displayName)
+                    .font(DS.Fonts.headline)
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .lineLimit(1)
+                Text(nativeAppStatus)
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(state.tintColor)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 6)
+
+            if state.isConnected {
+                Button("Disconnect", action: onDisconnect)
+                    .buttonStyle(ToolkitCardButtonStyle(prominence: .secondary))
+            } else if state == .connecting {
+                ProgressView().controlSize(.small)
+            } else {
+                Button(state == .notConnected ? "Connect" : "Retry", action: onConnect)
+                    .buttonStyle(ToolkitCardButtonStyle(prominence: .primary))
+            }
+        }
+        .padding(13)
+        .background(
+            RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                .fill(isHovered ? DS.Colors.surface2 : DS.Colors.surface1)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                .stroke(
+                    state.isConnected ? DS.Colors.success.opacity(0.48) : DS.Colors.borderSubtle,
+                    lineWidth: 1
+                )
+        )
+        .offset(y: isHovered && !accessibilityReduceMotion ? -1 : 0)
+        .animation(accessibilityReduceMotion ? nil : DS.Animation.controlSpring, value: isHovered)
+        .onHover { isHovered = $0 }
+    }
+
+    private var nativeAppStatus: String {
+        switch state {
+        case .notConnected:
+            return "Not connected"
+        case .connecting:
+            return "Connecting…"
+        case .connected:
+            return "Connected"
+        case .needsAttention(let reason):
+            return reason
+        }
     }
 }
 
@@ -495,6 +782,9 @@ private struct ConnectorCard: View {
     let onDisconnect: () -> Void
     let onChangePolicy: (ConnectorApprovalPolicy) -> Void
     let onAddKey: () -> Void
+    var onEditCommand: (() -> Void)? = nil
+    var onRemoveCommand: (() -> Void)? = nil
+    var showsReplaceKey: Bool = false
 
     @State private var isHovered = false
 
@@ -517,6 +807,9 @@ private struct ConnectorCard: View {
 
             Divider().opacity(0.3)
             footer
+            if onEditCommand != nil || onRemoveCommand != nil {
+                commandActions
+            }
         }
         .padding(14)
         .background(
@@ -620,6 +913,11 @@ private struct ConnectorCard: View {
                 .pointerCursor()
                 .help("When this connector needs your approval. Sends and deletions always ask, whatever you pick.")
 
+                if showsReplaceKey {
+                    Button("Replace key", action: onAddKey)
+                        .buttonStyle(DSTertiaryButtonStyle())
+                }
+
                 Button("Disconnect", action: onDisconnect)
                     .buttonStyle(DSTertiaryButtonStyle())
             } else if case .connecting = state {
@@ -638,6 +936,20 @@ private struct ConnectorCard: View {
                 Button(state == .notConnected ? "Connect" : "Retry", action: onConnect)
                     .buttonStyle(DSPrimaryButtonStyle())
             }
+        }
+    }
+
+    private var commandActions: some View {
+        HStack(spacing: 8) {
+            if let onEditCommand {
+                Button("Edit command", action: onEditCommand)
+                    .buttonStyle(DSTertiaryButtonStyle())
+            }
+            if let onRemoveCommand {
+                Button("Remove command", action: onRemoveCommand)
+                    .buttonStyle(DSTertiaryButtonStyle())
+            }
+            Spacer(minLength: 0)
         }
     }
 
@@ -660,20 +972,11 @@ private struct ComposioToolkitCard: View {
     let onDisconnect: () -> Void
 
     @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
     var body: some View {
-        HStack(spacing: 11) {
-            AsyncImage(url: toolkit.logoURL) { phase in
-                if let image = phase.image {
-                    image.resizable().scaledToFit()
-                } else {
-                    Image(systemName: "app.fill")
-                        .foregroundColor(DS.Colors.textSecondary)
-                }
-            }
-            .frame(width: 30, height: 30)
-            .padding(5)
-            .background(DS.Colors.surface3, in: RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous))
+        HStack(spacing: 13) {
+            ComposioToolkitLogoView(toolkit: toolkit, isConnected: state.isConnected)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(toolkit.name)
@@ -696,24 +999,90 @@ private struct ComposioToolkitCard: View {
 
             if state.isConnected {
                 Button("Disconnect", action: onDisconnect)
-                    .buttonStyle(DSTertiaryButtonStyle())
+                    .buttonStyle(ToolkitCardButtonStyle(prominence: .secondary))
             } else if state == .connecting {
                 ProgressView().controlSize(.small)
             } else {
                 Button(state.needsAttention ? "Retry" : "Connect", action: onConnect)
-                    .buttonStyle(DSPrimaryButtonStyle())
+                    .buttonStyle(ToolkitCardButtonStyle(prominence: .primary))
             }
         }
-        .padding(12)
+        .padding(13)
         .background(
             RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                .fill(isHovered ? DS.Colors.surface2 : DS.Colors.surface1)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            toolkit.visualAccent.opacity(isHovered ? 0.11 : 0.055),
+                            isHovered ? DS.Colors.surface2 : DS.Colors.surface1
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
         )
         .overlay(
             RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                .stroke(state.isConnected ? DS.Colors.success.opacity(0.4) : DS.Colors.borderSubtle, lineWidth: 1)
+                .stroke(
+                    state.isConnected
+                        ? DS.Colors.success.opacity(0.48)
+                        : isHovered
+                            ? toolkit.visualAccent.opacity(0.38)
+                            : DS.Colors.borderSubtle,
+                    lineWidth: 1
+                )
         )
+        .shadow(color: toolkit.visualAccent.opacity(isHovered ? 0.14 : 0), radius: 14, y: 6)
+        .offset(y: isHovered && !accessibilityReduceMotion ? -1 : 0)
+        .animation(accessibilityReduceMotion ? nil : DS.Animation.controlSpring, value: isHovered)
         .onHover { isHovered = $0 }
+    }
+}
+
+private struct ToolkitCardButtonStyle: ButtonStyle {
+    enum Prominence {
+        case primary
+        case secondary
+    }
+
+    let prominence: Prominence
+    @State private var isHovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(DS.Fonts.sectionLabel)
+            .foregroundStyle(foregroundColor)
+            .frame(minWidth: 72)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Capsule().fill(backgroundColor(isPressed: configuration.isPressed)))
+            .overlay(Capsule().stroke(borderColor, lineWidth: 1))
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.easeOut(duration: DS.Animation.fast), value: configuration.isPressed)
+            .animation(.easeOut(duration: DS.Animation.fast), value: isHovered)
+            .onHover { hovering in
+                isHovered = hovering
+                if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+    }
+
+    private var foregroundColor: Color {
+        prominence == .primary ? DS.Colors.textOnAccent : DS.Colors.textSecondary
+    }
+
+    private var borderColor: Color {
+        prominence == .primary ? Color.clear : DS.Colors.borderStrong
+    }
+
+    private func backgroundColor(isPressed: Bool) -> Color {
+        switch prominence {
+        case .primary:
+            if isPressed { return DS.Colors.accentHover }
+            return isHovered ? DS.Colors.accentHover : DS.Colors.accent
+        case .secondary:
+            if isPressed { return DS.Colors.surface4 }
+            return isHovered ? DS.Colors.surface3 : DS.Colors.surface2
+        }
     }
 }
 

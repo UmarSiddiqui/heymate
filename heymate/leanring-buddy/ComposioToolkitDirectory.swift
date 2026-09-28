@@ -41,6 +41,26 @@ struct ComposioToolkit: Identifiable, Equatable, Sendable {
 
     var id: String { slug }
 
+    /// Composio's catalog logos are served as SVGs from this endpoint. Keep
+    /// the URL returned by the toolkit payload as a fallback because custom
+    /// toolkits can provide their own artwork.
+    var logoCandidates: [URL] {
+        var candidates: [URL] = []
+        if let canonicalLogoURL {
+            candidates.append(canonicalLogoURL)
+        }
+        if let logoURL, !candidates.contains(logoURL) {
+            candidates.append(logoURL)
+        }
+        return candidates
+    }
+
+    private var canonicalLogoURL: URL? {
+        guard !slug.isEmpty else { return nil }
+        return URL(string: "https://logos.composio.dev/api/")?
+            .appendingPathComponent(slug.lowercased())
+    }
+
     /// Only these can be connected with one click. The rest would need the
     /// user to bring their own OAuth credentials, which this UI does not ask
     /// for and should not pretend to.

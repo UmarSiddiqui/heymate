@@ -59,13 +59,22 @@ final class ComposioConnectionsRuntime: ObservableObject {
     /// spin forever after the user gave up in the browser.
     static let connectionTimeout: TimeInterval = 180
     private static let pollInterval: Duration = .seconds(2)
-    private static let storageKey = "composioConnections"
+    /// Internal rather than private: `ComposioAgentAttachment` reads the same
+    /// list to name the connected apps in a Talk prompt, and it is
+    /// `nonisolated` so it cannot ask this main-actor runtime.
+    static let recordsPreferenceKey = "composioConnections"
 
     @Published private(set) var records: [String: ComposioConnectionRecord] = [:]
     @Published private(set) var states: [String: ComposioConnectionState] = [:]
 
     private let broker: ComposioAuthBroker
     private let userDefaults: UserDefaults
+
+    /// Called after the set of authorised toolkits changes. `ConnectorRuntime`
+    /// hangs the router-session refresh here rather than this type reaching
+    /// for it: authorising an app and holding the MCP session are separate
+    /// jobs, and only one of them belongs in this file.
+    var onConnectedToolkitsChanged: (@MainActor () async -> Void)?
 
     init(
         broker: ComposioAuthBroker = ComposioAuthBroker(),
@@ -121,6 +130,7 @@ final class ComposioConnectionsRuntime: ObservableObject {
                     )
                 )
                 states[toolkit.slug] = .connected
+                await onConnectedToolkitsChanged?()
                 return
             }
             let authConfigID = try await ensureAuthConfig(apiKey: apiKey, toolkitSlug: toolkit.slug)
@@ -148,6 +158,7 @@ final class ComposioConnectionsRuntime: ObservableObject {
                 )
             )
             states[toolkit.slug] = .connected
+            await onConnectedToolkitsChanged?()
         } catch {
             states[toolkit.slug] = .needsAttention(reason: error.localizedDescription)
         }
@@ -170,6 +181,7 @@ final class ComposioConnectionsRuntime: ObservableObject {
             records.removeValue(forKey: toolkitSlug)
             states[toolkitSlug] = .notConnected
             persist()
+            await onConnectedToolkitsChanged?()
         } catch {
             states[toolkitSlug] = .needsAttention(reason: error.localizedDescription)
         }
@@ -263,11 +275,11 @@ final class ComposioConnectionsRuntime: ObservableObject {
 
     private func persist() {
         guard let encoded = try? JSONEncoder().encode(records) else { return }
-        userDefaults.set(encoded, forKey: Self.storageKey)
+        userDefaults.set(encoded, forKey: Self.recordsPreferenceKey)
     }
 
     private func loadRecords() {
-        guard let data = userDefaults.data(forKey: Self.storageKey),
+        guard let data = userDefaults.data(forKey: Self.recordsPreferenceKey),
               let decoded = try? JSONDecoder().decode([String: ComposioConnectionRecord].self, from: data) else {
             return
         }

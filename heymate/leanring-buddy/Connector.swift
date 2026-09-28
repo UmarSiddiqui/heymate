@@ -79,6 +79,108 @@ enum ConnectorToolRisk: Int, Codable, Comparable, Sendable {
 
     var requiresApproval: Bool { self >= .externalSideEffect }
 
+    /// Risk for one named tool, never above the connector's own ceiling.
+    ///
+    /// A connector's `maximumRisk` describes the worst thing it can do, which
+    /// is the right thing to show on its card and the wrong thing to judge
+    /// every call by: Composio can delete in someone else's account, so
+    /// judging by the ceiling alone puts a destructive-red approval card in
+    /// front of a tool search. Discovery then costs a click, a turn stalls
+    /// waiting on one, and the model gives up and asks for a screenshot.
+    ///
+    /// An unrecognised verb falls back to the ceiling. A tool nobody can read
+    /// is treated as the most dangerous thing its connector can do, never the
+    /// least — so `COMPOSIO_MULTI_EXECUTE_TOOL`, which can run anything, still
+    /// stops for a yes.
+    static func inferred(forToolNamed toolName: String, ceiling: ConnectorToolRisk) -> ConnectorToolRisk {
+        let tokens = Set(tokenize(toolName))
+        let inferred: ConnectorToolRisk?
+        // Most dangerous first: `list_and_delete` is a delete.
+        if !tokens.isDisjoint(with: destructiveVerbs) {
+            inferred = .destructive
+        } else if !tokens.isDisjoint(with: externalSideEffectVerbs) {
+            inferred = .externalSideEffect
+        } else if !tokens.isDisjoint(with: writeVerbs) {
+            inferred = .reversibleWrite
+        } else if !tokens.isDisjoint(with: readVerbs) {
+            inferred = .readOnly
+        } else {
+            inferred = nil
+        }
+        guard let inferred else { return ceiling }
+        return min(inferred, ceiling)
+    }
+
+    /// Risk for an actual call. Composio's multi-execute meta-tool hides the
+    /// concrete operation in `arguments.tools`, so judging only its outer
+    /// name forces approval for harmless reads. Every batch item must expose
+    /// a tool slug; malformed or unknown items fail closed at the ceiling.
+    static func inferred(
+        forToolNamed toolName: String,
+        arguments: [String: Any],
+        ceiling: ConnectorToolRisk
+    ) -> ConnectorToolRisk {
+        let tokens = Set(tokenize(toolName))
+        guard tokens.contains("composio"),
+              tokens.contains("multi"),
+              tokens.contains("execute") else {
+            return inferred(forToolNamed: toolName, ceiling: ceiling)
+        }
+        guard let tools = arguments["tools"] as? [Any], !tools.isEmpty else {
+            return ceiling
+        }
+        var batchRisk = ConnectorToolRisk.readOnly
+        for value in tools {
+            guard let tool = value as? [String: Any],
+                  let name = (tool["tool_slug"] as? String)
+                    ?? (tool["tool_name"] as? String)
+                    ?? (tool["slug"] as? String),
+                  !name.isEmpty else {
+                return ceiling
+            }
+            batchRisk = max(batchRisk, inferred(forToolNamed: name, ceiling: ceiling))
+        }
+        return batchRisk
+    }
+
+    /// Whole tokens, never substrings: `forget_account` contains "get" and is
+    /// not a read.
+    static func tokenize(_ toolName: String) -> [String] {
+        var tokens: [String] = []
+        var current = ""
+        for character in toolName {
+            if character == "_" || character == "-" || character == "." || character == " " {
+                if !current.isEmpty { tokens.append(current.lowercased()); current = "" }
+            } else if character.isUppercase, let last = current.last, last.isLowercase {
+                tokens.append(current.lowercased())
+                current = String(character)
+            } else {
+                current.append(character)
+            }
+        }
+        if !current.isEmpty { tokens.append(current.lowercased()) }
+        return tokens
+    }
+
+    private static let destructiveVerbs: Set<String> = [
+        "delete", "destroy", "remove", "revoke", "drop", "purge", "erase",
+        "wipe", "truncate", "uninstall", "disconnect", "cancel", "terminate"
+    ]
+    private static let externalSideEffectVerbs: Set<String> = [
+        "send", "post", "publish", "share", "email", "message", "invite",
+        "reply", "forward", "notify", "broadcast", "submit", "pay", "charge"
+    ]
+    private static let writeVerbs: Set<String> = [
+        "create", "add", "update", "set", "write", "edit", "patch", "upload",
+        "insert", "modify", "rename", "move", "copy", "duplicate", "star",
+        "label", "tag", "assign", "mark", "archive", "upsert"
+    ]
+    private static let readVerbs: Set<String> = [
+        "search", "list", "get", "read", "fetch", "find", "describe", "schema",
+        "schemas", "lookup", "count", "query", "check", "status", "info",
+        "view", "show", "download", "export", "analytics", "stats", "metrics"
+    ]
+
     var displayName: String {
         switch self {
         case .readOnly: return "Read only"
