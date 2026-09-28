@@ -18,3 +18,10 @@ heymate/coding-plans/
 heymate/worker/node_modules/
 heymate/worker/.dev.vars
 heymate/worker/.wrangler/
+
+# local-only files (never publish)
+/main
+/.codex/
+/.claude/
+/design-qa.md
+heymate/design/
