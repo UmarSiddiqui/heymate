@@ -14,6 +14,17 @@
   <link rel="stylesheet" href="css/sections.css">
   <link rel="stylesheet" href="css/motion.css">
   <script>document.documentElement.classList.add("js")</script>
+  <!-- Hotjar Tracking Code for HeyMate -->
+  <script>
+    (function(h,o,t,j,a,r){
+      h.hj=h.hj||function(){(h.hj.q=h.hj.q||[]).push(arguments)};
+      h._hjSettings={hjid:6785426,hjsv:6};
+      a=o.getElementsByTagName('head')[0];
+      r=o.createElement('script');r.async=1;
+      r.src=t+h._hjSettings.hjid+j+h._hjSettings.hjsv;
+      a.appendChild(r);
+    })(window,document,'https://static.hotjar.com/c/hotjar-','.js?sv=');
+  </script>
 </head>
 <body>
   <header class="nav scrolled">
@@ -76,8 +87,11 @@
         <li>Talk and coding-agent turns go to the CLI you already use — Claude Code, Codex, or OpenCode — or to a Custom API endpoint you configure yourself. HeyMate does not add its own bill.</li>
         <li>Cloud speech (optional) only if you enable it.</li>
         <li>Composio and other connectors only call the apps you connect, and anything that sends, deletes, or pays asks first.</li>
-        <li>Analytics ships only in a build that was compiled with an analytics key. This website has none.</li>
+        <li>Analytics ships only in a build that was compiled with an analytics key. The downloadable release has none.</li>
       </ul>
+
+      <h2>This website</h2>
+      <p>getheymate.vercel.app uses Hotjar to see how visitors use the page: which sections they reach, where they click, and anonymised session replays. It sets Hotjar cookies. The page has no forms, and Hotjar masks typed text by default. None of this is in the app. Block it with any content blocker, or opt out at <a href="https://www.hotjar.com/policies/do-not-track/">hotjar.com/policies/do-not-track</a>.</p>
 
       <h2>How to delete everything</h2>
       <p>In the app, clear memory from the Memory section. To remove the local files entirely, quit HeyMate and delete <span class="code">~/Library/Application Support/heymate/</span>. Keychain items named for HeyMate can be removed in Keychain Access.</p>
