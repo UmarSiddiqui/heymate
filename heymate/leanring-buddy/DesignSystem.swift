@@ -2,17 +2,16 @@
 //  DesignSystem.swift
 //  leanring-buddy
 //
-//  Centralized design system — the "Den" language. HeyMate is a small buddy
-//  that lives in the notch, so every surface is its den: warm, dark, soft,
-//  and rounded, lit by one glow — the buddy's theme color.
+//  Centralized design system. HeyMate lives in the notch, so every surface
+//  is as quiet as the hardware around it: matte black in dark mode, clean
+//  white in light, lit by one color — the buddy's theme color.
 //
-//  Palette: "dusk" neutrals. Warm graphite surfaces (never cold blue-slate),
-//  warm off-white text, and the user-picked buddy color as the single
-//  accent. Semantic colors stay semantic. `warmth` is a decorative ember
-//  tint reserved for the buddy's glow and hero moments — never status.
+//  Palette: true neutrals with no hue cast, layered by lightness only, and
+//  the user-picked buddy color as the single accent. Semantic colors stay
+//  semantic. `warmth` is a decorative lilac kept for illustration — never
+//  status, never chrome.
 //
-//  Type: SF Rounded carries the buddy's voice (titles, status words,
-//  section labels); SF Pro carries content. See `DS.Fonts`.
+//  Type: Avenir Next carries the voice. See `DS.Fonts`.
 //
 //  All colors, button styles, and interaction states are defined here as
 //  the single source of truth.
@@ -32,43 +31,43 @@ enum DS {
     enum Colors {
 
         // ── Backgrounds ──────────────────────────────────────────────
-        // "Dusk" neutrals: warm graphite, layered deepest to most
-        // elevated. Warmth is what makes the den feel like a place the
-        // buddy lives in rather than a terminal theme.
+        // Matte neutrals, layered deepest to most elevated. No hue cast in
+        // either mode: black is black, white is white, and elevation is
+        // carried by lightness alone.
 
         /// The deepest background — used for the main app window fill.
-        static let background = Color(hex: "#141217")
+        static let background = Color(light: "#FFFFFF", dark: "#0A0A0A")
 
         /// First elevation layer — used for cards, sidebar, top bar backgrounds.
-        static let surface1 = Color(hex: "#1C1A21")
+        static let surface1 = Color(light: "#F7F7F8", dark: "#121213")
 
         /// Second elevation layer — used for input fields, elevated cards, chat bubbles.
-        static let surface2 = Color(hex: "#25232C")
+        static let surface2 = Color(light: "#F0F0F2", dark: "#1A1A1C")
 
         /// Third elevation layer — used for hover backgrounds on interactive elements.
-        static let surface3 = Color(hex: "#2E2C36")
+        static let surface3 = Color(light: "#E6E6E9", dark: "#232325")
 
         /// Fourth elevation layer — used for active/pressed states on interactive elements.
-        static let surface4 = Color(hex: "#383640")
+        static let surface4 = Color(light: "#DADADE", dark: "#2D2D30")
 
         // ── Borders ──────────────────────────────────────────────────
 
         /// Subtle border — used for card outlines, dividers, input field borders.
-        static let borderSubtle = Color(hex: "#2D2B35")
+        static let borderSubtle = Color(light: "#E4E4E7", dark: "#262628")
 
         /// Strong border — used for focused inputs, hovered card outlines.
-        static let borderStrong = Color(hex: "#46444F")
+        static let borderStrong = Color(light: "#C9C9CF", dark: "#3E3E42")
 
         // ── Text ─────────────────────────────────────────────────────
 
-        /// Primary text — main body text, titles, headings. Warm off-white.
-        static let textPrimary = Color(hex: "#F4F1F6")
+        /// Primary text — main body text, titles, headings.
+        static let textPrimary = Color(light: "#111113", dark: "#F5F5F7")
 
         /// Secondary text — descriptions, hints, muted labels.
-        static let textSecondary = Color(hex: "#B5B0BF")
+        static let textSecondary = Color(light: "#52525A", dark: "#B3B3BA")
 
         /// Tertiary text — very muted, used for section labels, timestamps, disabled text.
-        static let textTertiary = Color(hex: "#7E7988")
+        static let textTertiary = Color(light: "#8A8A93", dark: "#84848C")
 
         /// Text used on top of the accent fill, like the primary button label.
         static let textOnAccent: Color = .white
@@ -120,14 +119,17 @@ enum DS {
         static var accentGlow: Color { AppTheme.color.opacity(0.35) }
 
         // ── Warmth (decorative only) ────────────────────────────────
-        // One ember tint, paired with the accent in the buddy's glow —
-        // like warm lamplight against dusk. Never a status color, never
-        // text. If it is communicating state, it is being misused.
+        // Nebula lilac, paired with the accent in the buddy's glow.
+        // Never a status color, never text. If it is communicating state,
+        // it is being misused.
 
-        static let warmth = Color(hex: "#FF9E76")
+        static let warmth = Color(hex: "#B9A9E8")
 
         /// Soft variant for gradient ends.
-        static let warmthSoft = Color(hex: "#FF9E76").opacity(0.55)
+        static let warmthSoft = Color(hex: "#B9A9E8").opacity(0.55)
+
+        /// The app icon's indigo halo. Brand identity only — never UI state.
+        static let brandGlow = Color(hex: "#5E54FF")
 
         // ── Semantic Colors ──────────────────────────────────────────
 
@@ -138,25 +140,25 @@ enum DS {
         static let destructiveHover = Color(hex: "#F2555A")   // Radix Red 10
 
         /// Destructive used for text on dark backgrounds (brighter for readability).
-        static let destructiveText = Color(hex: "#FF6369")    // Radix Red 11
+        static let destructiveText = Color(light: "#CD2B31", dark: "#FF6369")    // Radix Red 11
 
         /// Success — checkmarks, granted status, completion indicators.
         /// Independent green so success states are visually distinct from the accent.
-        static let success = Color(hex: "#34D399")      // Tailwind Emerald 400
+        static let success = Color(light: "#18794E", dark: "#34D399")      // Tailwind Emerald 400
 
         /// Warning — caution messages, manual verification failure explanations.
         static let warning = Color(hex: "#FFB224")            // Radix Amber 9
 
         /// Warning text — brighter variant for text on dark backgrounds.
-        static let warningText = Color(hex: "#F1A10D")        // Radix Amber 11
+        static let warningText = Color(light: "#AB6400", dark: "#F1A10D")        // Radix Amber 11
 
         /// Info/feature highlight — used for prompt card headers, code highlights.
         /// Lighter than accentText so informational elements are visually distinct
         /// from interactive accent-colored elements.
-        static let info = Color(hex: "#70B8FF")               // Radix Blue 9
+        static let info = Color(light: "#0D74CE", dark: "#70B8FF")               // Radix Blue 9
 
         /// Inline code text color — slightly brighter blue for monospace code snippets.
-        static let codeText = Color(hex: "#9DC2FF")           // Radix Blue 11 variant
+        static let codeText = Color(light: "#1859C4", dark: "#9DC2FF")           // Radix Blue 11 variant
 
         // ── Overlay Cursor ───────────────────────────────────────────
 
@@ -188,7 +190,7 @@ enum DS {
         }
 
         /// Footer/backdrop behind the chat surface.
-        static let helpChatBackdrop = Color(hex: "#191720")
+        static let helpChatBackdrop = Color(light: "#FFFFFF", dark: "#0A0A0A")
 
         // ── Disabled State ───────────────────────────────────────────
         // Following Material Design 3's disabled pattern:
@@ -204,44 +206,133 @@ enum DS {
         static var disabledText: Color {
             textPrimary.opacity(0.38)
         }
+
+        // ── Hairlines ────────────────────────────────────────────────
+
+        /// Dividers between bars and sections. Quieter than
+        /// `borderSubtle`, which outlines things you can click.
+        static var hairline: Color { borderSubtle.opacity(0.6) }
+
+        // ── Status ───────────────────────────────────────────────────
+        // One mapping per kind of state. Every dot, pill, and label that
+        // reports status reads from here, so "listening" is the same color
+        // on the notch pill, the header, and the app icon badge.
+
+        /// The buddy's voice state, matching the notch pill: green at rest,
+        /// the buddy's own color while it hears or speaks, amber while it
+        /// works. Listening is deliberately *not* amber — macOS already
+        /// draws its orange mic dot right beside the notch.
+        static func voiceStatus(_ state: CompanionVoiceState) -> Color {
+            switch state {
+            case .idle: return success
+            case .listening, .responding: return accent
+            case .processing: return warning
+            }
+        }
+
+        /// An agent run's lifecycle. Waiting on you is amber, broken is red.
+        static func agentStatus(_ status: AgentRunStatus) -> Color {
+            switch status {
+            case .queued, .cancelled: return textTertiary
+            case .planning, .running: return accentText
+            case .awaitingPlanApproval, .waitingForApproval: return warningText
+            case .succeeded: return success
+            case .failed: return destructiveText
+            }
+        }
     }
 
     // MARK: - Typography
     //
-    // SF Rounded is the buddy's voice: page titles, status words, section
-    // labels, empty states — anything the buddy "says". SF Pro is the
-    // content voice: lists, forms, transcripts. A view should almost never
-    // call `.font(.system(size:))` with a raw number outside this scale.
+    // Avenir Next is HeyMate's voice: humanist, clear, and warm without
+    // leaning playful or editorial. Monospaced technical content stays
+    // native. A view should almost never set a raw font outside this scale.
 
     enum Fonts {
-        /// Large page titles (desktop pages). Rounded, tight-tracked.
-        static let pageTitle = Font.system(size: 25, weight: .bold, design: .rounded)
+        /// Large page titles (desktop pages).
+        static let pageTitle = Font.custom("Avenir Next", size: 25).weight(.semibold)
 
-        /// Card titles and hero status lines. Rounded — the buddy speaking.
-        static let title = Font.system(size: 15, weight: .semibold, design: .rounded)
+        /// Card titles and hero status lines.
+        static let title = Font.custom("Avenir Next", size: 15).weight(.semibold)
 
-        /// Smaller rounded title for compact surfaces (notch card titles).
-        static let titleCompact = Font.system(size: 13, weight: .bold, design: .rounded)
+        /// Smaller title for compact surfaces (notch card titles).
+        static let titleCompact = Font.custom("Avenir Next", size: 13).weight(.semibold)
 
         /// Sentence-case section labels. Replaces tracked-out ALL-CAPS
         /// micro headers: warmer, and easier to read at a glance.
-        static let sectionLabel = Font.system(size: 11, weight: .semibold, design: .rounded)
+        static let sectionLabel = Font.custom("Avenir Next", size: 11).weight(.semibold)
 
         /// Emphasized content: row titles, bubble names.
-        static let headline = Font.system(size: 13, weight: .semibold)
+        static let headline = Font.custom("Avenir Next", size: 13).weight(.semibold)
 
         /// Default content text.
-        static let body = Font.system(size: 12)
+        static let body = Font.custom("Avenir Next", size: 12)
+
+        /// Roomier content text: composers, notes, settings rows.
+        static let bodyLarge = Font.custom("Avenir Next", size: 13)
+
+        /// Conversation text — chat bubbles and the message composer,
+        /// where people read whole paragraphs.
+        static let reading = Font.custom("Avenir Next", size: 15)
+
+        /// The one big line on an empty state or a mate's home.
+        static let hero = Font.custom("Avenir Next", size: 20).weight(.semibold)
 
         /// Supporting text: subtitles, hints, timestamps.
-        static let caption = Font.system(size: 11)
+        static let caption = Font.custom("Avenir Next", size: 11)
 
         /// The floor. Badge counts, keycaps, tiny metadata. Never body copy.
-        static let micro = Font.system(size: 10, weight: .medium)
+        static let micro = Font.custom("Avenir Next", size: 10).weight(.medium)
 
-        /// Status words the buddy reports ("Listening", "Ready"). Rounded
-        /// bold at caption size — the buddy's own voice, small and calm.
-        static let statusWord = Font.system(size: 11, weight: .bold, design: .rounded)
+        /// Status words the buddy reports ("Listening", "Ready").
+        static let statusWord = Font.custom("Avenir Next", size: 11).weight(.semibold)
+
+        /// Every capsule control label — buttons, chips, tabs, the status
+        /// pill. One size so notch and window controls read as one family.
+        static let control = Font.custom("Avenir Next", size: 12).weight(.semibold)
+
+        /// Window-scale button labels (`DSPrimaryButtonStyle` and friends).
+        static let controlLarge = Font.custom("Avenir Next", size: 13).weight(.semibold)
+
+        /// Keycaps, badges, and tags that must stay legible at the floor.
+        static let keycap = Font.custom("Avenir Next", size: 10).weight(.semibold)
+
+        /// Numbers that tick — timers, elapsed time, counters. Tabular so
+        /// the digits don't jitter.
+        static let numeric = Font.system(size: 11, weight: .medium).monospacedDigit()
+
+        /// Large tabular numbers — the timer face, battery percentage.
+        static let numericLarge = Font.system(size: 20, weight: .semibold, design: .rounded).monospacedDigit()
+    }
+
+    // MARK: - Glyphs
+    //
+    // SF Symbols stay on SF so their optical weight matches macOS. Four
+    // sizes cover every icon in the app; pick by role, not by eye.
+
+    enum Glyph {
+        /// Inline marks inside a label (the mic in a hint, the stop square).
+        static let micro = Font.system(size: 9, weight: .bold)
+        /// Chevrons, row accessories, icons beside caption text.
+        static let small = Font.system(size: 11, weight: .semibold)
+        /// Icon buttons and toolbar actions — the default.
+        static let regular = Font.system(size: 13, weight: .medium)
+        /// Tile and door icons.
+        static let large = Font.system(size: 15, weight: .medium)
+    }
+
+    // MARK: - Control Metrics
+    //
+    // Heights from the macOS HIG. Every clickable thing in the notch and
+    // the window lands on one of these, so rows line up across surfaces.
+
+    enum ControlSize {
+        /// Inline link-style actions.
+        static let small: CGFloat = 24
+        /// Icon buttons, capsule buttons, chips. The default.
+        static let regular: CGFloat = 28
+        /// Window-scale buttons and hero composers.
+        static let large: CGFloat = 32
     }
 
     // MARK: - Spacing (for reference, not enforced)
@@ -262,13 +353,13 @@ enum DS {
     // `.continuous` so surfaces feel like pebbles, not boxes.
 
     enum CornerRadius {
-        /// Small elements like tags, badges.
-        static let small: CGFloat = 7
-        /// Buttons, input fields, small cards.
+        /// Small elements like tags, badges, and icon wells.
+        static let small: CGFloat = 8
+        /// Input fields, inset wells inside a card.
         static let medium: CGFloat = 10
-        /// Cards, dialogs, chat bubbles.
+        /// Rows and tiles — anything that sits in a list or grid.
         static let large: CGFloat = 12
-        /// Large panels, permission cards.
+        /// Cards — composer cards, agent cards, callouts.
         static let extraLarge: CGFloat = 16
         /// Hero surfaces (the buddy card, the composer).
         static let hero: CGFloat = 20
@@ -398,12 +489,24 @@ struct BuddyMark: View {
     }
 
     private func dotColor(for state: CompanionVoiceState) -> Color {
-        switch state {
-        case .idle: return DS.Colors.success
-        case .listening: return color
-        case .processing: return DS.Colors.warning
-        case .responding: return color
-        }
+        DS.Colors.voiceStatus(state)
+    }
+}
+
+// MARK: - Status Dot
+
+/// The glowing dot every status readout uses — voice state, agent state,
+/// connection state. One size and one glow so a row of them lines up.
+struct DSStatusDot: View {
+    let color: Color
+    var size: CGFloat = 6
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: size, height: size)
+            .shadow(color: color.opacity(0.6), radius: 3)
+            .accessibilityHidden(true)
     }
 }
 
@@ -446,6 +549,155 @@ extension View {
                     .stroke(DS.Colors.borderSubtle, lineWidth: 1)
             )
     }
+
+    /// Translucent surfaces for content that floats over the nebula (the
+    /// notch card, the Mate home). Four roles replace the dozen one-off
+    /// fill-opacity / radius / stroke combinations the views used to pick
+    /// by hand.
+    func dsSurface(
+        _ surface: DSSurface,
+        cornerRadius: CGFloat? = nil,
+        isHighlighted: Bool = false
+    ) -> some View {
+        let radius = cornerRadius ?? surface.defaultCornerRadius
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        return self
+            .background(shape.fill(surface.fill(isHighlighted: isHighlighted)))
+            .overlay(
+                shape.stroke(
+                    surface.stroke(isHighlighted: isHighlighted),
+                    lineWidth: surface.strokeWidth
+                )
+            )
+            .contentShape(shape)
+    }
+}
+
+/// Roles for `dsSurface`. Pick by what the thing *is*, not how dark it
+/// should look.
+enum DSSurface {
+    /// A content card: composer, agent job, form group.
+    case card
+    /// A clickable row or tile. Lifts when highlighted (hovered).
+    case row
+    /// A recessed well inside a card: plan preview, code, empty slot.
+    case inset
+    /// A callout tinted by meaning — warning, suggestion, the buddy's hero.
+    case tinted(Color)
+
+    var defaultCornerRadius: CGFloat {
+        switch self {
+        case .card, .tinted: return DS.CornerRadius.extraLarge
+        case .row: return DS.CornerRadius.large
+        case .inset: return DS.CornerRadius.medium
+        }
+    }
+
+    func fill(isHighlighted: Bool) -> Color {
+        switch self {
+        case .card: return DS.Colors.surface2.opacity(0.72)
+        case .row: return DS.Colors.surface2.opacity(isHighlighted ? 0.9 : 0.62)
+        case .inset: return DS.Colors.surface3.opacity(0.5)
+        case .tinted(let tint): return tint.opacity(isHighlighted ? 0.14 : 0.09)
+        }
+    }
+
+    func stroke(isHighlighted: Bool) -> Color {
+        switch self {
+        case .card: return DS.Colors.borderSubtle
+        case .row: return isHighlighted ? DS.Colors.borderStrong : DS.Colors.borderSubtle
+        case .inset: return .clear
+        case .tinted(let tint): return tint.opacity(isHighlighted ? 0.42 : 0.28)
+        }
+    }
+
+    var strokeWidth: CGFloat {
+        switch self {
+        case .card, .row: return 0.5
+        case .inset: return 0
+        case .tinted: return 0.7
+        }
+    }
+}
+
+// MARK: - Capsule Buttons
+
+/// The compact capsule button for dense surfaces — the notch, cards, row
+/// actions. Replaces the half-dozen hand-rolled `Text().background(Capsule())`
+/// buttons that each picked their own font, padding, and fill.
+struct DSCapsuleButtonStyle: ButtonStyle {
+    enum Role {
+        /// The one action a card is asking for. Accent fill.
+        case primary
+        /// Supporting action. Neutral fill.
+        case secondary
+        /// Low-emphasis action. No fill until hovered.
+        case quiet
+        /// Destroys something. Red tint.
+        case destructive
+    }
+
+    var role: Role = .secondary
+    var height: CGFloat = DS.ControlSize.regular
+
+    func makeBody(configuration: Configuration) -> some View {
+        DSCapsuleButtonBody(configuration: configuration, role: role, height: height)
+    }
+}
+
+private struct DSCapsuleButtonBody: View {
+    let configuration: ButtonStyle.Configuration
+    let role: DSCapsuleButtonStyle.Role
+    let height: CGFloat
+
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovered = false
+
+    var body: some View {
+        configuration.label
+            .font(DS.Fonts.control)
+            .lineLimit(1)
+            .foregroundColor(foreground)
+            .padding(.horizontal, height >= DS.ControlSize.regular ? 12 : 9)
+            .frame(minHeight: height)
+            .background(Capsule(style: .continuous).fill(background))
+            .contentShape(Capsule())
+            .opacity(isEnabled ? 1 : 0.45)
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.easeOut(duration: DS.Animation.fast), value: configuration.isPressed)
+            .animation(.easeOut(duration: DS.Animation.fast), value: isHovered)
+            .onHover { isHovered = $0 && isEnabled }
+            .pointerCursor(isEnabled: isEnabled)
+    }
+
+    private var foreground: Color {
+        switch role {
+        case .primary: return DS.Colors.textOnAccent
+        case .secondary: return DS.Colors.textPrimary.opacity(0.9)
+        case .quiet: return isHovered ? DS.Colors.textPrimary : DS.Colors.textSecondary
+        case .destructive: return DS.Colors.destructiveText
+        }
+    }
+
+    private var background: Color {
+        let isActive = isHovered || configuration.isPressed
+        switch role {
+        case .primary: return isActive ? DS.Colors.accentHover : DS.Colors.accent
+        case .secondary: return isActive ? DS.Colors.surface4 : DS.Colors.surface3
+        case .quiet: return isActive ? DS.Colors.surface3.opacity(0.7) : .clear
+        case .destructive: return DS.Colors.destructive.opacity(isActive ? 0.24 : 0.12)
+        }
+    }
+}
+
+extension View {
+    /// Applies the compact capsule button style. See `DSCapsuleButtonStyle`.
+    func dsCapsuleButtonStyle(
+        _ role: DSCapsuleButtonStyle.Role = .secondary,
+        height: CGFloat = DS.ControlSize.regular
+    ) -> some View {
+        self.buttonStyle(DSCapsuleButtonStyle(role: role, height: height))
+    }
 }
 
 // MARK: - Button Styles
@@ -454,13 +706,9 @@ extension View {
 /// Accent-colored background with white text. One per view maximum.
 /// Used for: "start"/"resume", "let's go", "continue", "verify completion".
 struct DSPrimaryButtonStyle: ButtonStyle {
-    var isFullWidth: Bool = true
+    var isFullWidth: Bool = false
 
     @State private var isHovered = false
-
-    // Separate state for the scale expansion so it animates on a slower,
-    // more gradual timeline (0.6s) than the background color snap (0.15s).
-    @State private var isHoverScaleExpanded = false
 
     // Whether the hover glow shadow is active. Builds up gradually (0.6s)
     // on hover entry, fades out faster (0.3s) on exit.
@@ -473,11 +721,11 @@ struct DSPrimaryButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 16, weight: .medium))
+            .font(DS.Fonts.controlLarge)
             .foregroundColor(DS.Colors.textOnAccent)
             .frame(maxWidth: isFullWidth ? .infinity : nil)
-            .padding(.vertical, 14)
-            .padding(.horizontal, isFullWidth ? 0 : 20)
+            .padding(.horizontal, isFullWidth ? 0 : 16)
+            .frame(minHeight: DS.ControlSize.large)
             .background(
                 Capsule()
                     .fill(buttonBackgroundColor(isPressed: configuration.isPressed))
@@ -491,18 +739,13 @@ struct DSPrimaryButtonStyle: ButtonStyle {
                 ),
                 radius: isHoverGlowActive ? (isGlowBreathingIn ? 16 : 10) : 0
             )
-            // Hover: gradually expand to 1.03. Press: snap down to 0.97.
-            .scaleEffect(configuration.isPressed ? 0.97 : (isHoverScaleExpanded ? 1.03 : 1.0))
+            // Press: snap down to 0.97. No hover swell — these sit in rows.
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
             .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
             .onHover { hovering in
                 // Background color — fast snap so the button feels responsive
                 withAnimation(.easeOut(duration: 0.15)) {
                     isHovered = hovering
-                }
-
-                // Scale — slow, gradual expansion (like the button is swelling)
-                withAnimation(.easeInOut(duration: hovering ? 0.6 : 0.3)) {
-                    isHoverScaleExpanded = hovering
                 }
 
                 // Glow — builds up gradually on entry, fades faster on exit
@@ -546,17 +789,17 @@ struct DSPrimaryButtonStyle: ButtonStyle {
 /// Surface-colored background with primary text. Used for: action buttons
 /// (download, open link), embedded element buttons.
 struct DSSecondaryButtonStyle: ButtonStyle {
-    var isFullWidth: Bool = true
+    var isFullWidth: Bool = false
 
     @State private var isHovered = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 16, weight: .medium))
+            .font(DS.Fonts.controlLarge)
             .foregroundColor(DS.Colors.textPrimary)
             .frame(maxWidth: isFullWidth ? .infinity : nil)
-            .padding(.vertical, 12)
-            .padding(.horizontal, isFullWidth ? 0 : 16)
+            .padding(.horizontal, isFullWidth ? 0 : 14)
+            .frame(minHeight: DS.ControlSize.large)
             .background(
                 Capsule()
                     .fill(buttonBackgroundColor(isPressed: configuration.isPressed))
@@ -589,7 +832,7 @@ struct DSTertiaryButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 16, weight: .medium))
+            .font(DS.Fonts.controlLarge)
             .foregroundColor(
                 configuration.isPressed
                     ? DS.Colors.accentHover
@@ -597,8 +840,8 @@ struct DSTertiaryButtonStyle: ButtonStyle {
                         ? DS.Colors.accentText
                         : DS.Colors.textSecondary
             )
-            .padding(.vertical, 8)
             .padding(.horizontal, 12)
+            .frame(minHeight: DS.ControlSize.large)
             .background(
                 Capsule()
                     .fill(buttonBackgroundColor(isPressed: configuration.isPressed))
@@ -628,13 +871,13 @@ struct DSTertiaryButtonStyle: ButtonStyle {
 /// "skip", "cancel", and other truly minimal inline actions where a
 /// background would add too much visual weight.
 struct DSTextButtonStyle: ButtonStyle {
-    var fontSize: CGFloat = 14
+    var fontSize: CGFloat = 13
 
     @State private var isHovered = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: fontSize, weight: .medium))
+            .font(Font.custom("Avenir Next", size: fontSize).weight(.medium))
             .foregroundColor(
                 configuration.isPressed
                     ? DS.Colors.textPrimary
@@ -654,17 +897,17 @@ struct DSTextButtonStyle: ButtonStyle {
 /// Outlined button — medium emphasis, used where a border helps define
 /// the button's bounds. Used for: display selector, copy prompt.
 struct DSOutlinedButtonStyle: ButtonStyle {
-    var isFullWidth: Bool = true
+    var isFullWidth: Bool = false
 
     @State private var isHovered = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 16, weight: .medium))
+            .font(DS.Fonts.controlLarge)
             .foregroundColor(DS.Colors.textPrimary)
             .frame(maxWidth: isFullWidth ? .infinity : nil)
-            .padding(.vertical, 12)
-            .padding(.horizontal, isFullWidth ? 0 : 16)
+            .padding(.horizontal, isFullWidth ? 0 : 14)
+            .frame(minHeight: DS.ControlSize.large)
             .background(
                 Capsule()
                     .fill(buttonBackgroundColor(isPressed: configuration.isPressed))
@@ -711,14 +954,14 @@ struct DSDestructiveButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 16, weight: .medium))
+            .font(DS.Fonts.controlLarge)
             .foregroundColor(
                 isHovered || configuration.isPressed
                     ? .white
                     : DS.Colors.destructiveText
             )
-            .padding(.vertical, 10)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 14)
+            .frame(minHeight: DS.ControlSize.large)
             .background(
                 Capsule()
                     .fill(buttonBackgroundColor(isPressed: configuration.isPressed))
@@ -823,7 +1066,7 @@ struct DSIconButtonStyle: ButtonStyle {
                 Group {
                     if isTooltipVisible, let text = tooltipText, !text.isEmpty {
                         Text(text)
-                            .font(.system(size: 11, weight: .medium))
+                            .font(DS.Fonts.caption.weight(.medium))
                             .foregroundColor(DS.Colors.textSecondary)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 5)
@@ -911,12 +1154,12 @@ struct DSIconButtonStyle: ButtonStyle {
 
 extension View {
     /// Applies the primary button style (accent-colored CTA).
-    func dsPrimaryButtonStyle(isFullWidth: Bool = true) -> some View {
+    func dsPrimaryButtonStyle(isFullWidth: Bool = false) -> some View {
         self.buttonStyle(DSPrimaryButtonStyle(isFullWidth: isFullWidth))
     }
 
     /// Applies the secondary button style (surface-colored supporting action).
-    func dsSecondaryButtonStyle(isFullWidth: Bool = true) -> some View {
+    func dsSecondaryButtonStyle(isFullWidth: Bool = false) -> some View {
         self.buttonStyle(DSSecondaryButtonStyle(isFullWidth: isFullWidth))
     }
 
@@ -926,12 +1169,12 @@ extension View {
     }
 
     /// Applies the text-only button style (no background ever, just color change).
-    func dsTextButtonStyle(fontSize: CGFloat = 14) -> some View {
+    func dsTextButtonStyle(fontSize: CGFloat = 13) -> some View {
         self.buttonStyle(DSTextButtonStyle(fontSize: fontSize))
     }
 
     /// Applies the outlined button style (bordered, medium emphasis).
-    func dsOutlinedButtonStyle(isFullWidth: Bool = true) -> some View {
+    func dsOutlinedButtonStyle(isFullWidth: Bool = false) -> some View {
         self.buttonStyle(DSOutlinedButtonStyle(isFullWidth: isFullWidth))
     }
 
@@ -1021,6 +1264,19 @@ extension View {
 // MARK: - Color Utilities
 
 extension Color {
+    /// A color that resolves to `light` or `dark` depending on the
+    /// *view hierarchy's* effective appearance, not just the system
+    /// setting — the notch panel forces `.darkAqua` regardless of the
+    /// user's system appearance, so this makes DS tokens stay put there
+    /// while the desktop window (which follows the system) switches.
+    init(light: String, dark: String) {
+        let dynamic = NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return NSColor(Color(hex: isDark ? dark : light))
+        }
+        self.init(nsColor: dynamic)
+    }
+
     /// Create a Color from a hex string like "#FF5733" or "FF5733".
     init(hex: String) {
         let hexSanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -1,67 +1,67 @@
 {
   "images" : [
     {
-      "filename" : "1024-mac-v8.png",
+      "filename" : "1024-mac-dark-v8.png",
       "idiom" : "ios-marketing",
       "scale" : "1x",
       "size" : "1024x1024"
     },
     {
-      "filename" : "16-mac-v8.png",
+      "filename" : "16-mac-dark-v8.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "16x16"
     },
     {
-      "filename" : "32-mac-v8.png",
+      "filename" : "32-mac-dark-v8.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "16x16"
     },
     {
-      "filename" : "32-mac-v8.png",
+      "filename" : "32-mac-dark-v8.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "32x32"
     },
     {
-      "filename" : "64-mac-v8.png",
+      "filename" : "64-mac-dark-v8.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "32x32"
     },
     {
-      "filename" : "128-mac-v8.png",
+      "filename" : "128-mac-dark-v8.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "128x128"
     },
     {
-      "filename" : "256-mac-v8.png",
+      "filename" : "256-mac-dark-v8.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "128x128"
     },
     {
-      "filename" : "256-mac-v8.png",
+      "filename" : "256-mac-dark-v8.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "256x256"
     },
     {
-      "filename" : "512-mac-v8.png",
+      "filename" : "512-mac-dark-v8.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "256x256"
     },
     {
-      "filename" : "512-mac-v8.png",
+      "filename" : "512-mac-dark-v8.png",
       "idiom" : "mac",
       "scale" : "1x",
       "size" : "512x512"
     },
     {
-      "filename" : "1024-mac-v8.png",
+      "filename" : "1024-mac-dark-v8.png",
       "idiom" : "mac",
       "scale" : "2x",
       "size" : "512x512"

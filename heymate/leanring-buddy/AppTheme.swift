@@ -77,7 +77,7 @@ struct ThemeColorPicker: View {
                             .overlay(
                                 Circle()
                                     .stroke(
-                                        Color.white.opacity(isSelected ? 0.95 : 0.2),
+                                        isSelected ? DS.Colors.textPrimary : DS.Colors.borderStrong,
                                         lineWidth: isSelected ? 2 : 0.8
                                     )
                             )
@@ -91,8 +91,8 @@ struct ThemeColorPicker: View {
             }
 
             Text("Same color on the cursor and buttons.")
-                .font(.system(size: 10))
-                .foregroundColor(.white.opacity(0.4))
+                .font(DS.Fonts.micro)
+                .foregroundColor(DS.Colors.textTertiary)
         }
     }
 }
