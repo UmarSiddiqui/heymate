@@ -1,0 +1,162 @@
+# Builds HeyMate on every push to main that touches the app, and publishes it
+# as a GitHub Release with a downloadable HeyMate.dmg and grouped release notes.
+#
+# Builds are ad-hoc signed (no Apple certificates are stored in this repo or
+# its secrets). Users open the first launch with Control-click → Open.
+#
+# Version: MARKETING_VERSION from the Xcode project + the workflow run number,
+# e.g. 1.0.7 → tag v1.0.7. Run it by hand from the Actions tab with
+# "Run workflow" to rebuild without a code change.
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "heymate/**"
+      - ".github/workflows/release.yml"
+      - ".github/scripts/**"
+      - "!heymate/worker/**"
+      - "!heymate/design/**"
+      - "!**/*.md"
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      PROJECT: heymate/leanring-buddy.xcodeproj
+      SCHEME: leanring-buddy
+      DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
+      APP_NAME: HeyMate
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select the newest Xcode 26
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE" ]; then
+            echo "::error::No Xcode 26 installation found on this runner." && exit 1
+          fi
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+
+      - name: Work out the version
+        id: version
+        run: |
+          MARKETING=$(sed -n 's/.*MARKETING_VERSION = \([0-9.]*\);/\1/p' "$PROJECT/project.pbxproj" | head -1)
+          BUILD="${{ github.run_number }}"
+          VERSION="${MARKETING}.${BUILD}"
+          PREVIOUS_TAG=$(git tag --list 'v*' --sort=-v:refname | head -1)
+          echo "marketing=$MARKETING" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "previous_tag=$PREVIOUS_TAG" >> "$GITHUB_OUTPUT"
+          echo "Building HeyMate $VERSION (previous release: ${PREVIOUS_TAG:-none})"
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.DERIVED_DATA }}/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('heymate/leanring-buddy.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Build (universal, ad-hoc signed)
+        run: |
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath "$DERIVED_DATA" \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY=- \
+            DEVELOPMENT_TEAM= \
+            PROVISIONING_PROFILE_SPECIFIER= \
+            MARKETING_VERSION="${{ steps.version.outputs.version }}" \
+            CURRENT_PROJECT_VERSION="${{ steps.version.outputs.build }}" \
+            build > build.log 2>&1 || {
+              grep -E "error:" build.log | head -50
+              tail -60 build.log
+              exit 1
+            }
+          grep -E "\*\* BUILD" build.log
+
+      - name: Verify the app and its embedded agent runner
+        run: |
+          APP="$DERIVED_DATA/Build/Products/Release/$APP_NAME.app"
+          test -d "$APP"
+          source heymate/script/code_signature_checks.sh
+          heymate_verify_embedded_agent_runner "$APP" release
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          lipo -archs "$APP/Contents/MacOS/$APP_NAME"
+          /usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Contents/Info.plist"
+
+      - name: Package HeyMate.dmg
+        run: |
+          APP="$DERIVED_DATA/Build/Products/Release/$APP_NAME.app"
+          mkdir -p dist
+          brew install create-dmg >/dev/null 2>&1 || true
+          if command -v create-dmg >/dev/null && create-dmg \
+              --volname "$APP_NAME" \
+              --window-pos 200 120 \
+              --window-size 660 400 \
+              --icon-size 100 \
+              --icon "$APP_NAME.app" 160 195 \
+              --app-drop-link 500 195 \
+              --background heymate/dmg-background.png \
+              --no-internet-enable \
+              "dist/$APP_NAME.dmg" "$APP"; then
+            echo "Styled DMG created."
+          else
+            echo "create-dmg unavailable or failed; building a plain DMG."
+            rm -f "dist/$APP_NAME.dmg"
+            STAGE=$(mktemp -d)
+            cp -R "$APP" "$STAGE/"
+            ln -s /Applications "$STAGE/Applications"
+            hdiutil create -volname "$APP_NAME" -srcfolder "$STAGE" -ov -format UDZO "dist/$APP_NAME.dmg"
+          fi
+          hdiutil verify "dist/$APP_NAME.dmg"
+          (cd dist && shasum -a 256 "$APP_NAME.dmg" > "$APP_NAME.dmg.sha256")
+          ls -la dist
+
+      - name: Write release notes
+        run: |
+          .github/scripts/release-notes.sh \
+            "${{ steps.version.outputs.version }}" \
+            "${{ steps.version.outputs.previous_tag }}" > notes.md
+          cat notes.md
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            "dist/$APP_NAME.dmg" \
+            "dist/$APP_NAME.dmg.sha256" \
+            --target "$GITHUB_SHA" \
+            --title "HeyMate ${{ steps.version.outputs.version }}" \
+            --notes-file notes.md \
+            --latest
+
+      - name: Keep the build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: ignore
