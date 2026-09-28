@@ -185,10 +185,15 @@ final class FileAgentUndoLedger {
     }
 
     func latestReadyEntry() -> AgentUndoEntry? {
+        readyEntries().first
+    }
+
+    /// Snapshots that can still be restored, newest first. Prepared and
+    /// already-undone records stay out of this list.
+    func readyEntries() -> [AgentUndoEntry] {
         entries
             .filter { $0.status == .ready }
             .sorted { $0.createdAt > $1.createdAt }
-            .first
     }
 
     func entry(id: UUID) -> AgentUndoEntry? {

@@ -34,6 +34,8 @@ nonisolated enum AgentBrain: String, CaseIterable, Hashable, Codable {
     case openCode
     /// Your own Anthropic-compatible endpoint and key.
     case customAPI
+    /// Apple Intelligence on this Mac. No subscription spend.
+    case onDevice
 
     var displayName: String {
         switch self {
@@ -41,6 +43,16 @@ nonisolated enum AgentBrain: String, CaseIterable, Hashable, Codable {
         case .claudeCode: return "Claude"
         case .openCode: return "OpenCode"
         case .customAPI: return "Custom API"
+        case .onDevice: return "On this Mac"
+        }
+    }
+
+    /// Continuous listen-reply-listen. The reply is the ChatGPT or Claude
+    /// plan the user already pays for, spoken by this Mac.
+    var offersSubscriptionVoiceChat: Bool {
+        switch self {
+        case .codex, .claudeCode: return true
+        case .openCode, .customAPI, .onDevice: return false
         }
     }
 
@@ -52,9 +64,11 @@ nonisolated enum AgentBrain: String, CaseIterable, Hashable, Codable {
         case .claudeCode:
             return "Your Claude subscription, through the claude CLI."
         case .openCode:
-            return "Whatever providers you have signed in to opencode."
+            return "Whatever providers you have signed in to opencode. Free models say so before they can train on a chat."
         case .customAPI:
             return "Your own Anthropic-compatible endpoint and key. You pay per token."
+        case .onDevice:
+            return "Apple Intelligence on this Mac. Private, and it does not spend a ChatGPT or Claude plan."
         }
     }
 
@@ -65,7 +79,7 @@ nonisolated enum AgentBrain: String, CaseIterable, Hashable, Codable {
         case .claudeCode: return .claudeCode
         case .openCode: return .openCode
         case .codex: return .codex
-        case .customAPI: return nil
+        case .customAPI, .onDevice: return nil
         }
     }
 
@@ -75,6 +89,8 @@ nonisolated enum AgentBrain: String, CaseIterable, Hashable, Codable {
         switch self {
         case .customAPI:
             return "A custom endpoint answers screen questions. It does not run agent jobs — pick Claude, Codex, or OpenCode for those."
+        case .onDevice:
+            return "On this Mac answers chat. It cannot see the screen or run coding jobs — pick Claude, Codex, or OpenCode for those."
         case .claudeCode, .openCode, .codex:
             return nil
         }

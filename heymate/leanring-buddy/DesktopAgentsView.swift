@@ -31,11 +31,19 @@ struct DesktopAgentsView: View {
     @State private var standingOrderContains = ""
     @State private var standingOrderTask = ""
     @State private var standingOrderSignalKind: StandingOrderSignalKind = .clipboard
+    @State private var standingOrderCooldownMinutes = "60"
+    @State private var standingOrderForMinutes = "0"
+    @State private var editingStandingOrderID: String?
+    @State private var standingOrderPendingDelete: StandingOrder?
     @State private var isConfirmingUndo = false
 
     /// The job whose takeover is waiting on confirmation. Taking over kills
     /// the process HeyMate is driving, so it asks first.
     @State private var runPendingTerminalTakeover: AgentRun?
+    @State private var runIDPendingCancel: UUID?
+    @State private var runIDPendingRemoval: UUID?
+    @State private var runIDPendingFolderTrash: UUID?
+    @State private var undoEntryPendingRestore: AgentUndoEntry?
 
     /// Drives only the composer focus ring and glow — pure presentation.
     @FocusState private var isComposerFocused: Bool
@@ -45,9 +53,7 @@ struct DesktopAgentsView: View {
             title: "Agents",
             subtitle: subtitleText,
             accessory: AnyView(
-                Text(companionManager.selectedBrain.displayName)
-                    .font(DS.Fonts.caption)
-                    .foregroundColor(DS.Colors.textSecondary)
+                DesktopComposerModelButton(companionManager: companionManager)
             )
         ) {
             composer
@@ -131,6 +137,86 @@ struct DesktopAgentsView: View {
                     .map { AgentTerminalTakeover.takeoverDescription(for: $0.executor) }
                     ?? ""
             )
+        }
+        .confirmationDialog(
+            "Stop this agent?",
+            isPresented: Binding(
+                get: { runIDPendingCancel != nil },
+                set: { isPresented in
+                    if !isPresented { runIDPendingCancel = nil }
+                }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Stop agent", role: .destructive) {
+                if let runIDPendingCancel {
+                    companionManager.cancelAgent(runID: runIDPendingCancel)
+                }
+                runIDPendingCancel = nil
+            }
+            Button("Cancel", role: .cancel) { runIDPendingCancel = nil }
+        } message: {
+            Text("Work already written in its folder stays.")
+        }
+        .confirmationDialog(
+            "Remove this run from HeyMate?",
+            isPresented: Binding(
+                get: { runIDPendingRemoval != nil },
+                set: { isPresented in
+                    if !isPresented { runIDPendingRemoval = nil }
+                }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Remove", role: .destructive) {
+                if let runIDPendingRemoval {
+                    companionManager.deleteAgentRun(runID: runIDPendingRemoval)
+                }
+                runIDPendingRemoval = nil
+            }
+            Button("Cancel", role: .cancel) { runIDPendingRemoval = nil }
+        } message: {
+            Text("The folder on disk stays unless you also delete it.")
+        }
+        .confirmationDialog(
+            "Move folder to Trash?",
+            isPresented: Binding(
+                get: { runIDPendingFolderTrash != nil },
+                set: { isPresented in
+                    if !isPresented { runIDPendingFolderTrash = nil }
+                }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Move folder to Trash", role: .destructive) {
+                if let runIDPendingFolderTrash {
+                    companionManager.moveAgentFolderToTrash(runID: runIDPendingFolderTrash)
+                }
+                runIDPendingFolderTrash = nil
+            }
+            Button("Cancel", role: .cancel) { runIDPendingFolderTrash = nil }
+        } message: {
+            Text("HeyMate then removes this run from the list. If the folder is already gone, the list entry stays.")
+        }
+        .confirmationDialog(
+            "Restore this earlier agent snapshot?",
+            isPresented: Binding(
+                get: { undoEntryPendingRestore != nil },
+                set: { isPresented in
+                    if !isPresented { undoEntryPendingRestore = nil }
+                }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Restore snapshot", role: .destructive) {
+                if let undoEntryPendingRestore {
+                    companionManager.restoreAgentUndoEntry(entryID: undoEntryPendingRestore.id)
+                }
+                undoEntryPendingRestore = nil
+            }
+            Button("Cancel", role: .cancel) { undoEntryPendingRestore = nil }
+        } message: {
+            Text("Current workspace is retained in Undo Ledger recovery before this snapshot is restored.")
         }
     }
 
@@ -241,6 +327,26 @@ struct DesktopAgentsView: View {
         standingOrderTask.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private var standingOrderCooldownValue: Int? {
+        let trimmed = standingOrderCooldownMinutes.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let value = Int(trimmed), value >= 1 else { return nil }
+        return value
+    }
+
+    private var standingOrderForMinutesValue: Int? {
+        let trimmed = standingOrderForMinutes.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let value = Int(trimmed), value >= 0 else { return nil }
+        return value
+    }
+
+    private var canSaveStandingOrder: Bool {
+        !standingOrderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !standingOrderContains.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !standingOrderProposalTask.isEmpty
+            && standingOrderCooldownValue != nil
+            && standingOrderForMinutesValue != nil
+    }
+
     private func startRun() {
         guard !trimmedPrompt.isEmpty else { return }
         if let attachedFolderURL {
@@ -307,7 +413,12 @@ struct DesktopAgentsView: View {
                     }
                     Spacer(minLength: 0)
                     Button(isCreatingStandingOrder ? "Close" : "New order") {
-                        isCreatingStandingOrder.toggle()
+                        if isCreatingStandingOrder {
+                            resetStandingOrderComposer()
+                        } else {
+                            editingStandingOrderID = nil
+                            isCreatingStandingOrder = true
+                        }
                     }
                     .buttonStyle(DSSecondaryButtonStyle())
                     Button("Open folder") { companionManager.revealStandingOrdersFolder() }
@@ -316,6 +427,16 @@ struct DesktopAgentsView: View {
 
                 if isCreatingStandingOrder {
                     standingOrderComposer
+                }
+
+                if companionManager.loadedStandingOrders.isEmpty {
+                    Text("No orders yet")
+                        .font(DS.Fonts.caption)
+                        .foregroundColor(DS.Colors.textTertiary)
+                } else {
+                    ForEach(companionManager.loadedStandingOrders) { order in
+                        standingOrderRow(order)
+                    }
                 }
 
                 Divider().overlay(DS.Colors.borderSubtle)
@@ -336,6 +457,8 @@ struct DesktopAgentsView: View {
                         .disabled(companionManager.latestAgentUndoEntry == nil)
                 }
 
+                agentUndoSnapshotDetail
+
                 if !companionManager.agentUndoErrorText.isEmpty {
                     Text(companionManager.agentUndoErrorText)
                         .font(DS.Fonts.caption)
@@ -343,10 +466,69 @@ struct DesktopAgentsView: View {
                 }
             }
         }
+        .confirmationDialog(
+            "Delete this standing order?",
+            isPresented: Binding(
+                get: { standingOrderPendingDelete != nil },
+                set: { isPresented in
+                    if !isPresented { standingOrderPendingDelete = nil }
+                }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete order", role: .destructive) {
+                guard let order = standingOrderPendingDelete else { return }
+                let didDelete = companionManager.deleteStandingOrder(order)
+                guard didDelete else { return }
+                if editingStandingOrderID == order.id {
+                    resetStandingOrderComposer()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the Markdown file for \(standingOrderPendingDelete?.name ?? "this order"). HeyMate will stop offering the task.")
+        }
+    }
+
+    @ViewBuilder
+    private var agentUndoSnapshotDetail: some View {
+        let snapshots = companionManager.readyAgentUndoEntries()
+        if snapshots.count > 1 {
+            ForEach(snapshots) { entry in
+                HStack(spacing: 8) {
+                    Text(agentUndoSnapshotLabel(entry))
+                        .font(DS.Fonts.caption)
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    if entry.id != companionManager.latestAgentUndoEntry?.id {
+                        Button("Restore") { undoEntryPendingRestore = entry }
+                            .buttonStyle(DSTertiaryButtonStyle())
+                    }
+                }
+            }
+        } else if snapshots.count == 1 {
+            Text("Only the latest agent snapshot can be restored.")
+                .font(DS.Fonts.caption)
+                .foregroundColor(DS.Colors.textTertiary)
+        }
+    }
+
+    private func agentUndoSnapshotLabel(_ entry: AgentUndoEntry) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return "\(entry.runTitle) · \(formatter.string(from: entry.createdAt))"
     }
 
     private var standingOrderComposer: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if editingStandingOrderID != nil {
+                Text("Editing this order rewrites its Markdown file.")
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.textTertiary)
+            }
             TextField("Name", text: $standingOrderName)
                 .textFieldStyle(.roundedBorder)
             Picker("Signal", selection: $standingOrderSignalKind) {
@@ -360,27 +542,17 @@ struct DesktopAgentsView: View {
             TextField("Task HeyMate should offer", text: $standingOrderTask, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(2...4)
+            TextField("Cooldown minutes", text: $standingOrderCooldownMinutes)
+                .textFieldStyle(.roundedBorder)
+            TextField("For minutes (0 = until disabled)", text: $standingOrderForMinutes)
+                .textFieldStyle(.roundedBorder)
             HStack {
                 Spacer(minLength: 0)
-                Button("Save order") {
-                    let didCreate = companionManager.createStandingOrder(
-                        name: standingOrderName.trimmingCharacters(in: .whitespacesAndNewlines),
-                        signalKind: standingOrderSignalKind,
-                        contains: standingOrderContains.trimmingCharacters(in: .whitespacesAndNewlines),
-                        task: standingOrderProposalTask
-                    )
-                    guard didCreate else { return }
-                    standingOrderName = ""
-                    standingOrderContains = ""
-                    standingOrderTask = ""
-                    isCreatingStandingOrder = false
+                Button(editingStandingOrderID == nil ? "Save order" : "Save changes") {
+                    saveStandingOrderFromComposer()
                 }
                 .buttonStyle(DSPrimaryButtonStyle())
-                .disabled(
-                    standingOrderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || standingOrderContains.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || standingOrderProposalTask.isEmpty
-                )
+                .disabled(!canSaveStandingOrder)
             }
         }
         .padding(10)
@@ -388,6 +560,116 @@ struct DesktopAgentsView: View {
             RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
                 .fill(DS.Colors.surface2)
         )
+    }
+
+    private func standingOrderRow(_ order: StandingOrder) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(order.name)
+                    .font(DS.Fonts.headline)
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Text(order.enabled ? "Enabled" : "Paused")
+                    .font(DS.Fonts.statusWord)
+                    .foregroundColor(order.enabled ? DS.Colors.textSecondary : DS.Colors.warningText)
+            }
+            standingOrderDetail("Signal", order.signalKind.rawValue)
+            standingOrderDetail("Match", order.containsAny.joined(separator: ", "))
+            standingOrderDetail("Task", order.task)
+            standingOrderDetail("Cooldown", "\(order.cooldownMinutes) min")
+            standingOrderDetail("For", standingOrderDurationText(order))
+            HStack(spacing: 8) {
+                Button("Edit") { beginEditingStandingOrder(order) }
+                    .buttonStyle(DSSecondaryButtonStyle(isFullWidth: false))
+                Button(order.enabled ? "Pause" : "Resume") {
+                    _ = companionManager.setStandingOrderEnabled(!order.enabled, order: order)
+                }
+                .buttonStyle(DSSecondaryButtonStyle(isFullWidth: false))
+                Button("Delete") { standingOrderPendingDelete = order }
+                    .buttonStyle(DSDestructiveButtonStyle())
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                .fill(DS.Colors.surface2)
+        )
+    }
+
+    private func standingOrderDetail(_ title: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(title)
+                .font(DS.Fonts.caption)
+                .foregroundColor(DS.Colors.textTertiary)
+                .frame(width: 72, alignment: .leading)
+            Text(value)
+                .font(DS.Fonts.body)
+                .foregroundColor(DS.Colors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func standingOrderDurationText(_ order: StandingOrder) -> String {
+        order.minimumMatchMinutes == 0 ? "Until disabled" : "\(order.minimumMatchMinutes) min"
+    }
+
+    private func beginEditingStandingOrder(_ order: StandingOrder) {
+        editingStandingOrderID = order.id
+        standingOrderName = order.name
+        standingOrderSignalKind = order.signalKind
+        standingOrderContains = order.containsAny.joined(separator: ", ")
+        standingOrderTask = order.task
+        standingOrderCooldownMinutes = String(order.cooldownMinutes)
+        standingOrderForMinutes = String(order.minimumMatchMinutes)
+        isCreatingStandingOrder = true
+    }
+
+    private func saveStandingOrderFromComposer() {
+        let name = standingOrderName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let contains = standingOrderContains.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let cooldownMinutes = standingOrderCooldownValue,
+              let forMinutes = standingOrderForMinutesValue else { return }
+
+        if let editingStandingOrderID {
+            guard let order = companionManager.loadedStandingOrders.first(where: { $0.id == editingStandingOrderID }) else {
+                return
+            }
+            let didUpdate = companionManager.updateStandingOrder(
+                order,
+                name: name,
+                signalKind: standingOrderSignalKind,
+                contains: contains,
+                task: standingOrderProposalTask,
+                cooldownMinutes: cooldownMinutes,
+                forMinutes: forMinutes
+            )
+            guard didUpdate else { return }
+            resetStandingOrderComposer()
+            return
+        }
+
+        let didCreate = companionManager.createStandingOrder(
+            name: name,
+            signalKind: standingOrderSignalKind,
+            contains: contains,
+            task: standingOrderProposalTask,
+            cooldownMinutes: cooldownMinutes,
+            forMinutes: forMinutes
+        )
+        guard didCreate else { return }
+        resetStandingOrderComposer()
+    }
+
+    private func resetStandingOrderComposer() {
+        standingOrderName = ""
+        standingOrderContains = ""
+        standingOrderTask = ""
+        standingOrderSignalKind = .clipboard
+        standingOrderCooldownMinutes = "60"
+        standingOrderForMinutes = "0"
+        editingStandingOrderID = nil
+        isCreatingStandingOrder = false
     }
 
     // MARK: Sections
@@ -818,7 +1100,7 @@ struct DesktopAgentsView: View {
                 Button("Deny") { companionManager.denyAgent(runID: run.id) }
                     .buttonStyle(DSSecondaryButtonStyle())
             } else if !run.status.isTerminal {
-                Button("Cancel") { companionManager.cancelAgent(runID: run.id) }
+                Button("Cancel") { runIDPendingCancel = run.id }
                     .buttonStyle(DSSecondaryButtonStyle())
             }
 
@@ -832,6 +1114,21 @@ struct DesktopAgentsView: View {
             }
 
             Spacer(minLength: 0)
+
+            if run.status.isTerminal {
+                Button("Remove", role: .destructive) {
+                    runIDPendingRemoval = run.id
+                }
+                .buttonStyle(DSTertiaryButtonStyle())
+            }
+
+            if run.status.isTerminal,
+               !run.workspacePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Button("Move folder to Trash", role: .destructive) {
+                    runIDPendingFolderTrash = run.id
+                }
+                .buttonStyle(DSTertiaryButtonStyle())
+            }
 
             Button {
                 companionManager.revealAgentFolder(runID: run.id)

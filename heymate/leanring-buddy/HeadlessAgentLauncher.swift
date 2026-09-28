@@ -125,6 +125,7 @@ final class HeadlessAgentLauncher {
 
     /// `--model` / `-m` for Claude and Codex jobs.
     var claudeModelIdentifier: () -> String? = { nil }
+    var claudeEffort: () -> String? = { nil }
     var codexModelIdentifier: () -> String? = { nil }
     var codexReasoningEffort: () -> String? = { nil }
 
@@ -150,6 +151,7 @@ final class HeadlessAgentLauncher {
     /// per spawn because it depends on the bridge port and on a script that is
     /// seeded lazily; nil is a normal answer and simply means no HeyMate tools.
     var openCodeMCPConfigurationJSON: () -> String? = { nil }
+    var claudeMCPConfigurationJSON: () -> String? = { nil }
     var codexMCPConfigurationArguments: () -> [String] = { [] }
     var mcpChildEnvironment: (HeadlessExecutor) -> [String: String] = { _ in [:] }
 
@@ -680,6 +682,7 @@ final class HeadlessAgentLauncher {
             for: executor,
             openCodeModelIdentifier: openCodeModelIdentifier(),
             claudeModelIdentifier: claudeModelIdentifier(),
+            claudeEffort: claudeEffort(),
             codexModelIdentifier: codexModelIdentifier(),
             codexReasoningEffort: codexReasoningEffort()
         )
@@ -771,15 +774,25 @@ final class HeadlessAgentLauncher {
             for: run.executor,
             openCodeModelIdentifier: openCodeModelIdentifier(),
             claudeModelIdentifier: claudeModelIdentifier(),
+            claudeEffort: claudeEffort(),
             codexModelIdentifier: codexModelIdentifier(),
             codexReasoningEffort: codexReasoningEffort(),
-            openCodeMCPConfigurationJSON: leg.isReadOnly || shouldDetachExecution
+            // Detached legs carry the server too. The bootstrap payload travels
+            // through an inherited pipe, never disk, so the bridge token is as
+            // private there as in a child the app owns. If HeyMate quits
+            // mid-job the server answers with no connector tools rather than
+            // failing the work.
+            openCodeMCPConfigurationJSON: leg.isReadOnly
                 ? nil
                 : openCodeMCPConfigurationJSON(),
-            codexMCPConfigurationArguments: leg.isReadOnly || shouldDetachExecution
+            claudeMCPConfigurationJSON: leg.isReadOnly
+                ? nil
+                : claudeMCPConfigurationJSON(),
+            claudeMCPAllowedToolNames: HeyMateMCPServer.claudeCodeToolNames(),
+            codexMCPConfigurationArguments: leg.isReadOnly
                 ? []
                 : codexMCPConfigurationArguments(),
-            mcpChildEnvironment: leg.isReadOnly || shouldDetachExecution
+            mcpChildEnvironment: leg.isReadOnly
                 ? [:]
                 : mcpChildEnvironment(run.executor)
         )

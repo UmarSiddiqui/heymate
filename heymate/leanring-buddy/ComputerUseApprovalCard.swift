@@ -22,7 +22,7 @@ struct ComputerUseApprovalCard: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Image(systemName: "hand.raised.fill")
-                    .font(.system(size: 12, weight: .bold))
+                    .font(DS.Glyph.regular)
                     .foregroundColor(riskColor)
                 Text("Approve this?")
                     .font(DS.Fonts.headline)

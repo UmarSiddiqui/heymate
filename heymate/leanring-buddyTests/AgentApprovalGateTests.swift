@@ -269,16 +269,49 @@ struct HeyMateMCPServerTests {
     /// Verified against a live child: without the allow-list, the call is
     /// refused with "you haven't granted it yet" and never reaches the bridge.
     @Test func toolNamesAreNamespacedTheWayClaudeCodeExpects() {
-        let suiteName = "HeyMateMCPServerTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        // Never consult real connector preferences or Keychain state in a
-        // namespace-only unit test.
-        let names = HeyMateMCPServer.claudeCodeToolNames(userDefaults: defaults)
+        let names = HeyMateMCPServer.claudeCodeToolNames()
         #expect(names.contains("mcp__heymate__heymate_point"))
-        #expect(names.count == HeyMateMCPServer.toolNames.count)
-        #expect(names.allSatisfy { $0.hasPrefix("mcp__heymate__") })
+        // The bare server name rides along because the connector tools this
+        // server proxies are discovered at `tools/list` time and cannot be
+        // enumerated when the allow-list is built.
+        #expect(names.first == "mcp__heymate")
+        #expect(names.count == HeyMateMCPServer.toolNames.count + 1)
+        #expect(names.allSatisfy { $0.hasPrefix("mcp__heymate") })
+    }
+
+    /// A Talk turn's connector tools are discovered from the user's live
+    /// sessions when the child asks for `tools/list`, so naming an allow-list
+    /// up front would filter out exactly the tools the turn exists to reach.
+    @Test func omittingTheEnabledToolsListLeavesConnectorToolsReachable() {
+        let withList = HeyMateMCPServer.codexConfigurationArguments(
+            runtimeURL: URL(fileURLWithPath: "/usr/bin/node"),
+            scriptURL: URL(fileURLWithPath: "/tmp/heymate-mcp.mjs"),
+            bridgeEnvironment: ["HEYMATE_BRIDGE_URL": "http://127.0.0.1:18732"]
+        )
+        let withoutList = HeyMateMCPServer.codexConfigurationArguments(
+            runtimeURL: URL(fileURLWithPath: "/usr/bin/node"),
+            scriptURL: URL(fileURLWithPath: "/tmp/heymate-mcp.mjs"),
+            bridgeEnvironment: ["HEYMATE_BRIDGE_URL": "http://127.0.0.1:18732"],
+            enabledTools: nil
+        )
+        #expect(withList.contains { $0.contains("enabled_tools") })
+        #expect(withoutList.contains { $0.contains("enabled_tools") } == false)
+        // "auto" still asks under `codex exec`, whose approval policy is
+        // `never` — the call is refused before it reaches the bridge.
+        #expect(withoutList.contains(#"mcp_servers.heymate.default_tools_approval_mode="approve""#))
+    }
+
+    /// The seeded server borrows HeyMate's live connector sessions instead of
+    /// opening its own, which is what removes the per-turn `npx` cold start
+    /// and puts the call behind the user's approval policy.
+    @Test func theSeededServerProxiesConnectorToolsThroughTheBridge() {
+        let source = HeyMateMCPServer.serverSource
+        #expect(source.contains("/connector/tools"))
+        #expect(source.contains("/connector/call"))
+        // Unknown names are connector tools, so a missing static tool must
+        // forward rather than error out.
+        #expect(source.contains("fetchConnectorTools"))
+        #expect(source.contains("respondError(id, -32602, \"Unknown tool") == false)
     }
 
     /// The bridge refuses click, drag, and type. The server must not smuggle
@@ -322,7 +355,8 @@ struct HeyMateMCPServerTests {
         ).arguments
     }
 
-    @Test func claudeWorkingLegUsesTheSameSafeCustomizationSurface() {
+    /// No runnable server means nothing to reach, so the leg keeps safe mode.
+    @Test func claudeWorkingLegWithoutTheServerStaysInSafeMode() {
         let arguments = claudeArguments(leg: .execute)
         #expect(arguments.contains("--safe-mode"))
         #expect(arguments.contains("--mcp-config"))
@@ -379,6 +413,62 @@ struct HeyMateMCPServerTests {
         )
         #expect(spec.arguments.contains(where: { $0.contains(secret) }) == false)
         #expect(spec.environmentOverrides["HEYMATE_BRIDGE_TOKEN"] == nil)
+    }
+
+    private func claudeSpecWithServer(leg: AgentRunLeg, origin: AgentRunOrigin = .sandbox) -> HeadlessCLILaunchSpec {
+        HeadlessCLIAdapterFactory.adapter(
+            for: .claudeCode,
+            claudeMCPConfigurationJSON: #"{"mcpServers":{"heymate":{"command":"/usr/bin/node","args":["/tmp/heymate-mcp.mjs"]}}}"#,
+            claudeMCPAllowedToolNames: HeyMateMCPServer.claudeCodeToolNames(),
+            mcpChildEnvironment: [
+                "HEYMATE_BRIDGE_URL": "http://127.0.0.1:18732",
+                "HEYMATE_BRIDGE_TOKEN": "do-not-put-me-in-argv"
+            ]
+        ).launchSpec(
+            workspaceURL: workspaceURL,
+            leg: leg,
+            origin: origin,
+            title: "t",
+            sessionIdentifier: "4662b1f8-8da1-4865-a3a2-ecd91d20cbb0"
+        )
+    }
+
+    /// Safe mode also drops explicitly supplied MCP, so a mate's Claude job
+    /// that keeps it can never reach a connected app. The working leg trades
+    /// it for strict MCP plus no setting sources.
+    @Test func claudeWorkingLegCarriesTheServerSoMatesReachConnectedApps() {
+        let spec = claudeSpecWithServer(leg: .execute)
+        #expect(spec.arguments.contains("--safe-mode") == false)
+        #expect(spec.arguments.contains("--strict-mcp-config"))
+        #expect(spec.arguments.contains("--setting-sources"))
+        #expect(spec.arguments.contains { $0.contains("\"heymate\"") })
+        #expect(spec.arguments.contains(#"{"mcpServers":{}}"#) == false)
+        guard let allowIndex = spec.arguments.firstIndex(of: "--allowedTools") else {
+            Issue.record("working leg must allow-list the HeyMate server")
+            return
+        }
+        let allowList = spec.arguments[allowIndex + 1].split(separator: ",").map(String.init)
+        #expect(allowList.contains("mcp__heymate"))
+        #expect(spec.environmentOverrides["HEYMATE_BRIDGE_URL"] == "http://127.0.0.1:18732")
+        #expect(spec.arguments.contains { $0.contains("do-not-put-me-in-argv") } == false)
+    }
+
+    /// Attached folders still ask per tool; the server rides along.
+    @Test func claudeAttachedWorkingLegCarriesTheServerAndKeepsManualApproval() {
+        let spec = claudeSpecWithServer(leg: .execute, origin: .attached)
+        #expect(spec.arguments.contains("manual"))
+        #expect(spec.arguments.contains("--allowedTools"))
+        #expect(spec.arguments.contains("--safe-mode") == false)
+    }
+
+    @Test func claudePlanningLegsIgnoreTheServerEvenWhenOffered() {
+        for leg in [AgentRunLeg.plan(prompt: "x"), .replan(feedback: "x"), .followUp(instruction: "x")] {
+            let spec = claudeSpecWithServer(leg: leg)
+            #expect(spec.arguments.contains("--safe-mode"))
+            #expect(spec.arguments.contains(#"{"mcpServers":{}}"#))
+            #expect(spec.arguments.contains("--allowedTools") == false)
+            #expect(spec.environmentOverrides.isEmpty)
+        }
     }
 
     @Test func openCodeGetsInlineToolsOnlyOnWorkingLeg() {

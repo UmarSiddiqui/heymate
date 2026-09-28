@@ -80,9 +80,33 @@ final class FileAgentRunStore {
         guard let existingIndex = runs.firstIndex(where: { $0.id == id }) else { return nil }
         var candidateRuns = runs
         mutate(&candidateRuns[existingIndex])
-        try persistDurably(candidateRuns)
+        do {
+            try persistDurably(candidateRuns)
+        } catch {
+            recordPersistFailure(error)
+            throw error
+        }
         runs = candidateRuns
         return runs[existingIndex]
+    }
+
+    /// Drops a finished run from history. The workspace folder is not touched.
+    /// A job that is still in progress stays, and a failed write leaves the
+    /// in-memory list unchanged.
+    @discardableResult
+    func delete(id: UUID) -> Bool {
+        guard let existingIndex = runs.firstIndex(where: { $0.id == id }) else { return false }
+        guard runs[existingIndex].status.isTerminal else { return false }
+        var candidateRuns = runs
+        candidateRuns.remove(at: existingIndex)
+        do {
+            try persistDurably(candidateRuns)
+        } catch {
+            recordPersistFailure(error)
+            return false
+        }
+        runs = candidateRuns
+        return true
     }
 
     func runningRuns() -> [AgentRun] {
@@ -154,7 +178,16 @@ final class FileAgentRunStore {
     }
 
     private func persist() {
-        try? persistDurably(runs)
+        do {
+            try persistDurably(runs)
+        } catch {
+            recordPersistFailure(error)
+        }
+    }
+
+    private func recordPersistFailure(_ error: Error) {
+        UserDefaults.standard.set(error.localizedDescription, forKey: "heymate.lastPersistError")
+        NotificationCenter.default.post(name: Notification.Name("heymate.persistFailed"), object: nil)
     }
 
     private func persistDurably(_ runs: [AgentRun]) throws {

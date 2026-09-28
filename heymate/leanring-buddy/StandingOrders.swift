@@ -262,6 +262,20 @@ nonisolated struct StandingOrderVoiceInstruction: Equatable {
     }
 }
 
+nonisolated enum StandingOrderRepositoryError: Error, LocalizedError, Equatable {
+    case missingFile
+    case outsideDirectory
+
+    var errorDescription: String? {
+        switch self {
+        case .missingFile:
+            return "That standing order file is missing."
+        case .outsideDirectory:
+            return "That standing order is outside the standing orders folder."
+        }
+    }
+}
+
 @MainActor
 final class FileStandingOrderRepository {
 
@@ -294,7 +308,9 @@ final class FileStandingOrderRepository {
         name: String,
         signalKind: StandingOrderSignalKind,
         contains: String,
-        task: String
+        task: String,
+        cooldownMinutes: Int = 60,
+        forMinutes: Int = 0
     ) throws -> URL {
         let safeName = Self.singleLine(name)
         let safeContains = Self.singleLine(contains)
@@ -307,22 +323,103 @@ final class FileStandingOrderRepository {
             suffix += 1
         }
 
-        let markdown = """
-        ---
-        name: \(safeName)
-        signal: \(signalKind.rawValue)
-        contains: \(safeContains)
-        task: \(safeTask)
-        enabled: true
-        cooldown-minutes: 60
-        for-minutes: 0
-        preplan: false
-        ---
-
-        HeyMate may offer this task when matching context appears. Matching never starts work.
-        """
+        let markdown = Self.markdown(
+            name: safeName,
+            signalKind: signalKind,
+            contains: safeContains,
+            task: safeTask,
+            enabled: true,
+            cooldownMinutes: cooldownMinutes,
+            forMinutes: forMinutes,
+            preplanEnabled: false
+        )
         try markdown.write(to: candidateURL, atomically: true, encoding: .utf8)
         return candidateURL
+    }
+
+    /// Rewrites the order's existing Markdown file. The filename, and therefore
+    /// the stable id, stays put when the display name changes.
+    func update(
+        _ order: StandingOrder,
+        name: String,
+        signalKind: StandingOrderSignalKind,
+        contains: String,
+        task: String,
+        cooldownMinutes: Int,
+        forMinutes: Int
+    ) throws {
+        try rewrite(
+            order,
+            name: name,
+            signalKind: signalKind,
+            contains: contains,
+            task: task,
+            enabled: order.enabled,
+            cooldownMinutes: cooldownMinutes,
+            forMinutes: forMinutes
+        )
+    }
+
+    func setEnabled(_ enabled: Bool, order: StandingOrder) throws {
+        try rewrite(
+            order,
+            name: order.name,
+            signalKind: order.signalKind,
+            contains: order.containsAny.joined(separator: ", "),
+            task: order.task,
+            enabled: enabled,
+            cooldownMinutes: order.cooldownMinutes,
+            forMinutes: order.minimumMatchMinutes
+        )
+    }
+
+    func delete(_ order: StandingOrder) throws {
+        let fileURL = try markdownFileURL(for: order)
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            throw StandingOrderRepositoryError.missingFile
+        }
+        try fileManager.removeItem(at: fileURL)
+    }
+
+    private func rewrite(
+        _ order: StandingOrder,
+        name: String,
+        signalKind: StandingOrderSignalKind,
+        contains: String,
+        task: String,
+        enabled: Bool,
+        cooldownMinutes: Int,
+        forMinutes: Int
+    ) throws {
+        let fileURL = try markdownFileURL(for: order)
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            throw StandingOrderRepositoryError.missingFile
+        }
+        let markdown = Self.markdown(
+            name: Self.singleLine(name),
+            signalKind: signalKind,
+            contains: Self.singleLine(contains),
+            task: Self.singleLine(task),
+            enabled: enabled,
+            cooldownMinutes: cooldownMinutes,
+            forMinutes: forMinutes,
+            preplanEnabled: order.preplanEnabled
+        )
+        try markdown.write(to: fileURL, atomically: true, encoding: .utf8)
+    }
+
+    private func markdownFileURL(for order: StandingOrder) throws -> URL {
+        let fileURL = URL(fileURLWithPath: order.sourcePath)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+        var rootPath = directoryURL.resolvingSymlinksInPath().standardizedFileURL.path
+        if !rootPath.hasSuffix("/") {
+            rootPath += "/"
+        }
+        guard fileURL.path.hasPrefix(rootPath), fileURL.pathExtension.lowercased() == "md" else {
+            throw StandingOrderRepositoryError.outsideDirectory
+        }
+        return fileURL
     }
 
     func directory() -> URL { directoryURL }
@@ -335,6 +432,34 @@ final class FileStandingOrderRepository {
         return applicationSupportDirectory
             .appendingPathComponent("heymate", isDirectory: true)
             .appendingPathComponent("standing-orders", isDirectory: true)
+    }
+
+    private nonisolated static func markdown(
+        name: String,
+        signalKind: StandingOrderSignalKind,
+        contains: String,
+        task: String,
+        enabled: Bool,
+        cooldownMinutes: Int,
+        forMinutes: Int,
+        preplanEnabled: Bool
+    ) -> String {
+        let cooldown = max(1, cooldownMinutes)
+        let duration = max(0, forMinutes)
+        return """
+        ---
+        name: \(name)
+        signal: \(signalKind.rawValue)
+        contains: \(contains)
+        task: \(task)
+        enabled: \(enabled ? "true" : "false")
+        cooldown-minutes: \(cooldown)
+        for-minutes: \(duration)
+        preplan: \(preplanEnabled ? "true" : "false")
+        ---
+
+        HeyMate may offer this task when matching context appears. Matching never starts work.
+        """
     }
 
     private nonisolated static func slug(_ value: String) -> String {

@@ -249,6 +249,19 @@ struct ClaudePrintAdapter: HeadlessCLIAdapter {
     /// own default, which is what we want until the user picks a chip.
     let modelIdentifier: String?
 
+    /// `--effort` level. Nil keeps the CLI's default.
+    var effort: String? = nil
+
+    /// HeyMate's loopback server as an `--mcp-config` payload. Attached to
+    /// working legs only, and only when it can actually run.
+    var mcpConfigurationJSON: String? = nil
+    /// Allow-list for that server. `acceptEdits` auto-approves file edits
+    /// only, so without it every MCP call stalls as an ungranted permission.
+    var mcpAllowedToolNames: [String] = []
+    /// Bridge URL and token for the server, carried in the environment so
+    /// they never appear on the child's command line.
+    var mcpChildEnvironment: [String: String] = [:]
+
     func launchSpec(
         workspaceURL: URL,
         leg: AgentRunLeg,
@@ -278,13 +291,25 @@ struct ClaudePrintAdapter: HeadlessCLIAdapter {
             // source; working legs add only reviewed MCP below.
             "--setting-sources", ""
         ])
-        // Keep execution on the same customization surface the user approved.
-        // Current Claude safe mode also disables explicitly supplied MCP, so
-        // Claude jobs intentionally forgo HeyMate's bonus tools; Codex and
-        // OpenCode retain them through isolation mechanisms their CLIs expose.
-        arguments.append("--safe-mode")
+        // Current Claude safe mode also disables explicitly supplied MCP, so a
+        // working leg that carries HeyMate's server has to leave it off or the
+        // mate loses its connected apps. `--setting-sources ""` still keeps
+        // user and project hooks out, and `--strict-mcp-config` below keeps
+        // every other MCP server out. Legs without the server stay safe.
+        let workingMCPConfigurationJSON: String? = {
+            guard case .execute = leg,
+                  let mcpConfigurationJSON,
+                  !mcpConfigurationJSON.isEmpty else { return nil }
+            return mcpConfigurationJSON
+        }()
+        if workingMCPConfigurationJSON == nil {
+            arguments.append("--safe-mode")
+        }
         if let modelIdentifier, !modelIdentifier.isEmpty {
             arguments.append(contentsOf: ["--model", modelIdentifier])
+        }
+        if let effort, !effort.isEmpty {
+            arguments.append(contentsOf: ["--effort", effort])
         }
 
         // A read-only leg is told what deal it is in. Plan mode enforces the
@@ -297,9 +322,14 @@ struct ClaudePrintAdapter: HeadlessCLIAdapter {
         }
 
         arguments.append(contentsOf: [
-            "--mcp-config", Self.emptyMCPConfigurationJSON,
+            "--mcp-config", workingMCPConfigurationJSON ?? Self.emptyMCPConfigurationJSON,
             "--strict-mcp-config"
         ])
+        if workingMCPConfigurationJSON != nil, !mcpAllowedToolNames.isEmpty {
+            // A connector call still passes HeyMate's own approval gate on the
+            // far side of the bridge; this only stops Claude asking twice.
+            arguments.append(contentsOf: ["--allowedTools", mcpAllowedToolNames.joined(separator: ",")])
+        }
 
         switch leg {
         case .plan:
@@ -333,7 +363,7 @@ struct ClaudePrintAdapter: HeadlessCLIAdapter {
             arguments: arguments,
             currentDirectoryURL: workspaceURL,
             environmentKeysToRemove: executor.environmentKeysToRemove,
-            environmentOverrides: [:],
+            environmentOverrides: workingMCPConfigurationJSON == nil ? [:] : mcpChildEnvironment,
             temporaryDirectoriesToRemove: [],
             usesDuplexStandardInput: leg == .execute && origin == .attached
         )
@@ -464,9 +494,12 @@ enum HeadlessCLIAdapterFactory {
         for executor: HeadlessExecutor,
         openCodeModelIdentifier: String? = nil,
         claudeModelIdentifier: String? = nil,
+        claudeEffort: String? = nil,
         codexModelIdentifier: String? = nil,
         codexReasoningEffort: String? = nil,
         openCodeMCPConfigurationJSON: String? = nil,
+        claudeMCPConfigurationJSON: String? = nil,
+        claudeMCPAllowedToolNames: [String] = [],
         codexMCPConfigurationArguments: [String] = [],
         mcpChildEnvironment: [String: String] = [:],
         openCodeIsolatedConfigurationHomePath: String? = nil
@@ -481,7 +514,11 @@ enum HeadlessCLIAdapterFactory {
             )
         case .claudeCode:
             return ClaudePrintAdapter(
-                modelIdentifier: claudeModelIdentifier
+                modelIdentifier: claudeModelIdentifier,
+                effort: claudeEffort,
+                mcpConfigurationJSON: claudeMCPConfigurationJSON,
+                mcpAllowedToolNames: claudeMCPAllowedToolNames,
+                mcpChildEnvironment: mcpChildEnvironment
             )
         case .codex:
             return CodexExecAdapter(

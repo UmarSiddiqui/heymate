@@ -55,4 +55,27 @@ struct HeadlessExecutorSignInTests {
         let script = HeadlessExecutorSignIn.terminalAppleScript(runningCommand: #"echo "hi""#)
         #expect(script.contains(#"\"hi\""#))
     }
+
+    @Test func claudeSignsOutWithAuthLogout() {
+        #expect(HeadlessExecutorSignIn.logoutCommand(for: .claudeCode) == "claude auth logout")
+    }
+
+    @Test func openCodeSignsOutWithAuthLogout() {
+        #expect(HeadlessExecutorSignIn.logoutCommand(for: .openCode) == "opencode auth logout")
+    }
+
+    @Test func codexSignsOutWithLogout() {
+        #expect(HeadlessExecutorSignIn.logoutCommand(for: .codex) == "codex logout")
+        #expect(HeadlessExecutorSignIn.logoutCommand(forExecutableNamed: "codex") == "codex logout")
+    }
+
+    @Test func anUnknownCLIHasNoSignOutCommand() {
+        #expect(HeadlessExecutorSignIn.logoutCommand(forExecutableNamed: "gemini") == nil)
+    }
+
+    @Test func everyExecutorCanBeSignedOut() {
+        for executor in HeadlessExecutor.allCases {
+            #expect(HeadlessExecutorSignIn.logoutCommand(for: executor) != nil)
+        }
+    }
 }

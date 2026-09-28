@@ -38,12 +38,28 @@ nonisolated enum HeadlessExecutorSignIn {
         "codex": "codex login"
     ]
 
+    /// The CLI's own logout, parallel to `commandsByExecutableName`.
+    /// Claude and OpenCode nest it under `auth`; Codex does not.
+    static let logoutCommandsByExecutableName: [String: String] = [
+        "claude": "claude auth logout",
+        "opencode": "opencode auth logout",
+        "codex": "codex logout"
+    ]
+
     static func command(forExecutableNamed executableName: String) -> String? {
         commandsByExecutableName[executableName]
     }
 
     static func command(for executor: HeadlessExecutor) -> String? {
         command(forExecutableNamed: executor.executableName)
+    }
+
+    static func logoutCommand(forExecutableNamed executableName: String) -> String? {
+        logoutCommandsByExecutableName[executableName]
+    }
+
+    static func logoutCommand(for executor: HeadlessExecutor) -> String? {
+        logoutCommand(forExecutableNamed: executor.executableName)
     }
 
     /// What the user is about to be shown, so the button can say it rather
@@ -57,6 +73,14 @@ nonisolated enum HeadlessExecutorSignIn {
         case .codex:
             return "Opens Terminal and runs `codex login`. The ChatGPT app being signed in does not log the CLI in."
         }
+    }
+
+    /// What the user is about to be shown before Terminal runs logout.
+    static func signOutDescription(for executor: HeadlessExecutor) -> String {
+        guard let command = logoutCommand(for: executor) else {
+            return "Opens Terminal and signs out."
+        }
+        return "Opens Terminal and runs `\(command)`."
     }
 
     /// AppleScript that opens Terminal and runs one command. Pure so the
@@ -83,7 +107,28 @@ nonisolated enum HeadlessExecutorSignIn {
     @MainActor
     @discardableResult
     static func beginSignIn(executableName: String) -> Bool {
-        guard let command = command(forExecutableNamed: executableName) else { return false }
+        beginTerminalCommand(command(forExecutableNamed: executableName))
+    }
+
+    /// Runs the CLI's logout in Terminal. Returns false when there is no known
+    /// command for that executable, so the caller can stay quiet rather than
+    /// opening an empty window.
+    @MainActor
+    @discardableResult
+    static func beginSignOut(for executor: HeadlessExecutor) -> Bool {
+        beginSignOut(executableName: executor.executableName)
+    }
+
+    @MainActor
+    @discardableResult
+    static func beginSignOut(executableName: String) -> Bool {
+        beginTerminalCommand(logoutCommand(forExecutableNamed: executableName))
+    }
+
+    @MainActor
+    @discardableResult
+    private static func beginTerminalCommand(_ command: String?) -> Bool {
+        guard let command else { return false }
         let result = HeyMateLocalAutomation.runAppleScript(
             terminalAppleScript(runningCommand: command)
         )

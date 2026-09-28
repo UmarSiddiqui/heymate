@@ -16,6 +16,7 @@ struct AgentBrainTests {
         #expect(AgentBrain.claudeCode.displayName == "Claude")
         #expect(AgentBrain.openCode.displayName == "OpenCode")
         #expect(AgentBrain.customAPI.displayName == "Custom API")
+        #expect(AgentBrain.onDevice.displayName == "On this Mac")
     }
 
     @Test func claudeAndCodexAndOpenCodeRunAgentJobs() {
@@ -23,6 +24,10 @@ struct AgentBrainTests {
         #expect(AgentBrain.openCode.executor == .openCode)
         #expect(AgentBrain.codex.executor == .codex)
         #expect(AgentBrain.customAPI.executor == nil)
+        #expect(AgentBrain.onDevice.executor == nil)
+        #expect(AgentBrain.codex.offersSubscriptionVoiceChat)
+        #expect(AgentBrain.claudeCode.offersSubscriptionVoiceChat)
+        #expect(AgentBrain.onDevice.offersSubscriptionVoiceChat == false)
     }
 
     @Test func onlyCustomAPICannotStartAJob() {
