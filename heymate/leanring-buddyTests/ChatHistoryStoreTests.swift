@@ -202,4 +202,183 @@ struct ChatHistoryStoreTests {
         #expect(!fieldNames.contains("audioData"))
         #expect(!fieldNames.contains("screenshot"))
     }
+
+    @Test func nilMateIDIsAssignedOnceAndDraftRoundTrips() throws {
+        let storeFileURL = makeTemporaryStoreFileURL()
+        defer { removeTemporaryFile(at: storeFileURL) }
+
+        let sessionID = UUID()
+        let messageID = UUID()
+        let raw = """
+        [{
+          "createdAt": 0,
+          "id": "\(sessionID.uuidString)",
+          "messages": [{
+            "createdAt": 0,
+            "id": "\(messageID.uuidString)",
+            "role": "user",
+            "text": "hello"
+          }],
+          "title": "old",
+          "updatedAt": 0
+        }]
+        """
+        try Data(raw.utf8).write(to: storeFileURL)
+
+        let defaultMateID = UUID()
+        let store = FileChatHistoryStore(fileURL: storeFileURL)
+        #expect(store.loadAll().first?.mateID == nil)
+        store.migrateNilMateIDs(to: defaultMateID)
+        store.migrateNilMateIDs(to: UUID())
+
+        let reloaded = FileChatHistoryStore(fileURL: storeFileURL)
+        #expect(reloaded.loadAll().first?.mateID == defaultMateID)
+
+        var drafted = reloaded.loadAll()[0]
+        drafted.draftText = "unsent"
+        reloaded.upsert(drafted)
+        let withDraft = FileChatHistoryStore(fileURL: storeFileURL)
+        #expect(withDraft.loadAll().first?.draftText == "unsent")
+        #expect(withDraft.loadAll().first?.mateID == defaultMateID)
+    }
+
+    @Test func attachmentNamesRoundTripWithoutBinaryData() throws {
+        let message = ChatMessage(
+            id: UUID(),
+            role: .user,
+            text: "Read this chart",
+            createdAt: Date(),
+            attachmentNames: ["chart.png"]
+        )
+        let decoded = try JSONDecoder().decode(
+            ChatMessage.self,
+            from: JSONEncoder().encode(message)
+        )
+        #expect(decoded.attachmentNames == ["chart.png"])
+    }
+
+    @Test func deleteSessionsRemovesOnlyThatMatesSessions() {
+        let storeFileURL = makeTemporaryStoreFileURL()
+        defer { removeTemporaryFile(at: storeFileURL) }
+
+        let mateA = UUID()
+        let mateB = UUID()
+        var sessionA = makeSession(
+            title: "a",
+            minutesAfterEpochBase: 1,
+            messages: [makeMessage(role: .user, text: "from a", offset: 1)]
+        )
+        sessionA.mateID = mateA
+        var sessionB = makeSession(
+            title: "b",
+            minutesAfterEpochBase: 2,
+            messages: [makeMessage(role: .user, text: "from b", offset: 2)]
+        )
+        sessionB.mateID = mateB
+        let unassigned = makeSession(
+            title: "unassigned",
+            minutesAfterEpochBase: 3,
+            messages: [makeMessage(role: .user, text: "no mate", offset: 3)]
+        )
+
+        let store = FileChatHistoryStore(fileURL: storeFileURL)
+        store.upsert(sessionA)
+        store.upsert(sessionB)
+        store.upsert(unassigned)
+        store.deleteSessions(mateID: mateA)
+
+        let reloaded = FileChatHistoryStore(fileURL: storeFileURL)
+        #expect(Set(reloaded.loadAll().map(\.title)) == ["b", "unassigned"])
+        #expect(reloaded.loadAll().allSatisfy { $0.mateID != mateA })
+        #expect(reloaded.loadAll().contains { $0.mateID == nil })
+    }
+
+    @Test func trimNoticeCountsDroppedSessionsOnce() {
+        let storeFileURL = makeTemporaryStoreFileURL()
+        defer { removeTemporaryFile(at: storeFileURL) }
+
+        let wide = FileChatHistoryStore(fileURL: storeFileURL, maxSessions: 10)
+        for index in 1...4 {
+            wide.upsert(makeSession(
+                title: "s\(index)",
+                minutesAfterEpochBase: index,
+                messages: [makeMessage(role: .user, text: "m\(index)", offset: index)]
+            ))
+        }
+        #expect(wide.consumeTrimNotice() == 0)
+
+        let store = FileChatHistoryStore(fileURL: storeFileURL, maxSessions: 2)
+        store.upsert(makeSession(
+            title: "newest",
+            minutesAfterEpochBase: 9,
+            messages: [makeMessage(role: .user, text: "new", offset: 9)]
+        ))
+
+        #expect(store.loadAll().map(\.title) == ["newest", "s4"])
+        #expect(store.consumeTrimNotice() == 3)
+        #expect(store.consumeTrimNotice() == 0)
+    }
+
+    @Test func exportPlainTextIncludesBothRoles() {
+        let session = ChatSession(
+            id: UUID(),
+            title: "Notes",
+            createdAt: Date(),
+            updatedAt: Date(),
+            messages: [
+                makeMessage(role: .user, text: "question", offset: 1),
+                makeMessage(role: .assistant, text: "answer", offset: 2)
+            ]
+        )
+        let text = session.exportPlainText()
+        #expect(text.hasPrefix("Notes\n"))
+        #expect(text.contains("user: question"))
+        #expect(text.contains("assistant: answer"))
+    }
+
+    @Test func persistFailureRecordsErrorWithoutCrashing() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ChatHistoryStoreTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let blocker = directory.appendingPathComponent("blocker")
+        try Data([0x00]).write(to: blocker)
+        let storeFileURL = blocker.appendingPathComponent("chats.json")
+
+        let key = "heymate.lastPersistError"
+        let previous = UserDefaults.standard.string(forKey: key)
+        UserDefaults.standard.removeObject(forKey: key)
+        defer {
+            if let previous {
+                UserDefaults.standard.set(previous, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+
+        let probe = PersistFailureProbe()
+        let token = NotificationCenter.default.addObserver(
+            forName: Notification.Name("heymate.persistFailed"),
+            object: nil,
+            queue: nil
+        ) { _ in
+            probe.didNotify = true
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        let store = FileChatHistoryStore(fileURL: storeFileURL)
+        store.upsert(makeSession(
+            title: "unsaved",
+            minutesAfterEpochBase: 1,
+            messages: [makeMessage(role: .user, text: "hi", offset: 1)]
+        ))
+
+        #expect(UserDefaults.standard.string(forKey: key) == "Couldn't save chat history.")
+        #expect(probe.didNotify)
+    }
+}
+
+private final class PersistFailureProbe: @unchecked Sendable {
+    var didNotify = false
 }
