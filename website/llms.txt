@@ -1,0 +1,43 @@
+# HeyMate
+
+> HeyMate is a free, open-source (MIT) AI assistant for macOS that lives in the MacBook notch. Hold Control + Option, ask about anything on your screen, and it answers out loud while its cursor points at what it means. It can also hand real coding work to Claude Code, Codex, or OpenCode, and it runs on the CLI subscriptions you already have: no HeyMate account and no second API bill.
+
+- Website: https://getheymate.vercel.app
+- Source code: https://github.com/UmarSiddiqui/heymate
+- Download (latest macOS build): https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg
+- Release notes: https://github.com/UmarSiddiqui/heymate/releases
+- 38-second demo video: https://getheymate.vercel.app/assets/video/heymate-demo.mp4
+- Privacy notes: https://getheymate.vercel.app/privacy
+
+## Key facts
+
+- Platform: macOS 14.2 or later, Apple silicon and Intel. Works on Macs without a notch (a top-center pill instead).
+- Price: free. MIT licensed. Built in native SwiftUI.
+- AI "brains": Claude Code CLI (default), Codex CLI, or OpenCode, using the user's existing sign-in. A custom Anthropic-compatible API is optional for Talk.
+- Push-to-talk: hold Control + Option, speak, release. Voice input uses on-device Apple Speech and the macOS system voice by default.
+- Screen awareness: HeyMate captures the screen only when a question needs it. Screenshots are never stored or added to chat history. Password managers and System Settings are excluded from capture.
+- Data: chats, memory, mates, and routines are stored locally in ~/Library/Application Support/heymate/. Credentials live in the macOS Keychain. There is no HeyMate server.
+- Builds are ad-hoc signed (not yet Developer ID). First launch: Control-click HeyMate and choose Open.
+
+## Features
+
+- Notch home: hover the notch to open Home, Apps, and Agents. No dock icon, no menu-bar clutter.
+- Notch micro-apps: File Shelf, focus timers, Clipboard history, Now Playing, Downloads, Camera Mirror, Volume HUD, Battery, Next Event, Reminders.
+- Coding agents with an approval gate: the agent first writes a read-only plan in a sandbox folder (~/Projects/heymate). Nothing is written until the user approves. Approved work runs in a background helper that survives quitting the app, with undo snapshots and Terminal takeover.
+- Standing Orders: HeyMate proposes work but never starts it unasked.
+- Mates: persistent helpers with a name, job, personality, face, memory, and workspace folder. Routines run a mate daily at a set time or every N hours.
+- Connectors: Apple Calendar, Reminders, Notes, Mail, Messages, and Shortcuts; local CLIs such as gh, git, docker, kubectl, vercel, supabase, and stripe; any MCP server; 1,400+ toolkits via Composio. Read-only calls run quietly; anything that sends, deletes, or pays asks first.
+
+## How HeyMate compares
+
+- Unlike chat apps in a browser tab, HeyMate sees the current screen on request and points at the answer on screen.
+- Unlike hosted agent products, coding agents run through the user's own Claude Code, Codex, or OpenCode CLI and cannot write files before the user approves a plan.
+- Unlike menu-bar utilities, it uses the otherwise unused space around the MacBook camera notch.
+
+## Install
+
+1. Download HeyMate.dmg from the latest GitHub release and drag HeyMate to Applications.
+2. Control-click HeyMate and choose Open (first launch only).
+3. Grant Microphone, Accessibility, and Screen Recording.
+4. Sign in to one CLI: `claude auth login --claudeai`, `codex login`, or `opencode auth login`.
+5. Hold Control + Option and say hey.
