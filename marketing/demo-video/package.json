@@ -1,0 +1,27 @@
+{
+  "name": "heymate-demo-video",
+  "private": true,
+  "version": "1.0.0",
+  "description": "HeyMate motion-graphic demo video (Remotion)",
+  "scripts": {
+    "studio": "remotion studio",
+    "render": "remotion render HeyMateDemo out/heymate-demo-1080p60.mp4",
+    "render:vertical": "remotion render HeyMateDemoVertical out/heymate-demo-vertical-1080x1920.mp4",
+    "render:all": "npm run render && npm run render:vertical",
+    "stills": "node scripts/stills.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.529",
+    "@remotion/transitions": "4.0.529",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "remotion": "4.0.529"
+  },
+  "devDependencies": {
+    "@remotion/bundler": "^4.0.529",
+    "@remotion/renderer": "^4.0.529",
+    "@types/react": "19.1.8",
+    "typescript": "5.8.3"
+  }
+}
