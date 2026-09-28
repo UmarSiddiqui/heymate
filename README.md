@@ -1,220 +1,204 @@
+<div align="center">
+
+<img src="docs/media/heymate-icon.png" width="112" alt="HeyMate app icon">
+
 # HeyMate
 
-HeyMate is an AI buddy that lives at the top of your Mac, sees your screen when you ask, talks back, and can hand real coding work to Claude Code, Codex, or OpenCode.
+**The AI buddy that lives in your Mac's notch.**<br>
+Hold a key, ask about anything on your screen, and it answers out loud. It can also hand real coding work to Claude Code, Codex, or OpenCode, running on the subscription you already pay for.
 
-Its main advantage is simple: Claude and Codex run through the CLI accounts you already use. HeyMate does not need a second API key or a separate token bill for its default Talk and coding-agent paths.
+[![Latest release](https://img.shields.io/github/v/release/UmarSiddiqui/heymate?label=download&color=3380FF&style=flat-square)](https://github.com/UmarSiddiqui/heymate/releases/latest)
+[![Release build](https://img.shields.io/github/actions/workflow/status/UmarSiddiqui/heymate/release.yml?branch=main&label=build&style=flat-square)](https://github.com/UmarSiddiqui/heymate/actions/workflows/release.yml)
+![macOS 14.2+](https://img.shields.io/badge/macOS-14.2%2B-111113?style=flat-square&logo=apple)
+![Swift](https://img.shields.io/badge/SwiftUI-native-F05138?style=flat-square&logo=swift&logoColor=white)
+[![MIT license](https://img.shields.io/badge/license-MIT-34D399?style=flat-square)](heymate/LICENSE)
 
-> **Current status:** HeyMate is source-first. This repository does not yet include a signed public installer. The app builds and runs, but first-time setup still assumes some comfort with Xcode and macOS privacy permissions.
+[**Download for Mac**](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg) · [Website](https://getheymate.vercel.app) · [Watch the demo](https://getheymate.vercel.app/#demo) · [Changelog](https://github.com/UmarSiddiqui/heymate/releases)
 
-## What it does
+<br>
 
-- Lives over the MacBook notch, with a top-center fallback on Macs without one.
-- Uses push-to-talk or typed chat to answer questions, including questions about the visible screen.
-- Uses Apple Speech and the macOS system voice by default, so voice input and playback need no third-party service.
-- Creates coding-agent work in a new folder under `~/Projects/heymate`, or works in a folder you explicitly choose.
-- Makes an agent produce a read-only plan first. Files are writable only after you approve that plan.
-- Streams agent activity into the app and lets you cancel, continue, undo snapshotted work, or hand a CLI session to Terminal.
-- Keeps optional memory, skills, connectors, timers, clipboard history, and other companion features local to the Mac unless their feature explicitly uses an external service.
+<a href="https://getheymate.vercel.app/#demo">
+  <img src="docs/media/heymate-vision.gif" width="720" alt="HeyMate: hold control and option, ask what's wrong, and the cursor flies to the broken line and explains the fix">
+</a>
 
-## Existing subscriptions first
+<sub>Hold <kbd>⌃</kbd> <kbd>⌥</kbd>, ask "what's wrong with this error?", let go. HeyMate points at the line and says the fix out loud.</sub>
 
-HeyMate discovers CLI executables through your login-shell `PATH`, including common Homebrew, npm, Bun, and local-bin locations.
+</div>
 
-| Brain | Local command | Sign-in command | Notes |
+<br>
+
+## Why HeyMate
+
+- **It sees what you see.** Push to talk, ask about anything on screen, and get an answer out loud. The cursor buddy flies to the thing it is talking about. Screenshots are taken only when a question needs one, and are never stored.
+- **It runs on your subscription.** Claude Code, Codex, or OpenCode: whichever CLI you already have installed and signed in. No HeyMate account. No second API bill.
+- **It asks before it acts.** Agents plan read-only first. Nothing is written, clicked, or sent without your approval, and every change is snapshotted so you can undo it.
+
+<p align="center">
+  <a href="https://getheymate.vercel.app/#demo"><img src="docs/media/heymate-demo-poster.jpg" width="720" alt="Play the 38-second HeyMate demo"></a><br>
+  <sub>▶ <a href="https://getheymate.vercel.app/#demo">Watch the 38-second tour</a></sub>
+</p>
+
+## Features
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### Lives in the notch
+Folds into the camera housing and opens on hover into **Home**, **Apps**, and **Agents**. Macs without a notch get a top-center pill. There is no dock icon and no menu-bar clutter.
+
+Micro-apps for the space you never used: File Shelf, focus timers, Clipboard history, Now Playing, Downloads, Camera Mirror, Volume HUD, Battery, Next Event, and Reminders.
+
+</td>
+<td width="50%" valign="top">
+<img src="website/assets/screens/apps.webp" alt="HeyMate notch Apps page">
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/media/heymate-agents.gif" alt="An agent plan is approved, runs, and finishes with an undo snapshot">
+</td>
+<td width="50%" valign="top">
+
+### Coding agents, on a leash
+"HeyMate agent, add dark mode to this project." HeyMate opens a sandbox in `~/Projects/heymate`, has Claude Code or Codex draft a **read-only plan**, and waits. Approve it, walk away, and it keeps running even if you quit.
+
+Undo snapshots, Terminal takeover, completion receipts, and **Standing Orders**: HeyMate proposes work, but never starts it unasked.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### Mates: a small team, not one assistant
+"Make me a mate that tracks my YouTube comments." Each mate gets a name, a job, a personality, a face, its own memory, and a workspace folder.
+
+**Routines** run daily at a time you choose or every *N* hours, and results land in that mate's chat.
+
+</td>
+<td width="50%" valign="top">
+<img src="website/assets/screens/mates.webp" alt="HeyMate Mates window with a daily routine">
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<img src="website/assets/screens/tools.webp" alt="HeyMate connectors">
+</td>
+<td width="50%" valign="top">
+
+### Plugs into what you already use
+Apple Calendar, Reminders, Notes, Mail, Messages, and Shortcuts out of the box. Local `gh`, `git`, `docker`, `kubectl`, `vercel`, `supabase`, and `stripe` CLIs with your own logins. Any MCP server, plus 1,400+ toolkits through Composio.
+
+Read-only calls run quietly. Anything that sends, deletes, or pays always asks first.
+
+</td>
+</tr>
+</table>
+
+## Install
+
+1. Download **[HeyMate.dmg](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg)** from the latest release and drag HeyMate into Applications.
+2. The build is not Developer ID-signed yet, so the first time you open it, **Control-click HeyMate → Open**.
+3. Pick a brain with the model chip, then grant **Microphone**, **Accessibility**, and **Screen Recording** when the setup card asks.
+4. Hold <kbd>⌃</kbd> <kbd>⌥</kbd> and say hey.
+
+Every push to `main` is built on GitHub Actions and published as a new [release](https://github.com/UmarSiddiqui/heymate/releases) with its changes listed, so the download link always points to the newest build.
+
+### Requirements
+
+- macOS 14.2 or later, Apple silicon or Intel
+- At least one supported CLI, signed in:
+
+| Brain | Command | Sign in | Notes |
 | --- | --- | --- | --- |
-| Claude | `claude` | `claude auth login --claudeai` | Fresh installs select Claude and Sonnet by default. The `--claudeai` flow uses a Claude subscription rather than Anthropic Console billing. |
-| Codex | `codex` | `codex login` | Uses the Codex CLI credential store. Being signed in to the ChatGPT Mac app does not sign in the CLI. Models and reasoning levels come from the live Codex model catalog. |
-| OpenCode | `opencode` | `opencode auth login` | Can run free OpenCode models with no provider credential. Headless jobs allow file edits but deny shell and subagent tools because OpenCode has no host-level workspace sandbox. Talk and model browsing also require `opencode serve`. |
+| Claude | `claude` | `claude auth login --claudeai` | Default. Uses your Claude subscription, not Console billing. |
+| Codex | `codex` | `codex login` | Signing in to the ChatGPT Mac app does not sign in the CLI. |
+| OpenCode | `opencode` | `opencode auth login` | Free models need no provider credential. Headless jobs can edit files but cannot run shell commands. |
 
-When Claude or Codex runs a job, HeyMate removes documented app secrets plus provider API-key and base-URL variables from that child process. This prevents accidental metered billing and avoids automatically exposing Worker or voice credentials through the child environment. HeyMate never merges its local secrets file into a coding-agent child. OpenCode may still inherit provider credentials from the environment used to launch HeyMate because bringing your own provider is part of that executor's design.
+HeyMate finds CLIs through your login-shell `PATH` (Homebrew, npm, Bun, and `~/.local/bin` included). When Claude or Codex runs a job, HeyMate strips provider API-key and base-URL variables from the child process, so a stray `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` can never switch you to metered billing.
 
-## Requirements
+## Privacy
 
-- macOS 14.2 or later.
-- Xcode 26 recommended for source builds; the current project was last upgraded with Xcode 26 and has been verified with Xcode 26.6.
-- Internet access on the first build so Swift Package Manager can fetch Sparkle, PostHog, and PLCrashReporter.
-- At least one supported CLI above for CLI-backed Talk and coding-agent jobs. A Custom API is an optional Talk-only alternative.
-- A signed-in Claude or Codex CLI, or a working OpenCode installation. OpenCode's free models do not require a provider credential.
+> Nothing runs in the background. HeyMate only takes a screenshot when you press the hotkey, and screenshots are never stored.
 
-Node.js or Bun is optional. Coding jobs use each CLI's native toolset and do not depend on HeyMate's local MCP bridge, so background execution keeps working after HeyMate quits.
+- **On your disk.** Chats, memory, mates, and routines live in `~/Library/Application Support/heymate/`, as text only. Memory can be turned off or cleared in Settings.
+- **In your Keychain.** Custom-endpoint and connector credentials never touch a HeyMate server, because there isn't one.
+- **Excluded apps.** Password managers and System Settings are never captured by Talk, dictation, or screen-reading standing orders.
+- **Invisible on calls.** One switch hides the notch and cursor from screen shares.
+- **No analytics** unless a build explicitly supplies a PostHog key.
 
-## Quick source setup
+Coding CLIs still run as your macOS user. Plan mode limits writes, not reads.
 
-1. Clone the repository and open the Xcode project:
+<details>
+<summary><strong>How the coding-agent workflow works</strong></summary>
 
-   ```bash
-   git clone https://github.com/UmarSiddiqui/heymate.git heyMate
-   cd heyMate/heymate
-   open leanring-buddy.xcodeproj
-   ```
+<br>
 
-2. Select the `leanring-buddy` scheme and the **My Mac** destination.
-
-3. Check **Signing & Capabilities** before the first Run. The project uses automatic signing but does not check in a development team, so Xcode may ask you to select your Personal Team or another team. A stable signed app matters because macOS ties Accessibility and Screen Recording grants to the app identity.
-
-4. Press Run. HeyMate has no normal menu-bar item; look at the notch or the top center of the active display.
-
-5. Before pressing **Start**, use the model chip to choose Claude, Codex, or OpenCode. If that CLI is signed out, open the gear button, go to **Brain**, and use **Sign in**. HeyMate opens Terminal with the CLI's own login flow and never receives your password or token.
-
-6. Grant the setup card's three required permissions:
-
-   - Microphone
-   - Accessibility
-   - Screen Recording
-
-   Screen Recording may require an app restart before macOS reports the grant. With the default Apple Speech listener, macOS also asks for Speech Recognition permission when you first talk.
-
-7. Press **Start**, then hold **Control + Option**, speak, and release. The first-run intro will also point at something visible when the selected brain is ready.
-
-No Cloudflare Worker and no API key are required for this default path.
-
-## Coding-agent workflow
-
-Voice or typed construction requests create a sandbox folder with a `TASK.md` file. A run has two legs:
+A voice or typed request creates a sandbox folder with a `TASK.md`:
 
 1. The selected CLI inspects the task and workspace with writes disabled.
 2. HeyMate shows the plan and waits.
 3. Approval creates an undo snapshot, resumes the same CLI session, and enables workspace writes.
 
-Choosing an existing folder uses the same plan gate and adds per-tool approval where the CLI supports it. Sandbox work is created under:
+Sandboxes live at `~/Projects/heymate/<task-slug>-<short-id>`. Choosing an existing folder uses the same plan gate, plus per-tool approval where the CLI supports it.
 
-```text
-~/Projects/heymate/<task-slug>-<short-id>
-```
+Approved execution moves into the separately signed `HeyMateAgentRunner` helper embedded at `HeyMate.app/Contents/Helpers`, so work survives Cmd-Q and reattaches on the next launch. Planning is limited to five awake minutes and each execution leg to fifteen; Mac sleep doesn't count. A crash-interrupted run keeps its pre-write undo snapshot.
 
-Agent run cards and session identifiers are persisted in Application Support. Planning stays attached to HeyMate, but approved execution moves into the separately signed `HeyMateAgentRunner` command-line helper embedded at `HeyMate.app/Contents/Helpers`. The helper has its own code-sign identity and no app, camera, microphone, ScreenCaptureKit, Sparkle, or LaunchServices lifecycle. After startup verification, work survives Cmd-Q; reopening HeyMate reattaches its card from a private durable journal. Cancel, approval, and Terminal takeover commands still reach the helper. When approval or terminal review needs attention, the helper wakes HeyMate hidden; the main app recovers the journal and posts through its existing notification permission. HeyMate blocks Cmd-Q during planning, launch races, or any state it cannot prove safe to detach. Approval-ready plans have no live process and also survive a normal quit. A crash-interrupted attached run is marked interrupted on next launch, while its pre-write Undo snapshot remains recoverable. Planning is limited to five awake minutes and an execution leg to fifteen awake minutes; Mac sleep does not consume that budget.
+OpenCode jobs cannot run shell commands or spawn subagents, because its CLI lacks an OS-enforced workspace sandbox. Use Claude Code or Codex when work must build or test itself.
 
-OpenCode jobs intentionally cannot run shell commands or spawn subagents; its CLI currently lacks an OS-enforced workspace-write sandbox. Use Claude Code or Codex when work must build or test itself.
+</details>
 
-## Permissions and privacy
+## Build from source
 
-HeyMate has broad macOS permissions because screen-aware help needs them, but the code keeps several boundaries explicit:
-
-- Talk skips screenshot capture for text-only requests. Screen-related requests capture the focused window or displays according to your setting.
-- Excluded apps are not captured by Talk, Smart Dictation, onboarding screen demos, or screen-text standing orders.
-- Screenshot files created for subscription CLI turns live in a temporary directory and are deleted after the turn. Screenshots are not added to saved chat history.
-- Conversation memory is stored locally in Application Support and is enabled by default. You can turn it off or clear saved chats and memory in Settings.
-- Custom endpoint and connector credentials use Keychain storage.
-- Coding agents cannot write before plan approval. Attached folders remain explicit user choices.
-- Coding CLIs still run as your macOS user and may read files that account can read. Plan mode limits writes, not reads; local secrets files are not a sandbox boundary against an untrusted model or tool.
-- Analytics is off unless a build supplies `POSTHOG_API_KEY` in its app configuration.
-
-Terminal sign-in and session takeover use macOS Automation to control Terminal, so macOS may ask for that permission when you first use either action.
-
-## Optional advanced services
-
-These are not part of the quick setup.
-
-### Cloudflare Worker for cloud voice providers
-
-The worker in [`heymate/worker`](heymate/worker) proxies provider credentials for optional AssemblyAI transcription and ElevenLabs speech. Its legacy chat route can also proxy Anthropic Messages requests.
-
-Local worker development uses:
+Requires Xcode 26 and an internet connection on the first build (Swift Package Manager fetches Sparkle, PostHog, and PLCrashReporter).
 
 ```bash
-cd heymate/worker
-npm install
-npm run dev
+git clone https://github.com/UmarSiddiqui/heymate.git
+cd heymate/heymate
+open leanring-buddy.xcodeproj
 ```
 
-Every provider-backed Worker route requires a shared `HEYMATE_CLIENT_TOKEN`; an unset token fails closed. This is a separate abuse-damping credential, not a provider API key. For a deployed Worker, set it with:
+Select the `leanring-buddy` scheme and **My Mac**, check **Signing & Capabilities** (pick your Personal Team), and press Run. A stable signing identity matters because macOS ties Accessibility and Screen Recording grants to it.
 
 ```bash
-npx wrangler secret put HEYMATE_CLIENT_TOKEN
+./scripts/typecheck.sh           # build the app without touching the signed app bundle
+./scripts/typecheck.sh --tests   # also build the test targets
+./script/build_and_run.sh --verify   # build, launch, and verify a project-local bundle
 ```
 
-For local Worker development, put that token and the provider keys for the routes you use in the git-ignored `heymate/worker/.dev.vars` file:
+<details>
+<summary><strong>Optional services: cloud voices, Custom API, OpenCode Talk</strong></summary>
 
-```text
-HEYMATE_CLIENT_TOKEN=<choose-a-random-value>
-ANTHROPIC_API_KEY=<your-anthropic-key>
-ASSEMBLYAI_API_KEY=<your-assemblyai-key>
-ELEVENLABS_API_KEY=<your-elevenlabs-key>
-ELEVENLABS_VOICE_ID=<your-elevenlabs-voice-id>
-```
+<br>
 
-Give the app the same client token through its process environment or an untracked local secrets file at `~/.config/heymate/secrets.env`:
+**Cloudflare Worker for cloud voices.** [`heymate/worker`](heymate/worker) proxies optional AssemblyAI transcription and ElevenLabs speech. Every route requires a shared `HEYMATE_CLIENT_TOKEN` and fails closed without one. Put provider keys in the git-ignored `heymate/worker/.dev.vars` locally, or in Cloudflare secrets (`npx wrangler secret put HEYMATE_CLIENT_TOKEN`) when deployed. Give the app the same token through its environment or `~/.config/heymate/secrets.env` (`chmod 600` both files). Never put keys in `Info.plist`.
 
-```text
-HEYMATE_CLIENT_TOKEN=<the-same-random-value>
-```
+**Custom API.** Accepts any Anthropic Messages-compatible endpoint, model, and optional key (stored in Keychain). It answers Talk requests but doesn't run coding-agent jobs.
 
-Restrict both local secret files after creating them:
+**OpenCode Talk.** Run `opencode serve` first. HeyMate defaults to `http://127.0.0.1:4096`. Plain HTTP is allowed only on loopback addresses.
 
-```bash
-chmod 600 heymate/worker/.dev.vars ~/.config/heymate/secrets.env
-```
+</details>
 
-Do not put this token or any provider key in `Info.plist`. The app reads the process environment first, then the local secrets file. Provider keys remain Worker-side.
+### Repository layout
 
-The checked-in app configuration points `WorkerBaseURL` at `http://localhost:8787`, but the default Apple Speech and macOS voice providers do not call it.
-
-### Custom API
-
-The **Custom API** brain accepts an Anthropic Messages-compatible endpoint, model name, and optional API key. The key is stored in Keychain. This endpoint can answer Talk requests, but it does not run coding-agent jobs.
-
-### OpenCode Talk
-
-OpenCode agent jobs launch `opencode run` directly. Using OpenCode as the conversational brain is different: start its local HTTP server first.
-
-```bash
-opencode serve
-```
-
-HeyMate defaults to `http://127.0.0.1:4096`.
-Plain HTTP is accepted only for loopback addresses. A non-loopback OpenCode server must use HTTPS because Talk can send screenshots and prompts.
-
-### Connectors and analytics
-
-Apple-native connectors request their own macOS permissions. MCP and Composio connectors are optional and require their own local command or API key. PostHog remains disabled unless a build explicitly supplies its key and host.
-
-## Development
-
-The repository contains one Xcode app target, unit tests, UI tests, and a separate TypeScript Worker.
-
-Build the app without touching or re-signing the Xcode-managed app bundle:
-
-```bash
-cd heymate
-./scripts/typecheck.sh
-```
-
-Build the app and test targets without executing tests:
-
-```bash
-./scripts/typecheck.sh --tests
-```
-
-The script uses a fresh temporary DerivedData directory for every run, disables signing, and removes that directory when finished. Run tests from Xcode with **Product > Test** when execution rather than compilation is required.
-
-Build, launch, and verify a stable project-local app bundle:
-
-```bash
-./script/build_and_run.sh --verify
-```
-
-The Codex desktop project exposes this command as its **Run** action. Verification resolves the launched PID to this build's executable and requires it to remain alive through a short startup window. Other modes are `--debug`, `--logs`, and `--telemetry`.
-
-The run script uses the first local Apple Development identity it finds, preserving macOS permission grants across rebuilds. Set `HEYMATE_DEVELOPMENT_TEAM` to choose another local team, or `HEYMATE_SIGNING_IDENTITY` to provide an exact local identity hash or name. Without a development identity it falls back to ad-hoc signing, which can require granting Accessibility and Screen Recording again after a rebuild. Every local build and public release gate also verifies the embedded runner exists, has hardened runtime, uses the distinct `com.heymate.app.agent-runner` code-sign identity, and carries no app-only entitlements. Release gates additionally reject `get-task-allow`.
-
-Public release automation separately requires a Developer ID Application certificate. `scripts/release.sh` discovers one from Keychain or accepts `HEYMATE_DEVELOPMENT_TEAM` plus `HEYMATE_RELEASE_SIGNING_IDENTITY`; neither value belongs in source control. Release feed continuity is explicit: choose one permanent public repository and Sparkle public key, then commit both public values in `heymate/ReleaseChannel.plist`. The checked-in blank file intentionally blocks release until that decision is reviewed.
-
-Useful paths:
-
-- App source: [`heymate/leanring-buddy`](heymate/leanring-buddy)
-- Unit tests: [`heymate/leanring-buddyTests`](heymate/leanring-buddyTests)
-- UI tests: [`heymate/leanring-buddyUITests`](heymate/leanring-buddyUITests)
-- Worker: [`heymate/worker`](heymate/worker)
+| Path | What's there |
+| --- | --- |
+| [`heymate/leanring-buddy`](heymate/leanring-buddy) | The SwiftUI app |
+| [`heymate/leanring-buddyTests`](heymate/leanring-buddyTests) · [`UITests`](heymate/leanring-buddyUITests) | Unit and UI tests |
+| [`heymate/worker`](heymate/worker) | Optional Cloudflare Worker for cloud voices |
+| [`website`](website) | The landing page |
+| [`marketing/demo-video`](marketing/demo-video) | The Remotion project that renders the demo video |
+| [`.github/workflows`](.github/workflows) | The build-and-release pipeline |
 
 ## Known limitations
 
-- No signed public download is included yet; source builds require Xcode and local signing setup.
-- Fresh installs default to Claude even if another supported CLI is the one already signed in. Choose the brain before starting onboarding.
-- Cmd-Q remains blocked during agent planning and background-runner startup. Once approved execution shows as verified background work, it survives quit and reconnects on next launch.
-- OpenCode Talk requires `opencode serve` to remain running.
-- Screen Recording permission can lag until the next app launch after granting it.
-- The default Apple Speech path adds a Speech Recognition prompt after the three-item setup card.
+- Builds are ad-hoc signed until a Developer ID certificate is set up, so first launch needs Control-click → Open, and automatic updates aren't wired yet.
+- Fresh installs default to Claude even if another CLI is the one signed in. Choose the brain before onboarding.
+- Screen Recording permission can lag until the next launch after you grant it.
+- OpenCode Talk needs `opencode serve` running.
 
 ## License
 
-See [`heymate/LICENSE`](heymate/LICENSE).
+MIT. See [`heymate/LICENSE`](heymate/LICENSE). HeyMate grew out of the MIT-licensed Clicky project, and that copyright notice is kept in the license file.
+
+<sub>Not affiliated with Apple, Anthropic, or OpenAI. Claude, ChatGPT, and macOS are trademarks of their respective owners.</sub>
