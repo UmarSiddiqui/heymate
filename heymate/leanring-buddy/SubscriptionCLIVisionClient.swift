@@ -29,16 +29,33 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
     private let reasoningEffort: String
     private let textOnlyModel: String?
 
+    /// Whether this turn's child will be able to reach Composio's apps. Read once at init and published so the prompt builder can tell
+    /// the model the truth about what it can reach — a CLI-backed turn keeps
+    /// its tools inside the child, where `availableTalkTools` cannot see them.
+    ///
+    /// Both halves are required: the connector has to be attached, and the
+    /// bridge server the child borrows it through has to be runnable.
+    let carriesComposioTools: Bool
+
+    /// Whether the child gets HeyMate's loopback server at all. Composio is
+    /// one reason; a plain MCP connector with a live session is another, and
+    /// without it a subscription brain never sees that connector's tools.
+    let carriesConnectedAppTools: Bool
+
     init(
         backend: Backend,
         model: String,
         reasoningEffort: String = "",
-        textOnlyModel: String? = nil
+        textOnlyModel: String? = nil,
+        connectedAppsReachable: Bool = ComposioAgentAttachment.isAttachable()
     ) {
         self.backend = backend
         self.model = model
         self.reasoningEffort = reasoningEffort
         self.textOnlyModel = textOnlyModel
+        let serverIsRunnable = HeyMateMCPServer.availableRuntime() != nil
+        self.carriesComposioTools = serverIsRunnable && ComposioAgentAttachment.isAttachable()
+        self.carriesConnectedAppTools = serverIsRunnable && connectedAppsReachable
     }
 
     func analyzeImageStreaming(
@@ -118,7 +135,10 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
             arguments = Self.claudeTalkArguments(
                 prompt: prompt,
                 systemPrompt: systemPrompt,
-                model: model
+                model: model,
+                effort: reasoningEffort,
+                connectedAppServers: carriesConnectedAppTools ? Self.talkMCPServerConfiguration() : nil,
+                connectedAppToolNames: HeyMateMCPServer.claudeCodeToolNames()
             )
         case .codex:
             keysToStrip = HeadlessExecutor.codex.environmentKeysToRemove
@@ -145,6 +165,15 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
                     "-c", "model_reasoning_effort=\"\(reasoningEffort)\""
                 ])
             }
+            // `--ignore-user-config` above strips the user's own servers; this
+            // adds back HeyMate's own loopback server, and nothing else. It
+            // is what carries the connected apps, so it is attached only when
+            // there is something to reach. Must precede the positional prompt.
+            if carriesConnectedAppTools {
+                codexArguments.append(contentsOf: HeyMateMCPServer.codexConfigurationArguments(
+                    enabledTools: nil
+                ))
+            }
             let combinedPrompt = systemPrompt.isEmpty ? prompt : systemPrompt + "\n\n" + prompt
             // Codex declares `--image <FILE>...`, so every positional value
             // after `-i` is consumed as another image. Keep the prompt before
@@ -161,6 +190,12 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
             arguments: arguments,
             workingDirectory: workingDirectory,
             environmentKeysToRemove: keysToStrip,
+            timeout: carriesConnectedAppTools ? Self.connectedAppTurnTimeout : Self.plainTurnTimeout,
+            // The bridge URL and token reach the server through the
+            // environment. Both `--mcp-config` and `-c` are command-line
+            // arguments, and a command line is readable by every process on
+            // the Mac.
+            environmentOverrides: HeyMateMCPServer.childEnvironment(),
             parseAsCodexJSONL: backend == .codex
         )
     }
@@ -178,25 +213,55 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
         return selectedModel
     }
 
+    /// `connectedAppServers` is HeyMate's own loopback MCP server — nil
+    /// whenever the user has not connected Composio or no JavaScript runtime
+    /// is on PATH, which is what keeps the isolated shape below the default.
+    ///
+    /// When it is present the turn trades two of those isolations away, and
+    /// only those two: `--safe-mode` goes, because current safe mode drops
+    /// explicitly supplied MCP servers along with ambient ones, and plan mode
+    /// gives way to `acceptEdits`, because plan mode refuses the tool call
+    /// itself. `--strict-mcp-config` and the empty `--setting-sources` stay,
+    /// so the child still sees exactly one reviewed server and none of the
+    /// user's hooks, skills, or CLAUDE.md.
     nonisolated static func claudeTalkArguments(
         prompt: String,
         systemPrompt: String,
-        model: String
+        model: String,
+        effort: String = "",
+        connectedAppServers: [String: Any]? = nil,
+        connectedAppToolNames: [String] = []
     ) -> [String] {
+        let mcpConfigurationJSON = Self.mcpConfigurationJSON(servers: connectedAppServers)
+        let carriesComposio = mcpConfigurationJSON != Self.emptyMCPConfigurationJSON
+
         var arguments = [
             "-p", prompt,
             "--output-format", "text",
-            "--permission-mode", "plan",
+            "--permission-mode", carriesComposio ? "acceptEdits" : "plan"
+        ]
+        if !carriesComposio {
             // Talk passes screenshot paths and conversation replay. Prevent
             // user/project hooks, plugins, skills, agents, CLAUDE.md, or MCP
             // servers from observing them before Claude answers.
-            "--safe-mode",
+            arguments.append("--safe-mode")
+        }
+        arguments.append(contentsOf: [
             "--setting-sources", "",
-            "--mcp-config", #"{"mcpServers":{}}"#,
+            "--mcp-config", mcpConfigurationJSON,
             "--strict-mcp-config"
-        ]
+        ])
+        if carriesComposio, !connectedAppToolNames.isEmpty {
+            // Without the allow-list `acceptEdits` auto-approves file edits
+            // only, and every MCP call comes back as an ungranted permission
+            // request instead of reaching the server.
+            arguments.append(contentsOf: ["--allowedTools", connectedAppToolNames.joined(separator: ",")])
+        }
         if !model.isEmpty {
             arguments.append(contentsOf: ["--model", model])
+        }
+        if !effort.isEmpty {
+            arguments.append(contentsOf: ["--effort", effort])
         }
         if !systemPrompt.isEmpty {
             arguments.append(contentsOf: ["--append-system-prompt", systemPrompt])
@@ -204,11 +269,53 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
         return arguments
     }
 
+    /// A turn that only thinks and answers. Long enough for a measured
+    /// thirteen-second vision turn with room to spare.
+    static let plainTurnTimeout: TimeInterval = 90
+
+    /// A turn that can reach the user's connected apps has to survive a
+    /// human: a connector call that stops for approval waits on a click, and
+    /// killing the child underneath it produced exactly the truncated
+    /// half-answer — "i'm checking whether your account is connected" and
+    /// then nothing — that this budget exists to prevent.
+    static let connectedAppTurnTimeout: TimeInterval = 300
+
+    static let emptyMCPConfigurationJSON = #"{"mcpServers":{}}"#
+
+    /// HeyMate's own loopback server as an `mcpServers` entry, or nil when
+    /// it cannot run. Whether there is anything to reach through it is the
+    /// caller's call (`carriesConnectedAppTools`). The child borrows the sessions
+    /// `ConnectorRuntime` already holds instead of opening its own, so a
+    /// question costs one local process rather than a cold `npx` fetch and a
+    /// second sign-in to the vendor.
+    nonisolated static func talkMCPServerConfiguration() -> [String: Any]? {
+        guard let runtime = HeyMateMCPServer.availableRuntime(),
+              let scriptURL = HeyMateMCPServer.seedScript() else { return nil }
+        return [
+            HeyMateMCPServer.serverName: [
+                "command": runtime.runtimeURL.path,
+                "args": [scriptURL.path]
+            ]
+        ]
+    }
+
+    /// Falls back to the empty configuration on an unserializable payload, so
+    /// a malformed session degrades to a toolless answer rather than to a
+    /// child that refuses to start.
+    nonisolated static func mcpConfigurationJSON(servers: [String: Any]?) -> String {
+        guard let servers, !servers.isEmpty else { return emptyMCPConfigurationJSON }
+        guard let data = try? JSONSerialization.data(withJSONObject: ["mcpServers": servers]),
+              let json = String(data: data, encoding: .utf8) else { return emptyMCPConfigurationJSON }
+        return json
+    }
+
     private static func captureStandardOutput(
         executableURL: URL,
         arguments: [String],
         workingDirectory: URL,
         environmentKeysToRemove: [String],
+        timeout: TimeInterval = plainTurnTimeout,
+        environmentOverrides: [String: String] = [:],
         parseAsCodexJSONL: Bool
     ) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
@@ -218,7 +325,10 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
                 process.executableURL = executableURL
                 process.arguments = arguments
                 process.currentDirectoryURL = workingDirectory
-                process.environment = HeadlessChildEnvironment.build(stripping: environmentKeysToRemove)
+                process.environment = HeadlessChildEnvironment.build(
+                    stripping: environmentKeysToRemove,
+                    overrides: environmentOverrides
+                )
                 process.standardOutput = stdout
                 process.standardError = FileHandle.nullDevice
                 process.standardInput = FileHandle.nullDevice
@@ -233,7 +343,7 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
                 let watchdog = DispatchWorkItem {
                     if process.isRunning { process.terminate() }
                 }
-                DispatchQueue.global().asyncAfter(deadline: .now() + 90, execute: watchdog)
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
 
                 let data = stdout.fileHandleForReading.readDataToEndOfFile()
                 process.waitUntilExit()

@@ -23,6 +23,7 @@ struct AISettingsView: View {
     @State private var customAPIModel = CustomAPIConfiguration.model
     /// Never pre-filled from the Keychain — a saved key is reported, not shown.
     @State private var customAPIKeyDraft = ""
+    @State private var executorPendingSignOut: HeadlessExecutor?
 
     var body: some View {
         Group {
@@ -39,6 +40,7 @@ struct AISettingsView: View {
             }
         }
         .task {
+            await companionManager.refreshClaudeModelCatalog()
             await companionManager.refreshCodexModelCatalog()
             await companionManager.refreshOpenCodeServerStatus()
             companionManager.refreshHeadlessCLIStatus()
@@ -79,9 +81,10 @@ struct AISettingsView: View {
     private var brainSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             NotchSettingsSectionHeader(title: "Brain")
+            subscriptionCLICard
 
             LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: 7), count: 4),
+                columns: [GridItem(.adaptive(minimum: 120), spacing: 7)],
                 spacing: 7
             ) {
                 ForEach(AgentBrain.allCases, id: \.self) { brain in
@@ -145,6 +148,51 @@ struct AISettingsView: View {
         case .claudeCode: return "brain.head.profile"
         case .openCode: return "terminal"
         case .customAPI: return "point.3.connected.trianglepath.dotted"
+        case .onDevice: return "apple.intelligence"
+        }
+    }
+
+    private var subscriptionCLICard: some View {
+        settingsCard {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    settingLabel("Keep CLIs updated")
+                    Spacer()
+                    Toggle("", isOn: $companionManager.keepsSubscriptionCLIsUpdated)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .labelsHidden()
+                        .accessibilityLabel("Keep Claude, Codex, and OpenCode updated")
+                }
+                settingFootnote("On by default. HeyMate updates Claude, Codex, and OpenCode once a day when it opens, so new models show up in the picker.")
+                Button {
+                    Task { await companionManager.updateSubscriptionCLIsNow() }
+                } label: {
+                    HStack(spacing: 6) {
+                        if companionManager.isSubscriptionCLIUpdateInFlight {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.down.circle")
+                                .font(DS.Fonts.micro)
+                        }
+                        Text("Update CLIs to the latest")
+                            .font(DS.Fonts.body)
+                    }
+                    .foregroundColor(DS.Colors.accentText)
+                    .frame(minHeight: 28)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .disabled(companionManager.isSubscriptionCLIUpdateInFlight)
+                if let status = companionManager.subscriptionCLIUpdateStatusText {
+                    Text(status)
+                        .font(DS.Fonts.micro)
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
     }
 
@@ -155,31 +203,147 @@ struct AISettingsView: View {
             openCodeBrainDetail
         case .claudeCode:
             claudeModelCard
+            voiceChatCard
         case .codex:
             codexModelCard
+            voiceChatCard
         case .customAPI:
             customAPICard
+        case .onDevice:
+            onDeviceCard
         }
     }
 
+    private var onDeviceCard: some View {
+        settingsCard {
+            VStack(alignment: .leading, spacing: 8) {
+                settingLabel("Apple Intelligence")
+                settingFootnote(OnDeviceLanguageAvailability.statusLine)
+                if selectedBrainOffersVoice {
+                    voiceChatButton
+                }
+                settingFootnote("Say image playground and a description to open Apple's image playground. Say start meeting notes to keep the words of a call. Audio is not saved.")
+            }
+        }
+    }
+
+    private var selectedBrainOffersVoice: Bool {
+        companionManager.selectedBrain.offersSubscriptionVoiceChat
+    }
+
+    private var voiceChatCard: some View {
+        settingsCard {
+            VStack(alignment: .leading, spacing: 8) {
+                settingLabel("Voice chat")
+                settingFootnote("Listens, your ChatGPT or Claude plan answers, and this Mac speaks the reply. It is the plan you already pay for, not a separate voice API.")
+                voiceChatButton
+            }
+        }
+    }
+
+    private var voiceChatButton: some View {
+        Button {
+            companionManager.toggleSubscriptionVoiceChat()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: companionManager.isSubscriptionVoiceChatActive ? "waveform" : "mic.fill")
+                    .font(DS.Fonts.micro)
+                Text(companionManager.isSubscriptionVoiceChatActive ? "Stop voice chat" : "Start voice chat")
+                    .font(DS.Fonts.body)
+            }
+            .foregroundColor(DS.Colors.accentText)
+            .frame(minHeight: 28)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .help("Listens, your ChatGPT or Claude plan answers, and this Mac speaks the reply.")
+    }
+
+    /// Same shape as `codexModelCard` — Model menu, then Effort menu — so
+    /// switching engines never changes where a control lives.
     private var claudeModelCard: some View {
         settingsCard {
             VStack(alignment: .leading, spacing: 10) {
-                settingLabel("Model")
-                HStack(spacing: 0) {
-                    ForEach(ClaudeModelChoice.allCases, id: \.self) { choice in
-                        settingsSegmentButton(
-                            label: choice.displayName,
-                            isSelected: companionManager.selectedClaudeModel == choice,
-                            action: { companionManager.setSelectedClaudeModel(choice) }
-                        )
+                HStack {
+                    settingLabel("Model")
+                    Spacer()
+                    if companionManager.isClaudeModelRefreshInFlight {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Button {
+                            Task { await companionManager.refreshClaudeModelCatalog() }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(DS.Fonts.micro)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .pointerCursor()
                     }
                 }
-                .background(
-                    RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
-                        .fill(DS.Colors.surface2.opacity(0.72))
-                )
-                settingFootnote("Talk and agent jobs both use this, through your Claude sign-in. A screen question can take several seconds — that is the CLI, not a missing model.")
+
+                Menu {
+                    ForEach(companionManager.claudeModels) { option in
+                        Button {
+                            companionManager.setSelectedClaudeModel(option)
+                        } label: {
+                            if option.id == companionManager.selectedClaudeModelID {
+                                Label(option.displayName, systemImage: "checkmark")
+                            } else {
+                                Text(option.displayName)
+                            }
+                        }
+                    }
+                } label: {
+                    codexPickerLabel(companionManager.selectedClaudeModelLabel)
+                }
+                .menuStyle(.borderlessButton)
+                .pointerCursor()
+
+                if !companionManager.claudeEfforts.isEmpty {
+                    settingLabel("Effort")
+                    Menu {
+                        Button {
+                            companionManager.setSelectedClaudeEffort("")
+                        } label: {
+                            if companionManager.selectedClaudeEffortIfSupported == nil {
+                                Label("Auto", systemImage: "checkmark")
+                            } else {
+                                Text("Auto")
+                            }
+                        }
+                        ForEach(companionManager.claudeEfforts) { option in
+                            Button {
+                                companionManager.setSelectedClaudeEffort(option.effort)
+                            } label: {
+                                if option.effort == companionManager.selectedClaudeEffortIfSupported {
+                                    Label(option.displayName, systemImage: "checkmark")
+                                } else {
+                                    Text(option.displayName)
+                                }
+                            }
+                        }
+                    } label: {
+                        codexPickerLabel(
+                            companionManager.claudeEfforts
+                                .first { $0.effort == companionManager.selectedClaudeEffortIfSupported }?
+                                .displayName ?? "Auto"
+                        )
+                    }
+                    .menuStyle(.borderlessButton)
+                    .pointerCursor()
+                }
+
+                if let errorText = companionManager.claudeModelCatalogErrorText {
+                    Text(errorText)
+                        .font(DS.Fonts.micro)
+                        .foregroundColor(DS.Colors.warningText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                settingFootnote("Loaded from the Claude CLI on this Mac. Talk and agent jobs use the selected model and effort; Auto leaves effort to the CLI.")
             }
         }
     }
@@ -453,6 +617,15 @@ struct AISettingsView: View {
                     .font(DS.Fonts.caption)
                     .foregroundColor(DS.Colors.textPrimary)
                     .lineLimit(1)
+                if OpenCodeTrainingPolicy.dataUse(
+                    providerID: option.providerID,
+                    modelID: option.modelID,
+                    modelName: option.modelName
+                ) != .notFlagged {
+                    Text("Trains")
+                        .font(DS.Fonts.micro)
+                        .foregroundColor(DS.Colors.warningText)
+                }
                 Spacer()
                 if isSelected {
                     Image(systemName: "checkmark")
@@ -475,17 +648,23 @@ struct AISettingsView: View {
         Button(action: {
             Task { await companionManager.refreshOpenCodeServerStatus() }
         }) {
-            if companionManager.isOpenCodeRefreshInFlight {
-                ProgressView().controlSize(.small)
-            } else {
-                Image(systemName: "arrow.clockwise")
-                    .font(DS.Fonts.micro)
-                    .foregroundColor(DS.Colors.textSecondary)
+            Group {
+                if companionManager.isOpenCodeRefreshInFlight {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                        .font(DS.Glyph.regular)
+                        .foregroundColor(DS.Colors.textSecondary)
+                }
             }
+            .frame(width: 28, height: 28)
+            .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .pointerCursor()
         .disabled(companionManager.isOpenCodeRefreshInFlight)
+        .help("Check the OpenCode server again")
+        .accessibilityLabel("Refresh OpenCode status")
     }
 
     private var agentsSettingsCard: some View {
@@ -497,7 +676,9 @@ struct AISettingsView: View {
                 if let executor = companionManager.selectedBrain.executor {
                     executorReadinessRow(executor)
                 } else {
-                    Text("Pick Claude, Codex, or OpenCode to run agent jobs.")
+                    Text(companionManager.selectedBrain == .onDevice
+                        ? "On this Mac answers chat. Coding jobs still need Claude, Codex, or OpenCode."
+                        : "Pick Claude, Codex, or OpenCode to run agent jobs.")
                         .font(DS.Fonts.caption)
                         .foregroundColor(DS.Colors.textTertiary)
                 }
@@ -509,13 +690,9 @@ struct AISettingsView: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer()
-                    Button("Reveal") {
+                    NotchLinkButton(title: "Reveal") {
                         companionManager.revealSandboxParentInFinder()
                     }
-                    .font(DS.Fonts.caption)
-                    .buttonStyle(.plain)
-                    .foregroundColor(DS.Colors.accentText)
-                    .pointerCursor()
                 }
             }
         }
@@ -546,14 +723,19 @@ struct AISettingsView: View {
                 // in is the one thing the user can actually do about it.
                 if readiness.state != .notInstalled,
                    HeadlessExecutorSignIn.command(for: executor) != nil {
-                    Button(readiness.state == .ready ? "Switch account" : "Sign in") {
-                        companionManager.beginExecutorSignIn(executor)
+                    HStack(spacing: 10) {
+                        NotchLinkButton(title: readiness.state == .ready ? "Switch account" : "Sign in") {
+                            companionManager.beginExecutorSignIn(executor)
+                        }
+                        .help(HeadlessExecutorSignIn.signInDescription(for: executor))
+
+                        if canSignOut(executor, state: readiness.state) {
+                            NotchLinkButton(title: "Sign out", color: DS.Colors.destructiveText) {
+                                executorPendingSignOut = executor
+                            }
+                                .help(HeadlessExecutorSignIn.signOutDescription(for: executor))
+                        }
                     }
-                    .font(DS.Fonts.micro)
-                    .buttonStyle(.plain)
-                    .foregroundColor(DS.Colors.accentText)
-                    .pointerCursor()
-                    .help(HeadlessExecutorSignIn.signInDescription(for: executor))
                 }
             }
             if !readiness.remedy.isEmpty {
@@ -562,6 +744,45 @@ struct AISettingsView: View {
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.leading, 11)
+            }
+        }
+        .confirmationDialog(
+            "Sign out of \(executorPendingSignOut?.displayName ?? executor.displayName) in Terminal?",
+            isPresented: Binding(
+                get: { executorPendingSignOut != nil },
+                set: { if !$0 { executorPendingSignOut = nil } }
+            )
+        ) {
+            Button("Sign out", role: .destructive) {
+                guard let pending = executorPendingSignOut else { return }
+                executorPendingSignOut = nil
+                startExecutorSignOut(pending)
+            }
+            Button("Cancel", role: .cancel) { executorPendingSignOut = nil }
+        }
+    }
+
+    private func canSignOut(_ executor: HeadlessExecutor, state: HeadlessExecutorReadiness.State) -> Bool {
+        guard HeadlessExecutorSignIn.logoutCommand(for: executor) != nil else { return false }
+        switch state {
+        case .ready, .usingAPIKey, .indeterminate:
+            return true
+        case .notInstalled, .notSignedIn:
+            return false
+        }
+    }
+
+    /// Opens Terminal on the CLI logout, then re-probes readiness the way
+    /// sign-in does: spaced checks until the account is gone, or a few minutes pass.
+    private func startExecutorSignOut(_ executor: HeadlessExecutor) {
+        guard HeadlessExecutorSignIn.beginSignOut(for: executor) else { return }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 5 * 1_000_000_000)
+            for _ in 0..<15 {
+                companionManager.refreshHeadlessExecutorReadiness()
+                try? await Task.sleep(nanoseconds: 12 * 1_000_000_000)
+                let state = companionManager.readiness(for: executor).state
+                if state == .notSignedIn || state == .notInstalled { return }
             }
         }
     }
@@ -646,7 +867,7 @@ struct AISettingsView: View {
                             Spacer()
                             Toggle("", isOn: $companionManager.isUISoundEnabled)
                                 .toggleStyle(.switch)
-                                .controlSize(.mini)
+                                .controlSize(.small)
                                 .labelsHidden()
                         }
                         settingFootnote("Small sounds when listening starts and a reply is ready.")

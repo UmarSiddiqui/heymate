@@ -10,15 +10,26 @@ import Foundation
 
 /// What `claude -p --model` is given when Claude is the brain.
 nonisolated enum ClaudeModelChoice: String, CaseIterable, Hashable {
-    case haiku
-    case sonnet
+    case fable
     case opus
+    case sonnet
+    case haiku
 
     var displayName: String {
         switch self {
-        case .haiku: return "Haiku"
-        case .sonnet: return "Sonnet"
+        case .fable: return "Fable"
         case .opus: return "Opus"
+        case .sonnet: return "Sonnet"
+        case .haiku: return "Haiku"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .fable: return "Latest, strongest at the screen"
+        case .opus: return "Deepest for hard problems"
+        case .sonnet: return "Balanced everyday choice"
+        case .haiku: return "Fastest for quick work"
         }
     }
 
