@@ -113,6 +113,10 @@ final class ClipboardHistoryStore: ObservableObject {
         lastObservedChangeCount = pasteboard.changeCount
     }
 
+    func remove(entryID: UUID) {
+        entries.removeAll { $0.id == entryID }
+    }
+
     func clear() {
         entries.removeAll()
     }

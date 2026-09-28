@@ -250,4 +250,104 @@ struct MemoryRepositoryTests {
         let encodedKeys = decodedKeys.map { Set($0.keys) } ?? []
         #expect(encodedKeys == Set(["id", "kind", "text", "createdAt"]))
     }
+
+    // MARK: - Update
+
+    @Test func updateReplacesTextPersistsAndKeepsIdentity() {
+        let storeFileURL = makeTemporaryStoreFileURL()
+        defer { removeTemporaryFile(at: storeFileURL) }
+
+        let repository = FileMemoryRepository(fileURL: storeFileURL)
+        let original = makeItem(kind: .preference, text: "original", minutesAfterEpochBase: 4)
+        repository.append(original)
+
+        repository.update(id: original.id, text: "  revised note  ")
+
+        let updated = repository.loadAll()
+        #expect(updated.count == 1)
+        #expect(updated[0].id == original.id)
+        #expect(updated[0].kind == original.kind)
+        #expect(updated[0].createdAt == original.createdAt)
+        #expect(updated[0].text == "revised note")
+
+        let reloaded = FileMemoryRepository(fileURL: storeFileURL).loadAll()
+        #expect(reloaded == updated)
+    }
+
+    @Test func updateRejectsEmptyText() {
+        let storeFileURL = makeTemporaryStoreFileURL()
+        defer { removeTemporaryFile(at: storeFileURL) }
+
+        let repository = FileMemoryRepository(fileURL: storeFileURL)
+        let original = makeItem(kind: .projectFact, text: "keep me", minutesAfterEpochBase: 2)
+        repository.append(original)
+
+        repository.update(id: original.id, text: "")
+        repository.update(id: original.id, text: " \n\t ")
+
+        #expect(repository.loadAll() == [original])
+        let reloaded = FileMemoryRepository(fileURL: storeFileURL).loadAll()
+        #expect(reloaded == [original])
+    }
+
+    @Test func updateWithUnknownIdLeavesStoreUnchanged() {
+        let storeFileURL = makeTemporaryStoreFileURL()
+        defer { removeTemporaryFile(at: storeFileURL) }
+
+        let repository = FileMemoryRepository(fileURL: storeFileURL)
+        let original = makeItem(kind: .preference, text: "only", minutesAfterEpochBase: 1)
+        repository.append(original)
+
+        repository.update(id: UUID(), text: "nope")
+
+        #expect(repository.loadAll() == [original])
+        let reloaded = FileMemoryRepository(fileURL: storeFileURL).loadAll()
+        #expect(reloaded == [original])
+    }
+
+    @Test func persistFailureRecordsUserDefaultsAndPostsNotification() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MemoryRepositoryTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let blocker = directory.appendingPathComponent("blocker")
+        try Data("not a directory".utf8).write(to: blocker)
+        let storeFileURL = blocker.appendingPathComponent("memory.json")
+
+        let defaultsKey = "heymate.lastPersistError"
+        let previousError = UserDefaults.standard.string(forKey: defaultsKey)
+        UserDefaults.standard.removeObject(forKey: defaultsKey)
+        defer {
+            if let previousError {
+                UserDefaults.standard.set(previousError, forKey: defaultsKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: defaultsKey)
+            }
+        }
+
+        let box = MemoryPersistNotificationBox()
+        let observer = NotificationCenter.default.addObserver(
+            forName: Notification.Name("heymate.persistFailed"),
+            object: nil,
+            queue: nil
+        ) { _ in
+            box.didPost = true
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        let repository = FileMemoryRepository(fileURL: storeFileURL)
+        let item = makeItem(kind: .preference, text: "kept in memory only", minutesAfterEpochBase: 1)
+        repository.append(item)
+
+        #expect(repository.loadAll() == [item])
+        #expect(FileMemoryRepository(fileURL: storeFileURL).loadAll().isEmpty)
+        let recorded = UserDefaults.standard.string(forKey: defaultsKey)
+        #expect(recorded?.isEmpty == false)
+        #expect(box.didPost)
+    }
+}
+
+private nonisolated final class MemoryPersistNotificationBox: @unchecked Sendable {
+    var didPost = false
 }

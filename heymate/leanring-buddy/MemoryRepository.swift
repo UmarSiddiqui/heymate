@@ -32,7 +32,7 @@ nonisolated enum MemoryKind: String, Codable, CaseIterable {
 nonisolated struct MemoryItem: Codable, Equatable, Identifiable {
     let id: UUID
     let kind: MemoryKind
-    let text: String
+    var text: String
     let createdAt: Date
 }
 
@@ -44,6 +44,9 @@ nonisolated protocol MemoryRepository: AnyObject {
     func append(_ item: MemoryItem)
     func delete(id: UUID)
     func deleteAll()
+    /// Replaces the text of one record and persists. Empty or whitespace-only
+    /// text is refused. An unknown id leaves the store unchanged.
+    func update(id: UUID, text: String)
 }
 
 /// JSON-file backed store (Application Support/heymate/memory.json in prod).
@@ -103,6 +106,16 @@ final class FileMemoryRepository: MemoryRepository {
         persist()
     }
 
+    func update(id: UUID, text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let index = items.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        items[index].text = trimmed
+        persist()
+    }
+
     // MARK: - Production location
 
     /// Default store location: `<Application Support>/heymate/memory.json`.
@@ -152,7 +165,16 @@ final class FileMemoryRepository: MemoryRepository {
             try fileData.write(to: fileURL, options: .atomic)
         } catch {
             // Persisting is best-effort: an unwritable volume should degrade
-            // to in-memory-only operation, never crash the app.
+            // to in-memory-only operation, never crash the app. Record the
+            // failure so the rest of the app can surface it.
+            UserDefaults.standard.set(
+                error.localizedDescription,
+                forKey: "heymate.lastPersistError"
+            )
+            NotificationCenter.default.post(
+                name: Notification.Name("heymate.persistFailed"),
+                object: nil
+            )
         }
     }
 }
