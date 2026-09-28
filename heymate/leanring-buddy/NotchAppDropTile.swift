@@ -50,18 +50,8 @@ struct NotchAppDropTile: View {
     }
 
     private func settingsLink(title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(DS.Colors.textSecondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(
-                    Capsule().stroke(DS.Colors.borderStrong, lineWidth: 0.8)
-                )
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
+        Button(title, action: action)
+            .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)
     }
 }
 

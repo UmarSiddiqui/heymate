@@ -10,6 +10,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 final class NotchSurfaceTransitionModel: ObservableObject {
@@ -143,6 +144,10 @@ struct NotchLiquidGlassCardModifier: ViewModifier {
                     )
                 }
             }
+            // Content paints full-bleed backgrounds (the nebula, the bottom
+            // bar), which squared off the card's corners. Clipping to the
+            // same silhouette keeps the rounded bottom through the morph.
+            .clipShape(cardShape(bottomCornerRadius: bottomCornerRadius))
     }
 
     private var bottomCornerRadius: CGFloat {
@@ -169,6 +174,7 @@ struct NotchLiquidGlassCardModifier: ViewModifier {
 enum NotchPresentedSurface: Equatable {
     case fullCard
     case compactChat
+    case connectorSuggestion
 }
 
 /// Shared root so the expanded panel can morph between the full Home card
@@ -181,6 +187,9 @@ struct NotchSurfaceRoot: View {
     var hardwareNotchWidth: CGFloat = 0
     @ObservedObject var transitionModel: NotchSurfaceTransitionModel
     var onClose: () -> Void
+    var onResizeBegan: () -> Void
+    var onResizeChanged: (NotchHomeEdge, CGSize) -> Void
+    var onResizeEnded: (Bool) -> Void
 
     /// Watched here rather than deeper in the tree so an approval prompt
     /// covers whichever surface happens to be open. A pending action is
@@ -197,7 +206,10 @@ struct NotchSurfaceRoot: View {
         layoutSize: CGSize = .zero,
         hardwareNotchWidth: CGFloat = 0,
         transitionModel: NotchSurfaceTransitionModel,
-        onClose: @escaping () -> Void
+        onClose: @escaping () -> Void,
+        onResizeBegan: @escaping () -> Void = {},
+        onResizeChanged: @escaping (NotchHomeEdge, CGSize) -> Void = { _, _ in },
+        onResizeEnded: @escaping (Bool) -> Void = { _ in }
     ) {
         self.surface = surface
         self.companionManager = companionManager
@@ -206,6 +218,9 @@ struct NotchSurfaceRoot: View {
         self.hardwareNotchWidth = hardwareNotchWidth
         self.transitionModel = transitionModel
         self.onClose = onClose
+        self.onResizeBegan = onResizeBegan
+        self.onResizeChanged = onResizeChanged
+        self.onResizeEnded = onResizeEnded
         self.computerUseCoordinator = companionManager.computerUseCoordinator
         self.connectorToolCoordinator = companionManager.connectorToolCoordinator
     }
@@ -213,6 +228,13 @@ struct NotchSurfaceRoot: View {
     var body: some View {
         ZStack {
             surfaceContent
+            if surface != .connectorSuggestion {
+                NotchHomeResizeChrome(
+                    onBegan: onResizeBegan,
+                    onChanged: onResizeChanged,
+                    onEnded: onResizeEnded
+                )
+            }
             if let pendingRequest = computerUseCoordinator.pendingRequest {
                 approvalOverlay(for: pendingRequest)
             } else if let pendingConnectorRequest = connectorToolCoordinator.pendingRequest {
@@ -249,6 +271,13 @@ struct NotchSurfaceRoot: View {
                 hardwareNotchWidth: hardwareNotchWidth,
                 transitionModel: transitionModel,
                 onClose: onClose
+            )
+        case .connectorSuggestion:
+            NotchConnectorSuggestionCard(
+                companionManager: companionManager,
+                occludedTopInset: occludedTopInset,
+                layoutSize: layoutSize,
+                transitionModel: transitionModel
             )
         }
     }
@@ -288,6 +317,191 @@ struct NotchSurfaceRoot: View {
     }
 }
 
+/// Passive browser-context prompt. Opens itself without taking focus and
+/// keeps all decisions on one compact HeyClicky-style surface.
+struct NotchConnectorSuggestionCard: View {
+    @ObservedObject var companionManager: CompanionManager
+    @ObservedObject private var suggestionMonitor: ContextualConnectorSuggestionMonitor
+    @ObservedObject private var connections: ComposioConnectionsRuntime
+    var occludedTopInset: CGFloat = 0
+    var layoutSize: CGSize = .zero
+    @ObservedObject var transitionModel: NotchSurfaceTransitionModel
+
+    init(
+        companionManager: CompanionManager,
+        occludedTopInset: CGFloat,
+        layoutSize: CGSize,
+        transitionModel: NotchSurfaceTransitionModel
+    ) {
+        self.companionManager = companionManager
+        self.suggestionMonitor = companionManager.contextualConnectorSuggestionMonitor
+        self.connections = companionManager.composioConnections
+        self.occludedTopInset = occludedTopInset
+        self.layoutSize = layoutSize
+        self.transitionModel = transitionModel
+    }
+
+    var body: some View {
+        GeometryReader { viewport in
+            let contentWidth = layoutSize.width > 0 ? layoutSize.width : viewport.size.width
+            let contentHeight = layoutSize.height > 0 ? layoutSize.height : viewport.size.height
+
+            suggestionBody
+                .frame(width: contentWidth, height: contentHeight, alignment: .top)
+                .background {
+                    BrandNebulaSurface.notchCard
+                }
+                .position(x: viewport.size.width / 2, y: contentHeight / 2)
+                .opacity(transitionModel.morphContentOpacity)
+        }
+        .modifier(NotchLiquidGlassCardModifier(
+            transitionModel: transitionModel,
+            outlineColor: companionManager.themeColor,
+            isOutlineEnabled: companionManager.isNotchOutlineEnabled,
+            occludedTopInset: occludedTopInset
+        ))
+        .clipped()
+    }
+
+    @ViewBuilder
+    private var suggestionBody: some View {
+        if let suggestion = suggestionMonitor.suggestion,
+           !connections.state(for: suggestion.toolkitSlug).isConnected {
+            VStack(spacing: 8) {
+                Spacer(minLength: occludedTopInset)
+
+                HStack(spacing: 12) {
+                    connectorIdentity(for: suggestion)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Connect \(suggestion.toolkitName) to HeyMate")
+                            .font(DS.Fonts.title)
+                            .foregroundColor(DS.Colors.textPrimary)
+                            .lineLimit(1)
+                        Text("Use HeyMate with this \(suggestion.toolkitName) page")
+                            .font(DS.Fonts.caption)
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    HStack(spacing: 8) {
+                        actionButton("No", systemName: "xmark", isPrimary: false) {
+                            suggestionMonitor.declinePermanently(suggestion)
+                        }
+                        actionButton("Not now", systemName: "clock", isPrimary: false) {
+                            suggestionMonitor.snooze(suggestion)
+                        }
+                        actionButton("Connect", systemName: "link", isPrimary: true) {
+                            connect(suggestion)
+                        }
+                    }
+                }
+                .frame(height: 38)
+
+                HStack(spacing: 6) {
+                    Text("Use HeyMate to")
+                        .font(DS.Fonts.sectionLabel)
+                        .foregroundColor(DS.Colors.textTertiary)
+
+                    ForEach(suggestion.capabilities, id: \.self) { capability in
+                        capabilityChip(capability)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .frame(height: 22)
+            }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 8)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Connect \(suggestion.toolkitName) to HeyMate")
+        }
+    }
+
+    private func connectorIdentity(for suggestion: ContextualConnectorSuggestion) -> some View {
+        HStack(spacing: 5) {
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 32, height: 32)
+                .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                        .stroke(DS.Colors.borderStrong.opacity(0.6), lineWidth: 0.5)
+                }
+
+            Image(systemName: "arrow.left.arrow.right")
+                .font(DS.Glyph.micro)
+                .foregroundColor(DS.Colors.textTertiary)
+                .frame(width: 10)
+
+            toolkitIcon(for: suggestion)
+        }
+        .padding(.trailing, 2)
+    }
+
+    private func capabilityChip(_ capability: String) -> some View {
+        Text(capability)
+            .font(DS.Fonts.keycap)
+            .foregroundColor(DS.Colors.textSecondary)
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .frame(height: 22)
+            .background(Capsule().fill(DS.Colors.surface3.opacity(0.68)))
+    }
+
+    @ViewBuilder
+    private func toolkitIcon(for suggestion: ContextualConnectorSuggestion) -> some View {
+        RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+            .fill(suggestion.toolkitSlug == "youtube" ? Color.red : DS.Colors.surface3)
+            .frame(width: 32, height: 32)
+            .overlay {
+                if suggestion.toolkitSlug == "youtube" {
+                    Image(systemName: "play.fill")
+                        .font(DS.Glyph.small)
+                        .foregroundColor(.white)
+                } else {
+                    Text(String(suggestion.toolkitName.prefix(1)))
+                        .font(DS.Fonts.title)
+                        .foregroundColor(DS.Colors.textPrimary)
+                }
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                    .stroke(DS.Colors.borderStrong.opacity(0.6), lineWidth: 0.5)
+            }
+    }
+
+    private func actionButton(
+        _ title: String,
+        systemName: String,
+        isPrimary: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: systemName)
+                    .font(DS.Glyph.micro)
+                Text(title)
+            }
+        }
+        .dsCapsuleButtonStyle(isPrimary ? .primary : .secondary)
+    }
+
+    private func connect(_ suggestion: ContextualConnectorSuggestion) {
+        guard connections.isConfigured else {
+            companionManager.openDesktopWindow(section: .settings)
+            return
+        }
+        Task {
+            await connections.connect(suggestion.toolkit)
+            if connections.state(for: suggestion.toolkitSlug).isConnected {
+                suggestionMonitor.declinePermanently(suggestion)
+            }
+        }
+    }
+}
+
 /// Minimal notch expansion: chat transcript + composer, no Home chrome.
 struct NotchCompactChatCard: View {
     @ObservedObject var companionManager: CompanionManager
@@ -321,494 +535,41 @@ struct NotchCompactChatCard: View {
         VStack(spacing: 0) {
             Spacer(minLength: occludedTopInset)
 
-            compactHeader
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
-
-            NotchChatView(
+            MateHomeView(
                 companionManager: companionManager,
                 isCompactLayout: true,
+                onOpenSection: { section in
+                    companionManager.openDesktopWindow(section: section)
+                },
+                onClose: onClose,
                 shouldFocusComposerOnAppear: true
             )
             .frame(maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var compactHeader: some View {
-        HStack(spacing: 8) {
-            BuddyMark(size: .small, state: companionManager.voiceState, color: companionManager.themeColor)
-
-            Text("chat")
-                .font(DS.Fonts.titleCompact)
-                .foregroundColor(DS.Colors.textPrimary)
-
-            Spacer()
-
-            Button(action: onClose) {
-                Image(systemName: "chevron.up")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .frame(width: 24, height: 24)
-                    .background(Circle().fill(DS.Colors.surface3))
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .help("Collapse")
-            .accessibilityLabel("Collapse chat")
+        .background {
+            BrandNebulaSurface.notchCard
         }
     }
 
-    private var statusDotColor: Color {
-        switch companionManager.voiceState {
-        case .idle: return DS.Colors.success
-        case .listening, .processing, .responding: return DS.Colors.accent
-        }
-    }
 }
 
 struct NotchChatView: View {
     @ObservedObject var companionManager: CompanionManager
     var isCompactLayout: Bool = false
     var shouldFocusComposerOnAppear: Bool = false
-
-    @State private var typedMessageInput = ""
-    @State private var isShowingHistory = false
-    @FocusState private var isComposerFocused: Bool
-    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
-
-    private let suggestedPrompts = [
-        "What’s on my screen?",
-        "Summarize my clipboard",
-        "Start a 25-minute timer"
-    ]
+    var onOpenSection: ((DesktopSection) -> Void)? = nil
+    var onClose: (() -> Void)? = nil
 
     var body: some View {
-        VStack(spacing: 0) {
-            chatToolbar
-                .padding(.horizontal, isCompactLayout ? 12 : 24)
-                .padding(.top, isCompactLayout ? 4 : 18)
-                .padding(.bottom, isCompactLayout ? 0 : 10)
-
-            if isShowingHistory {
-                historyList
-            } else {
-                transcript
-                composer
-                    .padding(.horizontal, isCompactLayout ? 12 : 24)
-                    .padding(.top, isCompactLayout ? 6 : 8)
-                    .padding(.bottom, isCompactLayout ? 10 : 18)
-            }
-        }
-        .background {
-            // Light from the notch: the desktop chat sits under the same
-            // soft accent wash the notch card casts, so the two surfaces
-            // read as one place. Subtle on purpose — a presence, not a tint.
-            if !isCompactLayout {
-                RadialGradient(
-                    colors: [companionManager.themeColor.opacity(0.07), Color.clear],
-                    center: .top,
-                    startRadius: 0,
-                    endRadius: 320
-                )
-                .ignoresSafeArea()
-            }
-        }
-        .onAppear {
-            guard shouldFocusComposerOnAppear else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) {
-                isComposerFocused = true
-            }
-        }
-    }
-
-    private var chatToolbar: some View {
-        HStack(spacing: 8) {
-            Text(isShowingHistory ? "History" : companionManager.currentChat.title)
-                .font(isCompactLayout ? DS.Fonts.titleCompact : DS.Fonts.title)
-                .foregroundColor(primaryTextColor)
-                .lineLimit(1)
-
-            Spacer()
-
-            Button(action: {
-                withAnimation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.18)) {
-                    isShowingHistory.toggle()
-                }
-            }) {
-                Image(systemName: isShowingHistory ? "bubble.left.and.bubble.right" : "clock")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(secondaryTextColor)
-                    .frame(width: 24, height: 24)
-                    .background(Circle().fill(controlBackgroundColor))
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .help(isShowingHistory ? "Back to chat" : "Past chats")
-            .accessibilityLabel(isShowingHistory ? "Back to chat" : "Past chats")
-
-            Button(action: {
-                companionManager.startNewChat()
-                isShowingHistory = false
-            }) {
-                Image(systemName: "square.and.pencil")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(secondaryTextColor)
-                    .frame(width: 24, height: 24)
-                    .background(Circle().fill(controlBackgroundColor))
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .help("New chat")
-            .accessibilityLabel("New chat")
-            .keyboardShortcut("n", modifiers: .command)
-        }
-    }
-
-    private var transcript: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(alignment: .leading, spacing: 8) {
-                    if companionManager.currentChat.messages.isEmpty
-                        && companionManager.streamingAssistantText.isEmpty {
-                        // The hero gets the whole pane, vertically centered,
-                        // instead of perching at the top of an empty scroll.
-                        emptyState
-                            .containerRelativeFrame(.vertical) { height, _ in
-                                max(height - 40, 0)
-                            }
-                    }
-
-                    ForEach(companionManager.currentChat.messages) { message in
-                        messageBubble(message)
-                            .id(message.id)
-                    }
-
-                    if !companionManager.streamingAssistantText.isEmpty {
-                        streamingBubble
-                            .id("streaming")
-                    }
-                }
-                .frame(maxWidth: isCompactLayout ? .infinity : 640)
-                .padding(.horizontal, isCompactLayout ? 16 : 24)
-                .padding(.top, 10)
-                .padding(.bottom, 12)
-                .frame(maxWidth: .infinity)
-            }
-            .onChange(of: companionManager.currentChat.messages.count) { _, _ in
-                scrollToBottom(proxy)
-            }
-            .onChange(of: companionManager.streamingAssistantText) { _, _ in
-                scrollToBottom(proxy)
-            }
-        }
-    }
-
-    private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        if !companionManager.streamingAssistantText.isEmpty {
-            proxy.scrollTo("streaming", anchor: .bottom)
-        } else if let lastID = companionManager.currentChat.messages.last?.id {
-            proxy.scrollTo(lastID, anchor: .bottom)
-        }
-    }
-
-    private var emptyState: some View {
-        VStack(spacing: 14) {
-            BuddyMark(
-                size: isCompactLayout ? .standard : .hero,
-                state: companionManager.voiceState,
-                color: companionManager.themeColor
-            )
-
-            Text(isCompactLayout ? "Ask anything" : "Hey — I'm HeyMate.")
-                .font(isCompactLayout ? DS.Fonts.titleCompact : DS.Fonts.pageTitle)
-                .tracking(isCompactLayout ? 0 : -0.5)
-                .foregroundColor(primaryTextColor)
-            Text(isCompactLayout
-                 ? "Type below, or hold \(companionManager.talkShortcutOption.displayText) to talk."
-                 : "Ask about anything on your screen, or say “agent, build a landing page” and I'll spin up a coding job.")
-                .font(DS.Fonts.body)
-                .foregroundColor(secondaryTextColor)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 400)
-
-            if !isCompactLayout {
-                HStack(spacing: 10) {
-                    ForEach(suggestedPrompts, id: \.self) { prompt in
-                        suggestionTile(prompt)
-                    }
-                }
-                .padding(.top, 8)
-            }
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    /// One tappable prompt card: icon above, two-line label below. Icon
-    /// picks a glyph by keyword so a prompt edit never needs art direction.
-    private func suggestionTile(_ prompt: String) -> some View {
-        Button(action: { companionManager.sendTypedMessage(prompt) }) {
-            VStack(alignment: .leading, spacing: 10) {
-                Image(systemName: suggestionIcon(for: prompt))
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(DS.Colors.accentText)
-                Text(prompt)
-                    .font(DS.Fonts.body)
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .multilineTextAlignment(.leading)
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(width: 158, height: 82, alignment: .topLeading)
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(DS.Colors.surface1)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
-        .disabled(!companionManager.canAcceptTypedAgentTask)
-    }
-
-    private func suggestionIcon(for prompt: String) -> String {
-        if prompt.contains("screen") { return "desktopcomputer" }
-        if prompt.contains("clipboard") { return "doc.on.clipboard" }
-        if prompt.contains("timer") { return "timer" }
-        return "sparkles"
-    }
-
-    private func messageBubble(_ message: ChatMessage) -> some View {
-        let isUser = message.role == .user
-        return HStack(alignment: .bottom, spacing: 7) {
-            if isUser { Spacer(minLength: 36) }
-            if !isUser && !isCompactLayout {
-                BuddyMark(size: .small, color: companionManager.themeColor)
-            }
-            Text(message.text)
-                .font(DS.Fonts.body)
-                .foregroundColor(primaryTextColor)
-                .textSelection(.enabled)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(isUser ? DS.Colors.helpChatUserBubble : assistantBubbleColor)
-                )
-                .contextMenu {
-                    Button("Copy") { copyToPasteboard(message.text) }
-                }
-            if !isUser { Spacer(minLength: 36) }
-        }
-    }
-
-    private var streamingBubble: some View {
-        HStack(alignment: .bottom, spacing: 7) {
-            if !isCompactLayout {
-                BuddyMark(size: .small, color: companionManager.themeColor)
-            }
-            Text(companionManager.streamingAssistantText)
-                .font(DS.Fonts.body)
-                .foregroundColor(primaryTextColor)
-                .textSelection(.enabled)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(assistantBubbleColor)
-                )
-            Spacer(minLength: 36)
-        }
-    }
-
-    private var composer: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 8) {
-                TextField("Ask HeyMate…", text: $typedMessageInput, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(DS.Fonts.body)
-                    .foregroundColor(primaryTextColor)
-                    .lineLimit(1...4)
-                    .focused($isComposerFocused)
-                    .onSubmit(sendTypedMessageFromInput)
-                    .padding(.leading, 14)
-
-                Button(action: sendTypedMessageFromInput) {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(canSendTypedMessage ? DS.Colors.textOnAccent : DS.Colors.textTertiary)
-                        .frame(width: 30, height: 30)
-                        .background(
-                            Circle()
-                                .fill(canSendTypedMessage ? companionManager.themeColor : DS.Colors.surface3)
-                        )
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
-                .disabled(!canSendTypedMessage)
-                .help("Send")
-                .accessibilityLabel("Send message")
-                .padding(.trailing, 5)
-            }
-            .padding(.vertical, 5)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(composerBackgroundColor)
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke(isComposerFocused ? companionManager.themeColor.opacity(0.55) : borderColor, lineWidth: 1)
-            )
-            .shadow(color: companionManager.themeColor.opacity(isComposerFocused ? 0.16 : 0), radius: 12)
-
-            if !isCompactLayout {
-                Text(composerStatusText)
-                    .font(DS.Fonts.micro)
-                    .foregroundColor(tertiaryTextColor)
-                    .frame(maxWidth: .infinity, alignment: .center)
-            }
-        }
-        .opacity(companionManager.canAcceptTypedAgentTask ? 1 : 0.45)
-        .disabled(!companionManager.canAcceptTypedAgentTask)
-    }
-
-    private var canSendTypedMessage: Bool {
-        !typedMessageInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && companionManager.canAcceptTypedAgentTask
-    }
-
-    private func sendTypedMessageFromInput() {
-        guard canSendTypedMessage else { return }
-        // Clear only what was accepted. A refused message stays in the field
-        // with the reason underneath it, rather than vanishing on Enter.
-        if companionManager.sendTypedMessage(typedMessageInput) {
-            typedMessageInput = ""
-        }
-    }
-
-    private var historyList: some View {
-        VStack(spacing: 0) {
-            if !companionManager.rememberConversationsEnabled {
-                Text("Turn on Remember conversations on Home to keep chats after this session.")
-                    .font(.system(size: 11))
-                    .foregroundColor(secondaryTextColor)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-            }
-
-            if companionManager.savedChats.isEmpty {
-                Text("No saved chats yet")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(tertiaryTextColor)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(spacing: 6) {
-                        ForEach(companionManager.savedChats) { session in
-                            historyRow(session)
-                        }
-
-                        Button(action: { companionManager.clearAllChats() }) {
-                            Text("Clear all chats")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(DS.Colors.destructiveText)
-                        }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
-                        .padding(.top, 8)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 10)
-                    .padding(.bottom, 8)
-                }
-            }
-        }
-    }
-
-    private func historyRow(_ session: ChatSession) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Button(action: {
-                companionManager.openChat(id: session.id)
-                isShowingHistory = false
-            }) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(session.title)
-                        .font(DS.Fonts.headline)
-                        .foregroundColor(primaryTextColor)
-                        .lineLimit(1)
-                    Text(session.previewText)
-                        .font(DS.Fonts.caption)
-                        .foregroundColor(tertiaryTextColor)
-                        .lineLimit(2)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-
-            Button(action: { companionManager.deleteChat(id: session.id) }) {
-                Image(systemName: "xmark.circle")
-                    .font(.system(size: 12))
-                    .foregroundColor(tertiaryTextColor)
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .help("Delete \(session.title)")
-            .accessibilityLabel("Delete chat \(session.title)")
-        }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(session.id == companionManager.currentChat.id ? selectedHistoryBackgroundColor : controlBackgroundColor)
+        MateHomeView(
+            companionManager: companionManager,
+            isCompactLayout: isCompactLayout,
+            onOpenSection: onOpenSection ?? { section in
+                companionManager.openDesktopWindow(section: section)
+            },
+            onClose: onClose,
+            shouldFocusComposerOnAppear: shouldFocusComposerOnAppear
         )
-    }
-
-    // The dusk text tokens read correctly on both the black notch glass and
-    // the desktop window's warm background, so one value serves both.
-    private var primaryTextColor: Color { DS.Colors.textPrimary }
-
-    private var secondaryTextColor: Color { DS.Colors.textSecondary }
-
-    private var tertiaryTextColor: Color { DS.Colors.textTertiary }
-
-    private var controlBackgroundColor: Color {
-        isCompactLayout ? DS.Colors.surface3.opacity(0.7) : DS.Colors.surface2
-    }
-
-    private var selectedHistoryBackgroundColor: Color {
-        isCompactLayout ? DS.Colors.accentSubtle : companionManager.themeColor.opacity(0.14)
-    }
-
-    private var assistantBubbleColor: Color {
-        isCompactLayout ? DS.Colors.surface2.opacity(0.85) : DS.Colors.surface2
-    }
-
-    private var composerBackgroundColor: Color {
-        isCompactLayout ? DS.Colors.surface2.opacity(0.85) : DS.Colors.surface1
-    }
-
-    private var borderColor: Color {
-        isCompactLayout ? Color.white.opacity(0.10) : DS.Colors.borderSubtle
-    }
-
-    private var composerStatusText: String {
-        guard !companionManager.canAcceptTypedAgentTask else {
-            return "Return to send · Hold \(companionManager.talkShortcutOption.displayText) to talk"
-        }
-        switch companionManager.voiceState {
-        case .idle: return "HeyMate is finishing another task"
-        case .listening: return "Listening…"
-        case .processing: return "Thinking…"
-        case .responding: return "Speaking…"
-        }
-    }
-
-    private func copyToPasteboard(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
     }
 }

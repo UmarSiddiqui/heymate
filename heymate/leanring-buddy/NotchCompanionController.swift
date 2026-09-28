@@ -145,6 +145,11 @@ final class NotchCompanionController {
     /// ctrl+command uses compact chat.
     private var presentedSurface: NotchPresentedSurface = .fullCard
 
+    /// Remembered sheet size. Dragging an edge updates it; a double-click
+    /// restores `NotchHomeSize.standard`.
+    private var homeSize = NotchHomeSize.stored()
+    private var resizeBaseline: NotchHomeSize?
+
     /// Toggled from the panel; persists via UserDefaults. Re-evaluated on
     /// every show attempt so display changes are handled naturally.
     static var isEnabled: Bool {
@@ -307,10 +312,26 @@ final class NotchCompanionController {
             }
             .store(in: &cancellables)
 
+        companionManager.contextualConnectorSuggestionMonitor.$suggestion
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] suggestion in
+                self?.handleConnectorSuggestionChange(suggestion)
+            }
+            .store(in: &cancellables)
+
         companionManager.$agentRuns
             .receive(on: DispatchQueue.main)
             .sink { [weak self] runs in
                 self?.pillModel.agentFilaments = AgentFilament.live(from: runs)
+            }
+            .store(in: &cancellables)
+
+        companionManager.$mates
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] mates in
+                let unread = mates.filter { !$0.archived }.reduce(0) { $0 + $1.unreadCount }
+                self?.pillModel.unreadCount = unread
             }
             .store(in: &cancellables)
     }
@@ -501,6 +522,29 @@ final class NotchCompanionController {
         )
     }
 
+    private func applyHomeResize(edge: NotchHomeEdge, translation: CGSize) {
+        let baseline = resizeBaseline ?? homeSize
+        homeSize = baseline.applying(edge: edge, translation: translation)
+        applyHomeFrame()
+    }
+
+    private func finishHomeResize(reset: Bool) {
+        if reset { homeSize = .standard }
+        homeSize.save()
+        resizeBaseline = nil
+        applyHomeFrame()
+    }
+
+    private func applyHomeFrame() {
+        guard isExpanded, let screen = currentTargetScreen(),
+              let nextFrame = frame(for: presentedSurface, screen: screen) else { return }
+        expandedPanel?.setFrame(nextFrame, display: true, animate: false)
+    }
+
+    private func currentTargetScreen() -> NSScreen? {
+        expandedPanel?.screen ?? pillPanel?.screen ?? NSScreen.main
+    }
+
     /// Screen-derived frame for the requested expanded surface.
     private func frame(for surface: NotchPresentedSurface, screen: NSScreen) -> CGRect? {
         switch surface {
@@ -508,6 +552,8 @@ final class NotchCompanionController {
             return expandedCardFrame(for: screen)
         case .compactChat:
             return compactChatFrame(for: screen)
+        case .connectorSuggestion:
+            return connectorSuggestionFrame(for: screen)
         }
     }
 
@@ -522,12 +568,18 @@ final class NotchCompanionController {
             screenFrame: screen.frame,
             topSafeAreaInset: safeInset,
             auxiliaryTopLeftMaxX: auxTopLeft.maxX,
-            auxiliaryTopRightMinX: auxTopRight.minX
+            auxiliaryTopRightMinX: auxTopRight.minX,
+            contentWidth: homeSize.width,
+            contentHeight: homeSize.heightBelowHousing
            ) {
             return pixelAlign(hardwareFrame, on: screen)
         }
         return pixelAlign(
-            NotchLayoutMath.fallbackExpandedFrame(screenFrame: screen.frame),
+            NotchLayoutMath.fallbackExpandedFrame(
+                screenFrame: screen.frame,
+                contentWidth: homeSize.width,
+                contentHeight: homeSize.heightBelowHousing
+            ),
             on: screen
         )
     }
@@ -540,12 +592,36 @@ final class NotchCompanionController {
             screenFrame: screen.frame,
             topSafeAreaInset: safeInset,
             auxiliaryTopLeftMaxX: auxTopLeft.maxX,
+            auxiliaryTopRightMinX: auxTopRight.minX,
+            contentWidth: homeSize.width,
+            contentHeight: homeSize.heightBelowHousing
+           ) {
+            return pixelAlign(hardwareFrame, on: screen)
+        }
+        return pixelAlign(
+            NotchLayoutMath.fallbackCompactChatFrame(
+                screenFrame: screen.frame,
+                contentWidth: homeSize.width,
+                contentHeight: homeSize.heightBelowHousing
+            ),
+            on: screen
+        )
+    }
+
+    private func connectorSuggestionFrame(for screen: NSScreen) -> CGRect? {
+        let safeInset = screen.safeAreaInsets.top
+        if let auxTopLeft = screen.auxiliaryTopLeftArea,
+           let auxTopRight = screen.auxiliaryTopRightArea,
+           let hardwareFrame = NotchLayoutMath.connectorSuggestionFrame(
+            screenFrame: screen.frame,
+            topSafeAreaInset: safeInset,
+            auxiliaryTopLeftMaxX: auxTopLeft.maxX,
             auxiliaryTopRightMinX: auxTopRight.minX
            ) {
             return pixelAlign(hardwareFrame, on: screen)
         }
         return pixelAlign(
-            NotchLayoutMath.fallbackCompactChatFrame(screenFrame: screen.frame),
+            NotchLayoutMath.fallbackConnectorSuggestionFrame(screenFrame: screen.frame),
             on: screen
         )
     }
@@ -718,7 +794,12 @@ final class NotchCompanionController {
             layoutSize: layoutSize,
             hardwareNotchWidth: hardwareNotchWidthForCurrentScreen(),
             transitionModel: surfaceTransitionModel,
-            onClose: { [weak self] in self?.collapseAndUnpin() }
+            onClose: { [weak self] in self?.collapseAndUnpin() },
+            onResizeBegan: { [weak self] in self?.resizeBaseline = self?.homeSize },
+            onResizeChanged: { [weak self] edge, translation in
+                self?.applyHomeResize(edge: edge, translation: translation)
+            },
+            onResizeEnded: { [weak self] reset in self?.finishHomeResize(reset: reset) }
         )
     }
 
@@ -760,6 +841,26 @@ final class NotchCompanionController {
     private func expandForShelfDrag() {
         guard !isExpanded, !isTransitioning else { return }
         presentSurface(.fullCard, pinned: false)
+    }
+
+    /// Browser context may surface a connector without user interaction.
+    /// Keep it persistent enough to reach, but never take keyboard focus
+    /// from the browser that produced the suggestion.
+    private func handleConnectorSuggestionChange(_ suggestion: ContextualConnectorSuggestion?) {
+        guard let companionManager else { return }
+
+        guard let suggestion else {
+            if isExpanded, presentedSurface == .connectorSuggestion {
+                collapseAndUnpin()
+            }
+            return
+        }
+
+        guard !companionManager.composioConnections.state(for: suggestion.toolkitSlug).isConnected,
+              !isExpanded,
+              !isTransitioning else { return }
+
+        presentSurface(.connectorSuggestion, pinned: true, takesKey: false)
     }
 
     private func acceptDroppedFiles(_ droppedURLs: [URL]) -> Bool {
@@ -832,7 +933,11 @@ final class NotchCompanionController {
         }
     }
 
-    private func presentSurface(_ surface: NotchPresentedSurface, pinned: Bool) {
+    private func presentSurface(
+        _ surface: NotchPresentedSurface,
+        pinned: Bool,
+        takesKey: Bool? = nil
+    ) {
         cancelScheduledTransitions()
         // Stop any in-flight pill hover-widen so it doesn't keep ticking
         // frames under/after the card morph — that double animation is what
@@ -843,6 +948,8 @@ final class NotchCompanionController {
         guard let targetScreen = targetScreen(),
               let destinationFrame = frame(for: surface, screen: targetScreen) else { return }
 
+        let shouldTakeKey = takesKey ?? pinned
+
         isPinned = pinned
         isPillHovered = false
 
@@ -852,7 +959,7 @@ final class NotchCompanionController {
             && !isTransitioning
 
         if isAlreadyShowingSameSurface {
-            if pinned {
+            if shouldTakeKey {
                 expandedPanel?.makeKey()
             }
             return
@@ -891,7 +998,7 @@ final class NotchCompanionController {
             occludedTopInset: targetScreen.safeAreaInsets.top,
             layoutSize: destinationFrame.size
         )
-        if pinned {
+        if shouldTakeKey {
             expandedPanel.makeKeyAndOrderFront(nil)
         } else {
             expandedPanel.orderFrontRegardless()
@@ -906,7 +1013,7 @@ final class NotchCompanionController {
             expandedPanel.setFrame(destinationFrame, display: true, animate: false)
             surfaceTransitionModel.showWithoutAnimation()
             isTransitioning = false
-            if pinned { expandedPanel.makeKey() }
+            if shouldTakeKey { expandedPanel.makeKey() }
             return
         }
 
@@ -925,7 +1032,7 @@ final class NotchCompanionController {
             completion: { [weak self] in
                 guard let self else { return }
                 self.isTransitioning = false
-                if pinned { self.expandedPanel?.makeKey() }
+                if shouldTakeKey { self.expandedPanel?.makeKey() }
             }
         )
     }

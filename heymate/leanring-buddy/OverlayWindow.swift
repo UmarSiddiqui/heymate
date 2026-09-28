@@ -52,19 +52,24 @@ class OverlayWindow: NSWindow {
     }
 }
 
-// Cursor-like triangle shape (equilateral)
-struct Triangle: Shape {
+/// Shaftless cursor arrowhead matching HeyMate's app-icon mark.
+///
+/// The concave lower edge keeps the silhouette cursor-like even when the
+/// buddy rotates during flight, without adding a conventional pointer shaft.
+struct BuddyCursorShape: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
-        let size = min(rect.width, rect.height)
-        let height = size * sqrt(3.0) / 2.0
+        let point: (CGFloat, CGFloat) -> CGPoint = { x, y in
+            CGPoint(
+                x: rect.minX + rect.width * x,
+                y: rect.minY + rect.height * y
+            )
+        }
 
-        // Top vertex
-        path.move(to: CGPoint(x: rect.midX, y: rect.midY - height / 1.5))
-        // Bottom left vertex
-        path.addLine(to: CGPoint(x: rect.midX - size / 2, y: rect.midY + height / 3))
-        // Bottom right vertex
-        path.addLine(to: CGPoint(x: rect.midX + size / 2, y: rect.midY + height / 3))
+        path.move(to: point(0.50, 0.04))
+        path.addLine(to: point(0.08, 0.92))
+        path.addLine(to: point(0.50, 0.66))
+        path.addLine(to: point(0.92, 0.92))
         path.closeSubpath()
         return path
     }
@@ -142,6 +147,7 @@ struct BlueCursorView: View {
     @State private var bubbleOpacity: Double = 1.0
     @State private var responseBubbleSize: CGSize = .zero
     @State private var cursorOpacity: Double = 0.0
+    @State private var typingMonitorInstalled = false
     @State private var isRocketTrailVisible = false
     @State private var launchBayGlowOpacity: Double = 0
 
@@ -219,7 +225,7 @@ struct BlueCursorView: View {
             // Welcome speech bubble (first launch only)
             if isCursorOnThisScreen && showWelcome && !welcomeText.isEmpty {
                 Text(welcomeText)
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .font(DS.Fonts.caption.weight(.medium))
                     .foregroundColor(.white)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
@@ -246,7 +252,7 @@ struct BlueCursorView: View {
             // Onboarding prompt — "press control + option and say hi" streamed after welcome
             if isCursorOnThisScreen && companionManager.showOnboardingPrompt && !companionManager.onboardingPromptText.isEmpty {
                 Text(companionManager.onboardingPromptText)
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .font(DS.Fonts.caption.weight(.medium))
                     .foregroundColor(.white)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
@@ -275,7 +281,7 @@ struct BlueCursorView: View {
             // streaming source and stays inside the click-through overlay.
             if buddyIsVisibleOnThisScreen && !companionManager.streamingAssistantText.isEmpty {
                 Text(companionManager.streamingAssistantText)
-                    .font(.system(size: 12, weight: .regular, design: .rounded))
+                    .font(DS.Fonts.body)
                     .foregroundColor(DS.Colors.textPrimary)
                     .lineSpacing(2)
                     .lineLimit(8)
@@ -314,7 +320,7 @@ struct BlueCursorView: View {
             // glow that settles, creating a "materializing" effect.
             if buddyNavigationMode == .pointingAtTarget && !navigationBubbleText.isEmpty {
                 Text(navigationBubbleText)
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .font(DS.Fonts.caption.weight(.medium))
                     .foregroundColor(.white)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
@@ -358,10 +364,10 @@ struct BlueCursorView: View {
                     .allowsHitTesting(false)
             }
 
-            // Blue triangle cursor — shown when idle or while TTS is playing (responding).
+            // Blue shaftless cursor — shown when idle or while TTS is playing (responding).
             // Position is sampled at 60fps; do not spring-animate every sample or
             // SwiftUI will run a full-screen layout transaction on each tick.
-            Triangle()
+            BuddyCursorShape()
                 .fill(DS.Colors.overlayCursorBlue)
                 .frame(width: 16, height: 16)
                 .rotationEffect(.degrees(triangleRotationDegrees))
@@ -372,7 +378,7 @@ struct BlueCursorView: View {
                         && (companionManager.voiceState == .idle
                             || companionManager.voiceState == .responding
                             || companionManager.cursorDockPhase.isTransitioning)
-                        ? cursorOpacity
+                        ? typingCursorOpacity
                         : 0
                 )
                 .position(cursorPosition)
@@ -389,14 +395,14 @@ struct BlueCursorView: View {
             // time CompanionManager published.
             if buddyIsVisibleOnThisScreen && companionManager.voiceState == .listening {
                 BlueCursorWaveformView(audioPowerLevel: companionManager.currentAudioPowerLevel)
-                    .opacity(cursorOpacity)
+                    .opacity(typingCursorOpacity)
                     .position(cursorPosition)
                     .animation(.easeIn(duration: 0.15), value: companionManager.voiceState)
             }
 
             if buddyIsVisibleOnThisScreen && companionManager.voiceState == .processing {
                 BlueCursorSpinnerView()
-                    .opacity(cursorOpacity)
+                    .opacity(typingCursorOpacity)
                     .position(cursorPosition)
                     .animation(.easeIn(duration: 0.15), value: companionManager.voiceState)
             }
@@ -413,6 +419,7 @@ struct BlueCursorView: View {
             self.cursorPosition = CGPoint(x: swiftUIPosition.x + 35, y: swiftUIPosition.y + 25)
 
             startTrackingCursor()
+            installTypingMonitorIfNeeded()
 
             if companionManager.cursorDockPhase == .launching
                 && shouldRunDockTransitionOnThisScreen {
@@ -436,6 +443,7 @@ struct BlueCursorView: View {
         .onDisappear {
             timer?.invalidate()
             navigationAnimationTimer?.invalidate()
+            removeTypingMonitor()
         }
         .onChange(of: companionManager.detectedElementScreenLocation) { newLocation in
             // When a UI element location is detected, navigate the buddy to
@@ -472,6 +480,14 @@ struct BlueCursorView: View {
     /// screen is navigating (detectedElementScreenLocation is set but this
     /// screen isn't the one animating), hide the cursor so only one buddy
     /// is ever visible at a time.
+    /// Hidden while typing, except during a flight to a target or the launch bay.
+    private var typingCursorOpacity: Double {
+        let hidden = companionManager.hidesCursorForTyping
+            && buddyNavigationMode == .followingCursor
+            && !companionManager.cursorDockPhase.isTransitioning
+        return hidden ? 0 : cursorOpacity
+    }
+
     private var buddyIsVisibleOnThisScreen: Bool {
         if companionManager.cursorDockPhase.isTransitioning && isRocketTrailVisible {
             return true
@@ -501,6 +517,24 @@ struct BlueCursorView: View {
     }
 
     // MARK: - Cursor Tracking
+
+    private func installTypingMonitorIfNeeded() {
+        guard !typingMonitorInstalled else { return }
+        typingMonitorInstalled = true
+        let manager = companionManager
+        BuddyCursorTypingMonitor.retain { event in
+            guard BuddyCursorTypingPolicy.hides(forKeyDown: event.characters) else { return }
+            MainActor.assumeIsolated {
+                manager.hideCursorForTyping(anchor: NSEvent.mouseLocation)
+            }
+        }
+    }
+
+    private func removeTypingMonitor() {
+        guard typingMonitorInstalled else { return }
+        typingMonitorInstalled = false
+        BuddyCursorTypingMonitor.release()
+    }
 
     private func startTrackingCursor() {
         timer = Timer.scheduledTimer(withTimeInterval: 0.016, repeats: true) { _ in
@@ -535,6 +569,10 @@ struct BlueCursorView: View {
             // During forward navigation or pointing, just skip cursor tracking
             if self.buddyNavigationMode != .followingCursor {
                 return
+            }
+
+            MainActor.assumeIsolated {
+                self.companionManager.revealCursorIfPointerMoved(to: mouseLocation)
             }
 
             // Normal cursor following — skip no-op writes so a still mouse
@@ -932,7 +970,7 @@ private struct RocketLaunchBayGlow: View {
 
 // MARK: - Blue Cursor Waveform
 
-/// A small blue waveform that replaces the triangle cursor while
+/// A small blue waveform that replaces the shaftless cursor while
 /// the user is holding the push-to-talk shortcut and speaking.
 private struct BlueCursorWaveformView: View {
     let audioPowerLevel: CGFloat
@@ -961,7 +999,7 @@ private struct BlueCursorWaveformView: View {
 
 // MARK: - Blue Cursor Spinner
 
-/// A small blue spinning indicator that replaces the triangle cursor
+/// A small blue spinning indicator that replaces the shaftless cursor
 /// while the AI is processing a voice input.
 private struct BlueCursorSpinnerView: View {
     @State private var isSpinning = false
@@ -1088,7 +1126,7 @@ private struct AnnotationShapeView: View {
         case .caption:
             if let label = annotation.label, !label.isEmpty {
                 Text(label)
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .font(DS.Fonts.caption.weight(.medium))
                     .foregroundColor(.white)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
@@ -1107,7 +1145,7 @@ private struct AnnotationShapeView: View {
 
         if showsAttachedLabel {
             Text(annotation.label ?? "")
-                .font(.system(size: 10, weight: .medium))
+                .font(DS.Fonts.micro)
                 .foregroundColor(.white)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)

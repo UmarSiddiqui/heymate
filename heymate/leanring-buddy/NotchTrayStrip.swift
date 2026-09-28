@@ -45,34 +45,38 @@ struct NotchTrayStrip: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            DSSectionLabel(title: "Right now")
+        // Nothing live: drop the section entirely rather than spending a
+        // header on one placeholder chip. An empty labeled section reads as
+        // broken; no section reads as calm.
+        if isTrayEmpty {
+            EmptyView()
+        } else {
+            VStack(alignment: .leading, spacing: 7) {
+                DSSectionLabel(title: "Right now")
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 7) {
-                    if let nowPlaying = nowPlayingMonitor.nowPlaying, activityCenter.isEnabled(.media) {
-                        nowPlayingChip(nowPlaying)
-                    }
-                    if let runningTimer = timerStore.runningTimer, activityCenter.isEnabled(.timer) {
-                        timerChip(runningTimer)
-                    }
-                    if activityCenter.isEnabled(.shelf), !shelfStore.items.isEmpty {
-                        shelfChip
-                    }
-                    if activityCenter.isEnabled(.calendar), let nextEvent = calendarMonitor.nextEvent {
-                        calendarChip(nextEvent)
-                    }
-                    if activityCenter.isEnabled(.downloads), let download = downloadsMonitor.activity {
-                        downloadChip(download)
-                    }
-                    if activityCenter.isEnabled(.volumeHUD), let volume = volumeHUDInterceptor.activity {
-                        volumeChip(volume)
-                    }
-                    if activityCenter.isEnabled(.reminders), let reminder = reminderMonitor.nextReminder {
-                        reminderChip(reminder)
-                    }
-                    if isTrayEmpty {
-                        emptyChip
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 7) {
+                        if let nowPlaying = nowPlayingMonitor.nowPlaying, activityCenter.isEnabled(.media) {
+                            nowPlayingChip(nowPlaying)
+                        }
+                        if let runningTimer = timerStore.runningTimer, activityCenter.isEnabled(.timer) {
+                            timerChip(runningTimer)
+                        }
+                        if activityCenter.isEnabled(.shelf), !shelfStore.items.isEmpty {
+                            shelfChip
+                        }
+                        if activityCenter.isEnabled(.calendar), let nextEvent = calendarMonitor.nextEvent {
+                            calendarChip(nextEvent)
+                        }
+                        if activityCenter.isEnabled(.downloads), let download = downloadsMonitor.activity {
+                            downloadChip(download)
+                        }
+                        if activityCenter.isEnabled(.volumeHUD), let volume = volumeHUDInterceptor.activity {
+                            volumeChip(volume)
+                        }
+                        if activityCenter.isEnabled(.reminders), let reminder = reminderMonitor.nextReminder {
+                            reminderChip(reminder)
+                        }
                     }
                 }
             }
@@ -97,9 +101,9 @@ struct NotchTrayStrip: View {
             HStack(spacing: 8) {
                 Button(action: { nowPlayingMonitor.togglePlayPause() }) {
                     Image(systemName: "playpause.fill")
-                        .font(.system(size: 7, weight: .bold))
+                        .font(DS.Glyph.micro)
                         .foregroundColor(DS.Colors.textPrimary)
-                        .frame(width: 18, height: 18)
+                        .frame(width: 24, height: 24)
                         .background(Circle().fill(DS.Colors.surface4))
                 }
                 .buttonStyle(.plain)
@@ -108,7 +112,7 @@ struct NotchTrayStrip: View {
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(nowPlaying.title)
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(DS.Fonts.caption.weight(.semibold))
                         .foregroundColor(DS.Colors.textPrimary)
                         .lineLimit(1)
                     Text(nowPlaying.artist.isEmpty ? nowPlaying.appName : nowPlaying.artist)
@@ -146,19 +150,15 @@ struct NotchTrayStrip: View {
             trayChip {
                 HStack(spacing: 7) {
                     Image(systemName: "timer")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(DS.Glyph.small)
                         .foregroundColor(DS.Colors.accentText)
                     Text(NotchTimerStore.formatted(
                         remainingSeconds: runningTimer.remaining(asOf: context.date)
                     ))
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
+                    .font(DS.Fonts.numeric)
                     .foregroundColor(DS.Colors.textPrimary)
                     Button("Stop") { timerStore.cancel() }
-                        .buttonStyle(.plain)
-                        .font(DS.Fonts.micro)
-                        .foregroundColor(DS.Colors.textSecondary)
-                        .pointerCursor()
+                        .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
                 }
             }
         }
@@ -168,7 +168,7 @@ struct NotchTrayStrip: View {
         trayChip {
             HStack(spacing: 6) {
                 Image(systemName: "tray.full")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(DS.Glyph.small)
                     .foregroundColor(DS.Colors.accentText)
                 HStack(spacing: 4) {
                     ForEach(shelfStore.items.prefix(4)) { item in
@@ -184,17 +184,16 @@ struct NotchTrayStrip: View {
                     shareShelfViaAirDrop()
                 } label: {
                     Image(systemName: "airplayaudio")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(DS.Glyph.small)
                         .foregroundColor(DS.Colors.textSecondary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
                 .help("Share shelf with AirDrop")
                 Button("Clear") { shelfStore.removeAll() }
-                    .buttonStyle(.plain)
-                    .font(DS.Fonts.micro)
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .pointerCursor()
+                    .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
             }
         }
     }
@@ -215,13 +214,13 @@ struct NotchTrayStrip: View {
                     .aspectRatio(contentMode: .fill)
             } else {
                 Image(systemName: "doc")
-                    .font(.system(size: 9))
+                    .font(DS.Glyph.small)
                     .foregroundColor(DS.Colors.textSecondary)
             }
         }
-        .frame(width: 18, height: 18)
-        .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(DS.Colors.surface3))
-        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        .frame(width: 24, height: 24)
+        .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(DS.Colors.surface3))
+        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
         .help(item.displayName)
         .pointerCursor()
         .onTapGesture { shelfStore.open(itemID: item.id) }
@@ -232,11 +231,11 @@ struct NotchTrayStrip: View {
         trayChip {
             HStack(spacing: 7) {
                 Image(systemName: "calendar")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(DS.Glyph.small)
                     .foregroundColor(DS.Colors.accentText)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(nextEvent.title)
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(DS.Fonts.caption.weight(.semibold))
                         .foregroundColor(DS.Colors.textPrimary)
                         .lineLimit(1)
                     Text(nextEvent.startDate.formatted(date: .omitted, time: .shortened))
@@ -246,13 +245,7 @@ struct NotchTrayStrip: View {
                 .fixedSize()
                 if let joinURL = nextEvent.joinURL {
                     Button("Join") { NSWorkspace.shared.open(joinURL) }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                        .foregroundColor(DS.Colors.textOnAccent)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Capsule().fill(DS.Colors.accent))
-                        .pointerCursor()
+                        .dsCapsuleButtonStyle(.primary, height: DS.ControlSize.small)
                 }
             }
         }
@@ -262,10 +255,10 @@ struct NotchTrayStrip: View {
         trayChip {
             HStack(spacing: 7) {
                 Image(systemName: download.progress == 1 ? "checkmark.circle.fill" : "arrow.down.circle")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(DS.Glyph.small)
                     .foregroundColor(download.progress == 1 ? DS.Colors.success : DS.Colors.accentText)
                 Text(download.trailingText)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(DS.Fonts.caption.weight(.semibold))
                     .foregroundColor(DS.Colors.textPrimary)
                     .lineLimit(1)
                 Button("Show") {
@@ -274,10 +267,7 @@ struct NotchTrayStrip: View {
                             ?? FileManager.default.homeDirectoryForCurrentUser
                     )
                 }
-                .buttonStyle(.plain)
-                .font(DS.Fonts.micro)
-                .foregroundColor(DS.Colors.textSecondary)
-                .pointerCursor()
+                .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
             }
         }
     }
@@ -286,11 +276,10 @@ struct NotchTrayStrip: View {
         trayChip {
             HStack(spacing: 7) {
                 Image(systemName: volume.progress == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(DS.Glyph.small)
                     .foregroundColor(DS.Colors.accentText)
                 Text(volume.trailingText)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
+                    .font(DS.Fonts.numeric)
                     .foregroundColor(DS.Colors.textPrimary)
             }
         }
@@ -300,11 +289,11 @@ struct NotchTrayStrip: View {
         trayChip {
             HStack(spacing: 7) {
                 Image(systemName: reminder.isOverdue ? "exclamationmark.circle.fill" : "checklist")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(DS.Glyph.small)
                     .foregroundColor(reminder.isOverdue ? DS.Colors.warning : DS.Colors.accentText)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(reminder.title)
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(DS.Fonts.caption.weight(.semibold))
                         .foregroundColor(DS.Colors.textPrimary)
                         .lineLimit(1)
                     Text(reminder.isOverdue ? "Overdue" : reminder.dueDate.formatted(date: .omitted, time: .shortened))
@@ -313,52 +302,18 @@ struct NotchTrayStrip: View {
                 }
                 .fixedSize()
                 Button("Done") { reminderMonitor.completeNextReminder() }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .foregroundColor(DS.Colors.textOnAccent)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Capsule().fill(DS.Colors.accent))
-                    .pointerCursor()
+                    .dsCapsuleButtonStyle(.primary, height: DS.ControlSize.small)
             }
         }
-    }
-
-    private var emptyChip: some View {
-        Button(action: { onOpenDesktop(.notch) }) {
-            HStack(spacing: 7) {
-                Image(systemName: "square.grid.2x2")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(DS.Colors.textTertiary)
-                Text("Drop files or start a micro app")
-                    .font(DS.Fonts.caption)
-                    .foregroundColor(DS.Colors.textSecondary)
-                Image(systemName: "arrow.up.forward")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundColor(DS.Colors.textTertiary)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(DS.Colors.surface2.opacity(0.72))
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
-            )
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
-        .help("Choose which micro-apps live in the notch")
     }
 
     // MARK: Chip scaffold
 
     private func trayChip<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .frame(minHeight: 34)
             .background(
                 Capsule(style: .continuous)
                     .fill(DS.Colors.surface2.opacity(0.72))
@@ -373,9 +328,9 @@ struct NotchTrayStrip: View {
     private func transportButton(_ symbolName: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbolName)
-                .font(.system(size: 8, weight: .bold))
+                .font(DS.Glyph.micro)
                 .foregroundColor(DS.Colors.textSecondary)
-                .frame(width: 18, height: 18)
+                .frame(width: 24, height: 24)
                 .background(Circle().fill(DS.Colors.surface4))
         }
         .buttonStyle(.plain)

@@ -252,6 +252,36 @@ struct NotchLayoutMathTests {
         #expect(frame.maxY == external.maxY - NotchLayoutMath.fallbackMenuBarHeight)
     }
 
+    @Test func connectorSuggestionIsCompactCenteredAndFlush() throws {
+        let frame = try #require(NotchLayoutMath.connectorSuggestionFrame(
+            screenFrame: Self.macBookScreen,
+            topSafeAreaInset: Self.notchInset,
+            auxiliaryTopLeftMaxX: Self.auxLeftMaxX,
+            auxiliaryTopRightMinX: Self.auxRightMinX
+        ))
+        let notchCenter = NotchLayoutMath.hardwareNotchCenterX(
+            screenFrame: Self.macBookScreen,
+            auxiliaryTopLeftMaxX: Self.auxLeftMaxX,
+            auxiliaryTopRightMinX: Self.auxRightMinX
+        )
+
+        #expect(frame.midX == notchCenter)
+        #expect(frame.maxY == Self.macBookScreen.maxY)
+        #expect(frame.width >= NotchLayoutMath.connectorSuggestionWidth)
+        #expect(frame.height == Self.notchInset + NotchLayoutMath.connectorSuggestionHeight)
+        #expect(frame.height < Self.notchInset + NotchLayoutMath.compactChatHeight)
+    }
+
+    @Test func fallbackConnectorSuggestionHangsBelowMenuBar() {
+        let external = CGRect(x: -1920, y: 0, width: 1920, height: 1080)
+        let frame = NotchLayoutMath.fallbackConnectorSuggestionFrame(screenFrame: external)
+
+        #expect(frame.midX == external.midX)
+        #expect(frame.width == NotchLayoutMath.connectorSuggestionWidth)
+        #expect(frame.height == NotchLayoutMath.connectorSuggestionHeight)
+        #expect(frame.maxY == external.maxY - NotchLayoutMath.fallbackMenuBarHeight)
+    }
+
     // MARK: - Pixel snap + corners
 
     @Test func backingAlignmentSnapsFractionalRectToNearestPixel() {

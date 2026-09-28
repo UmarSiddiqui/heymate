@@ -398,6 +398,22 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         self.contextualKeyterms = contextualKeyterms
     }
 
+    /// Hold-to-talk from the chat composer. Releasing submits through the
+    /// same callback the keyboard shortcut uses.
+    func startHoldToTalk(
+        currentDraftText: String,
+        updateDraftText: @escaping (String) -> Void,
+        submitDraftText: @escaping (String) -> Void
+    ) async {
+        await startPushToTalk(
+            startSource: .microphoneButton,
+            currentDraftText: currentDraftText,
+            updateDraftText: updateDraftText,
+            submitDraftText: submitDraftText,
+            shouldAutomaticallySubmitFinalDraftOnStop: true
+        )
+    }
+
     func startPersistentDictationFromMicrophoneButton(
         currentDraftText: String,
         updateDraftText: @escaping (String) -> Void,

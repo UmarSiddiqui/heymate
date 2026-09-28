@@ -38,7 +38,7 @@ enum NotchLayoutMath {
     nonisolated static let pillCornerRadius: CGFloat = 8
 
     /// Bottom-corner radius of the expanded card.
-    nonisolated static let cardCornerRadius: CGFloat = 18
+    nonisolated static let cardCornerRadius: CGFloat = 24
 
     /// Boring Notch-style relaxed spring cadence. Real panel geometry still
     /// moves on the display-link clock; content and corners settle with it.
@@ -133,6 +133,15 @@ enum NotchLayoutMath {
     /// `topSafeAreaInset + compactChatHeight`.
     nonisolated static let compactChatHeight: CGFloat = 200
 
+    /// Passive connector prompt. Wide enough for identity + three actions,
+    /// shallow enough to read like a HeyClicky notification instead of the
+    /// full HeyMate control surface.
+    nonisolated static let connectorSuggestionWidth: CGFloat = 600
+
+    /// Visible height below the camera housing. Identity, actions, and
+    /// capability chips fit without compressing labels or controls.
+    nonisolated static let connectorSuggestionHeight: CGFloat = 84
+
     /// Assumed menu-bar strip height when placing the software-notch fallback
     /// on a display that has no camera housing. Matches `NSStatusBar` thickness.
     nonisolated static let fallbackMenuBarHeight: CGFloat = 24
@@ -151,7 +160,9 @@ enum NotchLayoutMath {
         screenFrame: CGRect,
         topSafeAreaInset: CGFloat,
         auxiliaryTopLeftMaxX: CGFloat = 0,
-        auxiliaryTopRightMinX: CGFloat = 0
+        auxiliaryTopRightMinX: CGFloat = 0,
+        contentWidth: CGFloat = expandedWidth,
+        contentHeight: CGFloat = expandedHeight
     ) -> CGRect? {
         guard screenHasNotch(topSafeAreaInset: topSafeAreaInset) else { return nil }
 
@@ -161,9 +172,9 @@ enum NotchLayoutMath {
         )
         // The card must fully cover the notch it hangs from, even on models
         // with unusually wide camera housings.
-        let width = max(expandedWidth, idleWidth + 40)
+        let width = max(contentWidth, idleWidth + 40)
 
-        let height = topSafeAreaInset + expandedHeight
+        let height = topSafeAreaInset + contentHeight
         let notchCenterX = hardwareNotchCenterX(
             screenFrame: screenFrame,
             auxiliaryTopLeftMaxX: auxiliaryTopLeftMaxX,
@@ -180,7 +191,9 @@ enum NotchLayoutMath {
         screenFrame: CGRect,
         topSafeAreaInset: CGFloat,
         auxiliaryTopLeftMaxX: CGFloat = 0,
-        auxiliaryTopRightMinX: CGFloat = 0
+        auxiliaryTopRightMinX: CGFloat = 0,
+        contentWidth: CGFloat = compactChatWidth,
+        contentHeight: CGFloat = compactChatHeight
     ) -> CGRect? {
         guard screenHasNotch(topSafeAreaInset: topSafeAreaInset) else { return nil }
 
@@ -188,8 +201,8 @@ enum NotchLayoutMath {
             leftMaxX: auxiliaryTopLeftMaxX,
             rightMinX: auxiliaryTopRightMinX
         )
-        let width = max(compactChatWidth, idleWidth + 40)
-        let height = topSafeAreaInset + compactChatHeight
+        let width = max(contentWidth, idleWidth + 40)
+        let height = topSafeAreaInset + contentHeight
         let notchCenterX = hardwareNotchCenterX(
             screenFrame: screenFrame,
             auxiliaryTopLeftMaxX: auxiliaryTopLeftMaxX,
@@ -198,6 +211,34 @@ enum NotchLayoutMath {
         let x = notchCenterX - width / 2
         let y = screenFrame.maxY - height
         return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    /// Compact auto-suggestion hanging from the hardware notch.
+    nonisolated static func connectorSuggestionFrame(
+        screenFrame: CGRect,
+        topSafeAreaInset: CGFloat,
+        auxiliaryTopLeftMaxX: CGFloat = 0,
+        auxiliaryTopRightMinX: CGFloat = 0
+    ) -> CGRect? {
+        guard screenHasNotch(topSafeAreaInset: topSafeAreaInset) else { return nil }
+
+        let idleWidth = idlePillWidth(
+            leftMaxX: auxiliaryTopLeftMaxX,
+            rightMinX: auxiliaryTopRightMinX
+        )
+        let width = max(connectorSuggestionWidth, idleWidth + 40)
+        let height = topSafeAreaInset + connectorSuggestionHeight
+        let notchCenterX = hardwareNotchCenterX(
+            screenFrame: screenFrame,
+            auxiliaryTopLeftMaxX: auxiliaryTopLeftMaxX,
+            auxiliaryTopRightMinX: auxiliaryTopRightMinX
+        )
+        return CGRect(
+            x: notchCenterX - width / 2,
+            y: screenFrame.maxY - height,
+            width: width,
+            height: height
+        )
     }
 
     /// True when the display physically has a notch (top safe-area inset).
@@ -291,9 +332,13 @@ enum NotchLayoutMath {
 
     /// Expanded card for the software-notch fallback: same width/height as
     /// the hardware card, parked just below the menu bar.
-    nonisolated static func fallbackExpandedFrame(screenFrame: CGRect) -> CGRect {
-        let width = expandedWidth
-        let height = expandedHeight
+    nonisolated static func fallbackExpandedFrame(
+        screenFrame: CGRect,
+        contentWidth: CGFloat = expandedWidth,
+        contentHeight: CGFloat = expandedHeight
+    ) -> CGRect {
+        let width = contentWidth
+        let height = contentHeight
         let x = screenFrame.midX - width / 2
         let y = screenFrame.maxY - fallbackMenuBarHeight - height
         return CGRect(x: x, y: y, width: width, height: height)
@@ -301,9 +346,22 @@ enum NotchLayoutMath {
 
     /// Compact chat for the software-notch fallback: same compact size as
     /// the hardware chat, parked just below the menu bar.
-    nonisolated static func fallbackCompactChatFrame(screenFrame: CGRect) -> CGRect {
-        let width = compactChatWidth
-        let height = compactChatHeight
+    nonisolated static func fallbackCompactChatFrame(
+        screenFrame: CGRect,
+        contentWidth: CGFloat = compactChatWidth,
+        contentHeight: CGFloat = compactChatHeight
+    ) -> CGRect {
+        let width = contentWidth
+        let height = contentHeight
+        let x = screenFrame.midX - width / 2
+        let y = screenFrame.maxY - fallbackMenuBarHeight - height
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    /// Software-notch placement for displays without camera housing.
+    nonisolated static func fallbackConnectorSuggestionFrame(screenFrame: CGRect) -> CGRect {
+        let width = connectorSuggestionWidth
+        let height = connectorSuggestionHeight
         let x = screenFrame.midX - width / 2
         let y = screenFrame.maxY - fallbackMenuBarHeight - height
         return CGRect(x: x, y: y, width: width, height: height)

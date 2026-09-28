@@ -169,8 +169,8 @@ struct NotchCameraMirrorView: View {
             DSSectionLabel(title: "Camera mirror")
 
             ZStack {
-                RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .fill(DS.Colors.surface2.opacity(0.76))
+                RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                    .fill(DSSurface.row.fill(isHighlighted: false))
 
                 NotchCameraPreview(session: model.session)
                     .opacity(model.state == .running ? 1 : 0)
@@ -180,9 +180,9 @@ struct NotchCameraMirrorView: View {
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 126, maxHeight: 146)
-            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
                     .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
             )
         }
@@ -203,10 +203,7 @@ struct NotchCameraMirrorView: View {
 
             if model.state == .denied {
                 Button("Camera Settings") { model.openCameraSettings() }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(DS.Colors.accentText)
-                    .pointerCursor()
+                    .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)
             }
         }
         .padding(12)

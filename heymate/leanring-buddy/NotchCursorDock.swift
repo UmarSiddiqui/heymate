@@ -25,7 +25,7 @@ struct NotchCursorDock: View {
         }) {
             HStack(spacing: 5) {
                 RocketLaunchBayGlyph(phase: phase)
-                    .frame(width: 18, height: 18)
+                    .frame(width: 20, height: 20)
                     .background {
                         DockScreenAnchorReader { point in
                             companionManager.updateCursorDockAnchorScreenPoint(point)
@@ -33,12 +33,12 @@ struct NotchCursorDock: View {
                     }
 
                 Text(compactTitle(for: phase))
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .font(DS.Fonts.control)
                     .lineLimit(1)
             }
             .foregroundColor(phase == .deployed ? DS.Colors.textOnAccent : DS.Colors.textPrimary.opacity(0.85))
-            .padding(.horizontal, 8)
-            .frame(height: 22)
+            .padding(.horizontal, 12)
+            .frame(height: NotchControlMetrics.controlSize)
             .background(
                 Capsule(style: .continuous)
                     .fill(
@@ -167,7 +167,7 @@ private struct RocketLaunchBayGlyph: View {
                 .offset(x: 0, y: 0)
 
             Image(systemName: "paperplane.fill")
-                .font(.system(size: 9, weight: .bold))
+                .font(DS.Glyph.micro)
                 .rotationEffect(.degrees(-42))
                 .foregroundColor(
                     phase == .docked
@@ -194,42 +194,42 @@ private struct RocketLaunchBayGlyph: View {
 struct NotchModelPickerPanel: View {
     @ObservedObject var companionManager: CompanionManager
     @State private var searchText = ""
+    @State private var hoveredBrain: AgentBrain?
+    @State private var hoveredCodexModelID: String?
+    @State private var hoveredClaudeModelID: String?
+    @State private var hoveredOpenCodeModelID: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 0) {
-                ForEach(AgentBrain.allCases, id: \.self) { brain in
-                    brainButton(brain)
-                }
+        HStack(alignment: .top, spacing: 0) {
+            providerRail
+
+            Rectangle()
+                .fill(DS.Colors.borderSubtle.opacity(0.8))
+                .frame(width: 1)
+                .padding(.vertical, 2)
+
+            VStack(alignment: .leading, spacing: 9) {
+                providerSummary
+                modelChoices
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(DS.Colors.surface2.opacity(0.72))
-            )
-
-            Text(companionManager.selectedBrain.subtitle)
-                .font(DS.Fonts.micro)
-                .foregroundColor(DS.Colors.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            modelChoices
+            .padding(.leading, 12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .padding(10)
+        .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(DS.Colors.surface2.opacity(0.72))
+            RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                .fill(DS.Colors.surface1.opacity(0.94))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.white.opacity(0.07), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                .stroke(DS.Colors.borderSubtle.opacity(0.8), lineWidth: 1)
         )
         .task {
-            if companionManager.selectedBrain == .openCode {
-                await companionManager.refreshOpenCodeServerStatus()
-            } else if companionManager.selectedBrain == .codex {
-                await companionManager.refreshCodexModelCatalog()
-            }
+            await companionManager.refreshClaudeModelCatalog()
+            await companionManager.refreshCodexModelCatalog()
+            await companionManager.refreshOpenCodeServerStatus()
         }
         .onChange(of: companionManager.selectedBrain) { _, brain in
             if brain != .openCode {
@@ -237,25 +237,115 @@ struct NotchModelPickerPanel: View {
             }
             if brain == .codex {
                 Task { await companionManager.refreshCodexModelCatalog() }
+            } else if brain == .openCode {
+                Task { await companionManager.refreshOpenCodeServerStatus() }
+            } else if brain == .claudeCode {
+                Task { await companionManager.refreshClaudeModelCatalog() }
             }
         }
     }
 
-    private func brainButton(_ brain: AgentBrain) -> some View {
+    private var providerRail: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("Provider")
+                .font(DS.Fonts.sectionLabel)
+                .foregroundColor(DS.Colors.textSecondary)
+                .padding(.horizontal, 7)
+                .padding(.bottom, 2)
+
+            ForEach(AgentBrain.allCases, id: \.self) { brain in
+                providerButton(brain)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .frame(width: 142)
+        .padding(.trailing, 10)
+    }
+
+    private func providerButton(_ brain: AgentBrain) -> some View {
         let isSelected = companionManager.selectedBrain == brain
+        let isHovered = hoveredBrain == brain
         return Button(action: { companionManager.setSelectedBrain(brain) }) {
-            Text(brain.displayName)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textTertiary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(isSelected ? DS.Colors.surface4 : Color.clear)
-                )
+            HStack(spacing: 8) {
+                ZStack {
+                    Circle()
+                        .fill(isSelected ? DS.Colors.accentSubtle : DS.Colors.surface3)
+                    Image(systemName: providerSymbol(for: brain))
+                        .font(DS.Glyph.small)
+                        .foregroundColor(isSelected ? DS.Colors.accentText : DS.Colors.textTertiary)
+                }
+                .frame(width: 24, height: 24)
+
+                Text(brain.displayName)
+                    .font(DS.Fonts.caption.weight(.semibold))
+                    .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textSecondary)
+                    .lineLimit(1)
+
+                Spacer(minLength: 2)
+
+                Circle()
+                    .fill(DS.Colors.accent)
+                    .frame(width: 5, height: 5)
+                    .shadow(color: DS.Colors.accentGlow, radius: 4)
+                    .opacity(isSelected ? 1 : 0)
+            }
+            .padding(.horizontal, 7)
+            .frame(height: 34)
+            .background(
+                RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                    .fill(isSelected ? DS.Colors.accentSubtle : (isHovered ? DS.Colors.surface3 : Color.clear))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                    .stroke(isSelected ? DS.Colors.accent.opacity(0.32) : Color.clear, lineWidth: 1)
+            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .pointerCursor()
+        .onHover { hoveredBrain = $0 ? brain : nil }
+        .accessibilityLabel(brain.displayName)
+        .accessibilityValue(isSelected ? "Selected" : "")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var providerSummary: some View {
+        HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(companionManager.selectedBrain.displayName)
+                    .font(DS.Fonts.titleCompact)
+                    .foregroundColor(DS.Colors.textPrimary)
+
+                Text(companionManager.selectedBrain.subtitle)
+                    .font(DS.Fonts.micro)
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 6)
+
+            if companionManager.selectedBrain != .customAPI {
+                updateCLIButton
+            }
+
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(DS.Colors.accent)
+                    .frame(width: 5, height: 5)
+                Text("Selected")
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.textSecondary)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 26)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(DS.Colors.surface2)
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -264,108 +354,407 @@ struct NotchModelPickerPanel: View {
         case .openCode:
             openCodeModelList
         case .claudeCode:
-            HStack(spacing: 0) {
-                ForEach(ClaudeModelChoice.allCases, id: \.self) { choice in
-                    brainButtonLabel(
-                        choice.displayName,
-                        isSelected: companionManager.selectedClaudeModel == choice,
-                        action: { companionManager.setSelectedClaudeModel(choice) }
-                    )
-                }
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(DS.Colors.surface2.opacity(0.72))
-            )
+            claudeChoices
         case .codex:
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Models from Codex CLI")
-                        .font(DS.Fonts.micro)
-                        .foregroundColor(DS.Colors.textTertiary)
-                    Spacer()
-                    Button {
-                        Task { await companionManager.refreshCodexModelCatalog() }
-                    } label: {
-                        if companionManager.isCodexModelRefreshInFlight {
-                            ProgressView().controlSize(.mini)
-                        } else {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 9, weight: .semibold))
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                }
-
-                ScrollView(.vertical, showsIndicators: true) {
-                    VStack(spacing: 4) {
-                        ForEach(companionManager.codexModels) { option in
-                            brainButtonLabel(
-                                option.displayName,
-                                isSelected: companionManager.selectedCodexModelID == option.model,
-                                action: { companionManager.setSelectedCodexModel(option) }
-                            )
-                        }
-                    }
-                }
-                .frame(maxHeight: 120)
-
-                if let selectedModel = companionManager.selectedCodexModel {
-                    Text("Effort")
-                        .font(DS.Fonts.micro)
-                        .foregroundColor(DS.Colors.textTertiary)
-                    HStack(spacing: 0) {
-                        ForEach(selectedModel.supportedReasoningEfforts) { option in
-                            brainButtonLabel(
-                                option.displayName,
-                                isSelected: companionManager.selectedCodexReasoningEffort == option.reasoningEffort,
-                                action: {
-                                    companionManager.setSelectedCodexReasoningEffort(option.reasoningEffort)
-                                }
-                            )
-                        }
-                    }
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(DS.Colors.surface2.opacity(0.72))
-                    )
-                }
-
-                if let errorText = companionManager.codexModelCatalogErrorText {
-                    Text(errorText)
-                        .font(DS.Fonts.micro)
-                        .foregroundColor(DS.Colors.warningText)
-                }
-            }
+            codexChoices
         case .customAPI:
-            Text(CustomAPIConfiguration.model)
-                .font(DS.Fonts.caption)
-                .foregroundColor(DS.Colors.textTertiary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            customAPIChoice
+        case .onDevice:
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeader("On this Mac", detail: "Apple Intelligence")
+                Text(OnDeviceLanguageAvailability.statusLine)
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
 
-    private func brainButtonLabel(_ title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+    private var claudeChoices: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            claudeEffortPanel
+            claudeModelList
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private var claudeEffortPanel: some View {
+        if !companionManager.claudeEfforts.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                sectionHeader("Thinking effort")
+
+                HStack(spacing: 3) {
+                    effortSegment(
+                        title: "Auto",
+                        help: "Let the Claude CLI pick its default effort",
+                        isSelected: companionManager.selectedClaudeEffortIfSupported == nil
+                    ) {
+                        companionManager.setSelectedClaudeEffort("")
+                    }
+                    ForEach(companionManager.claudeEfforts) { option in
+                        effortSegment(
+                            title: option.displayName,
+                            help: "claude --effort \(option.effort)",
+                            isSelected: companionManager.selectedClaudeEffortIfSupported == option.effort
+                        ) {
+                            companionManager.setSelectedClaudeEffort(option.effort)
+                        }
+                    }
+                }
+                .padding(3)
+                .background(
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                        .fill(DS.Colors.surface2)
+                )
+
+                Text("Higher effort thinks longer before answering. Applies to Talk and agent jobs.")
+                    .font(DS.Fonts.micro)
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private var claudeModelList: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                sectionHeader("Model", detail: "From Claude CLI")
+                Spacer(minLength: 4)
+                catalogRefreshButton(
+                    isRefreshing: companionManager.isClaudeModelRefreshInFlight,
+                    help: "Reload models from Claude CLI",
+                    accessibilityLabel: "Reload Claude models"
+                ) {
+                    await companionManager.refreshClaudeModelCatalog()
+                }
+            }
+
+            ScrollView(.vertical, showsIndicators: true) {
+                LazyVStack(spacing: 5) {
+                    ForEach(companionManager.claudeModels) { option in
+                        claudeModelButton(option)
+                    }
+                }
+                .padding(.trailing, 2)
+            }
+            .scrollIndicators(.visible)
+            .frame(maxHeight: .infinity)
+
+            if let errorText = companionManager.claudeModelCatalogErrorText {
+                Label(errorText, systemImage: "exclamationmark.triangle.fill")
+                    .font(DS.Fonts.micro)
+                    .foregroundColor(DS.Colors.warningText)
+                    .lineLimit(2)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private var codexChoices: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            codexEffortPanel
+            codexModelList
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var codexModelList: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                sectionHeader("Model", detail: "From Codex CLI")
+                Spacer(minLength: 4)
+                codexRefreshButton
+            }
+
+            if companionManager.codexModels.isEmpty && companionManager.isCodexModelRefreshInFlight {
+                loadingState("Loading models…")
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical, showsIndicators: true) {
+                        LazyVStack(spacing: 5) {
+                            ForEach(companionManager.codexModels) { option in
+                                codexModelButton(option)
+                                    .id(option.model)
+                            }
+                        }
+                        .padding(.trailing, 2)
+                    }
+                    .scrollIndicators(.visible)
+                    .frame(maxHeight: .infinity)
+                    .onAppear {
+                        DispatchQueue.main.async {
+                            proxy.scrollTo(companionManager.selectedCodexModelID, anchor: .center)
+                        }
+                    }
+                    .onChange(of: companionManager.selectedCodexModelID) { _, modelID in
+                        withAnimation(DS.Animation.controlSpring) {
+                            proxy.scrollTo(modelID, anchor: .center)
+                        }
+                    }
+                    .onChange(of: companionManager.codexModels.count) { _, _ in
+                        DispatchQueue.main.async {
+                            proxy.scrollTo(companionManager.selectedCodexModelID, anchor: .center)
+                        }
+                    }
+                }
+            }
+
+            if let errorText = companionManager.codexModelCatalogErrorText {
+                Label(errorText, systemImage: "exclamationmark.triangle.fill")
+                    .font(DS.Fonts.micro)
+                    .foregroundColor(DS.Colors.warningText)
+                    .lineLimit(2)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    @ViewBuilder
+    private var codexEffortPanel: some View {
+        if let selectedModel = companionManager.selectedCodexModel {
+            VStack(alignment: .leading, spacing: 6) {
+                sectionHeader("Thinking effort")
+
+                HStack(spacing: 3) {
+                    ForEach(selectedModel.supportedReasoningEfforts) { option in
+                        effortButton(option)
+                    }
+                }
+                .padding(3)
+                .background(
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                        .fill(DS.Colors.surface2)
+                )
+
+                if let selectedEffort = selectedModel.supportedReasoningEfforts.first(where: {
+                    $0.reasoningEffort == companionManager.selectedCodexReasoningEffort
+                }) {
+                    Text(selectedEffort.description)
+                        .font(DS.Fonts.micro)
+                        .foregroundColor(DS.Colors.textTertiary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private var codexRefreshButton: some View {
+        catalogRefreshButton(
+            isRefreshing: companionManager.isCodexModelRefreshInFlight,
+            help: "Reload models from Codex CLI",
+            accessibilityLabel: "Reload Codex models"
+        ) {
+            await companionManager.refreshCodexModelCatalog()
+        }
+    }
+
+    private func catalogRefreshButton(
+        isRefreshing: Bool,
+        help: String,
+        accessibilityLabel: String,
+        refresh: @escaping () async -> Void
+    ) -> some View {
+        Button {
+            Task { await refresh() }
+        } label: {
+            Group {
+                if isRefreshing {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                        .font(DS.Glyph.regular)
+                }
+            }
+            .foregroundColor(DS.Colors.textSecondary)
+            .frame(width: 28, height: 28)
+            .contentShape(Circle())
+            .background(Circle().fill(DS.Colors.surface2))
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .disabled(isRefreshing)
+        .help(help)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private func codexModelButton(_ option: CodexModelOption) -> some View {
+        let isSelected = companionManager.selectedCodexModelID == option.model
+        let isHovered = hoveredCodexModelID == option.id
+        return Button(action: { companionManager.setSelectedCodexModel(option) }) {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 5) {
+                        Text(option.displayName)
+                            .font(DS.Fonts.caption.weight(.semibold))
+                            .foregroundColor(DS.Colors.textPrimary)
+                            .lineLimit(1)
+
+                        if option.isDefault {
+                            Text("Default")
+                                .font(DS.Fonts.keycap)
+                                .foregroundColor(DS.Colors.textTertiary)
+                                .padding(.horizontal, 6)
+                                .frame(height: 17)
+                                .background(Capsule().fill(DS.Colors.surface3))
+                        }
+                    }
+
+                    if !option.description.isEmpty {
+                        Text(option.description)
+                            .font(DS.Fonts.micro)
+                            .foregroundColor(DS.Colors.textTertiary)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer(minLength: 4)
+                selectionMark(isSelected: isSelected)
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(selectionBackground(isSelected: isSelected, isHovered: isHovered))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .onHover { hoveredCodexModelID = $0 ? option.id : nil }
+        .accessibilityLabel(option.displayName)
+        .accessibilityHint(option.description)
+        .accessibilityValue(isSelected ? "Selected" : "")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func effortButton(_ option: CodexReasoningEffortOption) -> some View {
+        effortSegment(
+            title: option.displayName,
+            help: option.description,
+            isSelected: companionManager.selectedCodexReasoningEffort == option.reasoningEffort
+        ) {
+            companionManager.setSelectedCodexReasoningEffort(option.reasoningEffort)
+        }
+    }
+
+    /// One cell of the effort control. Claude and Codex share it so both
+    /// engines read the same way.
+    private func effortSegment(
+        title: String,
+        help: String,
+        isSelected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 10, weight: .semibold))
+                .font(DS.Fonts.micro.weight(isSelected ? .semibold : .medium))
                 .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textTertiary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
+                .frame(height: 25)
                 .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
                         .fill(isSelected ? DS.Colors.surface4 : Color.clear)
                 )
         }
         .buttonStyle(.plain)
         .pointerCursor()
+        .help(help)
+        .accessibilityLabel("\(title) thinking effort")
+        .accessibilityHint(help)
+        .accessibilityValue(isSelected ? "Selected" : "")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func claudeModelButton(_ option: ClaudeModelOption) -> some View {
+        let isSelected = companionManager.selectedClaudeModelID == option.id
+        let isHovered = hoveredClaudeModelID == option.id
+        return Button(action: { companionManager.setSelectedClaudeModel(option) }) {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(option.displayName)
+                        .font(DS.Fonts.caption.weight(.semibold))
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .lineLimit(1)
+                    Text(option.isLatestAlias ? "Latest" : option.summary)
+                        .font(DS.Fonts.micro)
+                        .foregroundColor(DS.Colors.textTertiary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                selectionMark(isSelected: isSelected)
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(selectionBackground(isSelected: isSelected, isHovered: isHovered))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .onHover { hoveredClaudeModelID = $0 ? option.id : nil }
+        .accessibilityLabel(option.displayName)
+        .accessibilityHint(option.summary)
+        .accessibilityValue(isSelected ? "Selected" : "")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var customAPIChoice: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("Configured model", detail: "Anthropic-compatible endpoint")
+
+            HStack(spacing: 9) {
+                Image(systemName: "network")
+                    .font(DS.Glyph.regular)
+                    .foregroundColor(DS.Colors.accentText)
+                    .frame(width: 30, height: 30)
+                    .background(Circle().fill(DS.Colors.accentSubtle))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(CustomAPIConfiguration.model)
+                        .font(DS.Fonts.caption.weight(.semibold))
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .lineLimit(1)
+                    Text("Model and credentials are managed in Settings.")
+                        .font(DS.Fonts.micro)
+                        .foregroundColor(DS.Colors.textTertiary)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 4)
+
+                Button("Settings") {
+                    companionManager.openDesktopWindow(section: .settings)
+                }
+                .font(DS.Fonts.micro.weight(.semibold))
+                .buttonStyle(.plain)
+                .foregroundColor(DS.Colors.accentText)
+                .pointerCursor()
+            }
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                    .fill(DS.Colors.surface2)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+            )
+        }
     }
 
     @ViewBuilder
     private var openCodeModelList: some View {
         if companionManager.openCodeModels.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
+                sectionHeader("Model", detail: "From opencode serve")
                 HStack(spacing: 8) {
                     Text(companionManager.isOpenCodeServerReachable == false
                          ? "OpenCode server is offline"
@@ -384,9 +773,11 @@ struct NotchModelPickerPanel: View {
             let groups = companionManager.openCodeProviderGroups(matching: searchText)
             let visibleCount = groups.flatMap(\.models).count
             VStack(alignment: .leading, spacing: 8) {
+                sectionHeader("Model", detail: "\(visibleCount) of \(companionManager.openCodeModels.count) available")
+
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(DS.Glyph.small)
                         .foregroundColor(DS.Colors.textTertiary)
                     TextField(
                         "Search \(companionManager.openCodeModels.count) models",
@@ -400,19 +791,9 @@ struct NotchModelPickerPanel: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
                 .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(DS.Colors.surface2.opacity(0.72))
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                        .fill(DS.Colors.surface2)
                 )
-
-                HStack(spacing: 4) {
-                    Text(visibleCount == companionManager.openCodeModels.count
-                         ? "\(visibleCount) models"
-                         : "\(visibleCount) of \(companionManager.openCodeModels.count)")
-                    Text("·")
-                    Text("scroll")
-                }
-                .font(DS.Fonts.micro)
-                .foregroundColor(DS.Colors.textTertiary)
 
                 if groups.isEmpty {
                     Text("No models match “\(searchText.trimmingCharacters(in: .whitespacesAndNewlines))”")
@@ -425,13 +806,12 @@ struct NotchModelPickerPanel: View {
                             ForEach(groups, id: \.providerID) { group in
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack {
-                                        Text(group.providerName.uppercased())
-                                            .font(.system(size: 9, weight: .bold, design: .rounded))
+                                        Text(group.providerName)
+                                            .font(DS.Fonts.sectionLabel)
                                             .foregroundColor(DS.Colors.textTertiary)
-                                            .kerning(0.8)
                                         Spacer()
                                         Text("\(group.models.count)")
-                                            .font(.system(size: 9, weight: .semibold))
+                                            .font(DS.Fonts.keycap)
                                             .foregroundColor(DS.Colors.textTertiary.opacity(0.7))
                                     }
                                     .padding(.horizontal, 4)
@@ -457,7 +837,7 @@ struct NotchModelPickerPanel: View {
             Task { await companionManager.refreshOpenCodeServerStatus() }
         }) {
             Image(systemName: "arrow.clockwise")
-                .font(.system(size: 10, weight: .semibold))
+                .font(DS.Glyph.small)
                 .foregroundColor(DS.Colors.textSecondary)
         }
         .buttonStyle(.plain)
@@ -469,27 +849,131 @@ struct NotchModelPickerPanel: View {
     private func openCodeRow(_ option: OpenCodeModelOption) -> some View {
         let isSelected = option.modelID == companionManager.openCodeModelID
             && option.providerID == companionManager.openCodeProviderID
+        let isHovered = hoveredOpenCodeModelID == option.id
         return Button(action: { companionManager.selectOpenCodeModel(option) }) {
-            HStack {
-                Text(option.shortLabel)
-                    .font(DS.Fonts.caption)
-                    .foregroundColor(DS.Colors.textPrimary)
-                    .lineLimit(1)
-                Spacer()
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(DS.Colors.accentText)
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(option.shortLabel)
+                        .font(DS.Fonts.caption.weight(.semibold))
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .lineLimit(1)
+                    if OpenCodeTrainingPolicy.dataUse(
+                        providerID: option.providerID,
+                        modelID: option.modelID,
+                        modelName: option.modelName
+                    ) != .notFlagged {
+                        Text("Trains")
+                            .font(DS.Fonts.micro)
+                            .foregroundColor(DS.Colors.warningText)
+                    }
+                    if option.modelName != option.modelID {
+                        Text(option.modelID)
+                            .font(DS.Fonts.micro)
+                            .foregroundColor(DS.Colors.textTertiary)
+                            .lineLimit(1)
+                    }
                 }
+                Spacer()
+                selectionMark(isSelected: isSelected)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
+            .background(selectionBackground(isSelected: isSelected, isHovered: isHovered))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .onHover { hoveredOpenCodeModelID = $0 ? option.id : nil }
+        .accessibilityLabel("\(option.shortLabel), \(option.providerName)")
+        .accessibilityValue(isSelected ? "Selected" : "")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var updateCLIButton: some View {
+        Button {
+            Task { await companionManager.updateSubscriptionCLIsNow() }
+        } label: {
+            HStack(spacing: 4) {
+                if companionManager.isSubscriptionCLIUpdateInFlight {
+                    ProgressView()
+                        .controlSize(.mini)
+                } else {
+                    Image(systemName: "arrow.down.circle")
+                        .font(DS.Glyph.small)
+                }
+                Text("Update CLI")
+                    .font(DS.Fonts.caption.weight(.semibold))
+            }
+            .foregroundColor(DS.Colors.accentText)
+            .padding(.horizontal, 10)
+            .frame(height: 26)
+            .contentShape(Capsule())
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? DS.Colors.accentSubtle : Color.clear)
+                Capsule(style: .continuous)
+                    .fill(DS.Colors.surface2)
             )
         }
         .buttonStyle(.plain)
         .pointerCursor()
+        .disabled(companionManager.isSubscriptionCLIUpdateInFlight)
+        .help("Update Claude, Codex, and OpenCode to the latest release")
+        .accessibilityLabel("Update CLIs to the latest")
     }
+
+    private func sectionHeader(_ title: String, detail: String? = nil) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(title)
+                .font(DS.Fonts.sectionLabel)
+                .foregroundColor(DS.Colors.textSecondary)
+            if let detail {
+                Text(detail)
+                    .font(DS.Fonts.micro)
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private func selectionMark(isSelected: Bool) -> some View {
+        ZStack {
+            Circle()
+                .stroke(isSelected ? DS.Colors.accent : DS.Colors.borderStrong, lineWidth: 1)
+            if isSelected {
+                Circle()
+                    .fill(DS.Colors.accent)
+                    .padding(3)
+            }
+        }
+        .frame(width: 14, height: 14)
+    }
+
+    private func selectionBackground(isSelected: Bool, isHovered: Bool) -> some View {
+        RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+            .fill(isSelected ? DS.Colors.accentSubtle : (isHovered ? DS.Colors.surface3 : DS.Colors.surface2.opacity(0.66)))
+            .overlay(
+                RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                    .stroke(isSelected ? DS.Colors.accent.opacity(0.36) : DS.Colors.borderSubtle.opacity(0.7), lineWidth: 1)
+            )
+    }
+
+    private func loadingState(_ title: String) -> some View {
+        HStack(spacing: 7) {
+            ProgressView().controlSize(.mini)
+            Text(title)
+                .font(DS.Fonts.caption)
+                .foregroundColor(DS.Colors.textSecondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+
+    private func providerSymbol(for brain: AgentBrain) -> String {
+        switch brain {
+        case .codex: return "cpu"
+        case .claudeCode: return "sparkles"
+        case .openCode: return "terminal"
+        case .customAPI: return "network"
+        case .onDevice: return "apple.intelligence"
+        }
+    }
+
 }

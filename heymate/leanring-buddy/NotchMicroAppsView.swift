@@ -22,6 +22,9 @@ struct NotchMicroAppsView: View {
         GridItem(.flexible(), spacing: 5)
     ]
 
+    @State private var isConfirmingShelfClear = false
+    @State private var isConfirmingClipboardClear = false
+
     init(companionManager: CompanionManager) {
         self.companionManager = companionManager
         let center = companionManager.notchActivityCenter
@@ -76,17 +79,12 @@ struct NotchMicroAppsView: View {
 
     private var titleRow: some View {
         HStack {
-            Text("Micro apps")
-                .font(DS.Fonts.titleCompact)
-                .foregroundColor(DS.Colors.textPrimary)
+            DSSectionLabel(title: "Micro apps")
             Spacer()
-            Button("Manage") {
+            NotchLinkButton(title: "Manage", systemImage: "arrow.up.forward.app") {
                 companionManager.openDesktopWindow(section: .notch)
             }
-            .buttonStyle(.plain)
-            .font(DS.Fonts.caption)
-            .foregroundColor(DS.Colors.accentText)
-            .pointerCursor()
+            .help("Choose micro apps in the HeyMate window")
         }
     }
 
@@ -106,7 +104,7 @@ struct NotchMicroAppsView: View {
                 } label: {
                     HStack(spacing: 5) {
                         Image(systemName: microApp.symbolName)
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(DS.Glyph.small)
                             .foregroundColor(isEnabled ? DS.Colors.accentText : DS.Colors.textTertiary)
                             .frame(width: 16)
                         Text(microApp.compactDisplayName)
@@ -114,25 +112,19 @@ struct NotchMicroAppsView: View {
                             .foregroundColor(isEnabled ? DS.Colors.textPrimary : DS.Colors.textSecondary)
                             .lineLimit(1)
                         Spacer(minLength: 2)
+                        // The tinted tile already says "on"; the only
+                        // extra mark worth its space is "needs permission".
                         if needsPermission {
                             Image(systemName: "lock.fill")
-                                .font(.system(size: 7, weight: .bold))
-                                .foregroundColor(DS.Colors.warning)
-                        } else {
-                            Circle()
-                                .fill(isEnabled ? DS.Colors.success : DS.Colors.surface4)
-                                .frame(width: 6, height: 6)
+                                .font(DS.Glyph.micro)
+                                .foregroundColor(DS.Colors.warningText)
                         }
                     }
                     .padding(.horizontal, 8)
-                    .frame(height: 28)
-                    .background(
-                        RoundedRectangle(cornerRadius: 11, style: .continuous)
-                            .fill(isEnabled ? DS.Colors.accentSubtle : DS.Colors.surface2.opacity(0.66))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 11, style: .continuous)
-                            .stroke(isEnabled ? DS.Colors.accent.opacity(0.24) : DS.Colors.borderSubtle, lineWidth: 0.5)
+                    .frame(height: DS.ControlSize.regular)
+                    .dsSurface(
+                        isEnabled ? .tinted(DS.Colors.accent) : .row,
+                        cornerRadius: DS.CornerRadius.medium
                     )
                 }
                 .buttonStyle(.plain)
@@ -156,8 +148,7 @@ struct NotchMicroAppsView: View {
                         Text(NotchTimerStore.formatted(
                             remainingSeconds: runningTimer.remaining(asOf: context.date)
                         ))
-                        .font(.system(size: 17, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
+                        .font(DS.Fonts.numericLarge)
                         .foregroundColor(DS.Colors.textPrimary)
                     }
                     Spacer()
@@ -185,22 +176,14 @@ struct NotchMicroAppsView: View {
                 DSSectionLabel(title: "File shelf")
                 Spacer()
                 if !shelfStore.items.isEmpty {
-                    Button {
+                    NotchLinkButton(title: "AirDrop", systemImage: "airplayaudio", color: DS.Colors.textSecondary) {
                         shareShelfViaAirDrop()
-                    } label: {
-                        Image(systemName: "airplayaudio")
                     }
-                    .buttonStyle(.plain)
-                    .font(DS.Fonts.micro)
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .pointerCursor()
                     .help("Share shelf with AirDrop")
 
-                    Button("Clear") { shelfStore.removeAll() }
-                        .buttonStyle(.plain)
-                        .font(DS.Fonts.micro)
-                        .foregroundColor(DS.Colors.textTertiary)
-                        .pointerCursor()
+                    NotchLinkButton(title: "Clear", color: DS.Colors.textSecondary) {
+                        isConfirmingShelfClear = true
+                    }
                 }
             }
 
@@ -219,6 +202,16 @@ struct NotchMicroAppsView: View {
                     }
                 }
             }
+        }
+        .confirmationDialog(
+            "Clear the shelf? This does not delete the files.",
+            isPresented: $isConfirmingShelfClear,
+            titleVisibility: .visible
+        ) {
+            Button("Clear the shelf", role: .destructive) {
+                shelfStore.removeAll()
+            }
+            Button("Cancel", role: .cancel) {}
         }
     }
 
@@ -242,8 +235,8 @@ struct NotchMicroAppsView: View {
                 }
             }
             .frame(width: 46, height: 42)
-            .background(RoundedRectangle(cornerRadius: 9).fill(DS.Colors.surface3))
-            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous).fill(DS.Colors.surface3))
+            .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous))
 
             Text(item.displayName)
                 .font(DS.Fonts.micro)
@@ -269,11 +262,9 @@ struct NotchMicroAppsView: View {
                 DSSectionLabel(title: "Clipboard")
                 Spacer()
                 if !clipboardStore.entries.isEmpty {
-                    Button("Clear") { clipboardStore.clear() }
-                        .buttonStyle(.plain)
-                        .font(DS.Fonts.micro)
-                        .foregroundColor(DS.Colors.textTertiary)
-                        .pointerCursor()
+                    NotchLinkButton(title: "Clear", color: DS.Colors.textSecondary) {
+                        isConfirmingClipboardClear = true
+                    }
                 }
             }
 
@@ -286,49 +277,62 @@ struct NotchMicroAppsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(sectionBackground)
             } else {
-                ForEach(clipboardStore.entries.prefix(3)) { entry in
-                    Button {
-                        clipboardStore.copyToPasteboard(entryID: entry.id)
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "doc.on.doc")
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundColor(DS.Colors.accentText)
-                            Text(entry.preview)
-                                .font(DS.Fonts.caption)
-                                .foregroundColor(DS.Colors.textSecondary)
-                                .lineLimit(1)
-                            Spacer()
+                ForEach(clipboardStore.entries) { entry in
+                    HStack(spacing: 6) {
+                        Button {
+                            clipboardStore.copyToPasteboard(entryID: entry.id)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "doc.on.doc")
+                                    .font(DS.Glyph.small)
+                                    .foregroundColor(DS.Colors.accentText)
+                                Text(entry.preview)
+                                    .font(DS.Fonts.caption)
+                                    .foregroundColor(DS.Colors.textSecondary)
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            .frame(minHeight: 24)
+                            .contentShape(Rectangle())
                         }
-                        .padding(.horizontal, 10)
-                        .frame(height: 30)
-                        .background(sectionBackground)
+                        .buttonStyle(.plain)
+                        .pointerCursor()
+                        .help("Copy again")
+
+                        NotchLinkButton(title: "Remove", color: DS.Colors.textTertiary) {
+                            clipboardStore.remove(entryID: entry.id)
+                        }
+                        .help("Remove from clipboard history")
                     }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                    .help("Copy again")
+                    .padding(.horizontal, 10)
+                    .frame(minHeight: 30)
+                    .background(sectionBackground)
                 }
             }
+        }
+        .confirmationDialog(
+            "Clear clipboard history?",
+            isPresented: $isConfirmingClipboardClear,
+            titleVisibility: .visible
+        ) {
+            Button("Clear clipboard history", role: .destructive) {
+                clipboardStore.clear()
+            }
+            Button("Cancel", role: .cancel) {}
         }
     }
 
     private func microButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(title, action: action)
-            .buttonStyle(.plain)
-            .font(.system(size: 11, weight: .semibold, design: .rounded))
-            .foregroundColor(DS.Colors.textPrimary)
-            .padding(.horizontal, 11)
-            .padding(.vertical, 6)
-            .background(Capsule().fill(DS.Colors.surface4))
-            .pointerCursor()
+            .dsCapsuleButtonStyle(.secondary)
     }
 
     private var sectionBackground: some View {
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(DS.Colors.surface2.opacity(0.68))
+        RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+            .fill(DSSurface.row.fill(isHighlighted: false))
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
+                RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                    .stroke(DSSurface.row.stroke(isHighlighted: false), lineWidth: DSSurface.row.strokeWidth)
             )
     }
 }
