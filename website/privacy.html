@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy notes — HeyMate</title>
+  <meta name="description" content="What HeyMate captures, what stays on your Mac, and how to delete it.">
+  <meta name="theme-color" content="#f5f5f7">
+  <link rel="canonical" href="https://getheymate.vercel.app/privacy">
+  <link rel="icon" href="assets/img/icon/favicon-32.png" type="image/png">
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/sections.css">
+  <link rel="stylesheet" href="css/motion.css">
+  <script>document.documentElement.classList.add("js")</script>
+</head>
+<body>
+  <header class="nav scrolled">
+    <a class="brand" href="index.html">
+      <img src="assets/img/icon/favicon-32.png" alt="" width="20" height="20">
+      HeyMate
+    </a>
+    <nav class="nav-links" aria-label="Primary">
+      <a href="index.html#overview">Overview</a>
+      <a href="index.html#mates">Mates</a>
+      <a href="index.html#agents">Agents</a>
+      <a href="privacy.html" aria-current="page">Privacy</a>
+      <a data-github href="https://github.com/UmarSiddiqui/heymate">GitHub</a>
+    </nav>
+    <a class="btn btn-pill nav-cta" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download free</a>
+    <button class="menu-btn" type="button" aria-expanded="false">Menu</button>
+    <div class="nav-sheet">
+      <a href="index.html#overview">Overview</a>
+      <a href="index.html#mates">Mates</a>
+      <a href="index.html#agents">Agents</a>
+      <a href="privacy.html">Privacy</a>
+      <a data-github href="https://github.com/UmarSiddiqui/heymate">GitHub</a>
+      <a data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download free</a>
+    </div>
+  </header>
+
+  <main class="prose">
+    <div class="wrap-narrow">
+      <p class="eyebrow">Privacy</p>
+      <h1>Privacy notes.</h1>
+      <p>HeyMate is a Mac app. There is no HeyMate account and no HeyMate server that stores your chats. The short version, which is also written in the app: nothing runs in the background. HeyMate only takes a screenshot when you press the hotkey, and screenshots are never stored.</p>
+
+      <h2>What HeyMate captures</h2>
+      <ul>
+        <li>A screenshot only when a question needs to see the screen. Text-only chat skips the capture.</li>
+        <li>That screenshot is temporary. It is deleted after the turn and is not written into chat history.</li>
+        <li>Password managers and System Settings are excluded by default.</li>
+        <li>You can limit capture to the frontmost window.</li>
+        <li>Voice in uses Apple Speech on the device unless you turn on a cloud voice.</li>
+      </ul>
+
+      <h2>What it stores, and where</h2>
+      <p>Everything below is on your Mac, under <span class="code">~/Library/Application Support/heymate/</span>.</p>
+      <table class="files">
+        <thead><tr><th>File</th><th>What it is</th></tr></thead>
+        <tbody>
+          <tr><td>chats.json</td><td>Chat history. Text only. No screenshot or audio bytes.</td></tr>
+          <tr><td>memory.json</td><td>Things HeyMate decided were worth remembering. You can clear it.</td></tr>
+          <tr><td>mates.json</td><td>Mate names, jobs, personalities, and settings.</td></tr>
+          <tr><td>routines.json</td><td>Schedules for mates.</td></tr>
+          <tr><td>behavior-contract.md</td><td>The rules you can edit.</td></tr>
+          <tr><td>skills/</td><td>Your Markdown skills.</td></tr>
+          <tr><td>faces/</td><td>Custom mate faces you imported.</td></tr>
+        </tbody>
+      </table>
+      <p>API keys and connector tokens go in the macOS Keychain, not in those files. Clipboard history stays in memory and is dropped when you quit.</p>
+
+      <h2>What leaves your Mac</h2>
+      <ul>
+        <li>Talk and coding-agent turns go to the CLI you already use — Claude Code, Codex, or OpenCode — or to a Custom API endpoint you configure yourself. HeyMate does not add its own bill.</li>
+        <li>Cloud speech (optional) only if you enable it.</li>
+        <li>Composio and other connectors only call the apps you connect, and anything that sends, deletes, or pays asks first.</li>
+        <li>Analytics ships only in a build that was compiled with an analytics key. This website has none.</li>
+      </ul>
+
+      <h2>How to delete everything</h2>
+      <p>In the app, clear memory from the Memory section. To remove the local files entirely, quit HeyMate and delete <span class="code">~/Library/Application Support/heymate/</span>. Keychain items named for HeyMate can be removed in Keychain Access.</p>
+      <p><a href="index.html">Back to HeyMate</a></p>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap">
+      <p class="legal">© 2026 HeyMate. Not affiliated with Apple, Anthropic, or OpenAI.</p>
+    </div>
+  </footer>
+  <script src="js/config.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
