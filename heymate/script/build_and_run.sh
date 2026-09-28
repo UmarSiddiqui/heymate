@@ -67,7 +67,7 @@ run_xcodebuild() {
     -project "$ROOT_DIR/leanring-buddy.xcodeproj" \
     -scheme leanring-buddy \
     -configuration Debug \
-    -destination 'platform=macOS' \
+    -destination 'platform=macOS,arch=arm64' \
     -derivedDataPath "$DERIVED_DATA" \
     "${XCODE_SIGNING_ARGUMENTS[@]}" \
     -quiet \
