@@ -28,6 +28,8 @@ enum NotchMicroApp: String, CaseIterable, Identifiable, Sendable {
     case mirror
     case downloads
     case volumeHUD
+    case brightnessHUD
+    case bluetooth
     case reminders
 
     var id: String { rawValue }
@@ -43,6 +45,8 @@ enum NotchMicroApp: String, CaseIterable, Identifiable, Sendable {
         case .mirror: return "Camera Mirror"
         case .downloads: return "Downloads"
         case .volumeHUD: return "Volume HUD"
+        case .brightnessHUD: return "Brightness HUD"
+        case .bluetooth: return "Bluetooth"
         case .reminders: return "Reminders"
         }
     }
@@ -60,6 +64,8 @@ enum NotchMicroApp: String, CaseIterable, Identifiable, Sendable {
         case .mirror: return "Mirror"
         case .downloads: return "Download"
         case .volumeHUD: return "Volume"
+        case .brightnessHUD: return "Brightness"
+        case .bluetooth: return "Bluetooth"
         case .reminders: return "Tasks"
         }
     }
@@ -75,6 +81,8 @@ enum NotchMicroApp: String, CaseIterable, Identifiable, Sendable {
         case .mirror: return "Check framing before joining a call."
         case .downloads: return "See browser downloads finish in the notch."
         case .volumeHUD: return "Replace macOS volume overlay with the notch."
+        case .brightnessHUD: return "Replace the brightness and keyboard-light overlays with the notch."
+        case .bluetooth: return "See headphones and devices connect and disconnect."
         case .reminders: return "See and complete your next due reminder."
         }
     }
@@ -90,6 +98,8 @@ enum NotchMicroApp: String, CaseIterable, Identifiable, Sendable {
         case .mirror: return "camera"
         case .downloads: return "arrow.down.circle"
         case .volumeHUD: return "speaker.wave.2"
+        case .brightnessHUD: return "sun.max"
+        case .bluetooth: return "headphones"
         case .reminders: return "checklist"
         }
     }
@@ -101,7 +111,8 @@ enum NotchMicroApp: String, CaseIterable, Identifiable, Sendable {
         case .calendar: return "Calendar access"
         case .media: return "Automation access when you use the controls"
         case .mirror: return "Camera access"
-        case .volumeHUD: return "Accessibility access"
+        case .volumeHUD, .brightnessHUD: return "Accessibility access"
+        case .bluetooth: return "Bluetooth access"
         case .reminders: return "Reminders access"
         case .shelf, .timer, .battery, .clipboard, .downloads: return nil
         }
@@ -132,6 +143,8 @@ final class NotchActivityCenter: ObservableObject {
     let clipboardStore = ClipboardHistoryStore()
     let downloadsMonitor = DownloadsActivityMonitor()
     let volumeHUDInterceptor = VolumeHUDInterceptor()
+    let brightnessHUDInterceptor = BrightnessHUDInterceptor()
+    let bluetoothMonitor = BluetoothActivityMonitor()
     let reminderMonitor = ReminderPeekMonitor()
 
     private var cancellables: Set<AnyCancellable> = []
@@ -203,6 +216,8 @@ final class NotchActivityCenter: ObservableObject {
         case .mirror: break  // session lives only while mirror UI is visible
         case .downloads: downloadsMonitor.start()
         case .volumeHUD: volumeHUDInterceptor.start()
+        case .brightnessHUD: brightnessHUDInterceptor.start()
+        case .bluetooth: bluetoothMonitor.start(promptForAccess: promptForPermission)
         case .reminders: Task { await reminderMonitor.start(promptForAccess: promptForPermission) }
         }
     }
@@ -214,6 +229,7 @@ final class NotchActivityCenter: ObservableObject {
         switch microApp {
         case .calendar: return calendarMonitor.needsPermissionPrompt
         case .reminders: return reminderMonitor.needsPermissionPrompt
+        case .bluetooth: return bluetoothMonitor.needsPermissionPrompt
         default: return false
         }
     }
@@ -237,6 +253,8 @@ final class NotchActivityCenter: ObservableObject {
         case .mirror: break
         case .downloads: downloadsMonitor.stop()
         case .volumeHUD: volumeHUDInterceptor.stop()
+        case .brightnessHUD: brightnessHUDInterceptor.stop()
+        case .bluetooth: bluetoothMonitor.stop()
         case .reminders: reminderMonitor.stop()
         }
     }
@@ -254,6 +272,8 @@ final class NotchActivityCenter: ObservableObject {
             calendarMonitor.$activity.map { _ in () }.eraseToAnyPublisher(),
             downloadsMonitor.$activity.map { _ in () }.eraseToAnyPublisher(),
             volumeHUDInterceptor.$activity.map { _ in () }.eraseToAnyPublisher(),
+            brightnessHUDInterceptor.$activity.map { _ in () }.eraseToAnyPublisher(),
+            bluetoothMonitor.$activity.map { _ in () }.eraseToAnyPublisher(),
             reminderMonitor.$activity.map { _ in () }.eraseToAnyPublisher()
         ]
 
@@ -269,7 +289,8 @@ final class NotchActivityCenter: ObservableObject {
         // "on" after its permission resolved.
         Publishers.MergeMany([
             calendarMonitor.$needsPermissionPrompt.map { _ in () }.eraseToAnyPublisher(),
-            reminderMonitor.$needsPermissionPrompt.map { _ in () }.eraseToAnyPublisher()
+            reminderMonitor.$needsPermissionPrompt.map { _ in () }.eraseToAnyPublisher(),
+            bluetoothMonitor.$needsPermissionPrompt.map { _ in () }.eraseToAnyPublisher()
         ])
         .receive(on: DispatchQueue.main)
         .sink { [weak self] _ in
@@ -288,6 +309,8 @@ final class NotchActivityCenter: ObservableObject {
         if isEnabled(.calendar), let calendarActivity = calendarMonitor.activity { candidates.append(calendarActivity) }
         if isEnabled(.downloads), let downloadActivity = downloadsMonitor.activity { candidates.append(downloadActivity) }
         if isEnabled(.volumeHUD), let volumeActivity = volumeHUDInterceptor.activity { candidates.append(volumeActivity) }
+        if isEnabled(.brightnessHUD), let brightnessActivity = brightnessHUDInterceptor.activity { candidates.append(brightnessActivity) }
+        if isEnabled(.bluetooth), let bluetoothActivity = bluetoothMonitor.activity { candidates.append(bluetoothActivity) }
         if isEnabled(.reminders), let reminderActivity = reminderMonitor.activity { candidates.append(reminderActivity) }
 
         let winner = NotchActivityArbiter.frontmostActivity(among: candidates)

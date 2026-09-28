@@ -55,6 +55,8 @@
 	<string>HeyMate looks up contacts so drafts go to the right person.</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>HeyMate controls apps you connect — playing music, drafting mail, running a shortcut — and always asks before anything is sent.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>HeyMate shows headphones and other Bluetooth devices in the notch as they connect and disconnect.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>HeyMate can show a camera mirror in the notch so you can check your appearance before a call.</string>
 </dict>

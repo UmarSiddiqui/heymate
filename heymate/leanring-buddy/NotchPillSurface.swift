@@ -433,7 +433,7 @@ private struct NotchActivityGlyph: View {
                     .frame(width: 13, height: 13)
                     .animation(.linear(duration: 0.25), value: progress)
             }
-            Image(systemName: activity.kind.symbolName)
+            Image(systemName: activity.symbolName)
                 .font(.system(size: 8, weight: .bold))
                 .foregroundColor(activity.tintColor)
         }

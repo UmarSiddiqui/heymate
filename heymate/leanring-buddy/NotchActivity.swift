@@ -29,6 +29,9 @@ enum NotchActivityKind: String, CaseIterable, Identifiable, Sendable {
     case calendar
     case clipboard
     case volume
+    case brightness
+    case keyboardBacklight
+    case bluetooth
     case reminder
 
     var id: String { rawValue }
@@ -46,6 +49,9 @@ enum NotchActivityKind: String, CaseIterable, Identifiable, Sendable {
         case .calendar: return "calendar"
         case .clipboard: return "doc.on.clipboard"
         case .volume: return "speaker.wave.2.fill"
+        case .brightness: return "sun.max.fill"
+        case .keyboardBacklight: return "light.max"
+        case .bluetooth: return "headphones"
         case .reminder: return "checklist"
         }
     }
@@ -65,6 +71,10 @@ enum NotchActivityKind: String, CaseIterable, Identifiable, Sendable {
         case .focus: return 30
         case .clipboard: return 20
         case .volume: return 75
+        // HUDs answer a key the user just pressed, like volume.
+        case .brightness: return 75
+        case .keyboardBacklight: return 75
+        case .bluetooth: return 72
         case .reminder: return 65
         }
     }
@@ -84,26 +94,48 @@ struct NotchActivity: Equatable, Identifiable, Sendable {
     /// When this activity should stop being shown. nil means "until the
     /// producer replaces or clears it".
     let expiresAt: Date?
+    /// SF Symbol that replaces the kind's default, e.g. a keyboard rather
+    /// than headphones for a Bluetooth keyboard.
+    let symbolOverride: String?
 
     var id: String { kind.rawValue }
+
+    var symbolName: String { symbolOverride ?? kind.symbolName }
 
     init(
         kind: NotchActivityKind,
         trailingText: String,
         progress: Double? = nil,
         tintHex: String? = nil,
-        expiresAt: Date? = nil
+        expiresAt: Date? = nil,
+        symbolOverride: String? = nil
     ) {
         self.kind = kind
         self.trailingText = trailingText
         self.progress = progress
         self.tintHex = tintHex
         self.expiresAt = expiresAt
+        self.symbolOverride = symbolOverride
     }
 
     func isExpired(asOf referenceDate: Date = Date()) -> Bool {
         guard let expiresAt else { return false }
         return referenceDate >= expiresAt
+    }
+
+    /// Fits a label into the pill's trailing slot (roughly 14 characters),
+    /// cutting on a word boundary where possible so "Everything In Its…"
+    /// beats "Everythin…".
+    nonisolated static func pillText(_ text: String) -> String {
+        let maximumCharacters = 14
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > maximumCharacters else { return trimmed }
+
+        let clipped = String(trimmed.prefix(maximumCharacters))
+        if let lastSpaceIndex = clipped.lastIndex(of: " "), clipped.distance(from: clipped.startIndex, to: lastSpaceIndex) > 6 {
+            return String(clipped[clipped.startIndex..<lastSpaceIndex]) + "…"
+        }
+        return clipped + "…"
     }
 
     var tintColor: Color {

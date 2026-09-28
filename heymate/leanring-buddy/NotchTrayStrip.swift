@@ -27,6 +27,8 @@ struct NotchTrayStrip: View {
     @ObservedObject var calendarMonitor: CalendarPeekMonitor
     @ObservedObject var downloadsMonitor: DownloadsActivityMonitor
     @ObservedObject var volumeHUDInterceptor: VolumeHUDInterceptor
+    @ObservedObject var brightnessHUDInterceptor: BrightnessHUDInterceptor
+    @ObservedObject var bluetoothMonitor: BluetoothActivityMonitor
     @ObservedObject var reminderMonitor: ReminderPeekMonitor
 
     /// Opens the matching page of the HeyMate window.
@@ -40,6 +42,8 @@ struct NotchTrayStrip: View {
         self.calendarMonitor = activityCenter.calendarMonitor
         self.downloadsMonitor = activityCenter.downloadsMonitor
         self.volumeHUDInterceptor = activityCenter.volumeHUDInterceptor
+        self.brightnessHUDInterceptor = activityCenter.brightnessHUDInterceptor
+        self.bluetoothMonitor = activityCenter.bluetoothMonitor
         self.reminderMonitor = activityCenter.reminderMonitor
         self.onOpenDesktop = onOpenDesktop
     }
@@ -74,6 +78,12 @@ struct NotchTrayStrip: View {
                         if activityCenter.isEnabled(.volumeHUD), let volume = volumeHUDInterceptor.activity {
                             volumeChip(volume)
                         }
+                        if activityCenter.isEnabled(.brightnessHUD), let brightness = brightnessHUDInterceptor.activity {
+                            levelChip(brightness)
+                        }
+                        if activityCenter.isEnabled(.bluetooth), let deviceEvent = bluetoothMonitor.lastEvent {
+                            bluetoothChip(deviceEvent)
+                        }
                         if activityCenter.isEnabled(.reminders), let reminder = reminderMonitor.nextReminder {
                             reminderChip(reminder)
                         }
@@ -90,8 +100,11 @@ struct NotchTrayStrip: View {
         let hasEvent = activityCenter.isEnabled(.calendar) && calendarMonitor.nextEvent != nil
         let hasDownload = activityCenter.isEnabled(.downloads) && downloadsMonitor.activity != nil
         let hasVolume = activityCenter.isEnabled(.volumeHUD) && volumeHUDInterceptor.activity != nil
+        let hasBrightness = activityCenter.isEnabled(.brightnessHUD) && brightnessHUDInterceptor.activity != nil
+        let hasBluetooth = activityCenter.isEnabled(.bluetooth) && bluetoothMonitor.lastEvent != nil
         let hasReminder = activityCenter.isEnabled(.reminders) && reminderMonitor.nextReminder != nil
-        return !(hasMedia || hasTimer || hasShelf || hasEvent || hasDownload || hasVolume || hasReminder)
+        return !(hasMedia || hasTimer || hasShelf || hasEvent || hasDownload || hasVolume
+            || hasBrightness || hasBluetooth || hasReminder)
     }
 
     // MARK: Chips
@@ -99,6 +112,14 @@ struct NotchTrayStrip: View {
     private func nowPlayingChip(_ nowPlaying: NowPlayingMonitor.NowPlayingSnapshot) -> some View {
         trayChip {
             HStack(spacing: 8) {
+                if let artwork = nowPlayingMonitor.artwork {
+                    Image(nsImage: artwork)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 28, height: 28)
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .accessibilityHidden(true)
+                }
                 Button(action: { nowPlayingMonitor.togglePlayPause() }) {
                     Image(systemName: "playpause.fill")
                         .font(DS.Glyph.micro)
@@ -281,6 +302,40 @@ struct NotchTrayStrip: View {
                 Text(volume.trailingText)
                     .font(DS.Fonts.numeric)
                     .foregroundColor(DS.Colors.textPrimary)
+            }
+        }
+    }
+
+    /// Display brightness or keyboard backlight, whichever key was pressed.
+    private func levelChip(_ level: NotchActivity) -> some View {
+        trayChip {
+            HStack(spacing: 7) {
+                Image(systemName: level.symbolName)
+                    .font(DS.Glyph.small)
+                    .foregroundColor(DS.Colors.accentText)
+                Text(level.trailingText)
+                    .font(DS.Fonts.numeric)
+                    .foregroundColor(DS.Colors.textPrimary)
+            }
+        }
+    }
+
+    private func bluetoothChip(_ deviceEvent: BluetoothActivityMonitor.DeviceEvent) -> some View {
+        trayChip {
+            HStack(spacing: 7) {
+                Image(systemName: deviceEvent.symbolName)
+                    .font(DS.Glyph.small)
+                    .foregroundColor(deviceEvent.isConnected ? DS.Colors.accentText : DS.Colors.textTertiary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(deviceEvent.deviceName)
+                        .font(DS.Fonts.caption.weight(.semibold))
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .lineLimit(1)
+                    Text(deviceEvent.isConnected ? "Connected" : "Disconnected")
+                        .font(DS.Fonts.micro)
+                        .foregroundColor(DS.Colors.textTertiary)
+                }
+                .fixedSize()
             }
         }
     }
