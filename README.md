@@ -15,6 +15,8 @@ Hold a key, ask about anything on your screen, and it answers out loud. It can a
 
 [**Download for Mac**](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg) · [Website](https://getheymate.vercel.app) · [Watch the demo](https://getheymate.vercel.app/#demo) · [Changelog](https://github.com/UmarSiddiqui/heymate/releases)
 
+<sub>Inspired by <a href="https://github.com/farzaa/clicky">Clicky</a> and <a href="https://github.com/TheBoredTeam/boring.notch">Boring Notch</a>.</sub>
+
 <br>
 
 <a href="https://getheymate.vercel.app/#demo">
@@ -226,6 +228,6 @@ Select the `leanring-buddy` scheme and **My Mac**, check **Signing & Capabilitie
 
 ## License
 
-MIT. See [`heymate/LICENSE`](heymate/LICENSE). HeyMate grew out of the MIT-licensed Clicky project, and that copyright notice is kept in the license file.
+MIT. See [`heymate/LICENSE`](heymate/LICENSE). HeyMate grew out of the MIT-licensed [Clicky](https://github.com/farzaa/clicky) project, and that copyright notice is kept in the license file.
 
 <sub>Not affiliated with Apple, Anthropic, or OpenAI. Claude, ChatGPT, and macOS are trademarks of their respective owners.</sub>
