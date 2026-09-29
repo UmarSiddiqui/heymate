@@ -32,7 +32,9 @@ echo "## Download"
 echo
 echo "**[HeyMate.dmg](${REPO_URL}/releases/download/v${VERSION}/HeyMate.dmg)**: open it and drag HeyMate into Applications."
 echo
-echo "This build is ad-hoc signed, not Developer ID-signed, so the first time you open it, Control-click HeyMate and choose **Open**. Requires macOS 14.2 or later (Apple silicon or Intel)."
+echo "Easiest install, no macOS malware warning: \`curl -fsSL https://getheymate.vercel.app/install.sh | bash\`"
+echo
+echo "This build is ad-hoc signed, not Developer ID-signed, so a DMG opened from the browser is blocked by macOS. Use the command above, or open **System Settings > Privacy & Security > Open Anyway**. Requires macOS 14.2 or later (Apple silicon or Intel)."
 echo
 
 if [ ${#features[@]} -gt 0 ]; then

@@ -126,8 +126,14 @@ If you use a notch app like [Boring Notch](https://github.com/TheBoredTeam/borin
 
 ## Install
 
-1. Download **[HeyMate.dmg](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg)** from the latest release and drag HeyMate into Applications.
-2. The build is not Developer ID-signed yet, so the first time you open it, **Control-click HeyMate → Open**.
+1. Paste this in Terminal:
+
+    ```sh
+    curl -fsSL https://getheymate.vercel.app/install.sh | bash
+    ```
+
+    It downloads the latest build, copies HeyMate into Applications, and opens it. Because `curl` doesn't set macOS's quarantine flag, you won't see "could not verify HeyMate is free of malware". The [script](website/install.sh) is short; read it first if you like.
+2. Prefer the DMG? Download **[HeyMate.dmg](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg)** and drag HeyMate into Applications. The build is not Developer ID-signed yet, so macOS will block it: open **System Settings → Privacy & Security → Open Anyway**, or run `xattr -dr com.apple.quarantine /Applications/HeyMate.app`.
 3. Pick a brain with the model chip, then grant **Microphone**, **Accessibility**, and **Screen Recording** when the setup card asks.
 4. Hold <kbd>⌃</kbd> <kbd>⌥</kbd> and say hey.
 
