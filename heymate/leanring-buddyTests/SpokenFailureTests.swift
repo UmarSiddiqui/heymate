@@ -25,6 +25,17 @@ struct SpokenFailureTests {
         #expect(SpokenFailure.classify(cancelledURL) == .cancelled)
     }
 
+    @Test func expiredCLILoginIsSignedOutNotGeneric() {
+        #expect(SpokenFailure.classify(
+            message: "Failed to authenticate: OAuth session expired and could not be refreshed"
+        ) == .signedOut)
+        #expect(SpokenFailure.classify(message: "Error: Not logged in") == .signedOut)
+        #expect(SpokenFailure.classify(message: "Invalid API key · Please run /login") == .signedOut)
+        #expect(SpokenFailure.signedOut.spokenUtterance?.contains("sign") == true)
+        // Mentioning credentials on screen is not a sign-in failure.
+        #expect(SpokenFailure.classify(message: "the page shows a credentials form") == .generic)
+    }
+
     @Test func http402AndQuotaWordsAreCredits() {
         let paymentRequired = NSError(
             domain: "OpenCodeClient",

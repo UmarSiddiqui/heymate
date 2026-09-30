@@ -309,6 +309,33 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
         return json
     }
 
+    /// The CLI's own words when it gave any (Codex reports them as JSONL
+    /// `error` events), otherwise the exit status.
+    nonisolated static func cliFailure(
+        output: String,
+        exitStatus: Int32,
+        parseAsCodexJSONL: Bool
+    ) -> NSError {
+        var message = ""
+        if parseAsCodexJSONL {
+            for line in output.split(whereSeparator: \.isNewline) {
+                for event in CodexJSONLParser.events(fromStdoutLine: String(line)) {
+                    if case .failed(let reported) = event { message = reported }
+                }
+            }
+        } else {
+            message = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if message.isEmpty {
+            message = "The engine exited with status \(exitStatus)."
+        }
+        return NSError(
+            domain: "SubscriptionCLIVisionClient",
+            code: Int(exitStatus),
+            userInfo: [NSLocalizedDescriptionKey: String(message.prefix(500))]
+        )
+    }
+
     private static func captureStandardOutput(
         executableURL: URL,
         arguments: [String],
@@ -355,6 +382,19 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
                 }
 
                 let raw = String(data: data, encoding: .utf8) ?? ""
+                // A CLI that exits non-zero on its own prints its error to
+                // stdout ("Failed to authenticate: OAuth session expired…").
+                // Returned as-is it became the mate's answer. The watchdog's
+                // SIGTERM is a signal, not an exit, so a timed-out turn still
+                // keeps whatever it managed to say.
+                if process.terminationReason == .exit, process.terminationStatus != 0 {
+                    continuation.resume(throwing: Self.cliFailure(
+                        output: raw,
+                        exitStatus: process.terminationStatus,
+                        parseAsCodexJSONL: parseAsCodexJSONL
+                    ))
+                    return
+                }
                 if parseAsCodexJSONL {
                     var lastMessage = ""
                     for line in raw.split(whereSeparator: \.isNewline) {

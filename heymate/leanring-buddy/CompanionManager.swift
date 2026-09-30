@@ -3640,6 +3640,15 @@ final class CompanionManager: ObservableObject {
                 } else if activeHandoffMateID != nil {
                     completeActiveHandoff(succeeded: false)
                 } else {
+                    // A turn typed in the window is read, not heard, so an
+                    // expired login has to say what to do in the chat too.
+                    if SpokenFailure.classify(error) == .signedOut {
+                        appendAssistantMessage(
+                            "\(selectedBrain.displayName) needs you to sign in again. "
+                            + "Open Settings → Brain to sign in, or switch this mate to another engine "
+                            + "from the menu under the message box."
+                        )
+                    }
                     speakPipelineFailure(error)
                     isSubscriptionVoiceChatActive = false
                 }
