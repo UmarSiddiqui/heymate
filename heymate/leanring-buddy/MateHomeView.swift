@@ -325,23 +325,37 @@ struct MateHomeView: View {
                 .buttonStyle(.plain)
                 .pointerCursor()
                 .help("Edit picture, details, and soul")
-                Text(mate.job)
-                    .font(DS.Fonts.body)
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .lineLimit(1)
+                // Buttons, not tap gestures: a tap gesture in an inactive
+                // window ignores the click that activates it, so opening a
+                // mate took two clicks whenever another app was in front.
+                Button {
+                    openMateFromRow(mate)
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(mate.job)
+                            .font(DS.Fonts.body)
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .lineLimit(1)
+                        Text(presence.label)
+                            .font(DS.Fonts.caption.weight(.medium))
+                            .foregroundColor(presence == .working ? DS.Colors.warningText : DS.Colors.textTertiary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
-                    .onTapGesture { openMateFromRow(mate) }
-                Text(presence.label)
-                    .font(DS.Fonts.caption.weight(.medium))
-                    .foregroundColor(presence == .working ? DS.Colors.warningText : DS.Colors.textTertiary)
-                    .contentShape(Rectangle())
-                    .onTapGesture { openMateFromRow(mate) }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open \(mate.name)")
             }
             .layoutPriority(1)
-            Color.clear
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .contentShape(Rectangle())
-                .onTapGesture { openMateFromRow(mate) }
+            Button {
+                openMateFromRow(mate)
+            } label: {
+                Color.clear
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHidden(true)
             if mate.archived {
                 Button("Unarchive") {
                     companionManager.unarchiveMate(id: mate.id)
