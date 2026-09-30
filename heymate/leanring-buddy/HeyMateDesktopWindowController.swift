@@ -102,7 +102,7 @@ final class HeyMateDesktopWindowController: NSObject, NSWindowDelegate {
         )
         newWindow.title = "HeyMate"
         newWindow.contentMinSize = Self.minimumContentSize
-        newWindow.contentView = FirstClickHostingView(rootView: rootView)
+        newWindow.contentView = NSHostingView(rootView: rootView)
         newWindow.delegate = self
         newWindow.isReleasedWhenClosed = false
 
@@ -142,14 +142,6 @@ final class HeyMateDesktopWindowController: NSObject, NSWindowDelegate {
             NSApp.setActivationPolicy(restoredPolicy)
         }
     }
-}
-
-/// HeyMate lives beside other apps, so the window is usually inactive when
-/// the user reaches for it. Accepting the first mouse lets one click both
-/// activate the window and press what is under it, instead of the first
-/// click being spent on activation alone.
-final class FirstClickHostingView<Content: View>: NSHostingView<Content> {
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 extension Notification.Name {
