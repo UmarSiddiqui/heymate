@@ -146,3 +146,15 @@ struct CodexExecAdapterTests {
         #expect(arguments.contains("-m") == false)
     }
 }
+
+struct CodexEngineNoiseTests {
+    @Test func metadataWarningIsNotAReply() {
+        let line = #"{"type":"item.completed","item":{"type":"agent_message","text":"Model metadata for `gpt-5.3-codex-spark` not found. Defaulting to fallback metadata."}}"#
+        #expect(CodexJSONLParser.events(fromStdoutLine: line).isEmpty)
+    }
+
+    @Test func realReplyStillComesThrough() {
+        let line = #"{"type":"item.completed","item":{"type":"agent_message","text":"hi there"}}"#
+        #expect(!CodexJSONLParser.events(fromStdoutLine: line).isEmpty)
+    }
+}

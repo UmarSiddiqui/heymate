@@ -21,7 +21,25 @@ nonisolated enum CodexJSONLParser {
         return events(fromJSON: json)
     }
 
+    /// Codex warnings that ride the same stream as replies. They are about
+    /// the CLI, not the user's question, so a mate must never say them.
+    static func isEngineNoise(_ text: String) -> Bool {
+        let lowered = text.lowercased()
+        return lowered.hasPrefix("model metadata for")
+            || lowered.hasPrefix("skill descriptions were shortened")
+    }
+
     static func events(fromJSON json: [String: Any]) -> [AgentEvent] {
+        events(fromRawJSON: json).filter { event in
+            switch event {
+            case .text(let text): return !isEngineNoise(text)
+            case .failed(let message): return !isEngineNoise(message)
+            default: return true
+            }
+        }
+    }
+
+    private static func events(fromRawJSON json: [String: Any]) -> [AgentEvent] {
         var parsed: [AgentEvent] = []
         if let sessionIdentifier = sessionIdentifier(in: json) {
             parsed.append(.sessionIdentified(sessionIdentifier))

@@ -97,6 +97,66 @@ extension CompanionManager: MateRoutineRunning {
         return mate
     }
 
+    /// Starts the approval-gated agent run a mate asked for with `[WORK: ...]`.
+    /// A specialist works in its own folder; First Mate has none, so it uses
+    /// the sandbox run. Either way the run plans first and waits for approval.
+    func startMateWork(_ tasks: [String], mate: Mate?) {
+        guard !tasks.isEmpty else { return }
+        var workspaceURL: URL?
+        if let mate, !mate.conductsOthers {
+            ensureMateFolder(id: mate.id)
+            if let path = mateDirectory.mates.first(where: { $0.id == mate.id })?.folderPath {
+                workspaceURL = URL(fileURLWithPath: path, isDirectory: true)
+            }
+        }
+        let ownerID = mate?.id ?? mateDirectory.defaultMateID
+        for task in tasks {
+            let runID = workspaceURL.map { startAttachedAgent(prompt: task, workspaceURL: $0) }
+                ?? startSandboxAgent(prompt: task)
+            if let runID { mateRunOwners[runID] = ownerID }
+        }
+    }
+
+    /// Reports a run's milestones in the chat that asked for it, so the mate
+    /// comes back with results instead of waiting to be asked.
+    func postMateRunUpdate(runID: UUID, event: AgentEvent) {
+        guard let mateID = mateRunOwners[runID] else { return }
+        let run = agentRunStore.run(id: runID)
+        let text: String
+        switch event {
+        case .planReady:
+            let plan = (run?.planText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            text = MateRunReport.planReady(plan: plan)
+        case .finished(let summary):
+            mateRunOwners[runID] = nil
+            text = MateRunReport.finished(
+                summary: summary,
+                changedFileCount: run?.workspaceChangeSummary?.totalCount
+            )
+        case .failed(let message):
+            mateRunOwners[runID] = nil
+            text = MateRunReport.failed(message: message)
+        default:
+            return
+        }
+        postMateMessage(mateID: mateID, text: text)
+    }
+
+    func postMateMessage(mateID: UUID, text: String) {
+        let openMateID = currentChat.mateID ?? mateDirectory.defaultMateID
+        if openMateID == mateID, backgroundRoutineSession == nil, activeRoutineTurn == nil {
+            appendAssistantMessage(text)
+            return
+        }
+        var session = sessionForRoutineAppend(mateID: mateID)
+        session.messages.append(ChatMessage(id: UUID(), role: .assistant, text: text, createdAt: Date()))
+        session.updatedAt = Date()
+        chatHistoryStore.upsert(session)
+        mateDirectory.incrementUnread(id: mateID)
+        savedChats = rememberConversationsEnabled ? chatHistoryStore.loadAll() : []
+        syncMatePublications()
+    }
+
     func ensureMateFolder(id: UUID) {
         guard let mate = mateDirectory.mates.first(where: { $0.id == id }) else { return }
         if let existing = mate.folderPath, FileManager.default.fileExists(atPath: existing) {
@@ -422,13 +482,15 @@ extension CompanionManager: MateRoutineRunning {
         }
         let openMateID = currentChat.mateID ?? mateDirectory.defaultMateID
         activeHandoffMateID = handoff.mateID
+        activeHandoffHops = handoff.hops
         if openMateID != handoff.mateID {
             backgroundRoutineSession = sessionForRoutineAppend(mateID: handoff.mateID)
         }
-        let accepted = sendTypedMessage(handoff.instruction)
+        let accepted = sendTypedMessage(handoff.deliveredInstruction)
         let startedModelTurn = accepted && currentResponseTask != nil
         if !startedModelTurn {
             activeHandoffMateID = nil
+            activeHandoffHops = 0
             backgroundRoutineSession = nil
             scheduleNextHandoffIfNeeded()
         }
@@ -441,6 +503,7 @@ extension CompanionManager: MateRoutineRunning {
             chatHistoryStore.upsert(background)
         }
         activeHandoffMateID = nil
+        activeHandoffHops = 0
         backgroundRoutineSession = nil
         streamingAssistantText = ""
         if !visible {
@@ -562,7 +625,7 @@ extension CompanionManager: MateRoutineRunning {
         return true
     }
 
-    private func sessionForRoutineAppend(mateID: UUID) -> ChatSession {
+    func sessionForRoutineAppend(mateID: UUID) -> ChatSession {
         if let existing = chatHistoryStore.loadAll().first(where: {
             $0.mateID == mateID && !$0.messages.isEmpty
         }) {

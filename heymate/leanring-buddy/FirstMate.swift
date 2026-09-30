@@ -68,6 +68,38 @@ struct MateHandoff: Equatable {
     var mateID: UUID
     var mateName: String
     var instruction: String
+    /// Set when another mate wrote the handoff, so the receiver knows who asked.
+    var fromMateName: String? = nil
+    /// Mate-to-mate hops so far. A user-driven first handoff is 1.
+    var hops: Int = 1
+
+    /// What lands in the receiving mate's chat.
+    var deliveredInstruction: String {
+        guard let fromMateName else { return instruction }
+        return "\(fromMateName) asks: \(instruction)"
+    }
+}
+
+/// How a mate learns it can message the others. Every mate gets this, not
+/// only First Mate, so a specialist can pull in a teammate directly.
+enum MateMessagingBrief {
+    /// Ping-pong stops here: A asks B asks A asks B never ends on its own.
+    static let maxHops = 3
+
+    static func promptBlock(sender: Mate, mates: [Mate]) -> String? {
+        let others = mates.filter { !$0.archived && $0.id != sender.id }
+        guard !others.isEmpty else { return nil }
+        var lines = [
+            "messaging other mates:",
+            "- to send another mate a message or task, write one line using their exact name: [ASK:Exact Name: the message]",
+            "- the reply lands in their chat, not yours. ask only when their job fits, and never message yourself.",
+            "- mates you can message:",
+        ]
+        for other in others {
+            lines.append("  - \(other.name) — \(other.job)")
+        }
+        return lines.joined(separator: "\n")
+    }
 }
 
 enum MateHandoffParser {
@@ -80,7 +112,12 @@ enum MateHandoffParser {
     /// the markup so it is never read aloud. Unknown names stay in the
     /// sentence as a plain failure, because a silent drop looks like the
     /// work happened.
-    static func extract(from text: String, mates: [Mate]) -> Result {
+    static func extract(
+        from text: String,
+        mates: [Mate],
+        sender: Mate? = nil,
+        senderHops: Int = 0
+    ) -> Result {
         guard let expression = try? NSRegularExpression(
             pattern: #"\[ASK:\s*([^:\]]+?)\s*:\s*([^\]]+?)\s*\]"#,
             options: []
@@ -93,6 +130,10 @@ enum MateHandoffParser {
 
         var handoffs: [MateHandoff] = []
         var missing: [String] = []
+        var tooDeep: [String] = []
+        // First Mate answering the user directly is the user's own request,
+        // so the receiver hears it unattributed. Any other sender is named.
+        let announcesSender = senderHops > 0 || sender?.conductsOthers == false
         for match in matches {
             guard let nameRange = Range(match.range(at: 1), in: text),
                   let instructionRange = Range(match.range(at: 2), in: text) else { continue }
@@ -100,10 +141,20 @@ enum MateHandoffParser {
             let instruction = String(text[instructionRange]).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty, !instruction.isEmpty else { continue }
             if let mate = mates.first(where: { candidate in
-                !candidate.archived && !candidate.conductsOthers
+                !candidate.archived && candidate.id != sender?.id
                     && FileMateStore.normalized(candidate.name) == FileMateStore.normalized(name)
             }) {
-                handoffs.append(MateHandoff(mateID: mate.id, mateName: mate.name, instruction: instruction))
+                if senderHops >= MateMessagingBrief.maxHops {
+                    tooDeep.append(mate.name)
+                    continue
+                }
+                handoffs.append(MateHandoff(
+                    mateID: mate.id,
+                    mateName: mate.name,
+                    instruction: instruction,
+                    fromMateName: announcesSender ? sender?.name : nil,
+                    hops: senderHops + 1
+                ))
             } else {
                 missing.append(name)
             }
@@ -124,6 +175,10 @@ enum MateHandoffParser {
         if !missing.isEmpty {
             let names = missing.joined(separator: ", ")
             let note = "I don't have a mate named \(names)."
+            spoken = spoken.isEmpty ? note : "\(spoken)\n\(note)"
+        }
+        if !tooDeep.isEmpty {
+            let note = "I stopped before messaging \(tooDeep.joined(separator: ", ")). Mates already passed this along \(MateMessagingBrief.maxHops) times."
             spoken = spoken.isEmpty ? note : "\(spoken)\n\(note)"
         }
         return Result(spokenText: spoken, handoffs: handoffs)

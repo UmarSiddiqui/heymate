@@ -69,6 +69,8 @@ nonisolated enum AgentEscalation {
         #"\bthat\s+needs\s+heymates?\s+agent\b"#,
         #"\bit\s+did(?:nt| not)\s+start\s+from\s+this\s+voice\s+turn\b"#,
         #"\bneeds\s+agent\s+mode\b"#,
-        #"\bstart\s+an\s+agent\b"#
+        #"\bstart\s+an\s+agent\b"#,
+        #"\bread\s*only\b.{0,120}\b(?:cant|cannot|unable|not\s+able)\b"#,
+        #"\b(?:cant|cannot|unable\s+to|not\s+able\s+to)\b.{0,120}\b(?:read\s*only|write\s+access)\b"#
     ]
 }

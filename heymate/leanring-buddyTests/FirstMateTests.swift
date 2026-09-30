@@ -51,6 +51,55 @@ struct FirstMateTests {
         #expect(result.spokenText.contains("Nobody"))
     }
 
+    @Test func specialistCanMessageAnotherMateAndFirstMate() {
+        let first = mate(name: "First Mate", conducts: true)
+        let nova = mate(name: "Nova")
+        let scout = mate(name: "Scout")
+        let mates = [first, nova, scout]
+        let toScout = MateHandoffParser.extract(from: "[ASK:Scout: pull the file]", mates: mates, sender: nova)
+        #expect(toScout.handoffs.count == 1)
+        #expect(toScout.handoffs[0].mateID == scout.id)
+        #expect(toScout.handoffs[0].deliveredInstruction == "Nova asks: pull the file")
+        let toFirst = MateHandoffParser.extract(from: "[ASK:First Mate: done]", mates: mates, sender: nova)
+        #expect(toFirst.handoffs.first?.mateID == first.id)
+    }
+
+    @Test func mateCannotMessageItself() {
+        let nova = mate(name: "Nova")
+        let result = MateHandoffParser.extract(from: "[ASK:Nova: hi]", mates: [nova], sender: nova)
+        #expect(result.handoffs.isEmpty)
+    }
+
+    @Test func firstMateHandoffFromUserStaysUnattributed() {
+        let first = mate(name: "First Mate", conducts: true)
+        let nova = mate(name: "Nova")
+        let result = MateHandoffParser.extract(from: "[ASK:Nova: check]", mates: [first, nova], sender: first)
+        #expect(result.handoffs[0].deliveredInstruction == "check")
+    }
+
+    @Test func pingPongStopsAtHopLimit() {
+        let nova = mate(name: "Nova")
+        let scout = mate(name: "Scout")
+        let result = MateHandoffParser.extract(
+            from: "[ASK:Nova: again]",
+            mates: [nova, scout],
+            sender: scout,
+            senderHops: MateMessagingBrief.maxHops
+        )
+        #expect(result.handoffs.isEmpty)
+        #expect(result.spokenText.contains("Nova"))
+    }
+
+    @Test func specialistPromptListsTeammates() {
+        let nova = mate(name: "Nova")
+        let scout = mate(name: "Scout")
+        let block = MateMessagingBrief.promptBlock(sender: nova, mates: [nova, scout])
+        #expect(block?.contains("[ASK:Exact Name:") == true)
+        #expect(block?.contains("Scout") == true)
+        #expect(block?.contains("- Nova") == false)
+        #expect(MateMessagingBrief.promptBlock(sender: nova, mates: [nova]) == nil)
+    }
+
     @Test func conductorPromptNamesTheOthers() {
         let first = mate(name: "First Mate", conducts: true)
         let block = FirstMateBrief.promptBlock(
@@ -143,5 +192,43 @@ struct MeetingCommandTests {
     @Test func imagePlaygroundPhraseIsExplicit() {
         #expect(ImagePlaygroundRequest.concept(in: "image playground a crescent over the dock") == "a crescent over the dock")
         #expect(ImagePlaygroundRequest.concept(in: "draw a circle") == nil)
+    }
+}
+
+struct MateWorkParserTests {
+    @Test func extractsTaskAndStripsMarkup() {
+        let result = MateWorkParser.extract(from: "Starting now. [WORK: write three blog pages in /website]")
+        #expect(result.tasks == ["write three blog pages in /website"])
+        #expect(result.spokenText == "Starting now.")
+    }
+
+    @Test func plainReplyHasNoTasks() {
+        let result = MateWorkParser.extract(from: "hello there")
+        #expect(result.tasks.isEmpty)
+        #expect(result.spokenText == "hello there")
+    }
+
+    @Test func markupOnlyReplyGetsAConfirmation() {
+        let result = MateWorkParser.extract(from: "[WORK: fix the sitemap]")
+        #expect(result.tasks == ["fix the sitemap"])
+        #expect(!result.spokenText.isEmpty)
+    }
+}
+
+struct MateRunReportTests {
+    @Test func planReadySaysNothingChanged() {
+        let text = MateRunReport.planReady(plan: "Add three pages.")
+        #expect(text.contains("Nothing has changed"))
+        #expect(text.contains("Add three pages."))
+    }
+
+    @Test func finishedCountsFilesAndOffersSchedule() {
+        let text = MateRunReport.finished(summary: "Blogs added.", changedFileCount: 1)
+        #expect(text.contains("1 file changed"))
+        #expect(text.contains("schedule"))
+    }
+
+    @Test func failureExplainsAndOffersRetry() {
+        #expect(MateRunReport.failed(message: "boom").contains("boom"))
     }
 }

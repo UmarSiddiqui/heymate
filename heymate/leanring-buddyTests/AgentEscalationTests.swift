@@ -49,3 +49,13 @@ struct AgentEscalationTests {
         )
     }
 }
+
+struct MateReadOnlyRefusalEscalationTests {
+    @Test func readOnlyRefusalEscalatesAnAgentTask() {
+        let reply = "i can write the finished posts, but i can't add them to the site here: this session is read only."
+        #expect(AgentEscalation.shouldEscalate(
+            responseText: reply,
+            transcript: "write the blog pages and add them to the website files"
+        ))
+    }
+}

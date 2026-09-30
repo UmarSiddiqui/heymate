@@ -1393,7 +1393,10 @@ final class CompanionManager: ObservableObject {
     private var pendingOpenCodeTrainingSend: PendingOpenCodeSend?
     private var pendingOpenCodeTrainingImages: [ChatImageAttachment] = []
     var pendingHandoffs: [MateHandoff] = []
+    /// Agent run -> the mate whose chat asked for it, so results land back there.
+    var mateRunOwners: [UUID: UUID] = [:]
     var activeHandoffMateID: UUID?
+    var activeHandoffHops = 0
     let meetingNotes = MeetingNotes(fileURL: MeetingNotes.appSupportFileURL())
     private let onDeviceLanguageClient = OnDeviceLanguageClient()
 
@@ -1413,7 +1416,7 @@ final class CompanionManager: ObservableObject {
     private func mateIdentityBlock(for mate: Mate?) -> String? {
         guard let mate else { return nil }
         if mate.conductsOthers {
-            return FirstMateBrief.promptBlock(
+            let brief = FirstMateBrief.promptBlock(
                 mate: mate,
                 others: mateDirectory.mates,
                 memoryExcerpts: SubscriptionMemoryIndex.excerpts(
@@ -1421,8 +1424,14 @@ final class CompanionManager: ObservableObject {
                 ),
                 meetingNotesAreOn: isRecordingMeeting
             )
+            return [brief, MateAgentBrief.promptBlock(mate: mate)].joined(separator: "\n")
         }
-        return MateSoul.promptBlock(name: mate.name, job: mate.job, soul: mate.soul)
+        let blocks = [
+            MateSoul.promptBlock(name: mate.name, job: mate.job, soul: mate.soul),
+            MateMessagingBrief.promptBlock(sender: mate, mates: mateDirectory.mates),
+            MateAgentBrief.promptBlock(mate: mate)
+        ].compactMap { $0 }
+        return blocks.joined(separator: "\n")
     }
 
     func toggleSubscriptionVoiceChat() {
@@ -3574,11 +3583,18 @@ final class CompanionManager: ObservableObject {
                 let withoutActions = ComputerUseTagParser.strippingActionTags(
                     from: parseResult.spokenText
                 )
-                let handoff = MateHandoffParser.extract(from: withoutActions, mates: mateDirectory.mates)
+                let handoff = MateHandoffParser.extract(
+                    from: withoutActions,
+                    mates: mateDirectory.mates,
+                    sender: speakingMateForTurn(),
+                    senderHops: activeHandoffMateID == nil ? 0 : activeHandoffHops
+                )
                 if !handoff.handoffs.isEmpty {
                     pendingHandoffs.append(contentsOf: handoff.handoffs)
                 }
-                let spokenText = handoff.spokenText
+                let work = MateWorkParser.extract(from: handoff.spokenText)
+                let spokenText = work.spokenText
+                startMateWork(work.tasks, mate: speakingMateForTurn())
 
                 appendAssistantMessage(spokenText)
                 print("🧠 Conversation history: \(conversationHistory.count) exchanges")
@@ -3588,7 +3604,14 @@ final class CompanionManager: ObservableObject {
 
                 if AgentEscalation.shouldEscalate(responseText: spokenText, transcript: transcript) {
                     completion.didComplete = true
-                    startSandboxAgent(prompt: AgentEscalation.agentInstruction(from: transcript))
+                    // A mate that answered "can't" instead of writing [WORK: ...]
+                    // still gets its run, in its own folder.
+                    if work.tasks.isEmpty {
+                        startMateWork(
+                            [AgentEscalation.agentInstruction(from: transcript)],
+                            mate: speakingMateForTurn()
+                        )
+                    }
                     if activeRoutineTurn != nil {
                         completeActiveRoutineTurn(.success(spokenText))
                     }
@@ -4237,21 +4260,22 @@ final class CompanionManager: ObservableObject {
         startSandboxAgent(prompt: task)
     }
 
-    func startSandboxAgent(prompt: String, executor: HeadlessExecutor? = nil) {
+    @discardableResult
+    func startSandboxAgent(prompt: String, executor: HeadlessExecutor? = nil) -> UUID? {
         leaveTalkPipelineForAgent()
         let explicitlyRequestedExecutor = HeadlessExecutor.explicitlyRequested(in: prompt)
         if selectedBrain.executor == nil, executor == nil, explicitlyRequestedExecutor == nil {
             agentRevealErrorText = selectedBrain.unavailableReason ?? "Pick Claude, Codex, or OpenCode as the brain first."
             speakLine("that brain doesn't run agents. pick claude, codex, or opencode.")
             shouldRevealAgentsTab = true
-            return
+            return nil
         }
         let resolvedExecutor = executor
             ?? explicitlyRequestedExecutor
             ?? selectedBrain.executor
             ?? defaultHeadlessExecutor
         print("🤖 Agent: starting sandbox (\(resolvedExecutor.displayName))")
-        _ = agentLauncher.startSandbox(
+        let runID = agentLauncher.startSandbox(
             prompt: prompt,
             executor: resolvedExecutor,
             screenContext: currentAgentScreenContext()
@@ -4259,6 +4283,7 @@ final class CompanionManager: ObservableObject {
         shouldRevealAgentsTab = true
         speakAgentStartedAck()
         scheduleTransientHideIfNeeded()
+        return runID
     }
 
     /// One-line ack so Talk doesn't feel dead while the CLI boots. Does not
@@ -4281,26 +4306,28 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    func startAttachedAgent(prompt: String, workspaceURL: URL, executor: HeadlessExecutor? = nil) {
+    @discardableResult
+    func startAttachedAgent(prompt: String, workspaceURL: URL, executor: HeadlessExecutor? = nil) -> UUID? {
         leaveTalkPipelineForAgent()
         let explicitlyRequestedExecutor = HeadlessExecutor.explicitlyRequested(in: prompt)
         if selectedBrain.executor == nil, executor == nil, explicitlyRequestedExecutor == nil {
             agentRevealErrorText = selectedBrain.unavailableReason ?? "Pick Claude, Codex, or OpenCode as the brain first."
             speakLine("that brain doesn't run agents. pick claude, codex, or opencode.")
             shouldRevealAgentsTab = true
-            return
+            return nil
         }
         let resolvedExecutor = executor
             ?? explicitlyRequestedExecutor
             ?? selectedBrain.executor
             ?? defaultHeadlessExecutor
-        _ = agentLauncher.startAttached(
+        let runID = agentLauncher.startAttached(
             prompt: prompt,
             executor: resolvedExecutor,
             workspaceURL: workspaceURL,
             screenContext: currentAgentScreenContext()
         )
         shouldRevealAgentsTab = true
+        return runID
     }
 
     func cancelAgent(runID: UUID) {
@@ -4500,6 +4527,8 @@ final class CompanionManager: ObservableObject {
         if let run = agentRunStore.run(id: runID) {
             agentUserNotifier.handle(run: run, event: event)
         }
+
+        postMateRunUpdate(runID: runID, event: event)
 
         switch event {
         case .started:
