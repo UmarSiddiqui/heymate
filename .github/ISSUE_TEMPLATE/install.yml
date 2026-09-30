@@ -1,0 +1,41 @@
+name: Install problem
+description: HeyMate won't download, install, open, or get past setup.
+labels: [install]
+body:
+  - type: markdown
+    attributes:
+      value: Rather not post publicly? Email [umarsiddiqui3037+heymate@gmail.com](mailto:umarsiddiqui3037+heymate@gmail.com?subject=HeyMate) instead.
+  - type: dropdown
+    id: method
+    attributes:
+      label: How did you install?
+      options:
+        - curl install script
+        - DMG download
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Paste the Terminal output or the exact macOS message you saw.
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: stuck-at
+    attributes:
+      label: Where did it stop?
+      options:
+        - Download or install
+        - macOS blocked it from opening
+        - A permission (Microphone, Accessibility, Screen Recording)
+        - Signing in to a CLI
+        - Somewhere else
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac
+      placeholder: "macOS 15.6, MacBook Pro M1"
+    validations:
+      required: true

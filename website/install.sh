@@ -18,8 +18,15 @@ fi
 TMP="$(mktemp -d)"
 MOUNT="$TMP/mount"
 cleanup() {
+  status=$?
   hdiutil detach "$MOUNT" -quiet 2>/dev/null || true
   rm -rf "$TMP"
+  if [ "$status" -ne 0 ]; then
+    echo "" >&2
+    echo "HeyMate did not install. Stuck? Open an issue or email me:" >&2
+    echo "  https://github.com/UmarSiddiqui/heymate/issues/new?template=install.yml" >&2
+    echo "  umarsiddiqui3037+heymate@gmail.com" >&2
+  fi
 }
 trap cleanup EXIT
 

@@ -8,6 +8,7 @@
 - Release notes: https://github.com/UmarSiddiqui/heymate/releases
 - 38-second demo video: https://getheymate.vercel.app/assets/video/heymate-demo.mp4
 - Privacy notes: https://getheymate.vercel.app/privacy
+- Permissions explained: https://getheymate.vercel.app/permissions
 
 ## Key facts
 

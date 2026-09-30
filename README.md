@@ -134,12 +134,12 @@ If you use a notch app like [Boring Notch](https://github.com/TheBoredTeam/borin
 
     It downloads the latest build, copies HeyMate into Applications, and opens it. Because `curl` doesn't set macOS's quarantine flag, you won't see "could not verify HeyMate is free of malware". The [script](website/install.sh) is short; read it first if you like.
 2. Prefer the DMG? Download **[HeyMate.dmg](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg)** and drag HeyMate into Applications. The build is not Developer ID-signed yet, so macOS will block it: open **System Settings → Privacy & Security → Open Anyway**, or run `xattr -dr com.apple.quarantine /Applications/HeyMate.app`.
-3. Pick a brain with the model chip, then grant **Microphone**, **Accessibility**, and **Screen Recording** when the setup card asks.
+3. Pick a brain with the model chip, then grant **Microphone**, **Accessibility**, and **Screen Recording** when the setup card asks. [Why each permission?](https://getheymate.vercel.app/permissions)
 4. Hold <kbd>⌃</kbd> <kbd>⌥</kbd> and say hey.
 
 Every push to `main` is built on GitHub Actions and published as a new [release](https://github.com/UmarSiddiqui/heymate/releases) with its changes listed, so the download link always points to the newest build.
 
-Suggestions, bugs, or trouble installing? Email me at [umarsiddiqui3037@gmail.com](mailto:umarsiddiqui3037@gmail.com?subject=HeyMate).
+Suggestions, bugs, or trouble installing? [Open an issue](https://github.com/UmarSiddiqui/heymate/issues/new/choose) or email me at [umarsiddiqui3037+heymate@gmail.com](mailto:umarsiddiqui3037+heymate@gmail.com?subject=HeyMate).
 
 ### Requirements
 
@@ -165,6 +165,8 @@ HeyMate finds CLIs through your login-shell `PATH` (Homebrew, npm, Bun, and `~/.
 - **No analytics** unless a build explicitly supplies a PostHog key.
 
 Coding CLIs still run as your macOS user. Plan mode limits writes, not reads.
+
+Every macOS permission HeyMate can ask for, and exactly what it does with each, is on the [permissions page](https://getheymate.vercel.app/permissions).
 
 <details>
 <summary><strong>How the coding-agent workflow works</strong></summary>

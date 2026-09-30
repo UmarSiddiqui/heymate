@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Permissions — HeyMate</title>
+  <meta name="description" content="Every macOS permission HeyMate can ask for, what it is used for, when it is used, and how to turn it off.">
+  <meta name="theme-color" content="#f5f5f7">
+  <link rel="canonical" href="https://getheymate.vercel.app/permissions">
+  <link rel="icon" href="assets/img/icon/favicon-32.png" type="image/png">
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/sections.css">
+  <link rel="stylesheet" href="css/motion.css">
+  <script>document.documentElement.classList.add("js")</script>
+  <!-- Hotjar Tracking Code for HeyMate -->
+  <script>
+    (function(h,o,t,j,a,r){
+      h.hj=h.hj||function(){(h.hj.q=h.hj.q||[]).push(arguments)};
+      h._hjSettings={hjid:6785426,hjsv:6};
+      a=o.getElementsByTagName('head')[0];
+      r=o.createElement('script');r.async=1;
+      r.src=t+h._hjSettings.hjid+j+h._hjSettings.hjsv;
+      a.appendChild(r);
+    })(window,document,'https://static.hotjar.com/c/hotjar-','.js?sv=');
+  </script>
+</head>
+<body>
+  <header class="nav scrolled">
+    <a class="brand" href="index.html">
+      <img src="assets/img/icon/favicon-32.png" alt="" width="20" height="20">
+      HeyMate
+    </a>
+    <nav class="nav-links" aria-label="Primary">
+      <a href="index.html#overview">Overview</a>
+      <a href="index.html#mates">Mates</a>
+      <a href="index.html#agents">Agents</a>
+      <a href="privacy.html">Privacy</a>
+      <a data-github href="https://github.com/UmarSiddiqui/heymate">GitHub</a>
+    </nav>
+    <a class="btn btn-pill nav-cta" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download free</a>
+    <button class="menu-btn" type="button" aria-expanded="false">Menu</button>
+    <div class="nav-sheet">
+      <a href="index.html#overview">Overview</a>
+      <a href="index.html#mates">Mates</a>
+      <a href="index.html#agents">Agents</a>
+      <a href="privacy.html">Privacy</a>
+      <a data-github href="https://github.com/UmarSiddiqui/heymate">GitHub</a>
+      <a data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download free</a>
+    </div>
+  </header>
+
+  <main class="prose">
+    <div class="wrap-narrow">
+      <p class="eyebrow">Permissions</p>
+      <h1>Every permission, explained.</h1>
+      <p>HeyMate lives in your notch, hears you, sees your screen when you ask, and can act in other apps. That takes real access to your Mac, so here is every permission it can ask for, what each one is for, and what it never does with it.</p>
+      <p>Three are asked for at setup. The rest are asked only the first time you use the feature that needs them. You can turn any of them off in <strong>System Settings → Privacy &amp; Security</strong>, and HeyMate keeps working without the ones you decline. The code is <a href="https://github.com/UmarSiddiqui/heymate">open source</a> if you want to check.</p>
+
+      <table class="files perms">
+        <thead><tr><th>Permission</th><th>Asked</th><th>Needed for</th></tr></thead>
+        <tbody>
+          <tr><td><a href="#microphone">Microphone</a></td><td>At setup</td><td>Talking to HeyMate</td></tr>
+          <tr><td><a href="#accessibility">Accessibility</a></td><td>At setup</td><td>The hotkey, pointing, typing dictation</td></tr>
+          <tr><td><a href="#screen-recording">Screen Recording</a></td><td>At setup</td><td>Questions about your screen</td></tr>
+          <tr><td><a href="#speech-recognition">Speech Recognition</a></td><td>First time you talk</td><td>Turning your voice into text</td></tr>
+          <tr><td><a href="#automation">Automation</a></td><td>First use, per app</td><td>Music, Mail, Notes, Messages, Shortcuts, Terminal</td></tr>
+          <tr><td><a href="#calendars">Calendars</a></td><td>If you turn it on</td><td>Next event in the notch</td></tr>
+          <tr><td><a href="#reminders">Reminders</a></td><td>If you turn it on</td><td>Voice reminders</td></tr>
+          <tr><td><a href="#contacts">Contacts</a></td><td>If you connect it</td><td>Sending drafts to the right person</td></tr>
+          <tr><td><a href="#camera">Camera</a></td><td>If you open the mirror</td><td>The camera mirror</td></tr>
+          <tr><td><a href="#bluetooth">Bluetooth</a></td><td>If you turn it on</td><td>Headphone connect alerts</td></tr>
+          <tr><td><a href="#notifications">Notifications</a></td><td>First agent job</td><td>Telling you a job finished</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="microphone">Microphone</h2>
+      <p>So you can talk to HeyMate. The microphone is only on while you hold the hotkey or dictate. There is no wake word and nothing listens in the background. Audio is not saved; only the text of what you said goes into chat history.</p>
+
+      <h2 id="accessibility">Accessibility</h2>
+      <p>This is the broadest permission, so here is everything it is used for:</p>
+      <ul>
+        <li><strong>The hotkey.</strong> HeyMate watches key presses to notice when you hold <kbd>⌃</kbd> <kbd>⌥</kbd>, press Esc to clear a drawing, or tap a modifier twice. It only checks for those keys. It does not record, store, or send what you type.</li>
+        <li><strong>Pointing.</strong> When it shows you where something is, it asks macOS for the real button's name and position instead of guessing from pixels.</li>
+        <li><strong>Dictation.</strong> It puts your dictated text into the field you are typing in. It never types into password fields; if it cannot tell what a field is, it stops.</li>
+        <li><strong>Doing things for you.</strong> It can click or type in another app, but only after you approve that exact action. When it must move the pointer, you watch its cursor fly there first.</li>
+        <li><strong>Media keys</strong>, only if you turn on the volume or brightness display in the notch.</li>
+        <li><strong>Screen-text Standing Orders</strong>, only if you create one. Every 30 seconds it reads the visible text of the app in front (not a screenshot) and checks it against your rule on your Mac. Excluded apps are skipped.</li>
+      </ul>
+
+      <h2 id="screen-recording">Screen Recording</h2>
+      <p>So HeyMate can see what you are asking about. It takes one screenshot when you press the hotkey and your question needs the screen. Text-only chat skips it.</p>
+      <ul>
+        <li>The screenshot is sent with your question to the AI you chose (Claude Code, Codex, OpenCode, or your own endpoint). That is the only place it goes.</li>
+        <li>It is deleted after the answer and never written to chat history.</li>
+        <li>Password managers and System Settings are never captured, and you can add more apps to that list.</li>
+        <li>You can limit capture to just the window in front.</li>
+      </ul>
+
+      <h2 id="speech-recognition">Speech Recognition</h2>
+      <p>Turns your voice into text using Apple Speech. It runs on your Mac when your Mac supports it. Your voice only goes to a cloud service if you turn on a cloud voice in Settings.</p>
+
+      <h2 id="automation">Automation</h2>
+      <p>Lets HeyMate control another app: play or skip a song in Music or Spotify, draft a mail, add a note, run a Shortcut, or open a coding job in Terminal. macOS asks separately for each app, the first time HeyMate actually needs it. Anything that sends, deletes, or pays asks you first.</p>
+
+      <h2 id="calendars">Calendars</h2>
+      <p>Shows your next event in the notch and creates events when you ask. Asked only when you turn on the calendar peek or connect Calendar.</p>
+
+      <h2 id="reminders">Reminders</h2>
+      <p>Saves reminders you say out loud and reads back what is due. Asked only when you turn on reminders or connect Reminders.</p>
+
+      <h2 id="contacts">Contacts</h2>
+      <p>Looks up a name so a draft goes to the right person. Asked only when you connect Contacts.</p>
+
+      <h2 id="camera">Camera</h2>
+      <p>For the camera mirror in the notch, so you can check how you look before a call. The camera is on only while the mirror is open. Nothing is recorded.</p>
+
+      <h2 id="bluetooth">Bluetooth</h2>
+      <p>Shows "AirPods connected" style alerts in the notch. It only sees connect and disconnect events. Asked only when you turn that on.</p>
+
+      <h2 id="notifications">Notifications</h2>
+      <p>Tells you when a coding agent finishes or needs your approval while you are in another app.</p>
+
+      <h2>Worth knowing</h2>
+      <ul>
+        <li><strong>Open at login</strong> is on by default, so the notch is there after a restart. Switch it off in HeyMate Settings; macOS also lists it under <strong>General → Login Items</strong>.</li>
+        <li><strong>Keychain.</strong> API keys and connector tokens are stored in your macOS Keychain.</li>
+        <li><strong>Coding agents run as you.</strong> Claude Code, Codex, and OpenCode run as your macOS user. Plan mode stops them writing files, but not reading them, and every plan waits for your approval.</li>
+        <li><strong>Not sandboxed.</strong> HeyMate runs outside the Mac App Store sandbox because it has to start those CLIs and control other apps. That is also why the permissions above matter.</li>
+        <li><strong>Not asked for:</strong> Full Disk Access, Location, or Photos.</li>
+      </ul>
+
+      <h2>Turning a permission off</h2>
+      <p>Open <strong>System Settings → Privacy &amp; Security</strong>, choose the permission, and switch HeyMate off. For Automation, open <strong>Automation</strong> and untick the app. HeyMate will ask again only if you use that feature again.</p>
+      <p>Something here unclear, or something HeyMate did that this page does not cover? Email <a href="mailto:umarsiddiqui3037+heymate@gmail.com?subject=HeyMate%20permissions">umarsiddiqui3037+heymate@gmail.com</a> or <a href="https://github.com/UmarSiddiqui/heymate/issues/new/choose">open an issue</a>.</p>
+      <p><a href="privacy.html">Privacy notes</a> · <a href="index.html">Back to HeyMate</a></p>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap">
+      <p class="legal">© 2026 HeyMate. Not affiliated with Apple, Anthropic, or OpenAI.</p>
+    </div>
+  </footer>
+  <script src="js/config.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

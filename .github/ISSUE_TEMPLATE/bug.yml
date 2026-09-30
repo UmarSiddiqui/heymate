@@ -1,0 +1,51 @@
+name: Bug report
+description: Something in HeyMate went wrong.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Rather not post publicly? Email [umarsiddiqui3037+heymate@gmail.com](mailto:umarsiddiqui3037+heymate@gmail.com?subject=HeyMate) instead.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what HeyMate did instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Hold ⌃⌥ and ask "..."
+        2. ...
+  - type: input
+    id: version
+    attributes:
+      label: HeyMate version
+      description: Click the HeyMate icon in the notch, then the info button.
+      placeholder: "1.0 (42)"
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac
+      placeholder: "macOS 26.1, MacBook Air M3"
+    validations:
+      required: true
+  - type: dropdown
+    id: brain
+    attributes:
+      label: Brain
+      options:
+        - Claude Code
+        - Codex
+        - OpenCode
+        - Custom API
+        - Not sure
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots or logs
+      description: Drag images here. Please crop out anything private.

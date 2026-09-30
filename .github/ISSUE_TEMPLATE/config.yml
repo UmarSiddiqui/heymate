@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Why HeyMate asks for each permission
+    url: https://getheymate.vercel.app/permissions
+    about: What Microphone, Accessibility, Screen Recording, and the rest are used for.

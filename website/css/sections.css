@@ -158,3 +158,5 @@ table.files td:first-child { color: var(--fg); font-family: ui-monospace, Menlo,
   .grid-3, .split, .agents-visual, .facts { grid-template-columns: 1fr; }
   .story-sticky { width: min(100% - 32px, var(--max)); }
 }
+table.perms td:first-child { font-family: inherit; font-size: inherit; }
+table.perms td:first-child a { color: var(--fg); }
