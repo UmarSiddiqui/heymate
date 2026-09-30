@@ -43,13 +43,15 @@ struct SparkleUpdateConfigurationTests {
 
 struct SupportLinksTests {
 
-    @Test func supportDoesNotAssumeTemplatesOrDiscussions() {
+    @Test func supportLinksPointAtIssueFormsAndNotDiscussions() {
         let paths = Dictionary(uniqueKeysWithValues: SupportLinks.destinations.map { ($0.id, $0.url.path) })
+        let urls = Dictionary(uniqueKeysWithValues: SupportLinks.destinations.map { ($0.id, $0.url) })
 
         #expect(paths["report-a-bug"]?.hasSuffix("/issues/new") == true)
         #expect(paths["request-a-feature"]?.hasSuffix("/issues/new") == true)
         #expect(paths["issues"]?.hasSuffix("/issues") == true)
-        #expect(SupportLinks.destinations.allSatisfy { $0.url.query == nil })
+        #expect(urls["report-a-bug"]?.query == "template=bug.yml")
+        #expect(urls["request-a-feature"]?.query == "template=feature.yml")
         #expect(SupportLinks.destinations.contains { $0.url.path.hasSuffix("/discussions") } == false)
     }
 }

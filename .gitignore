@@ -25,3 +25,6 @@ heymate/worker/.wrangler/
 /.claude/
 /design-qa.md
 heymate/design/
+
+# LLVM coverage output from Debug runs
+*.profraw
