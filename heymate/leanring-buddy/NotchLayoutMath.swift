@@ -146,6 +146,21 @@ enum NotchLayoutMath {
     /// on a display that has no camera housing. Matches `NSStatusBar` thickness.
     nonisolated static let fallbackMenuBarHeight: CGFloat = 24
 
+    /// Menu-bar strip height for a display with no camera housing, used as
+    /// the height of a synthetic notch. The gap between the full and visible
+    /// frames is the truth when it looks like a menu bar; a Dock docked to
+    /// the top or an auto-hidden bar produces a gap that does not, so those
+    /// fall back to the system status-bar thickness.
+    nonisolated static func menuBarHeight(
+        screenFrame: CGRect,
+        visibleFrame: CGRect,
+        systemThickness: CGFloat
+    ) -> CGFloat {
+        let gap = screenFrame.maxY - visibleFrame.maxY
+        if (20...40).contains(gap) { return gap }
+        return systemThickness >= 20 ? systemThickness : fallbackMenuBarHeight
+    }
+
     /// Idle tab width for the software-notch fallback (no hardware notch to hug).
     nonisolated static let fallbackIdleWidth: CGFloat = 148
 

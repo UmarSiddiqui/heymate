@@ -79,6 +79,11 @@ final class NotchCompanionController {
     private var pillPanel: NSPanel?
     private var expandedPanel: NSPanel?
 
+    /// Menu-bar home for displays with no notch when the user picks menu-bar
+    /// placement instead of a fake notch.
+    private var statusItem: NSStatusItem?
+    private var placementObserver: AnyCancellable?
+
     /// Single source of truth for everything the collapsed tab renders.
     /// Handed to the hosting view once at construction; afterwards the
     /// controller mutates its properties and SwiftUI diffs normally. This
@@ -166,6 +171,14 @@ final class NotchCompanionController {
         showIfPossible()
         observeStateChanges()
 
+        placementObserver = AppPresencePreferences.shared.$noNotchPlacement
+            .dropFirst()
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.collapseAndUnpin(animated: false)
+            }
+
         // Displays reconnect/resolution change/sleep-wake → collapse back to
         // the tab and re-place it (collapseAndUnpin re-runs placement for
         // both surfaces). didChangeScreenParameters is what notch apps
@@ -238,6 +251,7 @@ final class NotchCompanionController {
         // back), dismissing here orders out every surface before the panel
         // references are dropped.
         cancellables.removeAll()
+        placementObserver = nil
         audioPowerCancellable = nil
         if let screenParametersObserver {
             NotificationCenter.default.removeObserver(screenParametersObserver)
@@ -256,6 +270,7 @@ final class NotchCompanionController {
             self.privacyDragEndObserver = nil
         }
         dismissEverything()
+        removeStatusItem()
         pillPanel = nil
         expandedPanel = nil
     }
@@ -380,7 +395,7 @@ final class NotchCompanionController {
     private func syncPillFrameToModel() {
         guard let pillPanel, let screen = pillPanel.screen else { return }
 
-        pillModel.occludedTopInset = screen.safeAreaInsets.top
+        pillModel.occludedTopInset = notchHousing(for: screen)?.inset ?? 0
         pillModel.hardwareNotchWidth = hardwareNotchWidthForCurrentScreen()
 
         guard let targetFrame = pillFrame(
@@ -399,6 +414,7 @@ final class NotchCompanionController {
     private func showIfPossible() {
         guard Self.isEnabled else {
             dismissEverything()
+            removeStatusItem()
             return
         }
 
@@ -407,6 +423,16 @@ final class NotchCompanionController {
             return
         }
 
+        // No notch and the user chose the menu bar: the status item is the
+        // only always-visible surface; the card still opens below the bar.
+        if notchHousing(for: targetScreen) == nil {
+            installStatusItemIfNeeded()
+            pillPanel?.orderOut(nil)
+            if !isExpanded { expandedPanel?.orderOut(nil) }
+            return
+        }
+        removeStatusItem()
+
         if pillPanel == nil {
             pillPanel = makePillPanel()
         }
@@ -414,7 +440,7 @@ final class NotchCompanionController {
 
         logDetectedNotch(on: targetScreen, frame: pillWindowFrame)
         pillPanel.setFrame(pillWindowFrame, display: false)
-        pillPanel.contentView = makePillContentView(occludedTopInset: targetScreen.safeAreaInsets.top)
+        pillPanel.contentView = makePillContentView(occludedTopInset: notchHousing(for: targetScreen)?.inset ?? 0)
 
         if isExpanded {
             // Defensive: every normal path collapses before re-placing, but
@@ -428,7 +454,7 @@ final class NotchCompanionController {
                 expandedPanel?.contentView = makeExpandedContentView(
                     surface: presentedSurface,
                     companionManager: companionManager,
-                    occludedTopInset: targetScreen.safeAreaInsets.top,
+                    occludedTopInset: notchHousing(for: targetScreen)?.inset ?? 0,
                     layoutSize: cardFrame.size
                 )
                 expandedPanel?.orderFrontRegardless()
@@ -441,6 +467,65 @@ final class NotchCompanionController {
             // frame between windows and makes the notch appear to blink.
             expandedPanel?.orderOut(nil)
         }
+    }
+
+    /// The cutout the tab and card are built around: `inset` is its height
+    /// and the two x values bound it. Real hardware wins; on a display with
+    /// no camera housing, "fake notch" placement synthesizes one flush with
+    /// the top edge, centered, as tall as the menu bar. Nil in menu-bar
+    /// placement, where the layout math falls back to a card under the bar.
+    private struct NotchHousing {
+        let inset: CGFloat
+        let leftMaxX: CGFloat
+        let rightMinX: CGFloat
+    }
+
+    private func notchHousing(for screen: NSScreen) -> NotchHousing? {
+        let safeInset = screen.safeAreaInsets.top
+        if NotchLayoutMath.screenHasNotch(topSafeAreaInset: safeInset),
+           let auxTopLeft = screen.auxiliaryTopLeftArea,
+           let auxTopRight = screen.auxiliaryTopRightArea {
+            return NotchHousing(
+                inset: safeInset,
+                leftMaxX: auxTopLeft.maxX,
+                rightMinX: auxTopRight.minX
+            )
+        }
+        guard AppPresencePreferences.shared.noNotchPlacement == .fakeNotch else { return nil }
+        let halfWidth = NotchLayoutMath.fallbackIdleWidth / 2
+        return NotchHousing(
+            inset: NotchLayoutMath.menuBarHeight(
+                screenFrame: screen.frame,
+                visibleFrame: screen.visibleFrame,
+                systemThickness: NSStatusBar.system.thickness
+            ),
+            leftMaxX: screen.frame.midX - halfWidth,
+            rightMinX: screen.frame.midX + halfWidth
+        )
+    }
+
+    private func installStatusItemIfNeeded() {
+        guard statusItem == nil else { return }
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if let button = item.button {
+            let icon = NSImage(systemSymbolName: "capsule.fill", accessibilityDescription: "HeyMate")
+            icon?.isTemplate = true
+            button.image = icon
+            button.target = self
+            button.action = #selector(statusItemClicked)
+            button.toolTip = "HeyMate"
+        }
+        statusItem = item
+    }
+
+    private func removeStatusItem() {
+        guard let statusItem else { return }
+        NSStatusBar.system.removeStatusItem(statusItem)
+        self.statusItem = nil
+    }
+
+    @objc private func statusItemClicked() {
+        handlePillClick()
     }
 
     /// Prefer the built-in notched display. If this Mac has no camera housing
@@ -495,14 +580,13 @@ final class NotchCompanionController {
     /// software-notch fallback parked just below the menu bar.
     private func pillFrame(for screen: NSScreen, activeInteraction: Bool) -> CGRect? {
         let outlineEnabled = companionManager?.isNotchOutlineEnabled ?? true
-        let safeInset = screen.safeAreaInsets.top
-        if let auxTopLeft = screen.auxiliaryTopLeftArea,
-           let auxTopRight = screen.auxiliaryTopRightArea,
+        let housing = notchHousing(for: screen)
+        if let housing,
            let hardwareFrame = NotchLayoutMath.pillFrame(
             screenFrame: screen.frame,
-            topSafeAreaInset: safeInset,
-            auxiliaryTopLeftMaxX: auxTopLeft.maxX,
-            auxiliaryTopRightMinX: auxTopRight.minX,
+            topSafeAreaInset: housing.inset,
+            auxiliaryTopLeftMaxX: housing.leftMaxX,
+            auxiliaryTopRightMinX: housing.rightMinX,
             activeInteraction: activeInteraction
            ) {
             return NotchLayoutMath.outlinePaddedFrame(
@@ -561,14 +645,13 @@ final class NotchCompanionController {
     /// software-notch fallback otherwise. Always returns a frame once a
     /// target screen exists, so the control surface cannot go missing.
     private func expandedCardFrame(for screen: NSScreen) -> CGRect? {
-        let safeInset = screen.safeAreaInsets.top
-        if let auxTopLeft = screen.auxiliaryTopLeftArea,
-           let auxTopRight = screen.auxiliaryTopRightArea,
+        let housing = notchHousing(for: screen)
+        if let housing,
            let hardwareFrame = NotchLayoutMath.expandedFrame(
             screenFrame: screen.frame,
-            topSafeAreaInset: safeInset,
-            auxiliaryTopLeftMaxX: auxTopLeft.maxX,
-            auxiliaryTopRightMinX: auxTopRight.minX,
+            topSafeAreaInset: housing.inset,
+            auxiliaryTopLeftMaxX: housing.leftMaxX,
+            auxiliaryTopRightMinX: housing.rightMinX,
             contentWidth: homeSize.width,
             contentHeight: homeSize.heightBelowHousing
            ) {
@@ -585,14 +668,13 @@ final class NotchCompanionController {
     }
 
     private func compactChatFrame(for screen: NSScreen) -> CGRect? {
-        let safeInset = screen.safeAreaInsets.top
-        if let auxTopLeft = screen.auxiliaryTopLeftArea,
-           let auxTopRight = screen.auxiliaryTopRightArea,
+        let housing = notchHousing(for: screen)
+        if let housing,
            let hardwareFrame = NotchLayoutMath.compactChatFrame(
             screenFrame: screen.frame,
-            topSafeAreaInset: safeInset,
-            auxiliaryTopLeftMaxX: auxTopLeft.maxX,
-            auxiliaryTopRightMinX: auxTopRight.minX,
+            topSafeAreaInset: housing.inset,
+            auxiliaryTopLeftMaxX: housing.leftMaxX,
+            auxiliaryTopRightMinX: housing.rightMinX,
             contentWidth: homeSize.width,
             contentHeight: homeSize.heightBelowHousing
            ) {
@@ -609,14 +691,13 @@ final class NotchCompanionController {
     }
 
     private func connectorSuggestionFrame(for screen: NSScreen) -> CGRect? {
-        let safeInset = screen.safeAreaInsets.top
-        if let auxTopLeft = screen.auxiliaryTopLeftArea,
-           let auxTopRight = screen.auxiliaryTopRightArea,
+        let housing = notchHousing(for: screen)
+        if let housing,
            let hardwareFrame = NotchLayoutMath.connectorSuggestionFrame(
             screenFrame: screen.frame,
-            topSafeAreaInset: safeInset,
-            auxiliaryTopLeftMaxX: auxTopLeft.maxX,
-            auxiliaryTopRightMinX: auxTopRight.minX
+            topSafeAreaInset: housing.inset,
+            auxiliaryTopLeftMaxX: housing.leftMaxX,
+            auxiliaryTopRightMinX: housing.rightMinX
            ) {
             return pixelAlign(hardwareFrame, on: screen)
         }
@@ -630,13 +711,12 @@ final class NotchCompanionController {
         guard let screen = targetScreen() else {
             return NotchLayoutMath.fallbackIdleWidth
         }
-        if let auxTopLeft = screen.auxiliaryTopLeftArea,
-           let auxTopRight = screen.auxiliaryTopRightArea,
+        if let housing = notchHousing(for: screen),
            let hardwareFrame = NotchLayoutMath.pillFrame(
             screenFrame: screen.frame,
-            topSafeAreaInset: screen.safeAreaInsets.top,
-            auxiliaryTopLeftMaxX: auxTopLeft.maxX,
-            auxiliaryTopRightMinX: auxTopRight.minX
+            topSafeAreaInset: housing.inset,
+            auxiliaryTopLeftMaxX: housing.leftMaxX,
+            auxiliaryTopRightMinX: housing.rightMinX
            ) {
             return pixelAlign(hardwareFrame, on: screen).width
         }
@@ -995,7 +1075,7 @@ final class NotchCompanionController {
         expandedPanel.contentView = makeExpandedContentView(
             surface: surface,
             companionManager: companionManager,
-            occludedTopInset: targetScreen.safeAreaInsets.top,
+            occludedTopInset: notchHousing(for: targetScreen)?.inset ?? 0,
             layoutSize: destinationFrame.size
         )
         if shouldTakeKey {

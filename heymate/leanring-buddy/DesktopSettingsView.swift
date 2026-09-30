@@ -703,6 +703,28 @@ struct DesktopSettingsView: View {
 
                 Divider().opacity(0.25)
 
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Without a notch")
+                            .font(DS.Fonts.body)
+                            .foregroundColor(DS.Colors.textPrimary)
+                        Text("On a Mac or display with no notch, draw a fake one at the top of the screen, or keep HeyMate in the menu bar.")
+                            .font(DS.Fonts.caption)
+                            .foregroundColor(DS.Colors.textSecondary)
+                    }
+                    Spacer(minLength: 12)
+                    Picker("", selection: $presencePreferences.noNotchPlacement) {
+                        ForEach(NoNotchPlacement.allCases) { placement in
+                            Text(placement.title).tag(placement)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 180)
+                }
+
+                Divider().opacity(0.25)
+
                 Toggle(isOn: $presencePreferences.launchesAtLogin) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Launch at login")

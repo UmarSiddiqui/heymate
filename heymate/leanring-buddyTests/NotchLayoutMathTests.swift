@@ -437,4 +437,19 @@ struct NotchLayoutMathTests {
         #expect(abs(mid.midX - pill.midX) < 0.01)
         #expect(abs(mid.midX - card.midX) < 0.01)
     }
+
+    @Test func menuBarHeightReadsTheGapWhenItLooksLikeAMenuBar() {
+        let screen = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        let visible = CGRect(x: 0, y: 0, width: 1920, height: 1055)
+        #expect(NotchLayoutMath.menuBarHeight(screenFrame: screen, visibleFrame: visible, systemThickness: 24) == 25)
+    }
+
+    @Test func menuBarHeightIgnoresADockOrHiddenBar() {
+        let screen = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        let dockOnTop = CGRect(x: 0, y: 0, width: 1920, height: 960)
+        let hiddenBar = screen
+        #expect(NotchLayoutMath.menuBarHeight(screenFrame: screen, visibleFrame: dockOnTop, systemThickness: 24) == 24)
+        #expect(NotchLayoutMath.menuBarHeight(screenFrame: screen, visibleFrame: hiddenBar, systemThickness: 24) == 24)
+        #expect(NotchLayoutMath.menuBarHeight(screenFrame: screen, visibleFrame: hiddenBar, systemThickness: 0) == NotchLayoutMath.fallbackMenuBarHeight)
+    }
 }

@@ -37,6 +37,11 @@ jobs:
       SCHEME: leanring-buddy
       DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
       APP_NAME: HeyMate
+      # In-app updates (Sparkle). The feed is the appcast.xml attached to the
+      # latest GitHub Release; the public key is not secret. The matching
+      # private key lives in the SPARKLE_PRIVATE_KEY repo secret.
+      SPARKLE_FEED_URL: https://github.com/UmarSiddiqui/heymate/releases/latest/download/appcast.xml
+      SPARKLE_PUBLIC_ED_KEY: Ei6V7FaIyqPSDeHkBYubrNFdTaLQWBHKiPizFIWvUmI=
     steps:
       - name: Check out
         uses: actions/checkout@v4
@@ -89,6 +94,8 @@ jobs:
             PROVISIONING_PROFILE_SPECIFIER= \
             MARKETING_VERSION="${{ steps.version.outputs.version }}" \
             CURRENT_PROJECT_VERSION="${{ steps.version.outputs.build }}" \
+            SPARKLE_FEED_URL="$SPARKLE_FEED_URL" \
+            SPARKLE_PUBLIC_ED_KEY="$SPARKLE_PUBLIC_ED_KEY" \
             build > build.log 2>&1 || {
               grep -E "error:" build.log | head -50
               tail -60 build.log
@@ -134,6 +141,43 @@ jobs:
           (cd dist && shasum -a 256 "$APP_NAME.dmg" > "$APP_NAME.dmg.sha256")
           ls -la dist
 
+      - name: Sign the update and write appcast.xml
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
+            echo "::error::SPARKLE_PRIVATE_KEY secret is not set; installed apps could not verify this update." && exit 1
+          fi
+          SIGN_UPDATE=$(find "$DERIVED_DATA/SourcePackages/artifacts" -path '*Sparkle/bin/sign_update' -not -path '*old_dsa*' | head -1)
+          test -x "$SIGN_UPDATE"
+          # Prints: sparkle:edSignature="..." length="..."
+          SIGNATURE=$(printf '%s' "$SPARKLE_PRIVATE_KEY" | "$SIGN_UPDATE" --ed-key-file - "dist/$APP_NAME.dmg")
+          echo "$SIGNATURE" | grep -q 'sparkle:edSignature=' || { echo "::error::sign_update produced no signature"; exit 1; }
+          VERSION="${{ steps.version.outputs.version }}"
+          BUILD="${{ steps.version.outputs.build }}"
+          DMG_URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/$APP_NAME.dmg"
+          cat > dist/appcast.xml <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+            <channel>
+              <title>HeyMate</title>
+              <link>https://getheymate.vercel.app</link>
+              <language>en</language>
+              <item>
+                <title>HeyMate $VERSION</title>
+                <pubDate>$(date -u '+%a, %d %b %Y %H:%M:%S +0000')</pubDate>
+                <sparkle:version>$BUILD</sparkle:version>
+                <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
+                <sparkle:minimumSystemVersion>14.2</sparkle:minimumSystemVersion>
+                <sparkle:releaseNotesLink>https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.tag }}</sparkle:releaseNotesLink>
+                <enclosure url="$DMG_URL" type="application/x-apple-diskimage" $SIGNATURE />
+              </item>
+            </channel>
+          </rss>
+          EOF
+          cat dist/appcast.xml
+          xmllint --noout dist/appcast.xml
+
       - name: Write release notes
         run: |
           .github/scripts/release-notes.sh \
@@ -148,6 +192,7 @@ jobs:
           gh release create "${{ steps.version.outputs.tag }}" \
             "dist/$APP_NAME.dmg" \
             "dist/$APP_NAME.dmg.sha256" \
+            dist/appcast.xml \
             --target "$GITHUB_SHA" \
             --title "HeyMate ${{ steps.version.outputs.version }}" \
             --notes-file notes.md \

@@ -17,6 +17,24 @@ import Combine
 import Foundation
 import ServiceManagement
 
+/// Where HeyMate lives on a display with no camera housing.
+enum NoNotchPlacement: String, CaseIterable, Identifiable {
+    /// A black tab flush with the top edge, sized like the menu bar, that
+    /// stands in for the hardware notch.
+    case fakeNotch
+    /// A status item in the menu bar; the card drops below it.
+    case menuBar
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .fakeNotch: return "Fake notch"
+        case .menuBar: return "Menu bar"
+        }
+    }
+}
+
 @MainActor
 final class AppPresencePreferences: ObservableObject {
 
@@ -25,6 +43,7 @@ final class AppPresencePreferences: ObservableObject {
     private static let showsInDockKey = "showsInDock"
     private static let launchesAtLoginKey = "launchesAtLogin"
     private static let appearsInScreenRecordingsKey = "appearsInScreenRecordings"
+    private static let noNotchPlacementKey = "noNotchPlacement"
 
     /// Off by default: HeyMate ships as an `LSUIElement` app whose home is the
     /// notch. On, the Dock tile stays for the whole session instead of only
@@ -60,6 +79,15 @@ final class AppPresencePreferences: ObservableObject {
         }
     }
 
+    /// Only matters on displays without a notch. Fake notch by default so a
+    /// MacBook Air, iMac, or external display gets the same surface.
+    @Published var noNotchPlacement: NoNotchPlacement {
+        didSet {
+            guard noNotchPlacement != oldValue else { return }
+            UserDefaults.standard.set(noNotchPlacement.rawValue, forKey: Self.noNotchPlacementKey)
+        }
+    }
+
     /// Weak boxes so a closed panel does not keep this object alive or crash
     /// when the preference flips after it is gone.
     private final class WeakWindowBox {
@@ -75,6 +103,8 @@ final class AppPresencePreferences: ObservableObject {
         launchesAtLogin = defaults.object(forKey: Self.launchesAtLoginKey) == nil
             ? true
             : defaults.bool(forKey: Self.launchesAtLoginKey)
+        noNotchPlacement = defaults.string(forKey: Self.noNotchPlacementKey)
+            .flatMap(NoNotchPlacement.init(rawValue:)) ?? .fakeNotch
         appearsInScreenRecordings = defaults.object(forKey: Self.appearsInScreenRecordingsKey) == nil
             ? true
             : defaults.bool(forKey: Self.appearsInScreenRecordingsKey)
