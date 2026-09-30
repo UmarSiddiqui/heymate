@@ -834,10 +834,22 @@ private struct NotchHomeTab: View {
     /// Live count beats a static description on the one door whose
     /// contents change while you watch.
     private var agentsDoorSubtitle: String {
-        let activeCount = companionManager.agentRuns.filter { !$0.status.isTerminal }.count
+        let runs = companionManager.agentRuns
+        let awaitingCount = runs.filter {
+            $0.status == .awaitingPlanApproval || $0.status == .waitingForApproval
+        }.count
+        if awaitingCount > 0 { return "\(awaitingCount) need\(awaitingCount == 1 ? "s" : "") you" }
+        let activeCount = runs.filter { !$0.status.isTerminal }.count
         if activeCount > 0 { return "\(activeCount) running" }
-        let runCount = companionManager.agentRuns.count
-        return runCount == 0 ? "None yet" : "\(runCount) finished"
+        if runs.isEmpty { return "None yet" }
+        // A failed run is not "finished" from the user's side; say so.
+        let failedCount = runs.filter { $0.status == .failed }.count
+        let doneCount = runs.count - failedCount
+        switch (doneCount, failedCount) {
+        case (_, 0): return "\(doneCount) done"
+        case (0, _): return "\(failedCount) failed"
+        default: return "\(doneCount) done · \(failedCount) failed"
+        }
     }
 
     // MARK: Recent agent
@@ -1124,8 +1136,23 @@ private struct NotchAgentsTab: View {
             }
             .frame(width: 310)
 
-            ScrollView(.vertical, showsIndicators: false) {
-                agentList
+            // The list is only a few rows tall, and a plan card is taller than
+            // that, so a run that starts waiting on the user brings its
+            // Approve / Deny row into view instead of leaving it below the fold.
+            ScrollViewReader { scrollProxy in
+                ScrollView(.vertical, showsIndicators: false) {
+                    agentList
+                }
+                .onChange(of: runIDAwaitingUser) { _, runID in
+                    guard let runID else { return }
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        scrollProxy.scrollTo(runID, anchor: .bottom)
+                    }
+                }
+                .onAppear {
+                    guard let runID = runIDAwaitingUser else { return }
+                    scrollProxy.scrollTo(runID, anchor: .bottom)
+                }
             }
             .frame(maxWidth: .infinity)
         }
@@ -1240,6 +1267,14 @@ private struct NotchAgentsTab: View {
         .dsSurface(.card)
     }
 
+    /// The newest run blocked on a plan or tool approval.
+    private var runIDAwaitingUser: UUID? {
+        companionManager.agentRuns
+            .filter { $0.status == .awaitingPlanApproval || $0.status == .waitingForApproval }
+            .max { $0.createdAt < $1.createdAt }?
+            .id
+    }
+
     @ViewBuilder
     private var agentList: some View {
         let sections = AgentRunDayGrouping.sections(from: companionManager.agentRuns)
@@ -1273,6 +1308,7 @@ private struct NotchAgentsTab: View {
                             onDismissPlan: { companionManager.dismissAgentPlan(runID: run.id) },
                             onOpenFolder: { companionManager.revealAgentFolder(runID: run.id) }
                         )
+                        .id(run.id)
                     }
                 }
             }
