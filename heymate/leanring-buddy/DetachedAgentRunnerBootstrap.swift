@@ -96,15 +96,21 @@ nonisolated enum DetachedAgentRunnerBootstrap {
         try requireFileActionSuccess(
             posix_spawn_file_actions_addclose(&fileActions, writeDescriptor)
         )
+        // stderr goes to a per-attempt log so a runner that dies before it
+        // can journal (a trap, a signal) still leaves a reason behind.
+        let standardErrorPath = diagnosticLogURL(attemptID: request.attemptID)?.path ?? "/dev/null"
         for standardDescriptor in [STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO] {
-            let accessMode: Int32 = standardDescriptor == STDIN_FILENO ? O_RDONLY : O_WRONLY
+            let isStandardError = standardDescriptor == STDERR_FILENO
+            let accessMode: Int32 = standardDescriptor == STDIN_FILENO
+                ? O_RDONLY
+                : (isStandardError ? O_WRONLY | O_CREAT | O_APPEND : O_WRONLY)
             try requireFileActionSuccess(
                 posix_spawn_file_actions_addopen(
                     &fileActions,
                     standardDescriptor,
-                    "/dev/null",
+                    isStandardError ? standardErrorPath : "/dev/null",
                     accessMode,
-                    0
+                    isStandardError ? 0o600 : 0
                 )
             )
         }
@@ -175,6 +181,33 @@ nonisolated enum DetachedAgentRunnerBootstrap {
             throw error
         }
         return processID
+    }
+
+    /// `~/Library/Logs/HeyMate/agent-runner-<attempt>.log`, or nil when the
+    /// folder cannot be made (the runner then falls back to /dev/null).
+    static func diagnosticLogURL(
+        attemptID: UUID,
+        fileManager: FileManager = .default
+    ) -> URL? {
+        guard let libraryURL = fileManager.urls(for: .libraryDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        let logsURL = libraryURL
+            .appendingPathComponent("Logs", isDirectory: true)
+            .appendingPathComponent("HeyMate", isDirectory: true)
+        do {
+            try fileManager.createDirectory(
+                at: logsURL,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+        } catch {
+            return nil
+        }
+        return logsURL.appendingPathComponent(
+            "agent-runner-\(attemptID.uuidString.lowercased()).log",
+            isDirectory: false
+        )
     }
 
     private static func requireFileActionSuccess(_ result: Int32) throws {

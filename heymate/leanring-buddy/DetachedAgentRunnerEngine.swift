@@ -430,14 +430,20 @@ final class DetachedAgentRunnerEngine {
 
     private func captureChildIdentity() {
         let processID = process.processIdentifier
-        let expectedPath = request.spec.executableURL.resolvingSymlinksInPath().path
+        let searchPATH = request.spec.environmentOverrides["PATH"]
+            ?? LoginShellExecutableResolver.loginPATH()
+        let expectedPaths = DetachedAgentChildExecutable.expectedExecutablePaths(
+            for: request.spec.executableURL,
+            searchPATH: searchPATH
+        )
         childIdentityTask = Task { [weak self] in
             let clock = SuspendingClock()
             for _ in 0..<100 {
                 guard let self, !Task.isCancelled, !self.isTerminal else { return }
                 if let identity = AgentProcessIdentityInspector.identity(for: processID),
-                   URL(fileURLWithPath: identity.executablePath).resolvingSymlinksInPath().path
-                    == expectedPath {
+                   expectedPaths.contains(
+                       URL(fileURLWithPath: identity.executablePath).resolvingSymlinksInPath().path
+                   ) {
                     self.state.childIdentity = identity
                     self.state.childProcessGroupID = processID
                     self.state.updatedAt = Date()
@@ -579,5 +585,65 @@ nonisolated enum DetachedAgentRunnerProgram {
             }
         }
         dispatchMain()
+    }
+}
+
+/// Paths a freshly spawned agent CLI may legitimately report as its own
+/// executable. npm installs `codex` as `codex.js` with a `#!/usr/bin/env node`
+/// shebang, so the kernel reports `node` (and briefly `env`), never the
+/// script. Matching only the script path made every npm-installed CLI look
+/// like a stranger and the runner quit before the agent could do anything.
+nonisolated enum DetachedAgentChildExecutable {
+    static func expectedExecutablePaths(
+        for executableURL: URL,
+        searchPATH: String,
+        fileManager: FileManager = .default
+    ) -> Set<String> {
+        let scriptPath = executableURL.resolvingSymlinksInPath().path
+        var paths: Set<String> = [scriptPath]
+        guard let interpreter = shebangInterpreter(atPath: scriptPath) else { return paths }
+
+        paths.insert(resolved(interpreter.path))
+        if let program = interpreter.envProgram,
+           let programPath = lookUp(program, searchPATH: searchPATH, fileManager: fileManager) {
+            paths.insert(resolved(programPath))
+        }
+        return paths
+    }
+
+    /// The interpreter from a `#!` line. For `/usr/bin/env [-S] [flags] prog`
+    /// `envProgram` is `prog`, which env then execs in place.
+    static func shebangInterpreter(atPath path: String) -> (path: String, envProgram: String?)? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        guard let head = try? handle.read(upToCount: 256),
+              head.starts(with: Array("#!".utf8)),
+              let text = String(data: head.dropFirst(2), encoding: .utf8),
+              let firstLine = text.split(separator: "\n", omittingEmptySubsequences: false).first else {
+            return nil
+        }
+        let tokens = firstLine.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+        guard let interpreterPath = tokens.first, interpreterPath.hasPrefix("/") else { return nil }
+        guard URL(fileURLWithPath: interpreterPath).lastPathComponent == "env" else {
+            return (interpreterPath, nil)
+        }
+        let program = tokens.dropFirst().first { !$0.hasPrefix("-") && !$0.contains("=") }
+        return (interpreterPath, program)
+    }
+
+    private static func lookUp(_ program: String, searchPATH: String, fileManager: FileManager) -> String? {
+        if program.hasPrefix("/") {
+            return fileManager.isExecutableFile(atPath: program) ? program : nil
+        }
+        for directory in searchPATH.split(separator: ":") where directory.hasPrefix("/") {
+            let candidate = URL(fileURLWithPath: String(directory), isDirectory: true)
+                .appendingPathComponent(program, isDirectory: false).path
+            if fileManager.isExecutableFile(atPath: candidate) { return candidate }
+        }
+        return nil
+    }
+
+    private static func resolved(_ path: String) -> String {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().path
     }
 }

@@ -72,7 +72,19 @@ final class HeadlessAgentLauncher {
         DetachedAgentRunnerExecutable.bundledURL()
     }
     var spawnDetachedRunner: (URL, DetachedAgentLaunchRequest) throws -> Int32 = {
-        try DetachedAgentRunnerBootstrap.spawn(executableURL: $0, request: $1)
+        let runnerProcessID = try DetachedAgentRunnerBootstrap.spawn(executableURL: $0, request: $1)
+        // The app is the runner's parent until it quits, so an exited runner
+        // stays a zombie unless something waits on it. Liveness checks use the
+        // persisted start time, so a reaped and reused PID is never mistaken
+        // for the runner.
+        let reaper = Thread {
+            var waitStatus: Int32 = 0
+            while waitpid(runnerProcessID, &waitStatus, 0) == -1, errno == EINTR {}
+        }
+        reaper.name = "HeyMate runner reaper"
+        reaper.qualityOfService = .utility
+        reaper.start()
+        return runnerProcessID
     }
     var inspectProcessIdentity: (Int32) -> AgentProcessIdentity? = {
         AgentProcessIdentityInspector.identity(for: $0)

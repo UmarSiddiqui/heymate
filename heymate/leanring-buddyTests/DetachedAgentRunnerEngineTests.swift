@@ -63,6 +63,79 @@ struct DetachedAgentRunnerEngineTests {
         #expect(wakeCount == 1)
     }
 
+    /// npm installs Codex as a `#!/usr/bin/env node` script, so the child's
+    /// executable is the interpreter. A run that outlives the identity poll
+    /// must still finish instead of the runner quitting with nothing journaled.
+    @Test func envShebangAgentThatOutlivesIdentityPollStillSucceeds() async throws {
+        let fixture = try makeFixtureDirectory(named: "env-shebang")
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let runtimeRoot = fixture.appendingPathComponent("runtime", isDirectory: true)
+        let scriptURL = try makeExecutableScript(
+            in: fixture,
+            named: "slow-agent",
+            contents: """
+            #!/usr/bin/env sh
+            sleep 2
+            printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"done"}}'
+            exit 0
+            """
+        )
+        let request = makeRequest(
+            executableURL: scriptURL,
+            arguments: [],
+            workspaceURL: fixture,
+            environmentOverrides: ["PATH": "/usr/bin:/bin"],
+            runtimeLimit: 10
+        )
+        var exitCodes: [Int32] = []
+        let engine = try DetachedAgentRunnerEngine(
+            request: request,
+            rootDirectoryURL: runtimeRoot,
+            exitProcess: { exitCodes.append($0) },
+            wakeMainApp: {}
+        )
+
+        engine.start()
+
+        let reachedTerminalState = await waitUntil(timeout: 8) {
+            (try? Self.loadState(root: runtimeRoot, request: request))?.phase.isTerminal == true
+        }
+        #expect(reachedTerminalState)
+        let state = try #require(try Self.loadState(root: runtimeRoot, request: request))
+        #expect(state.phase == .succeeded)
+        #expect(state.childIdentity != nil)
+        #expect(exitCodes == [0])
+    }
+
+    @Test func expectedChildPathsFollowShebangInterpreters() throws {
+        let fixture = try makeFixtureDirectory(named: "shebang-paths")
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let envScript = try makeExecutableScript(
+            in: fixture, named: "env-script", contents: "#!/usr/bin/env -S sh -e\necho hi\n"
+        )
+        let directScript = try makeExecutableScript(
+            in: fixture, named: "direct-script", contents: "#!/bin/zsh\necho hi\n"
+        )
+        let resolve = { (path: String) in URL(fileURLWithPath: path).resolvingSymlinksInPath().path }
+
+        let envPaths = DetachedAgentChildExecutable.expectedExecutablePaths(
+            for: envScript, searchPATH: "/nonexistent:/bin"
+        )
+        #expect(envPaths.contains(resolve(envScript.path)))
+        #expect(envPaths.contains(resolve("/usr/bin/env")))
+        #expect(envPaths.contains(resolve("/bin/sh")))
+
+        let directPaths = DetachedAgentChildExecutable.expectedExecutablePaths(
+            for: directScript, searchPATH: "/bin"
+        )
+        #expect(directPaths == [resolve(directScript.path), resolve("/bin/zsh")])
+
+        let binaryPaths = DetachedAgentChildExecutable.expectedExecutablePaths(
+            for: URL(fileURLWithPath: "/bin/ls"), searchPATH: "/bin"
+        )
+        #expect(binaryPaths == [resolve("/bin/ls")])
+    }
+
     @Test func bufferedFailureEventWinsOverZeroProcessExit() async throws {
         let fixture = try makeFixtureDirectory(named: "buffered-failure")
         defer { try? FileManager.default.removeItem(at: fixture) }
