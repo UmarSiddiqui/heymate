@@ -139,6 +139,8 @@ If you use a notch app like [Boring Notch](https://github.com/TheBoredTeam/borin
 
 Every push to `main` is built on GitHub Actions and published as a new [release](https://github.com/UmarSiddiqui/heymate/releases) with its changes listed, so the download link always points to the newest build.
 
+Suggestions, bugs, or trouble installing? Email me at [umarsiddiqui3037@gmail.com](mailto:umarsiddiqui3037@gmail.com?subject=HeyMate).
+
 ### Requirements
 
 - macOS 14.2 or later, Apple silicon or Intel
