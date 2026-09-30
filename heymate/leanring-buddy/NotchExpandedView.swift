@@ -624,6 +624,16 @@ private struct NotchHomeTab: View {
                     : "Grant once — signed builds keep this after rebuilds",
                 grantAction: { WindowPositionManager.requestScreenRecordingPermission() }
             )
+
+            Button("Why these permissions?") {
+                if let url = URL(string: SupportLinks.permissionsPageURLString) {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+            .buttonStyle(.plain)
+            .font(DS.Fonts.caption)
+            .foregroundColor(.secondary)
+            .pointerCursor()
         }
     }
 
