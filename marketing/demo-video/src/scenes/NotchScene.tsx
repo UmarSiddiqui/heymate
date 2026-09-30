@@ -123,7 +123,7 @@ const DesktopWindow: React.FC = () => (
       <div style={{position: 'absolute', left: 200, right: 0, top: 0, bottom: 0, padding: '230px 28px 0'}}>
         <div style={{display: 'flex', justifyContent: 'flex-end'}}>
           <div style={{padding: '10px 16px', borderRadius: 16, background: COLORS.userBubble, fontSize: 16}}>
-            What&apos;s wrong with this error in my terminal?
+            Summarize this PDF in three bullets.
           </div>
         </div>
         <div style={{marginTop: 18, width: 380}}>

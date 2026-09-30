@@ -20,10 +20,10 @@ Hold a key, ask about anything on your screen, and it answers out loud. It can a
 <br>
 
 <a href="https://getheymate.vercel.app/#demo">
-  <img src="docs/media/heymate-vision.gif" width="720" alt="HeyMate: hold control and option, ask what's wrong, and the cursor flies to the broken line and explains the fix">
+  <img src="docs/media/heymate-vision.gif" width="720" alt="HeyMate: hold control and option, ask why your Mac is slow, and the cursor flies to the process hogging the CPU and says what to close">
 </a>
 
-<sub>Hold <kbd>⌃</kbd> <kbd>⌥</kbd>, ask "what's wrong with this error?", let go. HeyMate points at the line and says the fix out loud.</sub>
+<sub>Hold <kbd>⌃</kbd> <kbd>⌥</kbd>, ask "why is my Mac so slow?", let go. HeyMate points at the culprit and tells you out loud.</sub>
 
 </div>
 
@@ -37,7 +37,7 @@ Hold a key, ask about anything on your screen, and it answers out loud. It can a
 
 <p align="center">
   <a href="https://getheymate.vercel.app/#demo"><img src="docs/media/heymate-demo-poster.jpg" width="720" alt="Play the 38-second HeyMate demo"></a><br>
-  <sub>▶ <a href="https://getheymate.vercel.app/#demo">Watch the 38-second tour</a></sub>
+  <sub>▶ <a href="https://getheymate.vercel.app/#demo">Watch the 38-second tour</a> · Music: <a href="https://soundcloud.com/peyruis">Show Me by Peyruis</a>, <a href="https://creativecommons.org/licenses/by/3.0/">CC BY 3.0</a></sub>
 </p>
 
 ## Features

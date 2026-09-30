@@ -69,10 +69,10 @@ src/
   HeyMateDemo.tsx        scene order + cross-fades + music
   Root.tsx               compositions (landscape, vertical, per-scene)
   scenes/
-    HookScene.tsx        1. "Stuck on an error?"
+    HookScene.tsx        1. "Why is my Mac so slow?"
     LogoScene.tsx        2. icon + wordmark reveal
     NotchScene.tsx       3. notch opens to Home, then Apps
-    VisionScene.tsx      4. push-to-talk, cursor flies to the bug, answers
+    VisionScene.tsx      4. push-to-talk, cursor flies to the CPU hog, answers
     AgentsScene.tsx      5. plan → approve → run → done, with undo
     MatesScene.tsx       6. mates, memory and a daily routine
     CloseScene.tsx       7. "Say hey." + Download CTA
@@ -93,10 +93,19 @@ Feature scenes use `FeatureLayout`. In landscape, the callout sits on the left a
 
 ## Music
 
-The video renders silent. To add your own licensed track:
+The video uses **Show Me by Peyruis** (`public/music/show-me-by-peyruis.mp3`), licensed under [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). That license requires credit wherever the video is published; paste this into descriptions and posts:
 
-1. Put the file in `public/music/`, for example `public/music/heymate-theme.mp3`.
-2. In `src/config.ts`, set `MUSIC_SRC = 'music/heymate-theme.mp3'`.
+```
+Music: Show Me by Peyruis https://soundcloud.com/peyruis
+License: Creative Commons — Attribution 3.0 Unported — CC BY 3.0
+Free Download / Stream: https://links.al/zfR
+Music promoted by Audio Library: https://links.al/youtube
+```
+
+To use a different track:
+
+1. Put a file you have the rights to in `public/music/`, for example `public/music/heymate-theme.mp3`.
+2. In `src/config.ts`, set `MUSIC_SRC = 'music/heymate-theme.mp3'` (or `null` for a silent render).
 3. Optionally adjust `MUSIC_VOLUME` and `MUSIC_FADE_SECONDS`. The track fades in and out automatically and is trimmed to the video length.
 
 Beats you might want to cut to (landscape and vertical share the same timing):

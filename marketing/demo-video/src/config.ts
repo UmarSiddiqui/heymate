@@ -72,7 +72,7 @@ export const SPRINGS = {
 // ─── Music slot ───────────────────────────────────────────────────────────
 // Put your own licensed track in `public/music/` and set its filename here,
 // e.g. 'music/heymate-theme.mp3'. Leave null for a silent render.
-export const MUSIC_SRC: string | null = null;
+export const MUSIC_SRC: string | null = 'music/show-me-by-peyruis.mp3';
 export const MUSIC_VOLUME = 0.7;
 // Fade the music in/out over this many seconds.
 export const MUSIC_FADE_SECONDS = 1;
@@ -80,8 +80,10 @@ export const MUSIC_FADE_SECONDS = 1;
 // ─── Copy ────────────────────────────────────────────────────────────────
 export const COPY = {
   hook: {
-    question: 'Stuck on an error?',
-    chores: ['Copy it', 'Switch apps', 'Paste', 'Explain', 'Wait'],
+    // Fans roaring, beachball spinning. \n breaks the line in the vertical cut.
+    symptom: 'fans at 6,200 rpm  ·  memory pressure: high',
+    question: 'Why is my Mac\nso slow?',
+    chores: ['Open Activity Monitor', 'Sort by CPU', 'Look it up', 'Guess'],
     answer: "There's a faster way.",
   },
   logo: {
@@ -95,8 +97,8 @@ export const COPY = {
   vision: {
     title: 'It sees what you see.',
     sub: 'Hold control + option, ask, let go. It points at the answer and says it out loud.',
-    question: "What's wrong with this error?",
-    reply: '`total` is optional. Use `(total ?? 0) + shipping` and it compiles.',
+    question: 'Why is my Mac so slow?',
+    reply: '`Chrome Helper (Renderer)` is at 97% CPU. That\'s one runaway tab. Close it and your Mac speeds back up.',
   },
   agents: {
     title: 'Real work.\nWith a leash.',

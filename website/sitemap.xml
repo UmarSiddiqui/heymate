@@ -7,10 +7,10 @@
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
     <video:video>
-      <video:thumbnail_loc>https://getheymate.vercel.app/assets/video/demo-poster.jpg</video:thumbnail_loc>
+      <video:thumbnail_loc>https://getheymate.vercel.app/assets/video/demo-poster-v2.jpg</video:thumbnail_loc>
       <video:title>HeyMate: the AI buddy in your Mac's notch (38-second demo)</video:title>
       <video:description>HeyMate lives in the MacBook notch. Hold Control + Option, ask about anything on screen, and it points at the answer and says it out loud. It also runs Claude Code, Codex, and OpenCode agents that plan read-only and wait for your approval, and gives you mates with their own memory and schedules.</video:description>
-      <video:content_loc>https://getheymate.vercel.app/assets/video/heymate-demo.mp4</video:content_loc>
+      <video:content_loc>https://getheymate.vercel.app/assets/video/heymate-demo-v2.mp4</video:content_loc>
       <video:duration>38</video:duration>
       <video:publication_date>2026-09-28</video:publication_date>
       <video:family_friendly>yes</video:family_friendly>

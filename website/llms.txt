@@ -6,7 +6,7 @@
 - Source code: https://github.com/UmarSiddiqui/heymate
 - Download (latest macOS build): https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg
 - Release notes: https://github.com/UmarSiddiqui/heymate/releases
-- 38-second demo video: https://getheymate.vercel.app/assets/video/heymate-demo.mp4
+- 38-second demo video: https://getheymate.vercel.app/assets/video/heymate-demo-v2.mp4
 - Privacy notes: https://getheymate.vercel.app/privacy
 - Permissions explained: https://getheymate.vercel.app/permissions
 

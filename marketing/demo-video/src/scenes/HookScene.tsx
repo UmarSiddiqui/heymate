@@ -1,4 +1,4 @@
-// Scene 1 — the problem: the copy / switch / paste / explain / wait loop.
+// Scene 1 — the problem: a slow Mac and the Activity Monitor detective work.
 import React from 'react';
 import {COLORS, COPY, FONTS} from '../config';
 import {ease, riseStyle, springAt, useLayout, useTime} from '../components/motion';
@@ -34,14 +34,14 @@ export const HookScene: React.FC = () => {
           style={{
             fontFamily: FONTS.mono,
             fontSize: vertical ? 24 : 22,
-            color: COLORS.destructiveText,
+            color: COLORS.warningText,
             opacity: 0.85 * Math.min(1, errorIn * 1.3),
             marginBottom: 36,
             textAlign: 'center',
             transform: `translateY(${(1 - errorIn) * 12}px)`,
           }}
         >
-          error: binary operator &apos;+&apos; cannot be applied to &apos;Decimal?&apos;
+          {COPY.hook.symptom}
         </div>
         <div
           style={{
@@ -50,10 +50,11 @@ export const HookScene: React.FC = () => {
             letterSpacing: '-0.03em',
             lineHeight: 1.04,
             textAlign: 'center',
+            whiteSpace: 'pre-line',
             ...riseStyle(questionIn, 36, 12),
           }}
         >
-          {COPY.hook.question}
+          {vertical ? COPY.hook.question : COPY.hook.question.replace('\n', ' ')}
         </div>
         <div
           style={{
