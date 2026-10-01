@@ -7,6 +7,7 @@
 //
 //    - the Talk shortcut and the hands-free double tap open the typed
 //      composer instead of the mic, so the same keys still summon HeyMate;
+//    - the Dictate shortcut does nothing, since it has no typed equivalent;
 //    - replies are read in the chat, never spoken;
 //    - interaction sounds stay quiet.
 //
@@ -23,6 +24,30 @@ nonisolated enum SilentModePreferences {
     static var isEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: userDefaultsKey) }
         set { UserDefaults.standard.set(newValue, forKey: userDefaultsKey) }
+    }
+
+    static let suggestionDismissedKey = "isSilentModeSuggestionDismissed"
+
+    /// Set when the user answers "Keep talking" to the speakers offer, so
+    /// someone who likes hearing replies is never asked again.
+    static var isSuggestionDismissed: Bool {
+        get { UserDefaults.standard.bool(forKey: suggestionDismissedKey) }
+        set { UserDefaults.standard.set(newValue, forKey: suggestionDismissedKey) }
+    }
+
+    /// Whether to offer silent mode before an answer is spoken. Only when
+    /// the reply is about to come out of the Mac's own speakers — through
+    /// headphones nobody else hears it — and at most once per launch.
+    static func shouldOfferSilentMode(
+        isSilentModeEnabled: Bool,
+        isSuggestionDismissed: Bool,
+        hasOfferedThisSession: Bool,
+        isPlayingThroughBuiltInSpeakers: Bool
+    ) -> Bool {
+        !isSilentModeEnabled
+            && !isSuggestionDismissed
+            && !hasOfferedThisSession
+            && isPlayingThroughBuiltInSpeakers
     }
 }
 

@@ -801,17 +801,21 @@ struct MateHomeView: View {
                             .foregroundColor(DS.Colors.textSecondary)
                     }
                 }
-                Text(message.text)
-                    .font(DS.Fonts.reading)
-                    .foregroundColor(isUser ? DS.Colors.textOnAccent : DS.Colors.textPrimary)
-                    .textSelection(.enabled)
-                    .multilineTextAlignment(isUser ? .trailing : .leading)
-                    .padding(.horizontal, isUser ? 14 : 0)
-                    .padding(.vertical, isUser ? 10 : 0)
-                    .background(
-                        RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous)
-                            .fill(isUser ? DS.Colors.helpChatUserBubble : Color.clear)
-                    )
+                if isUser {
+                    Text(message.text)
+                        .font(DS.Fonts.reading)
+                        .foregroundColor(DS.Colors.textOnAccent)
+                        .textSelection(.enabled)
+                        .multilineTextAlignment(.trailing)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous)
+                                .fill(DS.Colors.helpChatUserBubble)
+                        )
+                } else {
+                    ChatMarkdownText(text: message.text)
+                }
                 HStack(spacing: 12) {
                     if isUser {
                         ChatMessageActionButton(title: "Edit", help: "Edit message") {
@@ -843,10 +847,7 @@ struct MateHomeView: View {
                     nameFont: DS.Fonts.control,
                     nameColor: DS.Colors.textSecondary
                 )
-                Text(companionManager.streamingAssistantText)
-                    .font(DS.Fonts.reading)
-                    .foregroundColor(DS.Colors.textPrimary)
-                    .textSelection(.enabled)
+                ChatMarkdownText(text: companionManager.streamingAssistantText)
             }
             Spacer(minLength: 48)
         }
@@ -876,7 +877,12 @@ struct MateHomeView: View {
                     .buttonStyle(.plain)
                     .pointerCursor()
                     .help("Attach images")
-                    holdToTalkButton
+                    // Silent mode means no mic, so hold-to-talk would only
+                    // be a button that contradicts the mode.
+                    if !companionManager.isSilentModeEnabled {
+                        holdToTalkButton
+                    }
+                    silentModeButton
                     if companionManager.selectedBrain.offersSubscriptionVoiceChat {
                         subscriptionVoiceChatButton
                     }
@@ -941,6 +947,15 @@ struct MateHomeView: View {
                     )
             )
             .shadow(color: Color.black.opacity(isCompactLayout ? 0 : 0.16), radius: 18, y: 10)
+            if companionManager.isSilentModeSuggestionVisible {
+                silentModeSuggestion
+            }
+            if companionManager.isSilentModeEnabled {
+                Label("Silent mode · replies stay on screen", systemImage: "speaker.slash.fill")
+                    .font(DS.Fonts.micro)
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .accessibilityLabel("Silent mode is on. Replies stay on screen and are not spoken.")
+            }
             if companionManager.isRecordingMeeting {
                 Text("Meeting notes are on. Say stop meeting notes when you're done. Audio is not saved.")
                     .font(DS.Fonts.micro)
@@ -975,6 +990,48 @@ struct MateHomeView: View {
             )
             .help("Hold to talk")
             .accessibilityLabel("Hold to talk")
+    }
+
+    /// Quick switch for silent mode, next to where you type. Tinted while on
+    /// so the mode is visible without opening Settings.
+    private var silentModeButton: some View {
+        let isSilent = companionManager.isSilentModeEnabled
+        return Button {
+            companionManager.isSilentModeEnabled.toggle()
+        } label: {
+            Image(systemName: isSilent ? "speaker.slash.fill" : "speaker.wave.2")
+                .font(DS.Glyph.regular)
+                .foregroundColor(isSilent ? DS.Colors.textOnAccent : DS.Colors.textSecondary)
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(isSilent ? companionManager.themeColor : DS.Colors.surface3))
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .help(isSilent ? "Silent mode is on — click to hear replies again" : "Silent mode: type instead of talk, read instead of hear")
+        .accessibilityLabel(isSilent ? "Turn off silent mode" : "Turn on silent mode")
+    }
+
+    /// Shown once after HeyMate answered out loud through the Mac's own
+    /// speakers, where everyone nearby heard it too.
+    private var silentModeSuggestion: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("HeyMate just answered out loud through your Mac's speakers. Switch to silent mode to type and read instead?")
+                .font(DS.Fonts.micro)
+                .foregroundColor(DS.Colors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 12) {
+                Button("Keep talking") { companionManager.dismissSilentModeSuggestion() }
+                    .buttonStyle(.plain)
+                    .font(DS.Fonts.micro)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .pointerCursor()
+                Button("Go silent") { companionManager.acceptSilentModeSuggestion() }
+                    .buttonStyle(.plain)
+                    .font(DS.Fonts.caption.weight(.semibold))
+                    .foregroundColor(companionManager.themeColor)
+                    .pointerCursor()
+            }
+        }
     }
 
     private var subscriptionVoiceChatButton: some View {

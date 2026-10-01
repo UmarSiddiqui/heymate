@@ -301,6 +301,9 @@ enum DS {
         /// the digits don't jitter.
         static let numeric = Font.system(size: 11, weight: .medium).monospacedDigit()
 
+        /// Code blocks in chat replies. Monospaced so indentation lines up.
+        static let code = Font.system(size: 13, design: .monospaced)
+
         /// Large tabular numbers — the timer face, battery percentage.
         static let numericLarge = Font.system(size: 20, weight: .semibold, design: .rounded).monospacedDigit()
     }

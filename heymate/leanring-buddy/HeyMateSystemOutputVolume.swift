@@ -49,6 +49,43 @@ nonisolated enum HeyMateSystemOutputVolume {
         return next
     }
 
+    /// True when sound is coming out of the Mac's own speakers, as opposed
+    /// to headphones (wired, Bluetooth, AirPods) or an external display.
+    /// The wired headphone jack is the same built-in device, so its data
+    /// source is checked to tell the two apart.
+    static func isDefaultOutputBuiltInSpeaker() -> Bool {
+        guard let deviceID = defaultOutputDeviceID() else { return false }
+
+        var transportType = UInt32(0)
+        var transportSize = UInt32(MemoryLayout<UInt32>.size)
+        var transportAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let transportStatus = AudioObjectGetPropertyData(
+            deviceID, &transportAddress, 0, nil, &transportSize, &transportType
+        )
+        guard transportStatus == 0, transportType == kAudioDeviceTransportTypeBuiltIn else { return false }
+
+        var dataSourceAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDataSource,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        // Macs without a headphone jack expose no data source; built-in
+        // output there can only be the speakers.
+        guard AudioObjectHasProperty(deviceID, &dataSourceAddress) else { return true }
+        var dataSource = UInt32(0)
+        var dataSourceSize = UInt32(MemoryLayout<UInt32>.size)
+        let dataSourceStatus = AudioObjectGetPropertyData(
+            deviceID, &dataSourceAddress, 0, nil, &dataSourceSize, &dataSource
+        )
+        guard dataSourceStatus == 0 else { return true }
+        let headphonesDataSource: UInt32 = 0x6864_706E // 'hdpn'
+        return dataSource != headphonesDataSource
+    }
+
     private static func defaultOutputDeviceID() -> AudioDeviceID? {
         var deviceID = AudioDeviceID(0)
         var size = UInt32(MemoryLayout<AudioDeviceID>.size)

@@ -289,11 +289,12 @@ final class NotchCompanionController {
         // Coarse signals only. Audio power is deliberately NOT in this
         // merge: it fires continuously while listening, and folding it in
         // here is what used to keep the notch repainting during silence.
-        Publishers.Merge4(
+        Publishers.Merge5(
             companionManager.$state.map { _ in () },
             companionManager.$themeColorHex.map { _ in () },
             companionManager.$isNotchOutlineEnabled.map { _ in () },
-            companionManager.$activeNotchActivity.map { _ in () }
+            companionManager.$activeNotchActivity.map { _ in () },
+            companionManager.$isSilentModeEnabled.map { _ in () }
         )
         .receive(on: DispatchQueue.main)
         .sink { [weak self] _ in
@@ -382,6 +383,7 @@ final class NotchCompanionController {
         pillModel.themeColor = companionManager.themeColor
         pillModel.isOutlineEnabled = companionManager.isNotchOutlineEnabled
         pillModel.isAgentActive = companionManager.isForegroundAgentActive
+        pillModel.isSilentModeEnabled = companionManager.isSilentModeEnabled
         pillModel.agentFilaments = AgentFilament.live(from: companionManager.agentRuns)
         pillModel.activity = companionManager.activeNotchActivity
 
@@ -805,6 +807,7 @@ final class NotchCompanionController {
             pillModel.themeColor = companionManager.themeColor
             pillModel.isOutlineEnabled = companionManager.isNotchOutlineEnabled
             pillModel.isAgentActive = companionManager.isForegroundAgentActive
+            pillModel.isSilentModeEnabled = companionManager.isSilentModeEnabled
             pillModel.agentFilaments = AgentFilament.live(from: companionManager.agentRuns)
             pillModel.activity = companionManager.activeNotchActivity
         }

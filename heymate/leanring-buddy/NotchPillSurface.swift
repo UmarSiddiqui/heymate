@@ -61,6 +61,9 @@ final class NotchPillModel: ObservableObject {
     @Published var themeColor: Color = AppTheme.color
     @Published var isOutlineEnabled = true
     @Published var isAgentActive = false
+    /// Silent mode swaps voice words ("speaking", "ready") for ones that
+    /// match what is happening: a reply being written, a quiet companion.
+    @Published var isSilentModeEnabled = false
     /// One line per live agent. Filaments fit inside housing and never widen
     /// notch or show dashboard count.
     @Published var agentFilaments: [AgentFilament] = []
@@ -224,6 +227,10 @@ struct NotchPillView: View {
             case .idle:
                 if let activity = model.activity {
                     NotchActivityGlyph(activity: activity, themeColor: model.themeColor)
+                } else if model.isSilentModeEnabled {
+                    Image(systemName: "speaker.slash.fill")
+                        .font(DS.Glyph.small)
+                        .foregroundColor(DS.Colors.textPrimary.opacity(model.isHovered ? 0.9 : 0.6))
                 } else {
                     NotchReadyDot(isHovered: model.isHovered)
                 }
@@ -261,7 +268,7 @@ struct NotchPillView: View {
                     pillLabel(activity.trailingText)
                         .foregroundColor(activity.tintColor.opacity(0.92))
                 } else if model.isHovered {
-                    pillLabel("ready")
+                    pillLabel(model.isSilentModeEnabled ? "silent" : "ready")
                 } else {
                     EmptyView()
                 }
@@ -270,7 +277,8 @@ struct NotchPillView: View {
     }
 
     private var busyWord: String {
-        model.voiceState == .processing ? "thinking" : "speaking"
+        if model.voiceState == .processing { return "thinking" }
+        return model.isSilentModeEnabled ? "replying" : "speaking"
     }
 
     private func pillLabel(_ text: String) -> some View {
@@ -291,10 +299,10 @@ struct NotchPillView: View {
             if let activity = model.activity {
                 return "HeyMate, \(activity.kind.rawValue) \(activity.trailingText)"
             }
-            return "HeyMate, ready"
+            return model.isSilentModeEnabled ? "HeyMate, ready, silent mode" : "HeyMate, ready"
         case .listening: return "HeyMate, listening"
         case .processing: return "HeyMate, thinking"
-        case .responding: return "HeyMate, speaking"
+        case .responding: return model.isSilentModeEnabled ? "HeyMate, replying" : "HeyMate, speaking"
         }
     }
 }

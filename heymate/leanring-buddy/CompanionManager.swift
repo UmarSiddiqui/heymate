@@ -377,6 +377,35 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    /// The one-time "go silent?" offer after an answer played through the
+    /// Mac's own speakers. Shown under the chat composer.
+    @Published var isSilentModeSuggestionVisible = false
+    private var hasOfferedSilentModeThisSession = false
+
+    func acceptSilentModeSuggestion() {
+        isSilentModeSuggestionVisible = false
+        isSilentModeEnabled = true
+    }
+
+    func dismissSilentModeSuggestion() {
+        isSilentModeSuggestionVisible = false
+        SilentModePreferences.isSuggestionDismissed = true
+    }
+
+    /// Called just before an answer is spoken. The answer still plays — the
+    /// user asked out loud and expects to hear it — but the next time they
+    /// look at the chat, the offer is waiting.
+    private func offerSilentModeIfAnsweringThroughSpeakers() {
+        guard SilentModePreferences.shouldOfferSilentMode(
+            isSilentModeEnabled: isSilentModeEnabled,
+            isSuggestionDismissed: SilentModePreferences.isSuggestionDismissed,
+            hasOfferedThisSession: hasOfferedSilentModeThisSession,
+            isPlayingThroughBuiltInSpeakers: HeyMateSystemOutputVolume.isDefaultOutputBuiltInSpeaker()
+        ) else { return }
+        hasOfferedSilentModeThisSession = true
+        isSilentModeSuggestionVisible = true
+    }
+
     /// No mic, no speaker: the Talk shortcut opens the typed composer and
     /// replies are read instead of heard. See SilentMode.swift.
     @Published var isSilentModeEnabled: Bool = SilentModePreferences.isEnabled {
@@ -384,6 +413,7 @@ final class CompanionManager: ObservableObject {
             guard isSilentModeEnabled != oldValue else { return }
             SilentModePreferences.isEnabled = isSilentModeEnabled
             if isSilentModeEnabled {
+                isSilentModeSuggestionVisible = false
                 // Going quiet mid-answer should be quiet now, not after
                 // the current sentence finishes.
                 voiceSynthesisClient.stopPlayback()
@@ -2807,6 +2837,9 @@ final class CompanionManager: ObservableObject {
     private func handleDictateTransition(_ transition: BuddyPushToTalkShortcut.ShortcutTransition) {
         switch transition {
         case .pressed:
+            // Silent mode means no mic at all; dictation has no typed
+            // equivalent here, so the shortcut does nothing.
+            guard !isSilentModeEnabled else { return }
             guard !buddyDictationManager.isDictationInProgress else { return }
             guard hasMicrophonePermission else { return }
 
@@ -2833,6 +2866,12 @@ final class CompanionManager: ObservableObject {
                 )
             }
         case .released:
+            // Nothing was started on press. A dictation already recording when
+            // silent mode was switched on still finishes normally.
+            if isSilentModeEnabled && !buddyDictationManager.isDictationInProgress
+                && pendingDictateStartTask == nil {
+                return
+            }
             pendingDictateStartTask?.cancel()
             pendingDictateStartTask = nil
             buddyDictationManager.stopPushToTalkFromKeyboardShortcut()
@@ -3087,7 +3126,7 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Companion Prompt
 
-    private static let companionVoiceResponseSystemPrompt = """
+    private static let companionVoiceStyleBlock = """
     you're heymate, a friendly always-on companion that lives in the user's menu bar. the user just spoke to you via push-to-talk and you can see their screen(s). your reply will be spoken aloud via text-to-speech, so write the way you'd actually talk. this is an ongoing conversation — you remember everything they've said before.
 
     rules:
@@ -3103,7 +3142,29 @@ final class CompanionManager: ObservableObject {
     - focus on giving a thorough, useful explanation. don't end with simple yes/no questions like "want me to explain more?" or "should i show you?" — those are dead ends that force the user to just say yes.
     - instead, when it fits naturally, end by planting a seed — mention something bigger or more ambitious they could try, a related concept that goes deeper, or a next-level technique that builds on what you just explained. make it something worth coming back for, not a question they'd just nod to. it's okay to not end with anything extra if the answer is complete on its own.
     - if you receive multiple screen images, the one labeled "primary focus" is where the cursor is — prioritize that one but reference others if relevant.
+    """
 
+    /// Silent mode's counterpart to the voice style: the reply is read in the
+    /// chat, so it can use formatting and show code instead of describing it.
+    private static let companionReadingStyleBlock = """
+    you're heymate, a friendly always-on companion that lives in the user's menu bar. the user is in silent mode — they can't talk or listen right now, so they typed to you and will read your reply on screen. it is never spoken aloud. you can see their screen(s). this is an ongoing conversation — you remember everything they've said before.
+
+    rules:
+    - default to a short, direct answer: a sentence or a few. BUT if the user asks you to explain more, go deeper, or elaborate, then go all out — give a thorough, detailed explanation with no length limit.
+    - casual and warm, with normal capitalization. no emojis.
+    - write for the eye: short paragraphs. use numbered steps for a sequence and dashes for a list when it makes the answer easier to scan. use **bold** sparingly for the one thing that matters most, and `backticks` for commands, file names, keyboard shortcuts, and code. no headings or tables.
+    - when the answer is code, show the code itself in a fenced code block instead of describing it.
+    - symbols, numbers, and abbreviations are fine — this is read, not heard.
+    - if the user's question relates to what's on their screen, reference specific things you see.
+    - if the screenshot doesn't seem relevant to their question, just answer the question directly.
+    - you can help with anything — coding, writing, general knowledge, brainstorming.
+    - never say "simply" or "just".
+    - don't end with simple yes/no questions like "want me to explain more?" — those are dead ends. when it fits naturally, end by pointing at a next step worth taking instead.
+    - if you receive multiple screen images, the one labeled "primary focus" is where the cursor is — prioritize that one but reference others if relevant.
+    """
+
+    /// Pointing and drawing work the same whether the reply is heard or read.
+    private static let companionScreenToolsBlock = """
     element pointing:
     you have a small blue shaftless cursor arrowhead that can fly to and point at things on screen. use it whenever pointing would genuinely help the user — if they're asking how to do something, looking for a menu, trying to find a button, or need help navigating an app, point at the relevant element. err on the side of pointing rather than not pointing, because it makes your help way more useful and concrete.
 
@@ -3136,6 +3197,11 @@ final class CompanionManager: ObservableObject {
     - user asks how to commit in xcode: "see that source control menu up top? click that and hit commit, or you can use command option c as a shortcut. [POINT:285,11:source control]"
     - element is on screen 2 (not where cursor is): "that's over on your other monitor — see the terminal window? [POINT:400,300:terminal:screen2]"
     """
+
+    static func companionResponseSystemPrompt(isSilentModeEnabled: Bool) -> String {
+        let styleBlock = isSilentModeEnabled ? companionReadingStyleBlock : companionVoiceStyleBlock
+        return styleBlock + "\n\n" + companionScreenToolsBlock
+    }
 
     // MARK: - AI Response Pipeline
 
@@ -3579,7 +3645,7 @@ final class CompanionManager: ObservableObject {
 
                 let speakingMate = speakingMateForTurn()
                 let effectiveSystemPrompt = BehaviorContract.combinedSystemPrompt(
-                    voicePersonaPrompt: Self.companionVoiceResponseSystemPrompt,
+                    voicePersonaPrompt: Self.companionResponseSystemPrompt(isSilentModeEnabled: isSilentModeEnabled),
                     matchedSkillsBlock: Self.skillsPromptBlock(skills: matchedSkills),
                     isComputerControlEnabled: computerUseCoordinator.isEnabled,
                     connectedToolsBlock: Self.connectorsPromptBlock(talkTools: availableTalkTools),
@@ -3674,6 +3740,7 @@ final class CompanionManager: ObservableObject {
                     let shouldSpeak = backgroundRoutineSession == nil
                     completeActiveHandoff(succeeded: true)
                     if shouldSpeak, !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        offerSilentModeIfAnsweringThroughSpeakers()
                         do {
                             try await voiceSynthesisClient.speakText(spokenText)
                             dispatch(.beginSpeaking)
@@ -3683,6 +3750,7 @@ final class CompanionManager: ObservableObject {
                         }
                     }
                 } else if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    offerSilentModeIfAnsweringThroughSpeakers()
                     do {
                         try await voiceSynthesisClient.speakText(spokenText)
                         dispatch(.beginSpeaking)

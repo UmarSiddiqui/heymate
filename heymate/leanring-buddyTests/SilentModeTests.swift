@@ -76,6 +76,42 @@ struct SilentModeTests {
         UserDefaults.standard.removeObject(forKey: SilentModePreferences.userDefaultsKey)
     }
 
+    @Test func silentModeSwapsTheVoiceStyleForAReadingStyle() {
+        let voicePrompt = CompanionManager.companionResponseSystemPrompt(isSilentModeEnabled: false)
+        let readingPrompt = CompanionManager.companionResponseSystemPrompt(isSilentModeEnabled: true)
+
+        #expect(voicePrompt.contains("spoken aloud via text-to-speech"))
+        #expect(!readingPrompt.contains("spoken aloud via text-to-speech"))
+        #expect(readingPrompt.contains("fenced code block"))
+        // Pointing and drawing must survive in both styles.
+        #expect(voicePrompt.contains("[POINT:x,y:label]"))
+        #expect(readingPrompt.contains("[POINT:x,y:label]"))
+        #expect(readingPrompt.contains("visualActions"))
+    }
+
+    @Test func speakersOfferOnlyWhenEveryConditionHolds() {
+        #expect(SilentModePreferences.shouldOfferSilentMode(
+            isSilentModeEnabled: false, isSuggestionDismissed: false,
+            hasOfferedThisSession: false, isPlayingThroughBuiltInSpeakers: true
+        ))
+        #expect(!SilentModePreferences.shouldOfferSilentMode(
+            isSilentModeEnabled: false, isSuggestionDismissed: false,
+            hasOfferedThisSession: false, isPlayingThroughBuiltInSpeakers: false
+        ))
+        #expect(!SilentModePreferences.shouldOfferSilentMode(
+            isSilentModeEnabled: true, isSuggestionDismissed: false,
+            hasOfferedThisSession: false, isPlayingThroughBuiltInSpeakers: true
+        ))
+        #expect(!SilentModePreferences.shouldOfferSilentMode(
+            isSilentModeEnabled: false, isSuggestionDismissed: true,
+            hasOfferedThisSession: false, isPlayingThroughBuiltInSpeakers: true
+        ))
+        #expect(!SilentModePreferences.shouldOfferSilentMode(
+            isSilentModeEnabled: false, isSuggestionDismissed: false,
+            hasOfferedThisSession: true, isPlayingThroughBuiltInSpeakers: true
+        ))
+    }
+
     @Test func slashSilentAndQuietResolveToTheToggle() {
         #expect(CommandBarParser.parse("/silent") == .slashCommand(.silent, argument: ""))
         #expect(CommandBarParser.parse("/quiet") == .slashCommand(.silent, argument: ""))
