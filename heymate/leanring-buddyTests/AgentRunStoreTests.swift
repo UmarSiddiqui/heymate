@@ -648,7 +648,10 @@ struct HeadlessAgentLauncherTests {
         )
         let run = store.run(id: runID)
         #expect(run?.status == .failed)
-        #expect(run?.error.contains("claude") == true)
+        // Plain language pointing at the one-click sign-in, not at PATH.
+        #expect(run?.error.contains("Claude") == true)
+        #expect(run?.error.contains("Settings → Accounts") == true)
+        #expect(run?.error.contains("PATH") == false)
         #expect(run?.prompt == "make a landing page")
 
         let parent = AgentFolderNaming.sandboxParentURL(homeDirectoryURL: home)

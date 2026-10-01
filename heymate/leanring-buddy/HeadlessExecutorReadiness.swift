@@ -65,7 +65,7 @@ nonisolated enum HeadlessExecutorReadinessProbe {
             return HeadlessExecutorReadiness(
                 state: .notInstalled,
                 detail: "Not installed",
-                remedy: "Install \(executor.displayName) and make sure `\(executor.executableName)` is on your PATH."
+                remedy: SubscriptionSignInCopy.notInstalledRemedy(for: executor)
             )
         }
 
@@ -102,7 +102,7 @@ nonisolated enum HeadlessExecutorReadinessProbe {
             return HeadlessExecutorReadiness(
                 state: .notSignedIn,
                 detail: "Signed out",
-                remedy: "Run `claude` in Terminal and sign in with /login, then try again."
+                remedy: SubscriptionSignInCopy.signInRemedy(for: .claudeCode)
             )
         }
 
@@ -122,7 +122,7 @@ nonisolated enum HeadlessExecutorReadinessProbe {
             return HeadlessExecutorReadiness(
                 state: .usingAPIKey,
                 detail: "API key (\(authenticationMethod.isEmpty ? "not claude.ai" : authenticationMethod))",
-                remedy: "This persisted Claude login may bill an API account. Run `claude logout`, then run `claude` and use /login with Claude.ai to use your subscription."
+                remedy: "This Claude sign-in may bill an API account instead of your plan. Sign out, then sign in to Claude again from Settings → Accounts."
             )
         }
 
@@ -148,7 +148,7 @@ nonisolated enum HeadlessExecutorReadinessProbe {
             return HeadlessExecutorReadiness(
                 state: .ready,
                 detail: "No providers connected",
-                remedy: "Run `opencode auth login` to add a provider. Free models still work without one."
+                remedy: "Add a provider from Settings → Accounts. Free models still work without one."
             )
         }
 
@@ -187,7 +187,7 @@ nonisolated enum HeadlessExecutorReadinessProbe {
             return HeadlessExecutorReadiness(
                 state: .notSignedIn,
                 detail: "Signed out of the Codex CLI",
-                remedy: "The ChatGPT app being signed in is not enough. Tap Sign in — that runs `codex login` in Terminal."
+                remedy: "The ChatGPT app being signed in is not enough. " + SubscriptionSignInCopy.signInRemedy(for: .codex)
             )
         }
         if lowered.contains("chatgpt") {
@@ -210,14 +210,14 @@ nonisolated enum HeadlessExecutorReadinessProbe {
             return HeadlessExecutorReadiness(
                 state: .usingAPIKey,
                 detail: "Codex · non-ChatGPT credential",
-                remedy: "This Codex login may bill an API or provider account. Run `codex logout`, then `codex login` and choose ChatGPT to use your subscription."
+                remedy: "This Codex sign-in may bill an API or provider account instead of your plan. Sign out, then sign in to ChatGPT again from Settings → Accounts."
             )
         }
         if exitStatus != 0 {
             return HeadlessExecutorReadiness(
                 state: .notSignedIn,
                 detail: "Signed out",
-                remedy: "Tap Sign in to run `codex login` in Terminal."
+                remedy: SubscriptionSignInCopy.signInRemedy(for: .codex)
             )
         }
         return .indeterminate(detail: "Installed")

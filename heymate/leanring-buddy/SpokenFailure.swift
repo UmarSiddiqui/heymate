@@ -23,7 +23,7 @@ nonisolated enum SpokenFailure: Equatable {
         case .outOfCredits:
             return "the selected model is out of credits. listen and speak on this mac don't use credits. pick another model in settings."
         case .signedOut:
-            return "the selected model's sign-in expired. sign in again in settings, or switch to another engine."
+            return "the selected model isn't signed in on this mac. open the notch and tap sign in, or switch to another engine."
         case .generic:
             return "i couldn't complete that. check the selected model in settings."
         }
@@ -75,7 +75,10 @@ nonisolated enum SpokenFailure: Equatable {
         "not logged in",
         "please run /login",
         "invalid api key",
-        "authentication_error"
+        "authentication_error",
+        // HeyMate's own words for a CLI that was never installed. The fix is
+        // the same one-click sign-in, which installs it first.
+        "isn't set up on this mac"
     ]
 
     /// Whole-word matches so “credentials” / “credit card field on screen”

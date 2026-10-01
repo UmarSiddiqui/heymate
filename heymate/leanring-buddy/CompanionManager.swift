@@ -869,6 +869,10 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Brain
 
+    /// Installs and signs in the Claude / ChatGPT CLIs from one click.
+    /// See SubscriptionSignIn.swift and CompanionManager+SignIn.swift.
+    let subscriptionSignIn = SubscriptionSignInCoordinator()
+
     /// The one choice of what runs HeyMate. Drives which CLI takes agent jobs
     /// and which endpoint answers screen questions.
     @Published var selectedBrain: AgentBrain = AgentBrain.fromUserDefaults() {
@@ -3783,13 +3787,14 @@ final class CompanionManager: ObservableObject {
                 } else {
                     // A turn typed in the window is read, not heard, so an
                     // expired login has to say what to do in the chat too.
+                    // The notch then offers "Sign in to Claude" instead of
+                    // leaving the user with an error.
                     let failure = SpokenFailure.classify(error)
                     if failure == .signedOut {
-                        appendAssistantMessage(
-                            "\(selectedBrain.displayName) needs you to sign in again. "
-                            + "Open Settings → Brain to sign in, or switch this mate to another engine "
-                            + "from the menu under the message box."
-                        )
+                        appendAssistantMessage(subscriptionSignInNeededMessage())
+                        if noteSubscriptionSignInNeeded() != nil {
+                            notchCompanionController.expandPinned()
+                        }
                     }
                     speak(failure, isAlreadyShownInChat: failure == .signedOut)
                     isSubscriptionVoiceChatActive = false
