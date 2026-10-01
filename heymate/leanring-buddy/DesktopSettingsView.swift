@@ -2,19 +2,64 @@
 //  DesktopSettingsView.swift
 //  leanring-buddy
 //
-//  Settings in the window.
+//  Settings in the window, as five tabs.
 //
-//  Four controls used to live inline in the notch card — dictation mode,
-//  interaction sounds, the cursor companion, and replaying onboarding.
-//  They are preferences, not live state, so they moved here when the notch
-//  card was cut back to only what is currently happening. This view puts
-//  them above the existing engine/model/voice settings so nothing was lost
-//  in that move.
+//  This page used to be one long scroll of a dozen cards with the whole
+//  brain/provider column embedded in the middle, so someone looking for the
+//  microphone had to read past "CLIs", "Worker", and "Endpoint URL" first.
+//  The tabs split it by who it is for:
+//
+//    • General  — everyday preferences: keys, mic, voice, look, presence.
+//    • Accounts — the one AI question: which plan do you already pay for.
+//    • Notch    — the notch micro-apps page, unchanged.
+//    • Privacy  — the privacy page, plus erasing local data.
+//    • Advanced — everything a power user tunes: other engines, effort,
+//                 cloud voice providers, keys, computer control.
+//
+//  Every control from the old single page still exists in exactly one tab
+//  and behaves the same; only placement and copy changed. The selected tab
+//  is stored under `desktopSettingsSelectedTab`, so other code can deep-link
+//  into a tab by writing that key before opening Settings.
 //
 
 import AppKit
 import Combine
 import SwiftUI
+
+/// The Settings tabs. Raw values are persisted and written by deep links —
+/// do not rename them.
+enum DesktopSettingsTab: String, CaseIterable, Identifiable {
+    case general
+    case accounts
+    case notch
+    case privacy
+    case advanced
+
+    /// UserDefaults key holding the selected tab's raw value.
+    static let storageKey = "desktopSettingsSelectedTab"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .general: return "General"
+        case .accounts: return "Accounts"
+        case .notch: return "Notch"
+        case .privacy: return "Privacy"
+        case .advanced: return "Advanced"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .general: return "gearshape"
+        case .accounts: return "person.crop.circle"
+        case .notch: return "rectangle.topthird.inset.filled"
+        case .privacy: return "hand.raised"
+        case .advanced: return "slider.horizontal.3"
+        }
+    }
+}
 
 struct DesktopSettingsView: View {
     @ObservedObject var companionManager: CompanionManager
@@ -26,6 +71,10 @@ struct DesktopSettingsView: View {
 
     @ObservedObject private var presencePreferences = AppPresencePreferences.shared
     @ObservedObject private var updateController = AppUpdateController.shared
+
+    /// Raw `DesktopSettingsTab` value. AppStorage, not State, so a deep link
+    /// that writes the key while this view is on screen switches the tab.
+    @AppStorage(DesktopSettingsTab.storageKey) private var selectedTabRawValue = DesktopSettingsTab.general.rawValue
 
     // Double-tap shortcut state. Held in @State and written back on change
     // rather than bound straight to UserDefaults, because the pickers need a
@@ -42,12 +91,6 @@ struct DesktopSettingsView: View {
     @State private var selectedAudioInputDeviceUID = AudioInputDeviceCatalog.selectedDeviceUID
     @State private var availableSystemVoices: [SpeechVoiceOption] = []
     @State private var selectedSystemVoiceID = SpeechVoiceCatalog.selectedSystemVoiceID
-    /// What the ElevenLabs picker is showing: "" for the Worker's own
-    /// default, a premade voice id, or the custom tag when the stored id is
-    /// one the user typed (a cloned or library voice).
-    @State private var elevenLabsVoiceSelection = SpeechVoiceCatalog
-        .elevenLabsPickerSelection(forStoredVoiceID: SpeechVoiceCatalog.selectedElevenLabsVoiceID)
-    @State private var elevenLabsCustomVoiceID = SpeechVoiceCatalog.selectedElevenLabsVoiceID
     @State private var composioAPIKeyDraft = ""
     @State private var composioStatusMessage: String?
     @State private var isSavingComposioAPIKey = false
@@ -62,32 +105,25 @@ struct DesktopSettingsView: View {
         self.computerUseCoordinator = companionManager.computerUseCoordinator
     }
 
-    var body: some View {
-        DesktopPage(
-            title: "Settings",
-            subtitle: "How HeyMate behaves, which engine answers, and how it sounds."
-        ) {
-            behaviorCard
-            pushToTalkCard
-            shortcutsCard
-            microphoneCard
-            voiceCard
-            computerControlCard
-            composioCard
-            appearanceCard
-            systemPresenceCard
-            updatesAndSupportCard
+    private var selectedTab: DesktopSettingsTab {
+        DesktopSettingsTab(rawValue: selectedTabRawValue) ?? .general
+    }
 
-            // Desktop presentation removes the notch-only appearance controls
-            // and its inner scroller, so this remains one continuous settings
-            // page with each preference shown once.
-            DesktopCard(title: "Brain, providers & tools") {
-                AISettingsView(
-                    companionManager: companionManager,
-                    presentation: .desktop
-                )
-            }
-            localDataCard
+    var body: some View {
+        VStack(spacing: 0) {
+            tabBar
+
+            Rectangle()
+                .fill(DS.Colors.borderSubtle)
+                .frame(height: 1)
+
+            selectedTabPage
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .task {
+            // Model catalogs and sign-in status feed both Accounts and
+            // Advanced, so they load once for the page, not per tab.
+            await AISettingsRefresh.refreshCatalogsAndReadiness(companionManager)
         }
         .onAppear {
             availableAudioInputDevices = AudioInputDeviceCatalog.availableInputDevices()
@@ -111,30 +147,217 @@ struct DesktopSettingsView: View {
         .onChange(of: selectedSystemVoiceID) { _, newValue in
             SpeechVoiceCatalog.selectedSystemVoiceID = newValue
         }
-        .onChange(of: elevenLabsVoiceSelection) { _, newSelection in
-            // The custom tag is a picker state, not a voice — while it is
-            // selected the typed field is the source of truth.
-            if newSelection == SpeechVoiceCatalog.customElevenLabsVoiceSelectionTag {
-                SpeechVoiceCatalog.selectedElevenLabsVoiceID = elevenLabsCustomVoiceID
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-            } else {
-                SpeechVoiceCatalog.selectedElevenLabsVoiceID = newSelection
+    }
+
+    // MARK: Tabs
+
+    private var tabBar: some View {
+        HStack(spacing: 2) {
+            ForEach(DesktopSettingsTab.allCases) { tab in
+                tabButton(tab)
             }
         }
-        .onChange(of: elevenLabsCustomVoiceID) { _, newValue in
-            guard elevenLabsVoiceSelection == SpeechVoiceCatalog.customElevenLabsVoiceSelectionTag else { return }
-            SpeechVoiceCatalog.selectedElevenLabsVoiceID = newValue
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+        .padding(3)
+        .background(
+            Capsule(style: .continuous)
+                .fill(DS.Colors.surface2)
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+        )
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 28)
+        .padding(.vertical, 12)
+        .background(DS.Colors.surface1.opacity(0.6))
+    }
+
+    private func tabButton(_ tab: DesktopSettingsTab) -> some View {
+        let isSelected = selectedTab == tab
+        return Button {
+            selectedTabRawValue = tab.rawValue
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: tab.symbolName)
+                    .font(DS.Glyph.small)
+                Text(tab.title)
+                    .font(DS.Fonts.control)
+                    .lineLimit(1)
+            }
+            .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textSecondary)
+            .padding(.horizontal, 14)
+            .frame(minHeight: DS.ControlSize.regular)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(isSelected ? DS.Colors.surface4 : Color.clear)
+            )
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .accessibilityLabel(tab.title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .animation(.easeOut(duration: DS.Animation.fast), value: isSelected)
+    }
+
+    @ViewBuilder
+    private var selectedTabPage: some View {
+        switch selectedTab {
+        case .general:
+            generalTab
+        case .accounts:
+            DesktopSettingsAccountsTab(
+                companionManager: companionManager,
+                onShowAdvanced: { selectedTabRawValue = DesktopSettingsTab.advanced.rawValue }
+            )
+        case .notch:
+            DesktopNotchView(activityCenter: companionManager.notchActivityCenter)
+        case .privacy:
+            DesktopPrivacyView(
+                companionManager: companionManager,
+                trailingContent: AnyView(localDataCard)
+            )
+        case .advanced:
+            advancedTab
+        }
+    }
+
+    // MARK: General
+
+    private var generalTab: some View {
+        DesktopPage(
+            title: "General",
+            subtitle: "How you talk to HeyMate, and how it looks and sounds."
+        ) {
+            pushToTalkCard
+            shortcutsCard
+            behaviorCard
+            microphoneCard
+            voiceCard
+            appearanceCard
+            systemPresenceCard
+            updatesAndSupportCard
+        }
+    }
+
+    // MARK: Advanced
+
+    private var advancedTab: some View {
+        DesktopPage(
+            title: "Advanced",
+            subtitle: "For power users. HeyMate works fine without changing anything here."
+        ) {
+            otherEnginesCard
+            selectedEngineTuningCards
+
+            DesktopCard(title: "Agent jobs") {
+                AgentSignInSettingsContent(companionManager: companionManager)
+            }
+
+            DesktopCard(title: "AI app updates") {
+                CLIUpdateSettingsContent(companionManager: companionManager)
+            }
+
+            DesktopCard(
+                title: "Listen & speak",
+                footnote: "Mac keeps your voice on this computer. HeyMate cloud voice uses an online service for better accuracy and more natural speech."
+            ) {
+                VStack(alignment: .leading, spacing: 12) {
+                    VoiceProviderSettingsContent(companionManager: companionManager)
+                    Divider().opacity(0.25)
+                    ElevenLabsVoiceSettingsContent()
+                }
+            }
+
+            composioCard
+
+            DesktopCard(title: "Google") {
+                GoogleCLISettingsContent()
+            }
+
+            computerControlCard
+            behaviorContractCard
+        }
+    }
+
+    /// OpenCode and a custom API: real choices, but not plans most people
+    /// already pay for, so they live here instead of under Accounts.
+    private var otherEnginesCard: some View {
+        DesktopCard(
+            title: "Other AI engines",
+            footnote: "To go back to Claude, ChatGPT, or On this Mac, pick one under Accounts."
+        ) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Run HeyMate on OpenCode or on your own API server instead of a subscription.")
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                BrainChoiceGrid(
+                    companionManager: companionManager,
+                    brains: [.openCode, .customAPI]
+                )
+
+                if [AgentBrain.openCode, .customAPI].contains(companionManager.selectedBrain) {
+                    Text(companionManager.selectedBrain.subtitle)
+                        .font(DS.Fonts.caption)
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if let reason = companionManager.selectedBrain.unavailableReason {
+                        Text(reason)
+                            .font(DS.Fonts.caption)
+                            .foregroundColor(DS.Colors.warningText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+    }
+
+    /// The knobs for whichever engine is selected: effort and voice chat for
+    /// Claude or ChatGPT, models and address for OpenCode, the server for a
+    /// custom API.
+    @ViewBuilder
+    private var selectedEngineTuningCards: some View {
+        switch companionManager.selectedBrain {
+        case .claudeCode:
+            DesktopCard(title: "Claude effort") {
+                ClaudeModelSettingsContent(companionManager: companionManager, parts: .effortOnly)
+            }
+            DesktopCard(title: "Voice chat") {
+                VoiceChatSettingsContent(companionManager: companionManager)
+            }
+        case .codex:
+            DesktopCard(title: "ChatGPT effort") {
+                CodexModelSettingsContent(companionManager: companionManager, parts: .effortOnly)
+            }
+            DesktopCard(title: "Voice chat") {
+                VoiceChatSettingsContent(companionManager: companionManager)
+            }
+        case .openCode:
+            DesktopCard(title: "OpenCode models") {
+                OpenCodeModelsSettingsContent(companionManager: companionManager)
+            }
+            DesktopCard(title: "OpenCode") {
+                OpenCodeServerSettingsContent(companionManager: companionManager)
+            }
+        case .customAPI:
+            DesktopCard(title: "Custom API") {
+                CustomAPISettingsContent(companionManager: companionManager)
+            }
+        case .onDevice:
+            EmptyView()
         }
     }
 
     private var composioCard: some View {
         DesktopCard(
-            title: "Composio",
+            title: "Your own Composio key",
             footnote: "Stored in macOS Keychain. HeyMate never receives tokens for Gmail, Slack, or other connected apps."
         ) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("One Composio API key powers browser sign-in and tools for supported apps. Composio's free tier is enough to get started.")
+                Text("Optional. Composio is the service that signs HeyMate in to apps like Gmail and Slack. Paste your own Composio key to use your account; its free tier is enough to get started.")
                     .font(DS.Fonts.caption)
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -299,7 +522,7 @@ struct DesktopSettingsView: View {
                         Text("Focused window context")
                             .font(DS.Fonts.body)
                             .foregroundColor(DS.Colors.textPrimary)
-                        Text("Talk captures only the app in front of you instead of every screen — sharper answers, cheaper vision calls. Falls back to all screens when there's no window.")
+                        Text("Talk looks only at the app in front of you instead of every screen, for sharper and faster answers. Uses all screens when no window is in front.")
                             .font(DS.Fonts.caption)
                             .foregroundColor(DS.Colors.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -314,10 +537,10 @@ struct DesktopSettingsView: View {
                     set: { companionManager.setClickyCursorEnabled($0) }
                 )) {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("Cursor launcher")
+                        Text("Cursor companion")
                             .font(DS.Fonts.body)
                             .foregroundColor(DS.Colors.textPrimary)
-                        Text("Keep the buddy deployed beside your pointer. Off: it launches only for an interaction, then returns to the notch.")
+                        Text("Keep HeyMate beside your pointer. Off: it comes out only while you use it, then goes back to the notch.")
                             .font(DS.Fonts.caption)
                             .foregroundColor(DS.Colors.textSecondary)
                     }
@@ -339,28 +562,32 @@ struct DesktopSettingsView: View {
                     Button("Replay") { companionManager.replayOnboarding() }
                         .buttonStyle(DSSecondaryButtonStyle())
                 }
+            }
+        }
+    }
 
-                Divider().opacity(0.25)
-
-                HStack(spacing: 8) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Behavior contract")
-                            .font(DS.Fonts.body)
-                            .foregroundColor(DS.Colors.textPrimary)
-                        Text("The honesty and safety rules bound to every reply, as a plain text file you can edit without a rebuild.")
-                            .font(DS.Fonts.caption)
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 12)
-                    Button("Edit") { showsBehaviorContractEditor = true }
-                        .buttonStyle(DSSecondaryButtonStyle(isFullWidth: false))
-                    Button("Reveal") { companionManager.revealBehaviorContractFile() }
-                        .buttonStyle(DSSecondaryButtonStyle(isFullWidth: false))
+    /// Lived at the bottom of Behavior. It is a text file of rules, which is
+    /// a power-user tool, so it moved to Advanced on its own.
+    private var behaviorContractCard: some View {
+        DesktopCard(title: "Honesty and safety rules") {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Behavior contract")
+                        .font(DS.Fonts.body)
+                        .foregroundColor(DS.Colors.textPrimary)
+                    Text("The honesty and safety rules HeyMate follows in every reply, kept as a plain text file you can edit.")
+                        .font(DS.Fonts.caption)
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .sheet(isPresented: $showsBehaviorContractEditor) {
-                    BehaviorContractEditorSheet()
-                }
+                Spacer(minLength: 12)
+                Button("Edit") { showsBehaviorContractEditor = true }
+                    .buttonStyle(DSSecondaryButtonStyle(isFullWidth: false))
+                Button("Reveal") { companionManager.revealBehaviorContractFile() }
+                    .buttonStyle(DSSecondaryButtonStyle(isFullWidth: false))
+            }
+            .sheet(isPresented: $showsBehaviorContractEditor) {
+                BehaviorContractEditorSheet()
             }
         }
     }
@@ -379,7 +606,7 @@ struct DesktopSettingsView: View {
                         Text("Let HeyMate use this Mac")
                             .font(DS.Fonts.body)
                             .foregroundColor(DS.Colors.textPrimary)
-                        Text("Clicks buttons by their real name via the accessibility tree, types into the focused field, and switches apps. Needs Accessibility permission.")
+                        Text("Presses buttons by their on-screen name, types into the field you are in, and switches apps. Needs Accessibility permission.")
                             .font(DS.Fonts.caption)
                             .foregroundColor(DS.Colors.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -409,8 +636,8 @@ struct DesktopSettingsView: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     ruleLine("Passwords, API keys and tokens are refused outright — not asked about, refused.")
-                    ruleLine("Quitting, closing, and deleting chords are treated as destructive and always ask.")
-                    ruleLine("Buttons are pressed through the accessibility tree when possible, so the pointer never moves.")
+                    ruleLine("Shortcuts that quit, close, or delete are treated as destructive and always ask.")
+                    ruleLine("Buttons are pressed by name when possible, so your pointer never moves.")
                     ruleLine("When a real click is unavoidable, the companion cursor flies there first so you see it.")
                 }
             }
@@ -623,7 +850,7 @@ struct DesktopSettingsView: View {
     private var voiceCard: some View {
         DesktopCard(
             title: "Voice",
-            footnote: "Spoken replies use the macOS synthesizer unless Speak is switched to ElevenLabs in Brain, providers & tools — the ElevenLabs voice only applies once it is."
+            footnote: "Spoken replies use this Mac's voice unless HeyMate cloud voice is turned on under Advanced › Listen & speak."
         ) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
@@ -645,52 +872,6 @@ struct DesktopSettingsView: View {
                     .labelsHidden()
                     .pickerStyle(.menu)
                     .frame(maxWidth: 260)
-                }
-
-                Divider().opacity(0.25)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text("ElevenLabs voice")
-                                .font(DS.Fonts.body)
-                                .foregroundColor(DS.Colors.textPrimary)
-                            Text("Every voice listed works on a free ElevenLabs plan.")
-                                .font(DS.Fonts.caption)
-                                .foregroundColor(DS.Colors.textSecondary)
-                        }
-                        Spacer(minLength: 12)
-                        Picker("", selection: $elevenLabsVoiceSelection) {
-                            Text("Server default").tag("")
-                            ForEach(SpeechVoiceCatalog.elevenLabsPremadeVoices) { voice in
-                                Text(voice.displayName).tag(voice.id)
-                            }
-                            Text("Custom voice ID…")
-                                .tag(SpeechVoiceCatalog.customElevenLabsVoiceSelectionTag)
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-                        .frame(maxWidth: 260)
-                    }
-
-                    // Cloned and library voices have per-account ids, so the
-                    // typed field stays for anyone on a paid plan.
-                    if elevenLabsVoiceSelection == SpeechVoiceCatalog.customElevenLabsVoiceSelectionTag {
-                        TextField("Voice ID from your ElevenLabs dashboard", text: $elevenLabsCustomVoiceID)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(maxWidth: 320)
-                        if !elevenLabsCustomVoiceID.isEmpty,
-                           !SpeechVoiceCatalog.isValidElevenLabsVoiceID(elevenLabsCustomVoiceID) {
-                            Text("Voice IDs are letters and numbers only. This one will be ignored.")
-                                .font(DS.Fonts.caption)
-                                .foregroundColor(DS.Colors.warningText)
-                        } else {
-                            Text("Library and cloned voices need a paid ElevenLabs plan; a free account gets paid_plan_required and stays silent.")
-                                .font(DS.Fonts.caption)
-                                .foregroundColor(DS.Colors.textTertiary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
                 }
             }
         }
