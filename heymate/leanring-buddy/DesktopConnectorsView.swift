@@ -34,16 +34,19 @@ struct DesktopConnectorsView: View {
 
     var body: some View {
         DesktopPage(
-            title: "Tools",
+            title: "Apps",
             subtitle: connectedSummary,
             accessory: AnyView(searchField)
         ) {
             if composioConnections.isConfigured {
                 composioSection
+                localSection
             } else {
+                // Without a Composio key, lead with what works right now:
+                // the Mac's own apps. The key is an optional extra.
+                localSection
                 composioSetupCard
             }
-            localSection
             customSection
         }
         .sheet(item: $connectorAwaitingKeyEntry) { connector in
@@ -118,7 +121,7 @@ struct DesktopConnectorsView: View {
         let connectedCount = store.connectionStates.values.filter(\.isConnected).count
             + composioConnections.connectedSlugs.count
         if connectedCount == 0 {
-            return "Connect apps through Composio, local tools on this Mac, or your own MCP server."
+            return "Turn on the apps HeyMate may use. Calendar, Reminders, Notes, and the other Mac apps need no setup."
         }
         return "\(connectedCount) connected. HeyMate can only reach what you turn on."
     }
@@ -156,28 +159,28 @@ struct DesktopConnectorsView: View {
     }
 
     private var composioSetupCard: some View {
-        DesktopCard(title: "Apps") {
+        DesktopCard(
+            title: "More apps (optional)",
+            footnote: "Mac apps like Calendar and Notes never need this. It is only for web apps."
+        ) {
             HStack(spacing: 12) {
                 Image(systemName: "square.grid.3x3.topleft.filled")
                     .font(.system(size: 18, weight: .medium))
                     .frame(width: 38, height: 38)
                     .background(DS.Colors.surface3, in: RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous))
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Add your Composio key in Settings")
+                    Text("Want Gmail, Slack, Notion, and more?")
                         .font(DS.Fonts.headline)
-                    Text("One free key powers browser sign-in for supported apps. App tokens stay with Composio.")
+                    Text("For now these need a free key from Composio, a service that handles signing in to web apps. Paste it once in Settings → Advanced. Your app logins stay with Composio, not HeyMate.")
                         .font(DS.Fonts.caption)
                         .foregroundColor(DS.Colors.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 12)
-                Button("Open Settings") {
-                    NotificationCenter.default.post(
-                        name: .heyMateDesktopSelectSection,
-                        object: nil,
-                        userInfo: ["section": DesktopSection.settings.rawValue]
-                    )
+                Button("Set up in Advanced") {
+                    DesktopSection.openSettings(tab: "advanced")
                 }
-                .buttonStyle(DSPrimaryButtonStyle())
+                .buttonStyle(DSSecondaryButtonStyle())
             }
         }
     }
@@ -185,14 +188,14 @@ struct DesktopConnectorsView: View {
     @ViewBuilder
     private var composioSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(title: "Apps", subtitle: "Popular first · powered by Composio")
+            sectionHeader(title: "Web apps", subtitle: "Popular first · powered by Composio")
             composioCategoryChips
         }
         if composioToolkitDirectory.isLoading && composioToolkitDirectory.toolkits.isEmpty {
-            ProgressView("Loading tools…")
+            ProgressView("Loading apps…")
                 .controlSize(.small)
         } else if let failure = composioToolkitDirectory.loadFailureMessage {
-            DesktopEmptyState(symbolName: "exclamationmark.triangle", title: "Could not load tools", message: failure)
+            DesktopEmptyState(symbolName: "exclamationmark.triangle", title: "Could not load apps", message: failure)
         } else if visibleComposioToolkits.isEmpty {
             DesktopEmptyState(
                 symbolName: "magnifyingglass",
@@ -281,7 +284,7 @@ struct DesktopConnectorsView: View {
 
         if !nativeApps.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
-                sectionHeader(title: "Mac apps", subtitle: "Connect apps already on this Mac")
+                sectionHeader(title: "Mac apps", subtitle: "Work right away. No account or key needed")
 
                 LazyVGrid(
                     columns: [GridItem(.adaptive(minimum: 250, maximum: 360), spacing: 10)],

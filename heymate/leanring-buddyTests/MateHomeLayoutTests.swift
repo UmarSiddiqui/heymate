@@ -23,8 +23,84 @@ struct MateHomeLayoutTests {
 
     @Test func workspacePagesAreNotPeersOfMates() {
         #expect(MateHomeLayout.workspaceSections.contains(.chat) == false)
-        #expect(MateHomeLayout.workspaceSections.contains(.settings))
-        #expect(MateHomeLayout.workspaceSections.contains(.agents))
+        #expect(MateHomeLayout.workspaceSections == [.connectors, .settings])
+        #expect(MateHomeLayout.workspaceSections.contains(.agents) == false)
+    }
+
+    @Test func sidebarIsChatAppsAndSettings() {
+        #expect(DesktopSection.sidebarSections == [.connectors, .settings])
+        #expect(DesktopSection.connectors.displayName == "Apps")
+        #expect(DesktopSection.connectors.rawValue == "connectors")
+        #expect(DesktopSection.agents.displayName == "Jobs")
+    }
+
+    @Test func notchAppsAndPrivacyDeepLinksLandOnSettingsTabs() {
+        #expect(DesktopSection.notch.landingSection == .settings)
+        #expect(DesktopSection.notch.settingsTab == "notch")
+        #expect(DesktopSection.privacy.landingSection == .settings)
+        #expect(DesktopSection.privacy.settingsTab == "privacy")
+        #expect(DesktopSection.agents.landingSection == .agents)
+        #expect(DesktopSection.settings.settingsTab == nil)
+    }
+
+    @Test func offSidebarPagesCarryTheirOwnWayBack() {
+        #expect(DesktopSection.agents.isOffSidebarPage)
+        #expect(DesktopSection.skills.isOffSidebarPage)
+        #expect(DesktopSection.memory.isOffSidebarPage)
+        #expect(DesktopSection.notch.isOffSidebarPage == false)
+        #expect(DesktopSection.connectors.isOffSidebarPage == false)
+        #expect(DesktopSection.chat.isOffSidebarPage == false)
+    }
+
+    @Test func mateJobsAreTheRunsItAskedForOrRanInItsFolder() {
+        let mateID = UUID()
+        var mate = sampleMate(id: mateID, name: "Builder", job: "Build sites")
+        mate.folderPath = "/tmp/heymate-tests/builder"
+        let inFolder = sampleRun(
+            status: .succeeded,
+            path: "/tmp/heymate-tests/builder/",
+            createdAt: Date(timeIntervalSince1970: 100)
+        )
+        let owned = sampleRun(
+            status: .awaitingPlanApproval,
+            path: "/tmp/heymate-tests/sandbox-1",
+            createdAt: Date(timeIntervalSince1970: 200)
+        )
+        let someoneElse = sampleRun(
+            status: .running,
+            path: "/tmp/heymate-tests/other",
+            createdAt: Date(timeIntervalSince1970: 300)
+        )
+        let jobs = MateJobs.runs(
+            for: mate,
+            in: [inFolder, owned, someoneElse],
+            owners: [owned.id: mateID, someoneElse.id: UUID()]
+        )
+        #expect(jobs.map(\.id) == [owned.id, inFolder.id])
+    }
+
+    @Test func jobsBadgeCountsUnfinishedWorkAndNeedsYouCountsApprovals() {
+        let runs = [
+            sampleRun(status: .running, path: "/tmp/a", createdAt: Date()),
+            sampleRun(status: .awaitingPlanApproval, path: "/tmp/b", createdAt: Date()),
+            sampleRun(status: .waitingForApproval, path: "/tmp/c", createdAt: Date()),
+            sampleRun(status: .succeeded, path: "/tmp/d", createdAt: Date()),
+            sampleRun(status: .cancelled, path: "/tmp/e", createdAt: Date())
+        ]
+        #expect(MateJobs.activeCount(in: runs) == 3)
+        #expect(MateJobs.needsYouCount(in: runs) == 2)
+    }
+
+    @Test func jobStatusWordsAvoidAgentJargon() {
+        let statuses: [AgentRunStatus] = [
+            .queued, .planning, .awaitingPlanApproval, .running,
+            .waitingForApproval, .succeeded, .failed, .cancelled
+        ]
+        for status in statuses {
+            let label = MateJobs.statusLabel(for: status).lowercased()
+            #expect(!label.contains("agent"))
+            #expect(!label.contains("sandbox"))
+        }
     }
 
     @Test func scrolledAwayTranscriptDoesNotFollow() {
@@ -134,5 +210,19 @@ struct MateHomeLayoutTests {
             memoryNote: "",
             folderPath: nil
         )
+    }
+
+    private func sampleRun(status: AgentRunStatus, path: String, createdAt: Date) -> AgentRun {
+        var run = AgentRun.queued(
+            id: UUID(),
+            title: "Job",
+            prompt: "Job",
+            workspaceURL: URL(fileURLWithPath: path, isDirectory: true),
+            executor: .openCode,
+            origin: .sandbox,
+            createdAt: createdAt
+        )
+        run.status = status
+        return run
     }
 }

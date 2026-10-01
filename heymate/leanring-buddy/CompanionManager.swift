@@ -3288,8 +3288,8 @@ final class CompanionManager: ObservableObject {
                 task: instruction.task
             )
             speakLine(created
-                ? "standing order saved. i'll offer, never start it."
-                : "i couldn't save that standing order.")
+                ? "suggestion saved. i'll offer it, never start it."
+                : "i couldn't save that suggestion.")
             return
         }
         switch VoiceRouter.decide(transcript) {

@@ -25,7 +25,7 @@ nonisolated struct AgentNotificationPayload: Equatable {
 
     static func make(for event: AgentEvent, runTitle: String) -> AgentNotificationPayload? {
         let normalizedTitle = runTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let taskName = normalizedTitle.isEmpty ? "Coding agent" : normalizedTitle
+        let taskName = normalizedTitle.isEmpty ? "Your job" : normalizedTitle
 
         switch event {
         case .planReady:
@@ -37,19 +37,19 @@ nonisolated struct AgentNotificationPayload: Equatable {
         case .approvalRequested(_, let summary):
             return AgentNotificationPayload(
                 kind: .approvalRequired,
-                title: "Agent needs approval",
+                title: "Job needs approval",
                 body: conciseBody(summary, fallback: taskName)
             )
         case .finished(let summary):
             return AgentNotificationPayload(
                 kind: .finished,
-                title: "Agent finished",
+                title: "Job finished",
                 body: conciseBody(summary, fallback: taskName)
             )
         case .failed(let message):
             return AgentNotificationPayload(
                 kind: .failed,
-                title: "Agent stopped",
+                title: "Job stopped",
                 body: conciseBody(message, fallback: taskName)
             )
         case .started, .sessionIdentified, .tool, .text:

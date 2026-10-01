@@ -269,9 +269,9 @@ nonisolated enum StandingOrderRepositoryError: Error, LocalizedError, Equatable 
     var errorDescription: String? {
         switch self {
         case .missingFile:
-            return "That standing order file is missing."
+            return "That suggestion file is missing."
         case .outsideDirectory:
-            return "That standing order is outside the standing orders folder."
+            return "That suggestion file is outside HeyMate's suggestions folder."
         }
     }
 }

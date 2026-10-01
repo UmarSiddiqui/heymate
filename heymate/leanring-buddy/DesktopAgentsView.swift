@@ -2,7 +2,8 @@
 //  DesktopAgentsView.swift
 //  leanring-buddy
 //
-//  Agents, with room to actually watch one work.
+//  Jobs: the work mates do over time (an agent run underneath), with room
+//  to actually watch one work. Reached from the Jobs button in chat.
 //
 //  Structure follows the shape of the job rather than the shape of the
 //  data: a composer at the top (say what you want), a live section for
@@ -50,7 +51,7 @@ struct DesktopAgentsView: View {
 
     var body: some View {
         DesktopPage(
-            title: "Agents",
+            title: "Jobs",
             subtitle: subtitleText,
             accessory: AnyView(
                 DesktopComposerModelButton(companionManager: companionManager)
@@ -89,8 +90,8 @@ struct DesktopAgentsView: View {
             if finishedSections.isEmpty && activeRuns.isEmpty && runsNeedingAttention.isEmpty {
                 DesktopEmptyState(
                     symbolName: "sparkles",
-                    title: "No agents yet",
-                    message: "Say “agent, build me a landing page”, or type a task above. HeyMate makes a folder under ~/Projects/heymate and works there — nothing outside it is touched unless you attach a folder yourself."
+                    title: "No jobs yet",
+                    message: "Ask a mate to make or change something, or type a job above. HeyMate plans first, asks before changing anything, and works in its own folder under ~/Projects/heymate unless you pick one."
                 )
             }
 
@@ -103,19 +104,19 @@ struct DesktopAgentsView: View {
             }
         }
         .confirmationDialog(
-            "Restore workspace from before the last agent?",
+            "Undo the last job?",
             isPresented: $isConfirmingUndo,
             titleVisibility: .visible
         ) {
-            Button("Undo last agent work", role: .destructive) {
+            Button("Undo last job", role: .destructive) {
                 companionManager.undoLastAgentWork()
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Current workspace is retained in Undo Ledger recovery before the previous version is restored.")
+            Text("The folder goes back to how it was before that job. A copy of what is there now is kept, just in case.")
         }
         .confirmationDialog(
-            "Take over this agent in Terminal?",
+            "Take over this job in Terminal?",
             isPresented: Binding(
                 get: { runPendingTerminalTakeover != nil },
                 set: { isPresented in
@@ -139,7 +140,7 @@ struct DesktopAgentsView: View {
             )
         }
         .confirmationDialog(
-            "Stop this agent?",
+            "Stop this job?",
             isPresented: Binding(
                 get: { runIDPendingCancel != nil },
                 set: { isPresented in
@@ -148,7 +149,7 @@ struct DesktopAgentsView: View {
             ),
             titleVisibility: .visible
         ) {
-            Button("Stop agent", role: .destructive) {
+            Button("Stop job", role: .destructive) {
                 if let runIDPendingCancel {
                     companionManager.cancelAgent(runID: runIDPendingCancel)
                 }
@@ -159,7 +160,7 @@ struct DesktopAgentsView: View {
             Text("Work already written in its folder stays.")
         }
         .confirmationDialog(
-            "Remove this run from HeyMate?",
+            "Remove this job from the list?",
             isPresented: Binding(
                 get: { runIDPendingRemoval != nil },
                 set: { isPresented in
@@ -196,10 +197,10 @@ struct DesktopAgentsView: View {
             }
             Button("Cancel", role: .cancel) { runIDPendingFolderTrash = nil }
         } message: {
-            Text("HeyMate then removes this run from the list. If the folder is already gone, the list entry stays.")
+            Text("HeyMate then removes this job from the list. If the folder is already gone, the list entry stays.")
         }
         .confirmationDialog(
-            "Restore this earlier agent snapshot?",
+            "Restore this earlier snapshot?",
             isPresented: Binding(
                 get: { undoEntryPendingRestore != nil },
                 set: { isPresented in
@@ -216,16 +217,16 @@ struct DesktopAgentsView: View {
             }
             Button("Cancel", role: .cancel) { undoEntryPendingRestore = nil }
         } message: {
-            Text("Current workspace is retained in Undo Ledger recovery before this snapshot is restored.")
+            Text("A copy of what is in the folder now is kept before this snapshot is restored.")
         }
     }
 
     private var subtitleText: String {
         let runningCount = activeRuns.count + runsNeedingAttention.count
         if runningCount > 0 {
-            return "\(runningCount) working. Talk answers now; agents do work over time."
+            return "\(runningCount) in progress. Chat answers now; jobs are work your mates do over time."
         }
-        return "Talk answers now. Agents do work over time, in their own folder."
+        return "Chat answers now. Jobs are work your mates do over time, in their own folder."
     }
 
     // MARK: Partitions
@@ -253,8 +254,8 @@ struct DesktopAgentsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 TextField(
                     attachedFolderURL == nil
-                        ? "What should the agent build?"
-                        : "What should the agent do in \(attachedFolderURL!.lastPathComponent)?",
+                        ? "Describe a job for HeyMate"
+                        : "What should HeyMate do in \(attachedFolderURL!.lastPathComponent)?",
                     text: $promptText,
                     axis: .vertical
                 )
@@ -305,7 +306,7 @@ struct DesktopAgentsView: View {
                         }
                         .buttonStyle(.plain)
                         .pointerCursor()
-                        .help("Back to a fresh sandbox folder")
+                        .help("Back to a new folder of its own")
                     }
 
                     Spacer(minLength: 0)
@@ -366,17 +367,20 @@ struct DesktopAgentsView: View {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.prompt = "Attach"
-        panel.message = "Pick the folder this agent may work in. Writes there will ask for your approval."
+        panel.message = "Pick the folder this job may work in. Changes there will ask for your approval."
         guard panel.runModal() == .OK, let chosenURL = panel.url else { return }
         attachedFolderURL = chosenURL
     }
 
-    // MARK: Standing Orders and Undo
+    // MARK: Suggestions and Undo
+    //
+    // Standing orders are shown to people as "Suggestions": rules for work
+    // HeyMate may offer when it notices a match, and never starts unasked.
 
     private func standingOrderProposalCard(_ proposal: StandingOrderProposal) -> some View {
         DesktopCard {
             VStack(alignment: .leading, spacing: 9) {
-                Label("Standing Order", systemImage: "bell.badge")
+                Label("Suggestion", systemImage: "bell.badge")
                     .font(DS.Fonts.statusWord)
                     .foregroundColor(DS.Colors.warningText)
                 Text(proposal.title)
@@ -386,7 +390,7 @@ struct DesktopAgentsView: View {
                     .font(DS.Fonts.body)
                     .foregroundColor(DS.Colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("May I look into this? Approval starts a read-only plan. Work still needs separate plan approval.")
+                Text("Want me to look into this? Saying yes only makes a plan. Nothing changes until you approve that plan too.")
                     .font(DS.Fonts.caption)
                     .foregroundColor(DS.Colors.textTertiary)
                 HStack(spacing: 8) {
@@ -399,20 +403,26 @@ struct DesktopAgentsView: View {
         }
     }
 
+    private var suggestionsSummary: String {
+        let count = companionManager.loadedStandingOrders.count
+        let saved = count == 1 ? "1 saved" : "\(count) saved"
+        return "\(saved) · HeyMate offers these jobs and never starts one unasked"
+    }
+
     private var standingOrdersAndUndoCard: some View {
         DesktopCard {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Standing Orders")
+                        Text("Suggestions")
                             .font(DS.Fonts.headline)
                             .foregroundColor(DS.Colors.textPrimary)
-                        Text("\(companionManager.loadedStandingOrders.count) Markdown rules · pre-planning off unless each file opts in")
+                        Text(suggestionsSummary)
                             .font(DS.Fonts.caption)
                             .foregroundColor(DS.Colors.textTertiary)
                     }
                     Spacer(minLength: 0)
-                    Button(isCreatingStandingOrder ? "Close" : "New order") {
+                    Button(isCreatingStandingOrder ? "Close" : "New suggestion") {
                         if isCreatingStandingOrder {
                             resetStandingOrderComposer()
                         } else {
@@ -430,7 +440,7 @@ struct DesktopAgentsView: View {
                 }
 
                 if companionManager.loadedStandingOrders.isEmpty {
-                    Text("No orders yet")
+                    Text("No suggestions yet. Add one and HeyMate will offer that job when it sees a match.")
                         .font(DS.Fonts.caption)
                         .foregroundColor(DS.Colors.textTertiary)
                 } else {
@@ -443,16 +453,16 @@ struct DesktopAgentsView: View {
 
                 HStack(spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Undo Ledger")
+                        Text("Undo")
                             .font(DS.Fonts.headline)
                             .foregroundColor(DS.Colors.textPrimary)
-                        Text(companionManager.latestAgentUndoEntry?.runTitle ?? "No completed agent snapshot")
+                        Text(companionManager.latestAgentUndoEntry?.runTitle ?? "Nothing to undo yet")
                             .font(DS.Fonts.caption)
                             .foregroundColor(DS.Colors.textTertiary)
                             .lineLimit(1)
                     }
                     Spacer(minLength: 0)
-                    Button("Undo last agent") { isConfirmingUndo = true }
+                    Button("Undo last job") { isConfirmingUndo = true }
                         .buttonStyle(DSSecondaryButtonStyle())
                         .disabled(companionManager.latestAgentUndoEntry == nil)
                 }
@@ -467,7 +477,7 @@ struct DesktopAgentsView: View {
             }
         }
         .confirmationDialog(
-            "Delete this standing order?",
+            "Delete this suggestion?",
             isPresented: Binding(
                 get: { standingOrderPendingDelete != nil },
                 set: { isPresented in
@@ -476,7 +486,7 @@ struct DesktopAgentsView: View {
             ),
             titleVisibility: .visible
         ) {
-            Button("Delete order", role: .destructive) {
+            Button("Delete suggestion", role: .destructive) {
                 guard let order = standingOrderPendingDelete else { return }
                 let didDelete = companionManager.deleteStandingOrder(order)
                 guard didDelete else { return }
@@ -486,7 +496,7 @@ struct DesktopAgentsView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes the Markdown file for \(standingOrderPendingDelete?.name ?? "this order"). HeyMate will stop offering the task.")
+            Text("This removes the Markdown file for \(standingOrderPendingDelete?.name ?? "this suggestion"). HeyMate will stop offering the task.")
         }
     }
 
@@ -508,7 +518,7 @@ struct DesktopAgentsView: View {
                 }
             }
         } else if snapshots.count == 1 {
-            Text("Only the latest agent snapshot can be restored.")
+            Text("Only the latest job can be undone.")
                 .font(DS.Fonts.caption)
                 .foregroundColor(DS.Colors.textTertiary)
         }
@@ -525,7 +535,7 @@ struct DesktopAgentsView: View {
     private var standingOrderComposer: some View {
         VStack(alignment: .leading, spacing: 8) {
             if editingStandingOrderID != nil {
-                Text("Editing this order rewrites its Markdown file.")
+                Text("Editing this suggestion rewrites its Markdown file.")
                     .font(DS.Fonts.caption)
                     .foregroundColor(DS.Colors.textTertiary)
             }
@@ -548,7 +558,7 @@ struct DesktopAgentsView: View {
                 .textFieldStyle(.roundedBorder)
             HStack {
                 Spacer(minLength: 0)
-                Button(editingStandingOrderID == nil ? "Save order" : "Save changes") {
+                Button(editingStandingOrderID == nil ? "Save suggestion" : "Save changes") {
                     saveStandingOrderFromComposer()
                 }
                 .buttonStyle(DSPrimaryButtonStyle())
@@ -707,7 +717,7 @@ struct DesktopAgentsView: View {
                     HStack(spacing: 6) {
                         Text(run.executor.displayName)
                         Text("·")
-                        Text(run.origin == .sandbox ? "Sandbox" : "Attached")
+                        Text(run.origin == .sandbox ? "Own folder" : "Your folder")
                         Text("·")
                         Text(run.workspaceURL.lastPathComponent)
                             .lineLimit(1)
@@ -1046,8 +1056,8 @@ struct DesktopAgentsView: View {
 
     private func conversationPlaceholder(for run: AgentRun) -> String {
         run.status == .awaitingPlanApproval
-            ? "Tell the agent what to change in its plan"
-            : "Message this agent…"
+            ? "Say what to change in the plan"
+            : "Message this job…"
     }
 
     private func conversationButtonLabel(for run: AgentRun) -> String {
@@ -1064,7 +1074,7 @@ struct DesktopAgentsView: View {
     private func activityLabel(_ kind: AgentActivityEntry.Kind) -> String {
         switch kind {
         case .user: return "You"
-        case .agent: return "Agent"
+        case .agent: return "Mate"
         case .progress: return "Work"
         case .status: return "Status"
         }
