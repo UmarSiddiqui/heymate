@@ -1,8 +1,12 @@
 # Builds HeyMate on every push to main that touches the app, and publishes it
 # as a GitHub Release with a downloadable HeyMate.dmg and grouped release notes.
 #
-# Builds are ad-hoc signed (no Apple certificates are stored in this repo or
-# its secrets). Users open the first launch with Control-click → Open.
+# Builds are signed with a self-signed certificate held in repo secrets
+# (HEYMATE_SIGNING_P12_BASE64 / HEYMATE_SIGNING_P12_PASSWORD). It is not an
+# Apple Developer ID, so users still open the first launch with
+# Control-click → Open, but every release carries the same designated
+# requirement and macOS keeps the user's permission grants across updates.
+# See .github/scripts/import-signing-identity.sh.
 #
 # Version: MARKETING_VERSION from the Xcode project + the workflow run number,
 # e.g. 1.0.7 → tag v1.0.7. Run it by hand from the Actions tab with
@@ -78,7 +82,16 @@ jobs:
           key: spm-${{ runner.os }}-${{ hashFiles('heymate/leanring-buddy.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-${{ runner.os }}-
 
-      - name: Build (universal, ad-hoc signed)
+      - name: Import the signing identity
+        id: signing
+        env:
+          HEYMATE_SIGNING_P12_BASE64: ${{ secrets.HEYMATE_SIGNING_P12_BASE64 }}
+          HEYMATE_SIGNING_P12_PASSWORD: ${{ secrets.HEYMATE_SIGNING_P12_PASSWORD }}
+        run: |
+          IDENTITY=$(.github/scripts/import-signing-identity.sh "$RUNNER_TEMP/heymate-signing.keychain-db")
+          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+
+      - name: Build (universal, self-signed)
         run: |
           xcodebuild \
             -project "$PROJECT" \
@@ -89,7 +102,7 @@ jobs:
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY=- \
+            CODE_SIGN_IDENTITY="${{ steps.signing.outputs.identity }}" \
             DEVELOPMENT_TEAM= \
             PROVISIONING_PROFILE_SPECIFIER= \
             MARKETING_VERSION="${{ steps.version.outputs.version }}" \
@@ -110,6 +123,9 @@ jobs:
           source heymate/script/code_signature_checks.sh
           heymate_verify_embedded_agent_runner "$APP" release
           codesign --verify --deep --strict --verbose=2 "$APP"
+          # Permissions survive updates only while this requirement stays put.
+          codesign -dr - "$APP" 2>&1 | grep -q 'certificate root = H"a5bc67c8702a1027e762f26cf4f3400686fe7d5e"' \
+            || { echo "::error::HeyMate is not signed with the HeyMate Open Source Signing certificate"; codesign -dr - "$APP"; exit 1; }
           lipo -archs "$APP/Contents/MacOS/$APP_NAME"
           /usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Contents/Info.plist"
 
@@ -197,6 +213,10 @@ jobs:
             --title "HeyMate ${{ steps.version.outputs.version }}" \
             --notes-file notes.md \
             --latest
+
+      - name: Remove the signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/heymate-signing.keychain-db" 2>/dev/null || true
 
       - name: Keep the build log on failure
         if: failure()
