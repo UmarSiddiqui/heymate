@@ -3608,6 +3608,7 @@ final class CompanionManager: ObservableObject {
                 if let topicAnchor = Self.topicAnchorPromptFragment(mostRecentExchange: historyForAPI.last) {
                     promptParts.append(topicAnchor)
                 }
+                promptParts.append(contentsOf: await macAccountContextBlocks(for: transcript))
                 if !imageAttachments.isEmpty {
                     promptParts.append(
                         "The user explicitly attached \(imageAttachments.count) image(s). Analyze those attachments as primary context. They are not live screens, so never emit pointer coordinates for them."

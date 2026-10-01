@@ -31,6 +31,9 @@ struct DesktopConnectorsView: View {
     @State private var isShowingAPIContractHelp = false
     @State private var disconnectPrompt: DisconnectPrompt?
     @State private var commandRemovalPrompt: Connector?
+    /// Nil until Calendar access is known; then whether a Google account's
+    /// calendars are syncing into this Mac.
+    @State private var googleAccountOnMac: Bool?
 
     var body: some View {
         DesktopPage(
@@ -286,6 +289,8 @@ struct DesktopConnectorsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 sectionHeader(title: "Mac apps", subtitle: "Work right away. No account or key needed")
 
+                googleAccountCard
+
                 LazyVGrid(
                     columns: [GridItem(.adaptive(minimum: 250, maximum: 360), spacing: 10)],
                     spacing: 10
@@ -309,6 +314,51 @@ struct DesktopConnectorsView: View {
                 connectors: localTools
             )
         }
+    }
+
+    /// Gmail and Google Calendar the free way: the user adds Google to
+    /// macOS once, and HeyMate reads it through Mail and Calendar. See
+    /// `MacAccountContext`.
+    private var googleAccountCard: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "person.crop.circle.badge.plus")
+                .font(.system(size: 18, weight: .medium))
+                .frame(width: 38, height: 38)
+                .background(DS.Colors.surface3, in: RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous))
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Gmail and Google Calendar")
+                    .font(DS.Fonts.headline)
+                    .foregroundColor(DS.Colors.textPrimary)
+                Text(googleAccountDetail)
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            if googleAccountOnMac == true {
+                Label("On this Mac", systemImage: "checkmark.circle.fill")
+                    .font(DS.Fonts.statusWord)
+                    .foregroundColor(DS.Colors.success)
+            } else {
+                Button("Add Google account") {
+                    MacAccountContext.openInternetAccountsSettings()
+                }
+                .buttonStyle(DSPrimaryButtonStyle())
+            }
+        }
+        .padding(12)
+        .dsCard()
+        .onAppear { googleAccountOnMac = MacAccountContext.hasGoogleCalendarAccount() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            googleAccountOnMac = MacAccountContext.hasGoogleCalendarAccount()
+        }
+    }
+
+    private var googleAccountDetail: String {
+        if googleAccountOnMac == true {
+            return "Your Google account syncs into Calendar and Mail. Turn those on below and ask about your schedule or inbox."
+        }
+        return "Add Google once in System Settings → Internet Accounts, then turn on Calendar and Mail below. Free, no key, and HeyMate never holds your Google password."
     }
 
     @ViewBuilder

@@ -26,7 +26,7 @@ enum ConnectorCatalog {
         Connector(
             id: "apple-calendar",
             displayName: "Apple Calendar",
-            summary: "Read your schedule and create events with EventKit.",
+            summary: "Your schedule, including Google calendars added to this Mac in Internet Accounts.",
             category: .appleBuiltIn,
             transport: .appleNative,
             symbolName: "calendar",
@@ -66,7 +66,7 @@ enum ConnectorCatalog {
         Connector(
             id: "apple-mail",
             displayName: "Mail",
-            summary: "Draft in Mail.app. Sending always asks first.",
+            summary: "Your newest mail, including Gmail added to this Mac. Sending always asks first.",
             category: .appleBuiltIn,
             transport: .appleNative,
             symbolName: "envelope",
