@@ -558,6 +558,9 @@ struct DesktopMemoryView: View {
 
 struct DesktopPrivacyView: View {
     @ObservedObject var companionManager: CompanionManager
+    /// Extra cards appended below the privacy facts. Settings › Privacy uses
+    /// it for the erase-local-data card; the sidebar page passes nothing.
+    var trailingContent: AnyView? = nil
     @State private var newBundleIdentifier = ""
 
     var body: some View {
@@ -621,6 +624,10 @@ struct DesktopPrivacyView: View {
                     privacyFact("Clipboard history", "In memory only, cleared when HeyMate quits.")
                     privacyFact("Connector keys", "macOS Keychain, this device only.")
                 }
+            }
+
+            if let trailingContent {
+                trailingContent
             }
         }
     }
