@@ -1123,6 +1123,14 @@ final class CompanionManager: ObservableObject {
     func setSelectedBrain(_ brain: AgentBrain) {
         selectedBrain = brain
         rebuildOpenCodeClient()
+        ClaudeWarmTalkPool.shared.drain()
+    }
+
+    /// Starts the Claude child the next Talk question will use, if Claude
+    /// answers Talk. A warm child whose model or tools no longer match is
+    /// replaced, so a stale one is never handed a turn.
+    func prewarmTalkEngine() {
+        (activeConversationClient as? SubscriptionCLIVisionClient)?.prewarm()
     }
 
     func setSelectedClaudeModel(_ choice: ClaudeModelChoice) {
@@ -2564,6 +2572,8 @@ final class CompanionManager: ObservableObject {
                     self.dispatch(.finishListening)
                 } else if isRecording {
                     self.dispatch(.startListening(self.inputModeOfActiveSession))
+                    // The seconds spent speaking cover the CLI's boot.
+                    self.prewarmTalkEngine()
                 } else if !self.state.isIdle && self.currentResponseTask == nil {
                     // Recording stopped without producing a response — e.g.
                     // the user pressed and released without saying anything.

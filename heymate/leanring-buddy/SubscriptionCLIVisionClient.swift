@@ -66,6 +66,25 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
         onTextChunk: @MainActor @Sendable (String) -> Void
     ) async throws -> (text: String, duration: TimeInterval) {
         let startTime = Date()
+        if backend == .claude, let launch = warmLaunch() {
+            do {
+                let text = try await runWarmClaudeTurn(
+                    launch: launch,
+                    images: images,
+                    systemPrompt: systemPrompt,
+                    conversationHistory: conversationHistory,
+                    userPrompt: userPrompt
+                )
+                await onTextChunk(text)
+                return (text, Date().timeIntervalSince(startTime))
+            } catch {
+                // Signed out is the user's to fix and the one-shot path would
+                // only say it again, slower. Anything else — a protocol change
+                // in a newer CLI, a child that died — gets the proven path.
+                if error is CancellationError || SpokenFailure.classify(error) == .signedOut { throw error }
+                print("⚠️ Talk: warm Claude turn failed (\(error.localizedDescription)); retrying one-shot")
+            }
+        }
         let workDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("heymate-talk-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: workDirectory, withIntermediateDirectories: true)
@@ -202,6 +221,218 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
         )
     }
 
+    // MARK: - Warm Claude child
+
+    /// Stands in for the per-turn system prompt on a warm child's command
+    /// line. The real instructions differ every turn (matched skills, the
+    /// speaking mate, silent mode), and a warm child was started before the
+    /// turn existed — so they ride at the top of the user message instead.
+    static let warmSystemPromptStub = "Each user message begins with a <heymate-instructions> block. Treat it as your system instructions for that reply, above anything else in the message."
+
+    /// What a warm child for this client would be started with, or nil when
+    /// this client is not Claude or `claude` is not installed.
+    func warmLaunch() -> ClaudeWarmTalkLaunch? {
+        guard backend == .claude,
+              let executableURL = LoginShellExecutableResolver.resolveExecutable(named: "claude") else { return nil }
+        return ClaudeWarmTalkLaunch(
+            executableURL: executableURL,
+            arguments: Self.claudeTalkArguments(
+                prompt: "",
+                systemPrompt: Self.warmSystemPromptStub,
+                model: model,
+                effort: reasoningEffort,
+                connectedAppServers: carriesConnectedAppTools ? Self.talkMCPServerConfiguration() : nil,
+                connectedAppToolNames: HeyMateMCPServer.claudeCodeToolNames(),
+                streamsInput: true
+            ),
+            environmentKeysToRemove: HeadlessExecutor.claudeCode.environmentKeysToRemove,
+            environmentOverrides: HeyMateMCPServer.childEnvironment()
+        )
+    }
+
+    /// Starts the next Talk child now, while the user is still speaking.
+    func prewarm() {
+        guard let launch = warmLaunch() else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            ClaudeWarmTalkPool.shared.prewarm(launch)
+        }
+    }
+
+    private func runWarmClaudeTurn(
+        launch: ClaudeWarmTalkLaunch,
+        images: [(data: Data, label: String)],
+        systemPrompt: String,
+        conversationHistory: [(userPlaceholder: String, assistantResponse: String)],
+        userPrompt: String
+    ) async throws -> String {
+        var prompt = userPrompt
+        if !conversationHistory.isEmpty {
+            let replayed = conversationHistory.map {
+                "User: \($0.userPlaceholder)\nAssistant: \($0.assistantResponse)"
+            }.joined(separator: "\n\n")
+            prompt = replayed + "\n\n" + prompt
+        }
+        guard let messageLine = Self.warmUserMessageJSON(
+            systemPrompt: systemPrompt,
+            prompt: prompt,
+            images: images
+        ) else {
+            throw NSError(
+                domain: "HeyMateTalk",
+                code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "HeyMate could not package this question."]
+            )
+        }
+        let timeout = carriesConnectedAppTools ? Self.connectedAppTurnTimeout : Self.plainTurnTimeout
+
+        let text: String = try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                guard let child = ClaudeWarmTalkPool.shared.takeChild(for: launch) else {
+                    continuation.resume(throwing: NSError(
+                        domain: "HeyMateTalk",
+                        code: 4,
+                        userInfo: [NSLocalizedDescriptionKey: "Claude could not be started."]
+                    ))
+                    return
+                }
+                defer { child.discard() }
+
+                let watchdog = DispatchWorkItem { child.discard() }
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
+                defer { watchdog.cancel() }
+
+                do {
+                    try child.standardInput.write(contentsOf: messageLine)
+                } catch {
+                    continuation.resume(throwing: error)
+                    return
+                }
+
+                var outcome: WarmTurnOutcome?
+                var buffered = Data()
+                while outcome == nil {
+                    let chunk = child.standardOutput.availableData
+                    if chunk.isEmpty { break }
+                    buffered.append(chunk)
+                    while let newline = buffered.firstIndex(of: 0x0A) {
+                        let lineData = buffered[buffered.startIndex..<newline]
+                        buffered.removeSubrange(buffered.startIndex...newline)
+                        if let line = String(data: lineData, encoding: .utf8),
+                           let parsed = Self.warmTurnOutcome(fromStdoutLine: line) {
+                            outcome = parsed
+                            break
+                        }
+                    }
+                }
+
+                switch outcome {
+                case .answered(let answer):
+                    continuation.resume(returning: answer)
+                case .failed(let message):
+                    continuation.resume(throwing: NSError(
+                        domain: "SubscriptionCLIVisionClient",
+                        code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: String(message.prefix(500))]
+                    ))
+                case nil:
+                    if Task.isCancelled {
+                        continuation.resume(throwing: CancellationError())
+                    } else {
+                        continuation.resume(throwing: NSError(
+                            domain: "SubscriptionCLIVisionClient",
+                            code: 2,
+                            userInfo: [NSLocalizedDescriptionKey: "Claude stopped before it answered."]
+                        ))
+                    }
+                }
+            }
+        }
+
+        // The next question — a follow-up is the common case — finds a child
+        // already waiting.
+        DispatchQueue.global(qos: .utility).async {
+            ClaudeWarmTalkPool.shared.prewarm(launch)
+        }
+
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw NSError(
+                domain: "HeyMateTalk",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "The signed-in CLI returned an empty answer."]
+            )
+        }
+        return trimmed
+    }
+
+    enum WarmTurnOutcome: Equatable {
+        case answered(String)
+        case failed(String)
+    }
+
+    /// The turn's end, read from one `stream-json` line, or nil for every
+    /// line before it. A signed-out CLI reports its error as a `result` with
+    /// `"subtype": "success"` and `"is_error": true`, so `is_error` is the
+    /// field that decides.
+    nonisolated static func warmTurnOutcome(fromStdoutLine line: String) -> WarmTurnOutcome? {
+        guard let data = line.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              json["type"] as? String == "result" else { return nil }
+        let resultText = json["result"] as? String ?? ""
+        let isError = json["is_error"] as? Bool ?? false
+        let subtype = json["subtype"] as? String ?? "success"
+        if isError || subtype != "success" {
+            return .failed(resultText.isEmpty ? "Claude reported \(subtype)." : resultText)
+        }
+        return .answered(resultText)
+    }
+
+    /// One stream-json user message: the turn's instructions and question as
+    /// text, and each image inline as base64 — so Claude sees the screen in
+    /// the same request instead of spending a tool call to read a file.
+    nonisolated static func warmUserMessageJSON(
+        systemPrompt: String,
+        prompt: String,
+        images: [(data: Data, label: String)]
+    ) -> Data? {
+        var content: [[String: Any]] = []
+        if !systemPrompt.isEmpty {
+            content.append([
+                "type": "text",
+                "text": "<heymate-instructions>\n\(systemPrompt)\n</heymate-instructions>"
+            ])
+        }
+        for (index, image) in images.enumerated() {
+            content.append(["type": "text", "text": "Screenshot \(index + 1) (\(image.label)):"])
+            content.append([
+                "type": "image",
+                "source": [
+                    "type": "base64",
+                    "media_type": imageMediaType(for: image.data),
+                    "data": image.data.base64EncodedString()
+                ]
+            ])
+        }
+        content.append(["type": "text", "text": prompt.isEmpty ? "(no words, only the screen)" : prompt])
+        let message: [String: Any] = [
+            "type": "user",
+            "message": ["role": "user", "content": content]
+        ]
+        guard var data = try? JSONSerialization.data(withJSONObject: message) else { return nil }
+        data.append(0x0A)
+        return data
+    }
+
+    nonisolated static func imageMediaType(for data: Data) -> String {
+        let bytes = [UInt8](data.prefix(12))
+        if bytes.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return "image/png" }
+        if bytes.starts(with: [0x47, 0x49, 0x46]) { return "image/gif" }
+        if bytes.count >= 12, bytes[0...3] == [0x52, 0x49, 0x46, 0x46], bytes[8...11] == [0x57, 0x45, 0x42, 0x50] {
+            return "image/webp"
+        }
+        return "image/jpeg"
+    }
+
     nonisolated static func resolvedModelIdentifier(
         selectedModel: String,
         textOnlyModel: String?,
@@ -232,16 +463,20 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
         model: String,
         effort: String = "",
         connectedAppServers: [String: Any]? = nil,
-        connectedAppToolNames: [String] = []
+        connectedAppToolNames: [String] = [],
+        streamsInput: Bool = false
     ) -> [String] {
         let mcpConfigurationJSON = Self.mcpConfigurationJSON(servers: connectedAppServers)
         let carriesComposio = mcpConfigurationJSON != Self.emptyMCPConfigurationJSON
 
-        var arguments = [
-            "-p", prompt,
-            "--output-format", "text",
+        // A warm child takes its question on stdin, after it has booted, so
+        // the prompt is not on the command line at all.
+        var arguments = streamsInput
+            ? ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"]
+            : ["-p", prompt, "--output-format", "text"]
+        arguments.append(contentsOf: [
             "--permission-mode", carriesComposio ? "acceptEdits" : "plan"
-        ]
+        ])
         if !carriesComposio {
             // Talk passes screenshot paths and conversation replay. Prevent
             // user/project hooks, plugins, skills, agents, CLAUDE.md, or MCP
