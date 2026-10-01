@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>How to use HeyMate as a developer, designer, or learner — HeyMate</title>
+  <meta name="description" content="A practical guide to using HeyMate, the AI buddy in your Mac notch, for development, design work, and learning something new: real prompts, real workflows, and how to set up mates.">
+  <meta name="theme-color" content="#f5f5f7">
+  <link rel="canonical" href="https://getheymate.vercel.app/how-to-use-heymate">
+  <link rel="icon" href="assets/img/icon/favicon-32.png" type="image/png">
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/sections.css">
+  <link rel="stylesheet" href="css/motion.css">
+  <script>document.documentElement.classList.add("js")</script>
+  <!-- Hotjar Tracking Code for HeyMate -->
+  <script>
+    (function(h,o,t,j,a,r){
+      h.hj=h.hj||function(){(h.hj.q=h.hj.q||[]).push(arguments)};
+      h._hjSettings={hjid:6785426,hjsv:6};
+      a=o.getElementsByTagName('head')[0];
+      r=o.createElement('script');r.async=1;
+      r.src=t+h._hjSettings.hjid+j+h._hjSettings.hjsv;
+      a.appendChild(r);
+    })(window,document,'https://static.hotjar.com/c/hotjar-','.js?sv=');
+  </script>
+</head>
+<body>
+  <header class="nav scrolled">
+    <a class="brand" href="index.html">
+      <img src="assets/img/icon/favicon-32.png" alt="" width="20" height="20">
+      HeyMate
+    </a>
+    <nav class="nav-links" aria-label="Primary">
+      <a href="index.html#overview">Overview</a>
+      <a href="index.html#mates">Mates</a>
+      <a href="index.html#agents">Agents</a>
+      <a href="privacy.html">Privacy</a>
+      <a data-github href="https://github.com/UmarSiddiqui/heymate">GitHub</a>
+    </nav>
+    <a class="btn btn-pill nav-cta" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download free</a>
+    <button class="menu-btn" type="button" aria-expanded="false">Menu</button>
+    <div class="nav-sheet">
+      <a href="index.html#overview">Overview</a>
+      <a href="index.html#mates">Mates</a>
+      <a href="index.html#agents">Agents</a>
+      <a href="privacy.html">Privacy</a>
+      <a data-github href="https://github.com/UmarSiddiqui/heymate">GitHub</a>
+      <a data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download free</a>
+    </div>
+  </header>
+
+  <main class="prose">
+    <div class="wrap-narrow">
+      <p class="eyebrow">Guide · 9 min read</p>
+      <h1>How to use HeyMate as a developer, designer, or learner.</h1>
+      <p>HeyMate is a free, open-source AI buddy that lives in your Mac's notch. Hold <kbd>⌃</kbd> <kbd>⌥</kbd>, ask about anything on your screen, and it answers out loud while its cursor points at what it means. It can also hand real work to Claude Code, Codex, or OpenCode, on the subscription you already pay for.</p>
+      <p>That is the whole pitch. This guide is about what to do with it on a normal working day, whether you write code, push pixels, or are trying to learn something you know nothing about yet.</p>
+
+      <h2>The one habit that matters</h2>
+      <p>Stop copying things into a chat box. Keep working, hold the hotkey, and ask the question out loud while the thing is on your screen. HeyMate takes one screenshot when your question needs it, sends it with your words to the model you chose, and deletes it after the answer. Text-only questions skip the screenshot entirely.</p>
+      <p>Everything below is a variation on that habit. Ask first, and only then decide whether the answer should turn into work.</p>
+
+      <h2>Set up in five minutes</h2>
+      <ol>
+        <li>Install: <code>curl -fsSL https://getheymate.vercel.app/install.sh | bash</code></li>
+        <li>Sign in to one CLI you already use: <code>claude auth login --claudeai</code>, <code>codex login</code>, or <code>opencode auth login</code>.</li>
+        <li>Pick that brain with the model chip in the notch and grant Microphone, Accessibility, and Screen Recording. <a href="permissions.html">Here is why each one is needed.</a></li>
+        <li>Hold <kbd>⌃</kbd> <kbd>⌥</kbd> and say hey.</li>
+      </ol>
+
+      <h2>For developers</h2>
+
+      <h3>1. Ask about the thing you are staring at</h3>
+      <p>A stack trace in the terminal, a failing CI page, an unfamiliar function in a PR. Hold the hotkey and ask:</p>
+      <ul>
+        <li>"What is this error actually telling me?"</li>
+        <li>"Why is this test flaky, based on what is on screen?"</li>
+        <li>"Walk me through what this function does, top to bottom."</li>
+      </ul>
+      <p>You get a spoken answer and a cursor pointing at the exact line, so you never lose your place in the editor. There is also a built-in <em>code explainer</em> skill for longer walkthroughs.</p>
+
+      <h3>2. Hand off work behind an approval gate</h3>
+      <p>Say "HeyMate agent, add dark mode to this project" or "fix the failing auth test". HeyMate does not just start. The flow is always the same:</p>
+      <ol>
+        <li>The selected CLI reads the task and the workspace with writes disabled and drafts a plan.</li>
+        <li>HeyMate shows you the plan and waits.</li>
+        <li>You approve. HeyMate takes an undo snapshot, resumes the same CLI session, and lets it write.</li>
+      </ol>
+      <p>Approved work runs in a helper process, so it keeps going if you quit the app. When it finishes you get a completion receipt, and if you do not like the result, undo restores the snapshot. For work you want to watch, take over in Terminal.</p>
+      <p>Practical rules that make this work well:</p>
+      <ul>
+        <li>Give one outcome per job. "Add a retry to the upload client and a test for it" beats "improve the upload code".</li>
+        <li>Read the plan. The plan is the cheap place to catch a wrong assumption.</li>
+        <li>Use Claude Code or Codex when the job must build or run tests. OpenCode jobs can edit files but cannot run shell commands.</li>
+        <li>Point jobs at an existing project folder when the work belongs in your repo. Otherwise HeyMate makes a sandbox folder under <code>~/Projects/heymate</code>.</li>
+      </ul>
+
+      <h3>3. Give each part of your project its own mate</h3>
+      <p>A <strong>mate</strong> is a lasting helper with a name, a job, a personality, its own memory, and a workspace folder. You can create one by saying "make me a mate that reviews my Swift diffs", or from the Mates window where you can also set its brain and folder. Mates are good when a role repeats:</p>
+      <ul>
+        <li><strong>Release captain.</strong> Checks whether the last CI release finished, whether the download asset exists, and reminds you of the manual step you always forget.</li>
+        <li><strong>Reviewer.</strong> Pointed at your repo, it reads before it proposes, and its memory remembers the conventions you keep correcting.</li>
+        <li><strong>Docs writer.</strong> Drafts changelog notes and README changes, and never publishes them.</li>
+      </ul>
+      <p>Because each mate keeps its own chat, memory, and folder, a question to the reviewer does not pollute your release notes.</p>
+
+      <h3>4. Put the boring checks on a routine</h3>
+      <p>A routine runs a mate's task daily at a time you choose, or every N hours, and the result lands in that mate's chat. Good first routines are read-only: "every morning, summarize new issues and failing builds" or "every 6 hours, check the release workflow and tell me only if it is red". Missed runs collapse into one, so you never come back to a backlog, and a routine pauses itself after repeated failures.</p>
+
+      <h3>5. Let Standing Orders propose, never start</h3>
+      <p>Standing Orders are rules you give HeyMate such as "when a build fails on screen, offer to investigate". HeyMate proposes work when a rule matches, but it never starts anything unasked. You stay the approver.</p>
+
+      <h3>6. Plug in the tools you already use</h3>
+      <p>Connectors cover Apple Calendar, Reminders, Notes, Mail, Messages, and Shortcuts, plus local CLIs such as <code>gh</code>, <code>git</code>, <code>docker</code>, <code>kubectl</code>, <code>vercel</code>, <code>supabase</code>, and <code>stripe</code> using your own logins, any MCP server, and 1,400+ toolkits through Composio. Reads run quietly. Anything that sends, deletes, or pays asks first.</p>
+
+      <h2>For designers</h2>
+
+      <h3>1. Get a critique without leaving the canvas</h3>
+      <p>Open your Figma frame or a live page and ask "what would you change about the hierarchy here?" or "is this contrast readable?". The built-in <em>UI design critique</em> skill gives structured feedback, and the cursor points at the exact element it is talking about, which is faster than reading a paragraph of description.</p>
+
+      <h3>2. Learn the tool while you use it</h3>
+      <p>"Where do I set up auto layout on this frame?" "How do I make this a variant?" Because HeyMate sees the real screen and asks macOS for the real button position, it points at the control instead of describing where it probably is. The <em>screen walkthrough</em> skill steps through unfamiliar apps one click at a time.</p>
+
+      <h3>3. Bridge to engineering</h3>
+      <p>When a design needs to exist in code, describe the outcome and let an agent plan it: "build this card component to match the design on screen, using the tokens in this project". Read the plan, approve, and check the result in your browser. Keep a <strong>design QA mate</strong> pointed at the front-end folder with one instruction in its soul: flag anything that uses a color, size, or font outside the token file.</p>
+
+      <h3>4. Keep the boring writing off your plate</h3>
+      <p>Microcopy, alt text, release notes for a design system. Dictation puts your spoken words into the field you are typing in, and a writer mate can polish them with your voice guidelines in its memory.</p>
+
+      <h2>For learning something new</h2>
+
+      <h3>1. Point at what confuses you</h3>
+      <p>Reading a tutorial, a paper, a spreadsheet, or a settings screen you do not understand? Hold the hotkey and ask "explain this like I have never seen it before", then "what should I learn first?". It answers about the page in front of you, not a generic version of the topic.</p>
+
+      <h3>2. Make a tutor mate</h3>
+      <p>Create a mate whose job is teaching one subject: "ask what I already know, explain with one small example at a time, quiz me, and keep notes". Its memory and folder persist, so next week it remembers what you got wrong. A built-in <em>study tutor</em> skill covers the same pattern if you do not want a dedicated mate.</p>
+
+      <h3>3. Learn by doing, with a safety net</h3>
+      <p>Want to understand a new framework? Ask an agent to build a tiny example in a sandbox folder, read the plan so you learn what it intends, approve, then open the result and ask about each file. Nothing touches your real projects, and you can undo.</p>
+
+      <h3>4. Put a review on a schedule</h3>
+      <p>A daily routine like "at 8am, give me three questions on what I studied yesterday" turns one-off reading into something that sticks.</p>
+
+      <h2>What HeyMate will not do</h2>
+      <ul>
+        <li>It will not write, send, click, or delete anything without your approval.</li>
+        <li>It will not run in the background watching you. It takes a screenshot only when you press the hotkey and the question needs it, and never stores it.</li>
+        <li>It will not bill you. There is no HeyMate account. It uses your own Claude, Codex, or OpenCode sign-in, and strips API-key variables from those processes so a stray key cannot switch you to metered billing.</li>
+        <li>It is not a sandbox. Coding CLIs run as your macOS user, and plan mode limits writes, not reads. Read the <a href="permissions.html">permissions page</a> and the <a href="privacy.html">privacy notes</a>.</li>
+      </ul>
+
+      <h2>Start small</h2>
+      <p>Install it, ask one question about whatever is on your screen right now, and see whether the answer saved you a context switch. Then create one mate for the job you repeat most. That is enough to know if it fits.</p>
+      <p><a class="btn btn-pill" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download free</a></p>
+      <p>Questions, bugs, or ideas? <a href="https://github.com/UmarSiddiqui/heymate/issues/new/choose">Open an issue</a> or email <a href="mailto:umarsiddiqui3037+heymate@gmail.com?subject=HeyMate">umarsiddiqui3037+heymate@gmail.com</a>.</p>
+      <p><a href="index.html">Back to HeyMate</a></p>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap">
+      <p class="legal">© 2026 HeyMate. Not affiliated with Apple, Anthropic, or OpenAI.</p>
+    </div>
+  </footer>
+  <script src="js/config.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

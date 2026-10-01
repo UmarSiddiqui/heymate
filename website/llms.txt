@@ -9,6 +9,7 @@
 - 38-second demo video: https://getheymate.vercel.app/assets/video/heymate-demo-v2.mp4
 - Privacy notes: https://getheymate.vercel.app/privacy
 - Permissions explained: https://getheymate.vercel.app/permissions
+- Guide for developers, designers, and learners: https://getheymate.vercel.app/how-to-use-heymate
 
 ## Key facts
 
