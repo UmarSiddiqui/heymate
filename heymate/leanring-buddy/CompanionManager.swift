@@ -377,6 +377,23 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    /// No mic, no speaker: the Talk shortcut opens the typed composer and
+    /// replies are read instead of heard. See SilentMode.swift.
+    @Published var isSilentModeEnabled: Bool = SilentModePreferences.isEnabled {
+        didSet {
+            guard isSilentModeEnabled != oldValue else { return }
+            SilentModePreferences.isEnabled = isSilentModeEnabled
+            if isSilentModeEnabled {
+                // Going quiet mid-answer should be quiet now, not after
+                // the current sentence finishes.
+                voiceSynthesisClient.stopPlayback()
+                if handsFreeSilenceCancellable != nil {
+                    finishHandsFreeTurn()
+                }
+            }
+        }
+    }
+
     /// Color picked on onboarding (and later in Models). One accent for the
     /// cursor and buttons.
     @Published var themeColorHex: String = AppTheme.resolvedHex(
@@ -1193,12 +1210,14 @@ final class CompanionManager: ObservableObject {
         for provider: VoiceSpeakProvider,
         workerBaseURL: String
     ) -> any TTSClient {
+        let providerClient: any TTSClient
         switch provider {
         case .macOS:
-            return MacOSSpeechSynthesizerClient()
+            providerClient = MacOSSpeechSynthesizerClient()
         case .elevenLabs:
-            return ElevenLabsTTSClient(proxyURL: "\(workerBaseURL)/tts")
+            providerClient = ElevenLabsTTSClient(proxyURL: "\(workerBaseURL)/tts")
         }
+        return SilentModeAwareTTSClient(wrapping: providerClient)
     }
 
     /// Applies a model picked in the panel or Settings. Both fields go through
@@ -2583,11 +2602,25 @@ final class CompanionManager: ObservableObject {
         notchCompanionController.toggleCompactChat()
     }
 
+    /// Silent mode: the voice shortcuts still summon HeyMate, but into the
+    /// typed composer. Any answer still being spoken is cut off, the same way
+    /// pressing Talk interrupts one.
+    private func openTypedComposerForSilentMode() {
+        guard !buddyDictationManager.isDictationInProgress else { return }
+        voiceSynthesisClient.stopPlayback()
+        notchCompanionController.toggleCompactChat()
+    }
+
     /// Hands-free: same talk turn as push-to-talk, but nothing is being held,
     /// so the turn has to end itself. A second double tap ends it early.
     private func handleHandsFreeDoubleTap() {
         if handsFreeSilenceCancellable != nil {
             finishHandsFreeTurn()
+            return
+        }
+
+        if isSilentModeEnabled {
+            openTypedComposerForSilentMode()
             return
         }
 
@@ -2965,6 +2998,10 @@ final class CompanionManager: ObservableObject {
     private func handleShortcutTransition(_ transition: BuddyPushToTalkShortcut.ShortcutTransition) {
         switch transition {
         case .pressed:
+            if isSilentModeEnabled {
+                openTypedComposerForSilentMode()
+                return
+            }
             guard !buddyDictationManager.isDictationInProgress else { return }
 
             // A new interaction wins over a recall already in flight. Overlay
@@ -3028,6 +3065,13 @@ final class CompanionManager: ObservableObject {
                 )
             }
         case .released:
+            // Silent mode opened the composer on press; there is no recording
+            // to stop. A turn already recording when silent mode was switched
+            // on still finishes normally.
+            if isSilentModeEnabled && !buddyDictationManager.isDictationInProgress
+                && pendingKeyboardShortcutStartTask == nil {
+                return
+            }
             // Cancel the pending start task in case the user released the shortcut
             // before the async startPushToTalk had a chance to begin recording.
             // Without this, a quick press-and-release drops the release event and
@@ -3184,6 +3228,12 @@ final class CompanionManager: ObservableObject {
 
         case .checkForUpdates:
             AppUpdateController.shared.checkForUpdates()
+
+        case .silent:
+            isSilentModeEnabled.toggle()
+            commandBarFeedback = isSilentModeEnabled
+                ? "Silent mode on. Your Talk shortcut opens this box, and replies stay on screen."
+                : "Silent mode off. Talk listens and answers out loud again."
 
         case .chat, .agents, .connectors, .skills, .memory, .privacy, .settings, .notch:
             // Handled by the desktopSection branch above.
@@ -3665,14 +3715,15 @@ final class CompanionManager: ObservableObject {
                 } else {
                     // A turn typed in the window is read, not heard, so an
                     // expired login has to say what to do in the chat too.
-                    if SpokenFailure.classify(error) == .signedOut {
+                    let failure = SpokenFailure.classify(error)
+                    if failure == .signedOut {
                         appendAssistantMessage(
                             "\(selectedBrain.displayName) needs you to sign in again. "
                             + "Open Settings → Brain to sign in, or switch this mate to another engine "
                             + "from the menu under the message box."
                         )
                     }
-                    speakPipelineFailure(error)
+                    speak(failure, isAlreadyShownInChat: failure == .signedOut)
                     isSubscriptionVoiceChatActive = false
                 }
             }
@@ -3864,8 +3915,16 @@ final class CompanionManager: ObservableObject {
         speak(SpokenFailure.classify(error))
     }
 
-    private func speak(_ failure: SpokenFailure) {
+    private func speak(_ failure: SpokenFailure, isAlreadyShownInChat: Bool = false) {
         guard let utterance = failure.spokenUtterance else { return }
+        // Silent mode never speaks, so a failure has to be read instead of
+        // vanishing — the user is looking at the chat, not listening.
+        if isSilentModeEnabled {
+            if !isAlreadyShownInChat {
+                appendAssistantMessage(utterance)
+            }
+            return
+        }
         Task { [weak self] in
             guard let self else { return }
             do {

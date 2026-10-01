@@ -255,6 +255,11 @@ extension CompanionManager {
     }
 
     private func speakExternalControlText(_ text: String) -> HeyMateExternalControlResponse {
+        // Silent mode is a promise HeyMate makes no sound, including when
+        // another tool asks it to speak.
+        if isSilentModeEnabled {
+            return .accepted(["speaking": false, "silentMode": true, "textLength": text.count])
+        }
         let client: any TTSClient
         switch selectedSpeakProvider {
         case .macOS:

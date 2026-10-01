@@ -27,6 +27,7 @@ nonisolated enum SlashCommand: String, CaseIterable, Identifiable {
     case notch
     case clearMemory = "memory-clear"
     case checkForUpdates = "updates"
+    case silent
 
     var id: String { rawValue }
 
@@ -45,6 +46,7 @@ nonisolated enum SlashCommand: String, CaseIterable, Identifiable {
         case .notch: return ["notch"]
         case .clearMemory: return ["memory-clear", "forget"]
         case .checkForUpdates: return ["updates", "update"]
+        case .silent: return ["silent", "quiet"]
         }
     }
 
@@ -61,6 +63,7 @@ nonisolated enum SlashCommand: String, CaseIterable, Identifiable {
         case .notch: return "Open notch micro-app settings"
         case .clearMemory: return "Delete everything HeyMate remembers"
         case .checkForUpdates: return "Check for a new version"
+        case .silent: return "Turn silent mode on or off — type instead of talk"
         }
     }
 
@@ -75,7 +78,7 @@ nonisolated enum SlashCommand: String, CaseIterable, Identifiable {
         case .privacy: return .privacy
         case .settings: return .settings
         case .notch: return .notch
-        case .help, .clearMemory, .checkForUpdates: return nil
+        case .help, .clearMemory, .checkForUpdates, .silent: return nil
         }
     }
 

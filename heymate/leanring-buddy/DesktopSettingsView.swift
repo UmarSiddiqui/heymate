@@ -265,6 +265,21 @@ struct DesktopSettingsView: View {
 
                 Divider().opacity(0.25)
 
+                Toggle(isOn: $companionManager.isSilentModeEnabled) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Silent mode")
+                            .font(DS.Fonts.body)
+                            .foregroundColor(DS.Colors.textPrimary)
+                        Text("For work or in public. Your Talk shortcut (\(companionManager.talkShortcutOption.displayText)) opens a box to type in instead of the mic, and replies show on screen without being spoken. Toggle from anywhere with /silent.")
+                            .font(DS.Fonts.caption)
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .toggleStyle(.switch)
+
+                Divider().opacity(0.25)
+
                 Toggle(isOn: $companionManager.isUISoundEnabled) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Interaction sounds")

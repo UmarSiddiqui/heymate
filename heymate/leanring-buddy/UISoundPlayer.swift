@@ -44,7 +44,8 @@ final class UISoundPlayer {
     }
 
     private var isSoundEnabled: Bool {
-        UserDefaults.standard.object(forKey: CompanionManager.uiSoundPreferenceKey) == nil
+        guard !SilentModePreferences.isEnabled else { return false }
+        return UserDefaults.standard.object(forKey: CompanionManager.uiSoundPreferenceKey) == nil
             ? true
             : UserDefaults.standard.bool(forKey: CompanionManager.uiSoundPreferenceKey)
     }
