@@ -432,7 +432,7 @@ struct DesktopSettingsView: View {
             let state = companionManager.connectorStore.connectionState(for: ComposioSessionStore.connectorID)
             switch state {
             case .connected:
-                composioStatusMessage = "Ready. Supported apps can now connect from Tools."
+                composioStatusMessage = "Ready. Supported apps can now connect from Apps."
                 await companionManager.composioToolkitDirectory.loadDefaultPage(
                     apiKey: companionManager.composioConnections.apiKey
                 )

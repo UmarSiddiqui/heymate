@@ -324,7 +324,7 @@ struct DesktopSettingsAccountsTab: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 12)
-                Button("Manage") {
+                Button("Open Apps") {
                     NotificationCenter.default.post(
                         name: .heyMateDesktopSelectSection,
                         object: nil,
