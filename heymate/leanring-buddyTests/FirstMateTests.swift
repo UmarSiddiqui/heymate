@@ -232,3 +232,18 @@ struct MateRunReportTests {
         #expect(MateRunReport.failed(message: "boom").contains("boom"))
     }
 }
+
+struct MateAgentBriefTests {
+    @Test func briefTellsAMateToStartRunsInsteadOfAsking() {
+        var mate = Mate(
+            id: UUID(), name: "Web Smith", job: "website", pinned: false, archived: false,
+            unreadCount: 0, createdAt: Date(), updatedAt: Date(), memoryNote: "",
+            folderPath: "/tmp/site"
+        )
+        mate.soul = ""
+        let block = MateAgentBrief.promptBlock(mate: mate)
+        #expect(block.contains("[WORK:"))
+        #expect(block.contains("/tmp/site"))
+        #expect(block.contains("never ask for approval, a path"))
+    }
+}
