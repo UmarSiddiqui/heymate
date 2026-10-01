@@ -123,7 +123,9 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
             throw NSError(
                 domain: "HeyMateTalk",
                 code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "\(executableName) is not on PATH. Sign in from Settings → Brain."]
+                userInfo: [NSLocalizedDescriptionKey: SubscriptionSignInCopy.notInstalledRemedy(
+                    for: backend == .claude ? .claudeCode : .codex
+                )]
             )
         }
 

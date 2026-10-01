@@ -729,7 +729,7 @@ final class HeadlessAgentLauncher {
         guard resolveExecutable(executor.executableName) != nil else {
             return fail(
                 run,
-                reason: "\(executor.executableName) is not on PATH. Install \(executor.displayName) and try again."
+                reason: SubscriptionSignInCopy.notInstalledRemedy(for: executor)
             )
         }
 

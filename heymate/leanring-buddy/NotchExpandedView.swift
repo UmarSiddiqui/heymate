@@ -503,6 +503,14 @@ private struct NotchHomeTab: View {
                         VStack(alignment: .leading, spacing: 10) {
                             if !companionManager.allPermissionsGranted {
                                 permissionsSection
+                            } else if !companionManager.hasCompletedOnboarding {
+                                // Permissions done: which subscription runs
+                                // HeyMate, installed and signed in from here,
+                                // so the first question does not fail.
+                                NotchSubscriptionChoiceSection(
+                                    companionManager: companionManager,
+                                    signIn: companionManager.subscriptionSignIn
+                                )
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -516,6 +524,7 @@ private struct NotchHomeTab: View {
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(alignment: .leading, spacing: 9) {
                             NotchStatusCard(companionManager: companionManager)
+                            NotchSubscriptionSignInBanner(signIn: companionManager.subscriptionSignIn)
                             typedMessageInputRow
                             ContextualConnectorSuggestionBanner(companionManager: companionManager)
                             recentAgentRow
@@ -548,7 +557,7 @@ private struct NotchHomeTab: View {
     @ViewBuilder
     private var setupCopySection: some View {
         if companionManager.allPermissionsGranted {
-            Text("You're all set. Hit Start to meet HeyMate.")
+            Text("Permissions are done. Pick the AI you already pay for, then hit Start to meet HeyMate.")
                 .font(DS.Fonts.body)
                 .foregroundColor(DS.Colors.textSecondary)
         } else if companionManager.hasCompletedOnboarding {
@@ -649,8 +658,10 @@ private struct NotchHomeTab: View {
     @ViewBuilder
     private var startButton: some View {
         if !companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-            Button("Start") { companionManager.triggerOnboarding() }
-                .buttonStyle(DSPrimaryButtonStyle(isFullWidth: true))
+            NotchOnboardingStartButton(
+                companionManager: companionManager,
+                signIn: companionManager.subscriptionSignIn
+            )
         }
     }
 
