@@ -71,7 +71,7 @@ enum MateRunReport {
         let body = plan.count > 700 ? String(plan.prefix(699)) + "…" : plan
         var text = "Step 1 of 2 · plan ready. Nothing has changed yet."
         if !body.isEmpty { text += "\n\n\(body)" }
-        text += "\n\nApprove it in the Agents tab and I'll do it."
+        text += "\n\nApprove the plan below or in Jobs, and I'll do it."
         return text
     }
 
@@ -80,7 +80,7 @@ enum MateRunReport {
         let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty { text += " \(trimmed)" }
         if let changedFileCount, changedFileCount > 0 {
-            text += "\n\(changedFileCount) file\(changedFileCount == 1 ? "" : "s") changed. You can undo this from the Agents tab."
+            text += "\n\(changedFileCount) file\(changedFileCount == 1 ? "" : "s") changed. You can undo this from Jobs."
         }
         text += "\n\nWant me to keep doing this on a schedule? Say \"every morning, …\" and I'll set it up."
         return text

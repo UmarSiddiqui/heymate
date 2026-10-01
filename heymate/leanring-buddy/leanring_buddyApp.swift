@@ -99,10 +99,10 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = activeCount == 1
-            ? "Coding agent still running"
-            : "\(activeCount) coding agents still running"
-        alert.informativeText = "HeyMate must stay open while an agent is planning or still starting. Cancel that job from Agents if you need to quit now. Background work can keep running after HeyMate closes."
-        alert.addButton(withTitle: "Show Agents")
+            ? "A job is still running"
+            : "\(activeCount) jobs are still running"
+        alert.informativeText = "HeyMate must stay open while a job is planning or still starting. Cancel that job from Jobs if you need to quit now. Work already underway can keep running after HeyMate closes."
+        alert.addButton(withTitle: "Show Jobs")
         alert.runModal()
         return .terminateCancel
     }

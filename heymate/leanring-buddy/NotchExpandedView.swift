@@ -26,7 +26,7 @@ enum NotchExpandedTab: String, CaseIterable, Identifiable {
         switch self {
         case .home: return "Home"
         case .apps: return "Apps"
-        case .agents: return "Agents"
+        case .agents: return "Jobs"
         }
     }
 
@@ -789,11 +789,11 @@ private struct NotchHomeTab: View {
             VStack(spacing: 7) {
                 HStack(spacing: 7) {
                     NotchDoorTile(
-                        title: "Agents",
+                        title: "Jobs",
                         subtitle: agentsDoorSubtitle,
                         systemName: "sparkles",
                         key: "1",
-                        help: "See running and finished agent jobs (⌘1)"
+                        help: "See running and finished jobs (⌘1)"
                     ) {
                         companionManager.shouldRevealAgentsTab = true
                     }
@@ -861,7 +861,7 @@ private struct NotchHomeTab: View {
     private var recentAgentRow: some View {
         if isComposerHero {
             VStack(alignment: .leading, spacing: 6) {
-                DSSectionLabel(title: "Last agent")
+                DSSectionLabel(title: "Last job")
                 if let latestRun = companionManager.agentRuns.max(by: { $0.createdAt < $1.createdAt }) {
                     NotchRecentAgentRow(run: latestRun) {
                         companionManager.shouldRevealAgentsTab = true
@@ -925,7 +925,7 @@ private struct NotchRecentAgentRow: View {
         .buttonStyle(.plain)
         .pointerCursor()
         .onHover { isHovering = $0 }
-        .help("Open on the Agents tab")
+        .help("Open on the Jobs tab")
     }
 
     private var detail: String {
@@ -1162,7 +1162,7 @@ private struct NotchAgentsTab: View {
 
     private func standingOrderProposalCard(_ proposal: StandingOrderProposal) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("Standing order", systemImage: "bell.badge.fill")
+            Label("Suggestion", systemImage: "bell.badge.fill")
                 .font(DS.Fonts.sectionLabel)
                 .foregroundColor(DS.Colors.warningText)
             Text(proposal.title)
@@ -1192,10 +1192,10 @@ private struct NotchAgentsTab: View {
         // The engine is named on the bottom bar's chip, so this card is just
         // the prompt field and the folder option.
         VStack(alignment: .leading, spacing: 10) {
-            DSSectionLabel(title: "New agent")
+            DSSectionLabel(title: "New job")
 
             HStack(spacing: 8) {
-                TextField("What should the agent build?", text: $sandboxPromptText)
+                TextField("Describe a job for HeyMate", text: $sandboxPromptText)
                     .textFieldStyle(.plain)
                     .font(DS.Fonts.body)
                     .foregroundColor(DS.Colors.textPrimary)
@@ -1212,8 +1212,8 @@ private struct NotchAgentsTab: View {
                 .buttonStyle(.plain)
                 .pointerCursor()
                 .disabled(sandboxPromptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .help("Start agent")
-                .accessibilityLabel("Start agent")
+                .help("Start job")
+                .accessibilityLabel("Start job")
                 .padding(.trailing, 4)
             }
             .padding(.vertical, 4)
@@ -1282,7 +1282,7 @@ private struct NotchAgentsTab: View {
             VStack(spacing: 10) {
                 BuddyMark(size: .standard, color: DS.Colors.accent)
                     .padding(.top, 20)
-                Text("No agents yet")
+                Text("No jobs yet")
                     .font(DS.Fonts.titleCompact)
                     .foregroundColor(DS.Colors.textPrimary)
                 Text("Say “HeyMate agent, …” or start one here.")
@@ -1584,7 +1584,7 @@ private struct NotchStatusCard: View {
 
     private var statusTitle: String {
         if companionManager.isForegroundAgentActive {
-            return "Agent running"
+            return "Working on a job"
         }
         switch companionManager.voiceState {
         case .idle: return "Ready when you are"

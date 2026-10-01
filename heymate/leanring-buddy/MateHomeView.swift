@@ -74,7 +74,9 @@ struct MateHomeView: View {
         .sheet(item: $settingsMate) { mate in
             MateSettingsSheet(
                 mate: mate,
+                companionManager: companionManager,
                 isLastNonArchivedMate: deletionReplacesWithFreshHeyMate(mate),
+                onOpenSection: onOpenSection,
                 onSave: { name, job, soul, face in
                     companionManager.updateMateProfile(
                         id: mate.id,
@@ -255,7 +257,7 @@ struct MateHomeView: View {
                 }
                 .menuStyle(.borderlessButton)
                 .frame(width: 36)
-                .help("Agents, tools, and settings")
+                .help("Apps and settings")
                 Spacer()
             }
             .padding(.horizontal, 10)
@@ -497,6 +499,7 @@ struct MateHomeView: View {
         VStack(spacing: 0) {
             conversationHeader
             transcript
+            mateJobsStrip
             composer
                 .padding(.horizontal, isCompactLayout ? 12 : 20)
                 .padding(.bottom, isCompactLayout ? 10 : 16)
@@ -536,6 +539,7 @@ struct MateHomeView: View {
                 .help("Switch mate")
             }
             Spacer(minLength: 8)
+            jobsButton
             Button {
                 isShowingChatHistory = true
             } label: {
@@ -601,6 +605,50 @@ struct MateHomeView: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(DS.Colors.borderSubtle).frame(height: 1)
         }
+    }
+
+    /// The way into Jobs: the work mates are doing over time. The count is
+    /// everything still running or waiting on you, across all mates, and it
+    /// turns amber when something is blocked on your approval.
+    private var jobsButton: some View {
+        let runs = companionManager.agentRuns
+        let activeCount = MateJobs.activeCount(in: runs)
+        let needsYou = MateJobs.needsYouCount(in: runs) > 0
+        return Button {
+            onOpenSection(.agents)
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: DesktopSection.agents.symbolName)
+                    .font(DS.Glyph.regular)
+                if !isCompactLayout {
+                    Text("Jobs")
+                        .font(DS.Fonts.control)
+                }
+                if activeCount > 0 {
+                    Text("\(activeCount)")
+                        .font(DS.Fonts.caption.weight(.semibold))
+                        .foregroundColor(needsYou ? DS.Colors.warningText : DS.Colors.textSecondary)
+                        .padding(.horizontal, 5)
+                        .frame(minWidth: 16, minHeight: 16)
+                        .background(
+                            Capsule().fill(needsYou ? DS.Colors.warning.opacity(0.18) : DS.Colors.surface3)
+                        )
+                }
+            }
+            .padding(.horizontal, isCompactLayout ? 4 : 8)
+            .frame(height: 28)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .help(jobsHelp(activeCount: activeCount, needsYou: needsYou))
+        .accessibilityLabel(jobsHelp(activeCount: activeCount, needsYou: needsYou))
+    }
+
+    private func jobsHelp(activeCount: Int, needsYou: Bool) -> String {
+        if needsYou { return "Jobs: something needs your approval" }
+        if activeCount > 0 { return "Jobs: \(activeCount) in progress" }
+        return "Jobs: work your mates do over time"
     }
 
     private var headerTitles: some View {
@@ -971,6 +1019,122 @@ struct MateHomeView: View {
         }
     }
 
+    // MARK: Jobs in chat
+
+    /// This mate's jobs, newest first.
+    private var activeMateJobs: [AgentRun] {
+        guard let mate = activeMate else { return [] }
+        return MateJobs.runs(
+            for: mate,
+            in: companionManager.agentRuns,
+            owners: companionManager.mateRunOwners
+        )
+    }
+
+    /// Unfinished jobs sit just above the composer, in the chat that asked
+    /// for them: a plan waiting on you gets its Approve right here, and
+    /// running work shows its live step. Finished jobs report back as chat
+    /// messages, so they need no row.
+    @ViewBuilder
+    private var mateJobsStrip: some View {
+        let unfinished = activeMateJobs.filter { !$0.status.isTerminal }
+        let limit = isCompactLayout ? 1 : 3
+        if !unfinished.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(unfinished.prefix(limit)) { run in
+                    mateJobRow(run)
+                }
+                if unfinished.count > limit {
+                    Button("\(unfinished.count - limit) more in Jobs") {
+                        onOpenSection(.agents)
+                    }
+                    .buttonStyle(.plain)
+                    .font(DS.Fonts.control)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .pointerCursor()
+                }
+            }
+            .frame(maxWidth: MateHomeLayout.readingMeasure, alignment: .leading)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, isCompactLayout ? 12 : 20)
+            .padding(.bottom, 8)
+        }
+    }
+
+    private func mateJobRow(_ run: AgentRun) -> some View {
+        HStack(spacing: 8) {
+            Group {
+                switch run.status {
+                case .awaitingPlanApproval:
+                    Image(systemName: "checklist")
+                case .waitingForApproval:
+                    Image(systemName: "hand.raised.fill")
+                default:
+                    ProgressView().controlSize(.small)
+                }
+            }
+            .font(DS.Glyph.small)
+            .foregroundColor(run.status.needsUser ? DS.Colors.warningText : DS.Colors.textSecondary)
+            .frame(width: 18, height: 18)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(run.title)
+                    .font(DS.Fonts.headline)
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .lineLimit(1)
+                Text(mateJobDetail(run))
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(run.status.needsUser ? DS.Colors.warningText : DS.Colors.textTertiary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 6)
+            switch run.status {
+            case .awaitingPlanApproval:
+                Button("Approve plan") { companionManager.approveAgentPlan(runID: run.id) }
+                    .dsCapsuleButtonStyle(.primary, height: DS.ControlSize.small)
+                    .help("Let this job make the changes its plan describes")
+            case .waitingForApproval:
+                Button("Allow") { companionManager.approveAgent(runID: run.id) }
+                    .dsCapsuleButtonStyle(.primary, height: DS.ControlSize.small)
+                Button("Deny") { companionManager.denyAgent(runID: run.id) }
+                    .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
+            default:
+                EmptyView()
+            }
+            Button(run.status == .awaitingPlanApproval ? "Review" : "Open") {
+                onOpenSection(.agents)
+            }
+            .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
+            .help("Open this job in Jobs")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                .fill(DS.Colors.surface2)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                .stroke(
+                    run.status.needsUser ? DS.Colors.warning.opacity(0.45) : DS.Colors.borderSubtle,
+                    lineWidth: 1
+                )
+        )
+    }
+
+    private func mateJobDetail(_ run: AgentRun) -> String {
+        let status = MateJobs.statusLabel(for: run.status)
+        switch run.status {
+        case .awaitingPlanApproval:
+            return "\(status) · nothing has changed yet"
+        case .waitingForApproval:
+            let step = run.latestAction.trimmingCharacters(in: .whitespacesAndNewlines)
+            return step.isEmpty ? "\(status) for the next step" : "\(status) · \(step)"
+        default:
+            let step = run.latestAction.trimmingCharacters(in: .whitespacesAndNewlines)
+            return step.isEmpty ? status : "\(status) · \(step)"
+        }
+    }
+
     private var holdToTalkButton: some View {
         Image(systemName: isHoldingTalk ? "waveform" : "mic")
             .font(DS.Glyph.regular)
@@ -1167,6 +1331,7 @@ struct MateHomeView: View {
                         .font(DS.Fonts.body.weight(.medium))
                         .foregroundColor(DS.Colors.warningText)
                 }
+                jobsSection
                 memorySection
                 filesSection
                 routinesSection
@@ -1184,6 +1349,40 @@ struct MateHomeView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(DS.Colors.surface1.opacity(0.94))
+    }
+
+    /// This mate's recent jobs, finished ones included, so "what did it do
+    /// for me?" is answered next to the chat rather than on another page.
+    private var jobsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Jobs")
+                .font(DS.Fonts.sectionLabel)
+                .foregroundColor(DS.Colors.textTertiary)
+            let recent = activeMateJobs.prefix(5)
+            if recent.isEmpty {
+                Text("Ask this mate to make or change something and the job shows up here.")
+                    .font(DS.Fonts.body)
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(recent) { run in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(run.title)
+                        .font(DS.Fonts.bodyLarge.weight(.medium))
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Text(MateJobs.statusLabel(for: run.status))
+                        .font(DS.Fonts.caption.weight(.medium))
+                        .foregroundColor(run.status.needsUser ? DS.Colors.warningText : DS.Colors.textTertiary)
+                }
+            }
+            Button("All jobs") { onOpenSection(.agents) }
+                .buttonStyle(.plain)
+                .font(DS.Fonts.control)
+                .foregroundColor(DS.Colors.textSecondary)
+                .pointerCursor()
+        }
     }
 
     private var memorySection: some View {
@@ -1525,7 +1724,9 @@ private struct NewMateSheet: View {
     }
 }
 
-private struct RoutineRow: View {
+/// One routine with its controls. Shared by the chat drawer and the mate's
+/// sheet, which both list that mate's routines.
+struct RoutineRow: View {
     let routine: MateRoutine
     var showsMateName: Bool
     var mateName: String
@@ -1535,6 +1736,18 @@ private struct RoutineRow: View {
     @State private var scheduleDraft = ""
     @State private var errorText: String?
     @State private var confirmingDelete = false
+
+    init(
+        routine: MateRoutine,
+        showsMateName: Bool,
+        mateName: String,
+        companionManager: CompanionManager
+    ) {
+        self.routine = routine
+        self.showsMateName = showsMateName
+        self.mateName = mateName
+        self.companionManager = companionManager
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -1652,11 +1865,16 @@ private struct RoutineRow: View {
     }
 }
 
-private struct RoutineAddField: View {
+struct RoutineAddField: View {
     @ObservedObject var companionManager: CompanionManager
     var mateID: UUID?
     @State private var draft = ""
     @State private var errorText: String?
+
+    init(companionManager: CompanionManager, mateID: UUID?) {
+        self.companionManager = companionManager
+        self.mateID = mateID
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
