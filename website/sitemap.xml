@@ -17,6 +17,12 @@
     </video:video>
   </url>
   <url>
+    <loc>https://getheymate.vercel.app/changelog</loc>
+    <lastmod>2026-10-03</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
     <loc>https://getheymate.vercel.app/privacy</loc>
     <lastmod>2026-09-28</lastmod>
     <changefreq>monthly</changefreq>

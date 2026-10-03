@@ -160,3 +160,47 @@ table.files td:first-child { color: var(--fg); font-family: ui-monospace, Menlo,
 }
 table.perms td:first-child { font-family: inherit; font-size: inherit; }
 table.perms td:first-child a { color: var(--fg); }
+
+/* Changelog — landing "What's new" and the full /changelog page share
+   one release card so an entry reads the same in both places. */
+.whatsnew { padding: var(--s-7) 0 0; }
+.whatsnew .sub { max-width: 620px; margin-left: auto; margin-right: auto; }
+
+.releases {
+  list-style: none;
+  padding: 0;
+  margin: 40px 0 0;
+  display: grid;
+  gap: 14px;
+  text-align: left;
+}
+.whatsnew .releases { max-width: 760px; margin-left: auto; margin-right: auto; }
+
+.release {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 20px;
+  padding: 22px 24px;
+  background: var(--bg-elev);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+}
+.release-meta { display: flex; flex-direction: column; gap: 4px; }
+.release-version {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 14px;
+  color: var(--fg);
+}
+.release-date { font-size: 13px; color: var(--fg-3); }
+.release ul { margin: 0; padding-left: 18px; }
+.release li { color: var(--fg-2); font-size: 16px; line-height: 1.5; }
+.release li + li { margin-top: 6px; }
+.release li strong { color: var(--fg); font-weight: 600; }
+
+.prose .releases { margin-top: 32px; }
+.prose .release li { font-size: 16px; }
+
+@media (max-width: 640px) {
+  .release { grid-template-columns: 1fr; gap: 10px; padding: 18px; }
+  .release-meta { flex-direction: row; gap: 10px; align-items: baseline; }
+}
