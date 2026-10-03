@@ -1123,7 +1123,7 @@ final class CompanionManager: ObservableObject {
     func setSelectedBrain(_ brain: AgentBrain) {
         selectedBrain = brain
         rebuildOpenCodeClient()
-        ClaudeWarmTalkPool.shared.drain()
+        WarmTalkPool.shared.drain()
     }
 
     /// Starts the Claude child the next Talk question will use, if Claude

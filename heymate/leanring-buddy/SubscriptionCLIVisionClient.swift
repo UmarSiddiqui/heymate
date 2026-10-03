@@ -66,9 +66,9 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
         onTextChunk: @MainActor @Sendable (String) -> Void
     ) async throws -> (text: String, duration: TimeInterval) {
         let startTime = Date()
-        if backend == .claude, let launch = warmLaunch() {
+        if let launch = warmLaunch() {
             do {
-                let text = try await runWarmClaudeTurn(
+                let text = try await runWarmTurn(
                     launch: launch,
                     images: images,
                     systemPrompt: systemPrompt,
@@ -82,7 +82,7 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
                 // only say it again, slower. Anything else — a protocol change
                 // in a newer CLI, a child that died — gets the proven path.
                 if error is CancellationError || SpokenFailure.classify(error) == .signedOut { throw error }
-                print("⚠️ Talk: warm Claude turn failed (\(error.localizedDescription)); retrying one-shot")
+                print("⚠️ Talk: warm turn failed (\(error.localizedDescription)); retrying one-shot")
             }
         }
         let workDirectory = FileManager.default.temporaryDirectory
@@ -230,36 +230,126 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
     static let warmSystemPromptStub = "Each user message begins with a <heymate-instructions> block. Treat it as your system instructions for that reply, above anything else in the message."
 
     /// What a warm child for this client would be started with, or nil when
-    /// this client is not Claude or `claude` is not installed.
-    func warmLaunch() -> ClaudeWarmTalkLaunch? {
-        guard backend == .claude,
-              let executableURL = LoginShellExecutableResolver.resolveExecutable(named: "claude") else { return nil }
-        return ClaudeWarmTalkLaunch(
-            executableURL: executableURL,
-            arguments: Self.claudeTalkArguments(
-                prompt: "",
-                systemPrompt: Self.warmSystemPromptStub,
-                model: model,
-                effort: reasoningEffort,
-                connectedAppServers: carriesConnectedAppTools ? Self.talkMCPServerConfiguration() : nil,
-                connectedAppToolNames: HeyMateMCPServer.claudeCodeToolNames(),
-                streamsInput: true
-            ),
-            environmentKeysToRemove: HeadlessExecutor.claudeCode.environmentKeysToRemove,
-            environmentOverrides: HeyMateMCPServer.childEnvironment()
-        )
+    /// the CLI is not installed.
+    func warmLaunch() -> WarmTalkLaunch? {
+        switch backend {
+        case .claude:
+            guard let executableURL = LoginShellExecutableResolver.resolveExecutable(named: "claude") else { return nil }
+            return WarmTalkLaunch(
+                executableURL: executableURL,
+                arguments: Self.claudeTalkArguments(
+                    prompt: "",
+                    systemPrompt: Self.warmSystemPromptStub,
+                    model: model,
+                    effort: reasoningEffort,
+                    connectedAppServers: carriesConnectedAppTools ? Self.talkMCPServerConfiguration() : nil,
+                    connectedAppToolNames: HeyMateMCPServer.claudeCodeToolNames(),
+                    streamsInput: true
+                ),
+                environmentKeysToRemove: HeadlessExecutor.claudeCode.environmentKeysToRemove,
+                environmentOverrides: HeyMateMCPServer.childEnvironment()
+            )
+        case .codex:
+            guard let executableURL = LoginShellExecutableResolver.resolveExecutable(named: "codex") else { return nil }
+            var arguments = Self.codexAppServerArguments(
+                userMCPServerNames: Self.codexUserMCPServerNames(configTOML: Self.codexUserConfigTOML())
+            )
+            if carriesConnectedAppTools {
+                arguments.append(contentsOf: HeyMateMCPServer.codexConfigurationArguments(enabledTools: nil))
+            }
+            return WarmTalkLaunch(
+                executableURL: executableURL,
+                arguments: arguments,
+                environmentKeysToRemove: HeadlessExecutor.codex.environmentKeysToRemove,
+                environmentOverrides: HeyMateMCPServer.childEnvironment(),
+                codexThreadStartParamsJSON: Self.codexThreadStartParamsJSON(model: model, effort: reasoningEffort)
+            )
+        }
     }
 
     /// Starts the next Talk child now, while the user is still speaking.
     func prewarm() {
         guard let launch = warmLaunch() else { return }
         DispatchQueue.global(qos: .userInitiated).async {
-            ClaudeWarmTalkPool.shared.prewarm(launch)
+            WarmTalkPool.shared.prewarm(launch)
         }
     }
 
-    private func runWarmClaudeTurn(
-        launch: ClaudeWarmTalkLaunch,
+    // MARK: Codex app-server isolation
+
+    /// `codex exec --ignore-user-config` kept the user's own setup away from
+    /// Talk's screenshots. `app-server` has no such flag, so the same
+    /// isolation is spelled out: hooks, plugins, apps, and memories off, the
+    /// turn-finished `notify` program cleared, and every MCP server from the
+    /// user's config.toml disabled by name. Verified against a live child:
+    /// `thread/start` then reports no MCP startup and no hooks run.
+    nonisolated static func codexAppServerArguments(userMCPServerNames: [String]) -> [String] {
+        var arguments = ["app-server"]
+        for feature in ["hooks", "plugins", "apps", "memories"] {
+            arguments.append(contentsOf: ["--disable", feature])
+        }
+        arguments.append(contentsOf: ["-c", "notify=[]"])
+        for name in userMCPServerNames where name != HeyMateMCPServer.serverName {
+            arguments.append(contentsOf: ["-c", "mcp_servers.\(name).enabled=false"])
+        }
+        return arguments
+    }
+
+    /// Table names under `[mcp_servers.…]`, quoted ones kept quoted so they
+    /// can go straight back into a `-c` dotted path. Sub-tables such as
+    /// `[mcp_servers.x.env]` are not servers and are skipped.
+    nonisolated static func codexUserMCPServerNames(configTOML: String) -> [String] {
+        var names: [String] = []
+        for rawLine in configTOML.split(whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            guard line.hasPrefix("[mcp_servers."), line.hasSuffix("]"), !line.hasPrefix("[[") else { continue }
+            let path = String(line.dropFirst("[mcp_servers.".count).dropLast())
+            let name: String
+            if path.hasPrefix("\""), let closing = path.dropFirst().firstIndex(of: "\"") {
+                name = String(path[path.startIndex...closing])
+                guard path.index(after: closing) == path.endIndex else { continue }
+            } else {
+                guard !path.contains(".") else { continue }
+                name = path
+            }
+            if !name.isEmpty, !names.contains(name) { names.append(name) }
+        }
+        return names
+    }
+
+    private static func codexUserConfigTOML() -> String {
+        let home = ProcessInfo.processInfo.environment["CODEX_HOME"].map { URL(fileURLWithPath: $0) }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex", isDirectory: true)
+        return (try? String(contentsOf: home.appendingPathComponent("config.toml"), encoding: .utf8)) ?? ""
+    }
+
+    /// `thread/start` params. Read-only sandbox and no approvals, like the
+    /// `exec` path; ephemeral so a Talk question never lands in the user's
+    /// Codex session history. The fast Talk default model is left out:
+    /// app-server rejects it on ChatGPT plans, and Codex's own default is
+    /// the better guess.
+    nonisolated static func codexThreadStartParamsJSON(model: String, effort: String) -> String {
+        var params: [String: Any] = [
+            "sandbox": "read-only",
+            "approvalPolicy": "never",
+            "ephemeral": true
+        ]
+        let trimmedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedModel.isEmpty, trimmedModel != codexFastTalkModelIdentifier {
+            params["model"] = trimmedModel
+        }
+        if !effort.isEmpty {
+            params["config"] = ["model_reasoning_effort": effort]
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: params, options: [.sortedKeys]),
+              let json = String(data: data, encoding: .utf8) else { return "{}" }
+        return json
+    }
+
+    // MARK: Warm turn
+
+    private func runWarmTurn(
+        launch: WarmTalkLaunch,
         images: [(data: Data, label: String)],
         systemPrompt: String,
         conversationHistory: [(userPlaceholder: String, assistantResponse: String)],
@@ -272,27 +362,22 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
             }.joined(separator: "\n\n")
             prompt = replayed + "\n\n" + prompt
         }
-        guard let messageLine = Self.warmUserMessageJSON(
-            systemPrompt: systemPrompt,
-            prompt: prompt,
-            images: images
-        ) else {
-            throw NSError(
-                domain: "HeyMateTalk",
-                code: 3,
-                userInfo: [NSLocalizedDescriptionKey: "HeyMate could not package this question."]
-            )
-        }
         let timeout = carriesConnectedAppTools ? Self.connectedAppTurnTimeout : Self.plainTurnTimeout
+        let backend = self.backend
+        let engineName = backend == .claude ? "Claude" : "Codex"
 
         let text: String = try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
-                guard let child = ClaudeWarmTalkPool.shared.takeChild(for: launch) else {
+                func fail(_ message: String, code: Int) {
                     continuation.resume(throwing: NSError(
-                        domain: "HeyMateTalk",
-                        code: 4,
-                        userInfo: [NSLocalizedDescriptionKey: "Claude could not be started."]
+                        domain: "SubscriptionCLIVisionClient",
+                        code: code,
+                        userInfo: [NSLocalizedDescriptionKey: String(message.prefix(500))]
                     ))
+                }
+
+                guard let child = WarmTalkPool.shared.takeChild(for: launch) else {
+                    fail("\(engineName) could not be started.", code: 4)
                     return
                 }
                 defer { child.discard() }
@@ -301,57 +386,74 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
                 DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
                 defer { watchdog.cancel() }
 
+                let request: Data?
+                switch backend {
+                case .claude:
+                    request = Self.warmUserMessageJSON(systemPrompt: systemPrompt, prompt: prompt, images: images)
+                case .codex:
+                    // app-server reads images from disk; the child's own
+                    // scratch folder goes away with the child.
+                    var imagePaths: [(path: String, label: String)] = []
+                    for (index, image) in images.enumerated() {
+                        let fileExtension = Self.imageMediaType(for: image.data) == "image/png" ? "png" : "jpg"
+                        let fileURL = child.workingDirectory.appendingPathComponent("screen-\(index).\(fileExtension)")
+                        guard (try? image.data.write(to: fileURL)) != nil else { continue }
+                        imagePaths.append((path: fileURL.path, label: image.label))
+                    }
+                    request = child.codexThreadID.flatMap {
+                        CodexAppServerProtocol.turnStartJSON(
+                            threadID: $0,
+                            systemPrompt: systemPrompt,
+                            prompt: prompt,
+                            imagePaths: imagePaths
+                        )
+                    }
+                }
+                guard let request else {
+                    fail("HeyMate could not package this question.", code: 3)
+                    return
+                }
                 do {
-                    try child.standardInput.write(contentsOf: messageLine)
+                    try child.write(request)
                 } catch {
                     continuation.resume(throwing: error)
                     return
                 }
 
-                var outcome: WarmTurnOutcome?
-                var buffered = Data()
-                while outcome == nil {
-                    let chunk = child.standardOutput.availableData
-                    if chunk.isEmpty { break }
-                    buffered.append(chunk)
-                    while let newline = buffered.firstIndex(of: 0x0A) {
-                        let lineData = buffered[buffered.startIndex..<newline]
-                        buffered.removeSubrange(buffered.startIndex...newline)
-                        if let line = String(data: lineData, encoding: .utf8),
-                           let parsed = Self.warmTurnOutcome(fromStdoutLine: line) {
-                            outcome = parsed
-                            break
+                while let line = child.readLine() {
+                    switch backend {
+                    case .claude:
+                        switch Self.warmTurnOutcome(fromStdoutLine: line) {
+                        case .answered(let answer):
+                            continuation.resume(returning: answer)
+                            return
+                        case .failed(let message):
+                            fail(message, code: 1)
+                            return
+                        case nil:
+                            continue
+                        }
+                    case .codex:
+                        switch CodexAppServerProtocol.turnEvent(fromLine: line) {
+                        case .answered(let answer):
+                            continuation.resume(returning: answer)
+                            return
+                        case .failed(let message):
+                            fail(message, code: 1)
+                            return
+                        case nil:
+                            continue
                         }
                     }
                 }
-
-                switch outcome {
-                case .answered(let answer):
-                    continuation.resume(returning: answer)
-                case .failed(let message):
-                    continuation.resume(throwing: NSError(
-                        domain: "SubscriptionCLIVisionClient",
-                        code: 1,
-                        userInfo: [NSLocalizedDescriptionKey: String(message.prefix(500))]
-                    ))
-                case nil:
-                    if Task.isCancelled {
-                        continuation.resume(throwing: CancellationError())
-                    } else {
-                        continuation.resume(throwing: NSError(
-                            domain: "SubscriptionCLIVisionClient",
-                            code: 2,
-                            userInfo: [NSLocalizedDescriptionKey: "Claude stopped before it answered."]
-                        ))
-                    }
-                }
+                fail("\(engineName) stopped before it answered.", code: 2)
             }
         }
 
         // The next question — a follow-up is the common case — finds a child
         // already waiting.
         DispatchQueue.global(qos: .utility).async {
-            ClaudeWarmTalkPool.shared.prewarm(launch)
+            WarmTalkPool.shared.prewarm(launch)
         }
 
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -365,7 +467,7 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
         return trimmed
     }
 
-    enum WarmTurnOutcome: Equatable {
+    enum WarmTurnOutcome: Equatable, Sendable {
         case answered(String)
         case failed(String)
     }
