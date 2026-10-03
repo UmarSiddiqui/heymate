@@ -571,8 +571,10 @@ struct DetachedAgentRunnerBootstrapSecurityTests {
             named: "fake-runner.sh",
             contents: """
             #!/bin/sh
-            printf '%s\n' "$@" > "$TMPDIR/arguments.txt"
-            /usr/bin/env | /usr/bin/sort > "$TMPDIR/environment.txt"
+            printf '%s\n' "$@" > "$TMPDIR/arguments.txt.partial"
+            /bin/mv "$TMPDIR/arguments.txt.partial" "$TMPDIR/arguments.txt"
+            /usr/bin/env | /usr/bin/sort > "$TMPDIR/environment.txt.partial"
+            /bin/mv "$TMPDIR/environment.txt.partial" "$TMPDIR/environment.txt"
             /bin/cat <&3 >/dev/null
             """
         )
@@ -609,7 +611,9 @@ struct DetachedAgentRunnerBootstrapSecurityTests {
         )
         defer { Self.killAndReapIfNeeded(runnerPID) }
 
-        let captured = await waitUntil(timeout: 3) {
+        // The fake runner writes each capture to a `.partial` file and renames it
+        // into place, so existence here means the capture is complete.
+        let captured = await waitUntil(timeout: 10) {
             FileManager.default.fileExists(atPath: argumentCaptureURL.path)
                 && FileManager.default.fileExists(atPath: environmentCaptureURL.path)
         }
