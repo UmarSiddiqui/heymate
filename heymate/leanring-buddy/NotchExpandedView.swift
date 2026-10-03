@@ -1470,7 +1470,9 @@ private struct AgentRunCard: View {
     }
 
     private var subtitle: String {
-        if run.status == .failed, !run.error.isEmpty { return run.error }
+        // A plan whose approval could not start keeps its status, so the
+        // error is the only sign the click landed.
+        if run.status == .failed || run.status == .awaitingPlanApproval, !run.error.isEmpty { return run.error }
         if !run.latestAction.isEmpty { return run.latestAction }
         if !run.summary.isEmpty { return run.summary }
         return run.prompt

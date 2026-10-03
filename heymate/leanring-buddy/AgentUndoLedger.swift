@@ -26,6 +26,11 @@ nonisolated struct AgentUndoEntry: Codable, Equatable, Identifiable {
     var completedAt: Date?
     var undoneAt: Date?
     var status: AgentUndoEntryStatus
+    /// Build output and dependency folders left out of the snapshot, relative
+    /// to the workspace. Undo carries these over from the current workspace
+    /// instead of restoring them, so leaving them out never deletes them.
+    /// Optional so ledgers written before this field still decode.
+    var skippedGeneratedPaths: [String]? = nil
 }
 
 nonisolated enum AgentUndoLedgerError: LocalizedError, Equatable {
@@ -58,6 +63,22 @@ final class FileAgentUndoLedger {
     /// Refuse work rather than promise undo while silently skipping bytes.
     /// Sandbox jobs are tiny; large attached repos receive a clear blocker.
     nonisolated static let maximumSnapshotBytes: Int64 = 512 * 1_048_576
+
+    /// Regenerable folders the snapshot does not copy and the limit does not
+    /// count. An Xcode `build/` alone can be gigabytes, which used to turn
+    /// "Approve plan" into a silent refusal for an ordinary repo. `.git` is
+    /// deliberately not here: an agent can commit, and undo should revert
+    /// that too.
+    nonisolated static let skippedGeneratedDirectoryNames: Set<String> = [
+        ".build",
+        "build",
+        "deriveddata",
+        "node_modules"
+    ]
+
+    nonisolated static func isSkippedGeneratedDirectory(named name: String) -> Bool {
+        skippedGeneratedDirectoryNames.contains(name.lowercased())
+    }
 
     private let rootDirectoryURL: URL
     private let ledgerFileURL: URL
@@ -119,7 +140,7 @@ final class FileAgentUndoLedger {
             )
         }
 
-        let byteCount = try snapshotByteCount(for: workspaceURL)
+        let (byteCount, skippedPaths) = try snapshotByteCount(for: workspaceURL)
         guard byteCount <= Self.maximumSnapshotBytes else {
             throw AgentUndoLedgerError.workspaceTooLarge(maximumBytes: Self.maximumSnapshotBytes)
         }
@@ -129,7 +150,7 @@ final class FileAgentUndoLedger {
         let snapshotURL = entryDirectoryURL.appendingPathComponent("before", isDirectory: true)
         do {
             try fileManager.createDirectory(at: entryDirectoryURL, withIntermediateDirectories: true)
-            try fileManager.copyItem(at: workspaceURL, to: snapshotURL)
+            try copyWorkspace(workspaceURL, to: snapshotURL)
         } catch {
             try? fileManager.removeItem(at: entryDirectoryURL)
             throw AgentUndoLedgerError.couldNotCreateSnapshot(error.localizedDescription)
@@ -145,7 +166,8 @@ final class FileAgentUndoLedger {
             createdAt: Date(),
             completedAt: nil,
             undoneAt: nil,
-            status: .prepared
+            status: .prepared,
+            skippedGeneratedPaths: skippedPaths.isEmpty ? nil : skippedPaths
         )
         var candidateEntries = entries
         candidateEntries.append(entry)
@@ -236,6 +258,9 @@ final class FileAgentUndoLedger {
             }
             throw AgentUndoLedgerError.couldNotRestore(error.localizedDescription)
         }
+        if workspaceExisted {
+            restoreSkippedGeneratedPaths(entry.skippedGeneratedPaths ?? [], from: recoveryURL, into: workspaceURL)
+        }
 
         entries[index].status = .undone
         entries[index].undoneAt = Date()
@@ -254,21 +279,75 @@ final class FileAgentUndoLedger {
             .appendingPathComponent("undo-ledger", isDirectory: true)
     }
 
-    private func snapshotByteCount(for workspaceURL: URL) throws -> Int64 {
+    /// Bytes the snapshot will copy, plus the generated folders it will leave
+    /// out. Stops counting once the limit is passed.
+    private func snapshotByteCount(for workspaceURL: URL) throws -> (Int64, [String]) {
         guard let enumerator = fileManager.enumerator(
             at: workspaceURL,
-            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey],
             options: []
-        ) else { return 0 }
+        ) else { return (0, []) }
 
         var totalBytes: Int64 = 0
+        var skippedPaths: [String] = []
         for case let fileURL as URL in enumerator {
-            let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+            let values = try fileURL.resourceValues(
+                forKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey]
+            )
+            if values.isDirectory == true, values.isSymbolicLink != true,
+               Self.isSkippedGeneratedDirectory(named: fileURL.lastPathComponent) {
+                enumerator.skipDescendants()
+                skippedPaths.append(relativePath(of: fileURL, below: workspaceURL))
+                continue
+            }
             guard values.isRegularFile == true else { continue }
             totalBytes += Int64(values.fileSize ?? 0)
-            if totalBytes > Self.maximumSnapshotBytes { return totalBytes }
+            if totalBytes > Self.maximumSnapshotBytes { return (totalBytes, skippedPaths) }
         }
-        return totalBytes
+        return (totalBytes, skippedPaths)
+    }
+
+    /// `copyItem` for the whole tree, minus the generated folders.
+    private func copyWorkspace(_ workspaceURL: URL, to snapshotURL: URL) throws {
+        try fileManager.createDirectory(at: snapshotURL, withIntermediateDirectories: false)
+        let contents = try fileManager.contentsOfDirectory(
+            at: workspaceURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: []
+        )
+        for itemURL in contents {
+            let values = try itemURL.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            let destinationURL = snapshotURL.appendingPathComponent(itemURL.lastPathComponent)
+            if values.isDirectory == true, values.isSymbolicLink != true {
+                if Self.isSkippedGeneratedDirectory(named: itemURL.lastPathComponent) { continue }
+                try copyWorkspace(itemURL, to: destinationURL)
+            } else {
+                try fileManager.copyItem(at: itemURL, to: destinationURL)
+            }
+        }
+    }
+
+    /// Moves generated folders back from the pre-undo copy. Best effort: one
+    /// that cannot move stays in the recovery folder, which undo reports.
+    private func restoreSkippedGeneratedPaths(_ paths: [String], from recoveryURL: URL, into workspaceURL: URL) {
+        for path in paths {
+            let sourceURL = recoveryURL.appendingPathComponent(path)
+            let destinationURL = workspaceURL.appendingPathComponent(path)
+            guard fileManager.fileExists(atPath: sourceURL.path),
+                  !fileManager.fileExists(atPath: destinationURL.path) else { continue }
+            try? fileManager.createDirectory(
+                at: destinationURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try? fileManager.moveItem(at: sourceURL, to: destinationURL)
+        }
+    }
+
+    private func relativePath(of url: URL, below rootURL: URL) -> String {
+        let rootPath = rootURL.standardizedFileURL.path
+        let path = url.standardizedFileURL.path
+        guard path.hasPrefix(rootPath + "/") else { return url.lastPathComponent }
+        return String(path.dropFirst(rootPath.count + 1))
     }
 
     /// A `.prepared` entry means its baseline copy completed before a

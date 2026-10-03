@@ -1125,6 +1125,9 @@ struct MateHomeView: View {
         let status = MateJobs.statusLabel(for: run.status)
         switch run.status {
         case .awaitingPlanApproval:
+            // An approval that could not start leaves the job here, so the
+            // reason has to be on the row or the button looks dead.
+            if !run.error.isEmpty { return "Couldn't start · \(run.error)" }
             return "\(status) · nothing has changed yet"
         case .waitingForApproval:
             let step = run.latestAction.trimmingCharacters(in: .whitespacesAndNewlines)

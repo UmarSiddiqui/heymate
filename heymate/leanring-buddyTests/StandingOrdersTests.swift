@@ -190,6 +190,54 @@ struct AgentUndoLedgerTests {
         #expect(ledger.latestReadyEntry() == nil)
     }
 
+    /// An Xcode `build/` can be gigabytes. Counting it used to refuse every
+    /// approval in an ordinary repo, which looked like a dead Approve button.
+    /// Leaving it out must not let undo delete it.
+    @Test func snapshotSkipsGeneratedFoldersAndUndoKeepsThem() throws {
+        let fileManager = FileManager.default
+        let temporaryRoot = fileManager.temporaryDirectory
+            .appendingPathComponent("heymate-undo-generated-\(UUID().uuidString)", isDirectory: true)
+        let workspaceURL = temporaryRoot.appendingPathComponent("workspace", isDirectory: true)
+        let ledgerURL = temporaryRoot.appendingPathComponent("ledger", isDirectory: true)
+        let sourceURL = workspaceURL.appendingPathComponent("app/main.swift")
+        let buildFileURL = workspaceURL.appendingPathComponent("app/build/Debug/HeyMate.bin")
+        let dependencyFileURL = workspaceURL.appendingPathComponent("web/node_modules/pkg/index.js")
+        for url in [sourceURL, buildFileURL, dependencyFileURL] {
+            try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        }
+        defer { try? fileManager.removeItem(at: temporaryRoot) }
+        try "before".write(to: sourceURL, atomically: true, encoding: .utf8)
+        try "old build".write(to: buildFileURL, atomically: true, encoding: .utf8)
+        try "dependency".write(to: dependencyFileURL, atomically: true, encoding: .utf8)
+
+        let run = AgentRun.queued(
+            id: UUID(),
+            title: "Edit app",
+            prompt: "Edit app",
+            workspaceURL: workspaceURL,
+            executor: .claudeCode,
+            origin: .attached,
+            sessionIdentifier: UUID().uuidString
+        )
+        let ledger = FileAgentUndoLedger(rootDirectoryURL: ledgerURL)
+        let entry = try ledger.prepareSnapshot(for: run)
+
+        let snapshotURL = URL(fileURLWithPath: entry.snapshotPath, isDirectory: true)
+        #expect(fileManager.fileExists(atPath: snapshotURL.appendingPathComponent("app/main.swift").path))
+        #expect(!fileManager.fileExists(atPath: snapshotURL.appendingPathComponent("app/build").path))
+        #expect(!fileManager.fileExists(atPath: snapshotURL.appendingPathComponent("web/node_modules").path))
+        #expect(Set(entry.skippedGeneratedPaths ?? []) == ["app/build", "web/node_modules"])
+
+        try "after".write(to: sourceURL, atomically: true, encoding: .utf8)
+        try "new build".write(to: buildFileURL, atomically: true, encoding: .utf8)
+        ledger.markReady(entryID: entry.id)
+        _ = try ledger.undo(entryID: entry.id)
+
+        #expect(try String(contentsOf: sourceURL, encoding: .utf8) == "before")
+        #expect(try String(contentsOf: buildFileURL, encoding: .utf8) == "new build")
+        #expect(try String(contentsOf: dependencyFileURL, encoding: .utf8) == "dependency")
+    }
+
     @Test func snapshotRefusesAWorkspaceContainingTheLedger() throws {
         let temporaryRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("heymate-undo-recursion-\(UUID().uuidString)", isDirectory: true)
