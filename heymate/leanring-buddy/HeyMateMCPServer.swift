@@ -35,7 +35,8 @@ nonisolated enum HeyMateMCPServer {
         "heymate_caption",
         "heymate_speak",
         "heymate_screenshot",
-        "heymate_clear"
+        "heymate_clear",
+        "heymate_create_mate"
     ]
 
     /// How Claude Code names an MCP tool once the server is loaded.
@@ -325,6 +326,21 @@ nonisolated enum HeyMateMCPServer {
         description: "Remove any cursor or caption this session put on screen.",
         inputSchema: { type: "object", properties: {} },
         path: "/clear"
+      },
+      {
+        name: "heymate_create_mate",
+        description:
+          "Add a mate (a specialist with its own chat and workspace folder) to the user's HeyMate roster. This is the only way to create a mate: a job cannot edit HeyMate's own configuration files. Pass the mate's job in one sentence; name is optional and is generated from the job when omitted.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "Optional. Must be unique among the user's mates." },
+            job: { type: "string", description: "What this mate does, in one sentence." }
+          },
+          required: ["job"]
+        },
+        path: "/mate/create",
+        returnsResult: true
       }
     ];
 
@@ -402,9 +418,11 @@ nonisolated enum HeyMateMCPServer {
         }
 
         const body = { ...(params.arguments || {}) };
-        await callBridge(tool.path, body);
+        const raw = await callBridge(tool.path, body);
+        // Overlay tools have nothing worth reading back. A tool that changes
+        // the roster does: the agent needs the name HeyMate actually chose.
         respond(id, {
-          content: [{ type: "text", text: "ok" }]
+          content: [{ type: "text", text: tool.returnsResult ? raw : "ok" }]
         });
       } catch (error) {
         // Reported as a tool result, not a protocol error: a screen the agent

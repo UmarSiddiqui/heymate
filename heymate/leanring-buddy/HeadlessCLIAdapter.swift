@@ -98,7 +98,21 @@ protocol HeadlessCLIAdapter {
 /// The instruction leg two is given. Deliberately short: the plan is already
 /// in the session, so re-stating it would only give the model a chance to
 /// drift from the text the user actually approved.
-let headlessAgentExecuteInstruction = "Execute the approved plan now. Do not expand its scope."
+///
+/// The second sentence exists because a CLI exits 0 whether or not the work
+/// got done: an agent refused a write says so in prose and still finishes
+/// cleanly. A fixed first-line marker is the one signal HeyMate can read
+/// without parsing free text.
+let headlessAgentBlockedMarker = "HEYMATE_BLOCKED:"
+
+let headlessAgentExecuteInstruction = "Execute the approved plan now. Do not expand its scope. If any part of the plan could not be completed, such as a permission refusal or a missing tool, begin your final message with \(headlessAgentBlockedMarker) and a one-line reason."
+
+/// True when an agent's final message reports that it could not finish.
+func headlessAgentReportsBlocked(_ finalMessage: String) -> Bool {
+    finalMessage
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .hasPrefix(headlessAgentBlockedMarker)
+}
 
 struct OpenCodeRunAdapter: HeadlessCLIAdapter {
     let executor: HeadlessExecutor = .openCode

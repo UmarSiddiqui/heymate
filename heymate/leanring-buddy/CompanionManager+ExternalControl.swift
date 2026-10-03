@@ -83,7 +83,32 @@ extension CompanionManager {
                 namespacedID: namespacedID,
                 argumentsJSON: argumentsJSON
             )
+        case .createMate(let name, let job):
+            return createExternalControlMate(name: name, job: job)
         }
+    }
+
+    /// Creates a mate on behalf of a running job. The job's plan was already
+    /// approved, so this does not ask again, but it never takes over the
+    /// user's open chat and it refuses a name already in the roster rather
+    /// than quietly renaming the mate the plan asked for.
+    private func createExternalControlMate(name: String?, job: String) -> HeyMateExternalControlResponse {
+        let existingNames = mateDirectory.mates.filter { !$0.archived }.map(\.name)
+        let resolvedName = name ?? MateNameGenerator.name(for: job, existingNames: existingNames)
+        if mateDirectory.mateStore.isNameTaken(resolvedName) {
+            return .error(409, "A mate named \(resolvedName) already exists")
+        }
+        guard let mate = createMate(name: resolvedName, job: job, opensChat: false) else {
+            return .error(500, "Could not create the mate")
+        }
+        // The folder is assigned after the mate is stored, so read it back.
+        let folderPath = mateDirectory.mates.first(where: { $0.id == mate.id })?.folderPath
+        return .ok([
+            "created": true,
+            "name": mate.name,
+            "job": mate.job,
+            "folder": folderPath ?? ""
+        ])
     }
 
     // MARK: - Connector tools

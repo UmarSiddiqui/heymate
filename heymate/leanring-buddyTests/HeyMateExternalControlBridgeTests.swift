@@ -157,6 +157,41 @@ struct HeyMateExternalControlBridgeTests {
         ) == .rejected(statusCode: 400, message: "Missing tool"))
     }
 
+    /// A job cannot edit HeyMate's configuration from its sandbox, so this
+    /// route is how an approved plan actually adds a mate.
+    @Test func mateCreateRoutesWithOptionalNameAndRequiresAToken() {
+        #expect(HeyMateExternalControlRouter.route(
+            method: "POST",
+            path: "/mate/create",
+            json: ["name": " Ledger ", "job": " Keeps my monthly budget "]
+        ) == .accepted(.createMate(name: "Ledger", job: "Keeps my monthly budget")))
+
+        #expect(HeyMateExternalControlRouter.route(
+            method: "POST",
+            path: "/mate/create",
+            json: ["name": "  ", "job": "Tracks my running"]
+        ) == .accepted(.createMate(name: nil, job: "Tracks my running")))
+
+        #expect(HeyMateExternalControlRouter.route(
+            method: "POST",
+            path: "/mate/create",
+            json: ["name": "Ledger"]
+        ) == .rejected(statusCode: 400, message: "Missing job"))
+
+        #expect(HeyMateExternalControlCommand.createMate(name: nil, job: "x").touchesConnectedAccounts)
+        #expect(HeyMateMCPServer.toolNames.contains("heymate_create_mate"))
+        #expect(HeyMateMCPServer.serverSource.contains("name: \"heymate_create_mate\""))
+    }
+
+    /// A CLI exits 0 whether or not the plan got done, so the final-message
+    /// marker is what keeps a blocked job from reading as "Work completed".
+    @Test func blockedMarkerIsReadOnlyFromTheStartOfTheFinalMessage() {
+        #expect(headlessAgentExecuteInstruction.contains(headlessAgentBlockedMarker))
+        #expect(headlessAgentReportsBlocked("\n  HEYMATE_BLOCKED: no permission to write mates.json"))
+        #expect(!headlessAgentReportsBlocked("Created three mates."))
+        #expect(!headlessAgentReportsBlocked("Done. I avoided HEYMATE_BLOCKED: entirely."))
+    }
+
     /// Pointing at the screen is harmless if some other local process does
     /// it; reading the user's mail is not. So the connector routes cannot
     /// inherit the "no token configured means everyone is welcome" rule.

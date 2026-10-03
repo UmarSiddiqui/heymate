@@ -36,6 +36,7 @@ final class DetachedAgentRunnerEngine {
 
     private var state: DetachedAgentDurableState
     private var agentReportedFailure = false
+    private var agentReportedBlocked = false
     private var pendingProviderApprovalID: String?
     private var workBudgetRemaining: Duration
     private var workSegmentStartedAt: SuspendingClock.Instant?
@@ -149,8 +150,9 @@ final class DetachedAgentRunnerEngine {
                 recordProgress("Runner received an unsupported plan event")
             case .approvalRequested(let providerID, _):
                 beginApprovalWait(providerID: providerID)
-            case .finished:
-                continue
+            case .finished(let finalMessage):
+                // Read in memory only; the message itself is never persisted.
+                if headlessAgentReportsBlocked(finalMessage) { agentReportedBlocked = true }
             case .failed:
                 agentReportedFailure = true
             }
@@ -177,6 +179,17 @@ final class DetachedAgentRunnerEngine {
                 exitCode: status,
                 summary: nil,
                 error: "Coding agent exited with status \(status)"
+            )
+            return
+        }
+        // Exit 0 only means the process ended. An agent that was refused a
+        // permission or lacked a tool says so and still exits cleanly.
+        if agentReportedBlocked {
+            finishTerminal(
+                phase: .failed,
+                exitCode: status,
+                summary: nil,
+                error: "Agent could not finish the task. Open its chat for details."
             )
             return
         }

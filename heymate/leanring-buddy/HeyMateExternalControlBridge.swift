@@ -107,12 +107,18 @@ nonisolated enum HeyMateExternalControlCommand: Equatable {
     /// Run one of those tools through the session HeyMate already holds. The
     /// user's approval policy is applied on this side, never by the caller.
     case callConnectorTool(namespacedID: String, argumentsJSON: String)
+    /// Adds a mate to the user's roster. A job's folder is sandboxed to its
+    /// own workspace, so it cannot edit HeyMate's configuration directly;
+    /// this is the supported way to do what a plan like "create three mates"
+    /// asks for.
+    case createMate(name: String?, job: String)
 
-    /// Reaches the user's connected accounts rather than the overlay, so it
-    /// is held to the stricter of the bridge's two auth rules.
+    /// Reaches the user's connected accounts or changes the roster rather
+    /// than drawing on the overlay, so it is held to the stricter of the
+    /// bridge's two auth rules.
     var touchesConnectedAccounts: Bool {
         switch self {
-        case .listConnectorTools, .callConnectorTool: return true
+        case .listConnectorTools, .callConnectorTool, .createMate: return true
         default: return false
         }
     }
@@ -226,6 +232,14 @@ nonisolated enum HeyMateExternalControlRouter {
                 namespacedID: namespacedID,
                 argumentsJSON: argumentsJSON.isEmpty ? "{}" : argumentsJSON
             ))
+        case "/mate/create":
+            guard let job = string(json["job"])?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !job.isEmpty else {
+                return .rejected(statusCode: 400, message: "Missing job")
+            }
+            let name = string(json["name"])?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return .accepted(.createMate(name: (name?.isEmpty == false) ? name : nil, job: job))
         default:
             return .rejected(statusCode: 404, message: "Unknown endpoint")
         }

@@ -72,7 +72,7 @@ extension CompanionManager: MateRoutineRunning {
     }
 
     @discardableResult
-    func createMate(name: String, job: String) -> Mate? {
+    func createMate(name: String, job: String, opensChat: Bool = true) -> Mate? {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedJob = job.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty, !trimmedJob.isEmpty else { return nil }
@@ -93,7 +93,7 @@ extension CompanionManager: MateRoutineRunning {
         guard mateDirectory.upsertMate(mate) else { return nil }
         ensureMateFolder(id: mate.id)
         syncMatePublications()
-        openMate(id: mate.id)
+        if opensChat { openMate(id: mate.id) }
         return mate
     }
 
