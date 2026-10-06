@@ -998,6 +998,9 @@ struct MateHomeView: View {
             if companionManager.isSilentModeSuggestionVisible {
                 silentModeSuggestion
             }
+            else if companionManager.isStarNudgeVisible {
+                starNudge
+            }
             if companionManager.isSilentModeEnabled {
                 Label("Silent mode · replies stay on screen", systemImage: "speaker.slash.fill")
                     .font(DS.Fonts.micro)
@@ -1193,6 +1196,28 @@ struct MateHomeView: View {
                     .foregroundColor(DS.Colors.textSecondary)
                     .pointerCursor()
                 Button("Go silent") { companionManager.acceptSilentModeSuggestion() }
+                    .buttonStyle(.plain)
+                    .font(DS.Fonts.caption.weight(.semibold))
+                    .foregroundColor(companionManager.themeColor)
+                    .pointerCursor()
+            }
+        }
+    }
+
+    /// Shown once, after HeyMate has answered a few of the user's questions.
+    private var starNudge: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Enjoying HeyMate? It's free and open source, and a star on GitHub helps other people find it.")
+                .font(DS.Fonts.micro)
+                .foregroundColor(DS.Colors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 12) {
+                Button("Not now") { companionManager.dismissStarNudge() }
+                    .buttonStyle(.plain)
+                    .font(DS.Fonts.micro)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .pointerCursor()
+                Button("Star on GitHub") { companionManager.acceptStarNudge() }
                     .buttonStyle(.plain)
                     .font(DS.Fonts.caption.weight(.semibold))
                     .foregroundColor(companionManager.themeColor)

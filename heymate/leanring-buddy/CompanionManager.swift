@@ -392,6 +392,36 @@ final class CompanionManager: ObservableObject {
         SilentModePreferences.isSuggestionDismissed = true
     }
 
+    /// The one-time "star HeyMate on GitHub" ask, shown under the chat
+    /// composer after enough answered questions. See StarNudge.swift.
+    @Published var isStarNudgeVisible = false
+
+    func acceptStarNudge() {
+        isStarNudgeVisible = false
+        StarNudgePreferences.isResolved = true
+        if let url = URL(string: SupportLinks.repositoryURLString) {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    func dismissStarNudge() {
+        isStarNudgeVisible = false
+        StarNudgePreferences.isResolved = true
+    }
+
+    /// Counts an answer to a question the user asked (not a routine or a
+    /// mate handoff) and shows the ask once the count is reached.
+    private func recordAnsweredQuestionForStarNudge() {
+        guard !StarNudgePreferences.isResolved else { return }
+        StarNudgePreferences.answeredQuestionCount += 1
+        if StarNudgePreferences.shouldOffer(
+            answeredQuestionCount: StarNudgePreferences.answeredQuestionCount,
+            isResolved: StarNudgePreferences.isResolved
+        ) {
+            isStarNudgeVisible = true
+        }
+    }
+
     /// Called just before an answer is spoken. The answer still plays — the
     /// user asked out loud and expects to hear it — but the next time they
     /// look at the chat, the offer is waiting.
@@ -3766,6 +3796,7 @@ final class CompanionManager: ObservableObject {
                     }
                 } else if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     offerSilentModeIfAnsweringThroughSpeakers()
+                    recordAnsweredQuestionForStarNudge()
                     do {
                         try await voiceSynthesisClient.speakText(spokenText)
                         dispatch(.beginSpeaking)
