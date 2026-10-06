@@ -23,7 +23,7 @@ Hold a key, ask about anything on your screen, and it answers out loud. It can a
   <img src="docs/media/heymate-vision.gif" width="720" alt="HeyMate: hold control and option, ask why your Mac is slow, and the cursor flies to the process hogging the CPU and says what to close">
 </a>
 
-<sub>Hold <kbd>⌃</kbd> <kbd>⌥</kbd>, ask "why is my Mac so slow?", let go. HeyMate points at the culprit and tells you out loud.</sub>
+<sub>Hold <kbd>⌃</kbd> <kbd>⌥</kbd>, ask about anything on screen, let go. Here I asked "why is my Mac so slow?", and HeyMate pointed at the culprit and said it out loud.</sub>
 
 </div>
 
@@ -89,7 +89,7 @@ Undo snapshots, Terminal takeover, completion receipts, and **Standing Orders**:
 <td width="50%" valign="top">
 
 ### Plugs into what you already use
-Apple Calendar, Reminders, Notes, Mail, Messages, and Shortcuts out of the box. Local `gh`, `git`, `docker`, `kubectl`, `vercel`, `supabase`, and `stripe` CLIs with your own logins. Any MCP server, plus 1,400+ toolkits through Composio.
+Apple Calendar, Reminders, Notes, Mail, Messages, and Shortcuts out of the box. Local `gh`, `git`, `docker`, `kubectl`, `vercel`, `supabase`, and `stripe` CLIs with your own logins. Any MCP server, plus 1,400+ toolkits through Composio with your own free key.
 
 Read-only calls run quietly. Anything that sends, deletes, or pays always asks first.
 
@@ -133,9 +133,12 @@ If you use a notch app like [Boring Notch](https://github.com/TheBoredTeam/borin
     ```
 
     It downloads the latest build, copies HeyMate into Applications, and opens it. Because `curl` doesn't set macOS's quarantine flag, you won't see "could not verify HeyMate is free of malware". The [script](website/install.sh) is short; read it first if you like.
-2. Prefer the DMG? Download **[HeyMate.dmg](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg)** and drag HeyMate into Applications. The build is not Developer ID-signed yet, so macOS will block it: open **System Settings → Privacy & Security → Open Anyway**, or run `xattr -dr com.apple.quarantine /Applications/HeyMate.app`.
-3. Pick a brain with the model chip, then grant **Microphone**, **Accessibility**, and **Screen Recording** when the setup card asks. [Why each permission?](https://getheymate.vercel.app/permissions)
-4. Hold <kbd>⌃</kbd> <kbd>⌥</kbd> and say hey.
+
+    On Homebrew? `brew install umarsiddiqui/tap/heymate` does the same.
+2. Prefer the DMG? Download **[HeyMate.dmg](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg)** and drag HeyMate into Applications. The build is not notarized, so macOS will block it: open **System Settings → Privacy & Security → Open Anyway**, or run `xattr -dr com.apple.quarantine /Applications/HeyMate.app`.
+3. Grant **Microphone**, **Accessibility**, and **Screen Recording** when the setup card asks. [Why each permission?](https://getheymate.vercel.app/permissions)
+4. When HeyMate asks which AI you already pay for, pick **Claude** or **ChatGPT** and click sign in. It installs the official CLI if it's missing and finishes the login in your browser. **Neither** runs on Apple Intelligence on your Mac.
+5. Hold <kbd>⌃</kbd> <kbd>⌥</kbd> and say hey.
 
 Every push to `main` is built on GitHub Actions and published as a new [release](https://github.com/UmarSiddiqui/heymate/releases) with its changes listed, so the download link always points to the newest build.
 
@@ -144,7 +147,7 @@ Suggestions, bugs, or trouble installing? [Open an issue](https://github.com/Uma
 ### Requirements
 
 - macOS 14.2 or later, Apple silicon or Intel
-- At least one supported CLI, signed in:
+- A Claude or ChatGPT plan, or Apple Intelligence for on-device answers. Onboarding installs and signs in the CLI for you. To do it yourself, or to use OpenCode:
 
 | Brain | Command | Sign in | Notes |
 | --- | --- | --- | --- |
@@ -231,8 +234,7 @@ Select the `leanring-buddy` scheme and **My Mac**, check **Signing & Capabilitie
 
 ## Known limitations
 
-- Builds are ad-hoc signed until a Developer ID certificate is set up, so first launch needs Control-click → Open, and automatic updates aren't wired yet.
-- Fresh installs default to Claude even if another CLI is the one signed in. Choose the brain before onboarding.
+- Builds are signed with a stable self-signed certificate, not Apple Developer ID, and are not notarized. Install with the Terminal one-liner or Homebrew to skip the macOS warning; a downloaded DMG needs System Settings → Privacy & Security → Open Anyway the first time.
 - Screen Recording permission can lag until the next launch after you grant it.
 - OpenCode Talk needs `opencode serve` running.
 

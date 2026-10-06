@@ -9,6 +9,11 @@ Everything below is ready to paste. Post from your own accounts. Links:
 - Landscape video: `marketing/demo-video/out/heymate-demo-1080p60.mp4`
 - Looping GIFs: `docs/media/heymate-vision.gif`, `docs/media/heymate-agents.gif`
 
+## Status (2026-10-06)
+
+- Week 1 fixes shipped: install copy matches one-click sign-in, Homebrew tap (UmarSiddiqui/homebrew-tap), copy buttons + Hotjar events (download_click, github_click, install_copy, brew_copy), Vercel Web Analytics snippet (enable in dashboard), in-app star nudge after 5 answers.
+- awesome-mac #3055 merged. open-source-mac-os-apps #1441 still open.
+
 ## Status (2026-09-28)
 
 - Done: GitHub social preview, X thread + Boring Notch reply, Search Console on umarsiddiqui3037@gmail.com.
@@ -26,7 +31,7 @@ Everything below is ready to paste. Post from your own accounts. Links:
 1. **GitHub social preview:** Repo → Settings → General → Social preview → Upload `docs/media/github-social-preview.png`. This is the card people see when the repo link is shared.
 2. **Pin the repo** on your GitHub profile.
 3. **Add music to the video** if you have a licensed track (see `marketing/demo-video/README.md`). Silent is fine for X, where most people watch on mute.
-4. **Test the download on a clean Mac account**, including the Control-click → Open step, so the first 50 people don't hit something you've never seen.
+4. **Test the download on a clean Mac account**, using the Terminal one-liner, Homebrew, and the DMG's Open Anyway step, so the first 50 people don't hit something you've never seen.
 
 ## Order that tends to work
 
@@ -64,7 +69,7 @@ X reply to add under the thread:
 >
 > Other bits: "mates" (small persistent helpers with their own memory, folder, and schedule), notch micro-apps (file shelf, timers, clipboard), and connectors (Apple apps, local CLIs, MCP).
 >
-> It's native SwiftUI, MIT licensed, macOS 14.2+. Builds aren't Developer ID-signed yet, so first launch is Control-click → Open. Every push to main builds and publishes a release automatically.
+> It's native SwiftUI, MIT licensed, macOS 14.2+. Builds are self-signed, not notarized, so install with `curl -fsSL https://getheymate.vercel.app/install.sh | bash` or `brew install umarsiddiqui/tap/heymate` to skip the Gatekeeper warning. Every push to main builds and publishes a release automatically.
 >
 > 38-second demo: https://getheymate.vercel.app/#demo
 > Code: https://github.com/UmarSiddiqui/heymate
@@ -77,7 +82,7 @@ Attach the **vertical video** to post 1.
 
 1. > I put an AI in my MacBook's notch.
    >
-   > Hold ⌃⌥, ask "why is my Mac so slow?", and the cursor flies to the app hogging your CPU and tells you out loud.
+   > Hold ⌃⌥ and ask about anything on your screen. It answers out loud and its cursor flies to what it means. Here I asked "why is my Mac so slow?" and it pointed at the app hogging my CPU.
    >
    > Free, open source, and it runs on the Claude/Codex subscription you already pay for. 🧵
 
@@ -105,12 +110,12 @@ Attach the **vertical video** to post 1.
 
 > HeyMate folds into the notch and opens on hover. Hold Control + Option to ask about anything on screen; it answers out loud and points its cursor at what it means.
 >
-> - Runs on the Claude Code, Codex, or OpenCode CLI you already have. No account, no API bill from me.
+> - Runs on the ChatGPT or Claude plan you already pay for: pick one in onboarding and click sign in. No account, no extra bill. (Apple Intelligence works if you have neither.)
 > - Notch micro-apps: file shelf, focus timer, clipboard history, now playing, downloads, camera mirror.
 > - Coding agents that must show you a plan and get approval before changing a file, with undo.
 > - Local-first: chats and memory stay on your Mac, and screenshots are never saved.
 >
-> Free and MIT licensed, macOS 14.2+ (Intel and Apple silicon). It isn't notarized yet, so it needs Control-click → Open the first time. Happy to answer anything about permissions or privacy.
+> Free and MIT licensed, macOS 14.2+ (Intel and Apple silicon). It isn't notarized, so install with the Terminal one-liner or `brew install umarsiddiqui/tap/heymate` to skip the macOS warning. Happy to answer anything about permissions or privacy.
 >
 > Demo + download: https://getheymate.vercel.app
 

@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>HeyMate — The AI buddy in your Mac's notch. Free.</title>
-  <meta name="description" content="HeyMate lives in your MacBook's notch, sees your screen when you ask, talks back, and runs Claude Code, Codex, or OpenCode on your existing subscription. Free and open source for macOS 14.2+.">
+  <meta name="description" content="HeyMate lives in your MacBook's notch. Hold a key, ask about anything on your screen, and it answers out loud on the ChatGPT or Claude plan you already pay for. It can also run Claude Code or Codex agents that ask first. Free and open source for macOS 14.2+.">
   <meta name="google-site-verification" content="CjCO8XWw8H-uTbvhHXEwjUFCiFF00sF6dp6ox-USDFA">
   <meta name="keywords" content="HeyMate, Mac AI assistant, MacBook notch app, AI voice assistant for Mac, Claude Code, Codex, OpenCode, AI coding agent, screen-aware AI, push to talk, open source macOS app">
   <meta name="author" content="Umar Siddiqui">
   <meta name="robots" content="index, follow, max-image-preview:large, max-video-preview:-1">
   <meta property="og:site_name" content="HeyMate">
   <meta property="og:title" content="HeyMate — Say hey. It's already looking.">
-  <meta property="og:description" content="An AI buddy that lives in your Mac's notch. It sees your screen, answers out loud, and runs Claude Code or Codex agents on the subscription you already pay for. Free and open source.">
+  <meta property="og:description" content="An AI buddy that lives in your Mac's notch. Ask about anything on your screen and it answers out loud, on the ChatGPT or Claude plan you already pay for. Free and open source.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://getheymate.vercel.app/">
   <meta property="og:image" content="https://getheymate.vercel.app/assets/img/og-card-v2.jpg">
@@ -25,7 +25,7 @@
   <link rel="canonical" href="https://getheymate.vercel.app/">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="HeyMate — the AI buddy in your Mac's notch">
-  <meta name="twitter:description" content="Hold ⌃⌥, ask about anything on screen, and it points at the answer and says it out loud. Runs Claude Code, Codex, or OpenCode on your own subscription. Free, open source.">
+  <meta name="twitter:description" content="Hold ⌃⌥, ask about anything on screen, and it points at the answer and says it out loud. Runs on the ChatGPT or Claude plan you already pay for. Free, open source.">
   <meta name="twitter:image" content="https://getheymate.vercel.app/assets/img/og-card-v2.jpg">
   <link rel="alternate" type="text/plain" title="LLM summary" href="/llms.txt">
   <meta name="theme-color" content="#f5f5f7">
@@ -57,7 +57,7 @@
         "operatingSystem": "macOS 14.2 or later",
         "applicationCategory": "UtilitiesApplication",
         "applicationSubCategory": "AI assistant",
-        "softwareRequirements": "Claude Code, Codex, or OpenCode CLI",
+        "softwareRequirements": "A ChatGPT or Claude plan (optional: Apple Intelligence runs on-device)",
         "isAccessibleForFree": true,
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
         "license": "https://github.com/UmarSiddiqui/heymate/blob/main/heymate/LICENSE",
@@ -94,6 +94,9 @@
     ]
   }
   </script>
+  <!-- Vercel Web Analytics: cookieless page counts (disclosed on privacy.html) -->
+  <script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
+  <script defer src="/_vercel/insights/script.js"></script>
   <!-- Hotjar Tracking Code for HeyMate -->
   <script>
     (function(h,o,t,j,a,r){
@@ -137,9 +140,9 @@
   <main id="overview">
     <section class="hero">
       <div class="wrap center hero-reveal">
-        <p class="eyebrow">macOS · Free · Bring your own AI</p>
+        <p class="eyebrow">macOS · Free · Works with ChatGPT and Claude</p>
         <h1>Say hey.<br>It's already looking.</h1>
-        <p class="sub lede">An AI buddy that lives in your Mac's notch. Hold a key, ask about anything on your screen, and it answers out loud — using the Claude or ChatGPT subscription you already pay for.</p>
+        <p class="sub lede">An AI buddy that lives in your Mac's notch. Hold a key, ask about anything on your screen, and it answers out loud. It runs on the ChatGPT or Claude plan you already pay for, so it costs nothing extra.</p>
         <div class="cta-row center">
           <a class="btn" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download free</a>
           <a class="link" href="#demo">Watch the demo ›</a>
@@ -234,7 +237,7 @@
               </video>
             </div>
             <h3>It sees what you see.</h3>
-            <p>Hold <kbd>⌃</kbd><kbd>⌥</kbd>, ask "why is my Mac so slow?", release. HeyMate looks at your screen only for that question, answers out loud, and points its cursor at what it means.</p>
+            <p>Hold <kbd>⌃</kbd><kbd>⌥</kbd> and ask about whatever is in front of you: an error, a chart, a form, a slow Mac. HeyMate looks at your screen only for that question, answers out loud, and points its cursor at what it means.</p>
           </article>
           <article class="card reveal">
             <!-- IMG-07 -->
@@ -244,7 +247,7 @@
               <span class="chip"><span class="dot"></span>opencode</span>
             </div>
             <h3>It runs on your subscription.</h3>
-            <p>Claude Code, Codex, or OpenCode — whichever you already have installed and logged in. No HeyMate account. No second API bill. Ever.</p>
+            <p>Pick Claude or ChatGPT, click sign in, done. HeyMate uses the plan you already pay for through its official app, so there's no HeyMate account and no second bill. Ever.</p>
           </article>
           <article class="card reveal">
             <!-- IMG-08: loop from marketing/demo-video (clip-agents) -->
@@ -310,7 +313,7 @@
     <section class="connect">
       <div class="wrap center">
         <h2 class="reveal">Plugs into the apps you already use.</h2>
-        <p class="sub lede reveal">Apple Calendar, Reminders, Notes, Mail and Messages out of the box. Your local <span class="code">gh</span>, <span class="code">git</span>, <span class="code">docker</span>, <span class="code">kubectl</span>, <span class="code">vercel</span>, <span class="code">supabase</span> and <span class="code">stripe</span> CLIs with your own logins. Any MCP server. And <span data-count="1400">1,400+</span> more through Composio.</p>
+        <p class="sub lede reveal">Apple Calendar, Reminders, Notes, Mail and Messages out of the box. Your local <span class="code">gh</span>, <span class="code">git</span>, <span class="code">docker</span>, <span class="code">kubectl</span>, <span class="code">vercel</span>, <span class="code">supabase</span> and <span class="code">stripe</span> CLIs with your own logins. Any MCP server. And <span data-count="1400">1,400+</span> more through Composio, with your own free key.</p>
       </div>
       <!-- IMG-11 -->
       <div class="marquee" style="margin-top:56px">
@@ -421,22 +424,23 @@
           <article class="step reveal">
             <h3>Install HeyMate</h3>
             <p>Paste this in Terminal. No Mac security warning.</p>
-            <p class="code">curl -fsSL getheymate.vercel.app/install.sh | bash</p>
+            <p class="code" data-copy="curl -fsSL https://getheymate.vercel.app/install.sh | bash" data-copy-event="install_copy">curl -fsSL getheymate.vercel.app/install.sh | bash</p>
+            <p class="caption">Or with Homebrew:</p>
+            <p class="code" data-copy data-copy-event="brew_copy">brew install umarsiddiqui/tap/heymate</p>
             <p class="caption">Or <a data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">download the DMG</a>. If macOS says it can't verify it, open System Settings &gt; Privacy &gt; Security and click Open Anyway.</p>
             <p class="caption">It will ask for Microphone, Accessibility, and Screen Recording. <a href="permissions.html">Here's exactly why</a>.</p>
           </article>
           <article class="step reveal">
-            <h3>Log in to one CLI you already own.</h3>
-            <p class="code">claude auth login</p>
-            <p class="code">codex login</p>
-            <p class="code">opencode auth login</p>
+            <h3>Pick the AI you already pay for.</h3>
+            <p>Claude or ChatGPT. Click sign in and finish in your browser. HeyMate sets up the rest.</p>
+            <p class="caption">No plan? Choose Neither and it runs on Apple Intelligence on your Mac. Already signed in to the Claude, Codex, or OpenCode CLI? HeyMate uses that.</p>
           </article>
           <article class="step reveal">
             <h3>Hold <kbd>⌃</kbd><kbd>⌥</kbd> and say hey.</h3>
             <p>That's the whole setup.</p>
           </article>
         </div>
-        <p class="caption center">HeyMate is open source under the MIT license. It never charges you. Your AI provider bills you exactly as it did before. This build is not Developer ID signed yet, so use the Terminal install above. It skips the macOS malware warning.</p>
+        <p class="caption center">HeyMate is open source under the MIT license. It never charges you. Your AI provider bills you exactly as it did before. HeyMate isn't notarized by Apple, so the Terminal install above is the smoothest route: it skips the macOS warning.</p>
         <p class="caption center">Suggestions, bugs, or trouble installing? Email me at <a href="mailto:umarsiddiqui3037+heymate@gmail.com?subject=HeyMate">umarsiddiqui3037+heymate@gmail.com</a> or <a href="https://github.com/UmarSiddiqui/heymate/issues/new/choose">open an issue</a>.</p>
       </div>
     </section>

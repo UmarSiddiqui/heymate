@@ -14,6 +14,9 @@
   <link rel="stylesheet" href="css/sections.css">
   <link rel="stylesheet" href="css/motion.css">
   <script>document.documentElement.classList.add("js")</script>
+  <!-- Vercel Web Analytics: cookieless page counts (disclosed on privacy.html) -->
+  <script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
+  <script defer src="/_vercel/insights/script.js"></script>
   <!-- Hotjar Tracking Code for HeyMate -->
   <script>
     (function(h,o,t,j,a,r){
@@ -65,8 +68,8 @@
       <h2>Set up in five minutes</h2>
       <ol>
         <li>Install: <code>curl -fsSL https://getheymate.vercel.app/install.sh | bash</code></li>
-        <li>Sign in to one CLI you already use: <code>claude auth login --claudeai</code>, <code>codex login</code>, or <code>opencode auth login</code>.</li>
-        <li>Pick that brain with the model chip in the notch and grant Microphone, Accessibility, and Screen Recording. <a href="permissions.html">Here is why each one is needed.</a></li>
+        <li>Grant Microphone, Accessibility, and Screen Recording. <a href="permissions.html">Here is why each one is needed.</a></li>
+        <li>When HeyMate asks which AI you already pay for, pick Claude or ChatGPT and click sign in. It installs the official CLI if needed and finishes in your browser. Already signed in to <code>claude</code>, <code>codex</code>, or <code>opencode</code>? It uses that.</li>
         <li>Hold <kbd>⌃</kbd> <kbd>⌥</kbd> and say hey.</li>
       </ol>
 
@@ -113,7 +116,7 @@
       <p>Standing Orders are rules you give HeyMate such as "when a build fails on screen, offer to investigate". HeyMate proposes work when a rule matches, but it never starts anything unasked. You stay the approver.</p>
 
       <h3>6. Plug in the tools you already use</h3>
-      <p>Connectors cover Apple Calendar, Reminders, Notes, Mail, Messages, and Shortcuts, plus local CLIs such as <code>gh</code>, <code>git</code>, <code>docker</code>, <code>kubectl</code>, <code>vercel</code>, <code>supabase</code>, and <code>stripe</code> using your own logins, any MCP server, and 1,400+ toolkits through Composio. Reads run quietly. Anything that sends, deletes, or pays asks first.</p>
+      <p>Connectors cover Apple Calendar, Reminders, Notes, Mail, Messages, and Shortcuts, plus local CLIs such as <code>gh</code>, <code>git</code>, <code>docker</code>, <code>kubectl</code>, <code>vercel</code>, <code>supabase</code>, and <code>stripe</code> using your own logins, any MCP server, and 1,400+ toolkits through Composio with your own free key. Reads run quietly. Anything that sends, deletes, or pays asks first.</p>
 
       <h2>For designers</h2>
 

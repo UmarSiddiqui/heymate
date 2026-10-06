@@ -7,6 +7,38 @@
     if (cfg.GITHUB_URL) el.setAttribute("href", cfg.GITHUB_URL);
   });
 
+  // Hotjar events (disclosed on privacy.html), so recordings and heatmaps can
+  // be filtered to visitors who took the install step.
+  function track(name) {
+    try { if (typeof window.hj === "function") window.hj("event", name); } catch (e) {}
+  }
+  document.querySelectorAll("[data-download]").forEach(function (el) {
+    el.addEventListener("click", function () { track("download_click"); });
+  });
+  document.querySelectorAll("[data-github]").forEach(function (el) {
+    el.addEventListener("click", function () { track("github_click"); });
+  });
+
+  // Click an install command to copy it.
+  document.querySelectorAll("[data-copy]").forEach(function (el) {
+    el.setAttribute("role", "button");
+    el.setAttribute("tabindex", "0");
+    el.setAttribute("title", "Copy");
+    function copy() {
+      var text = el.getAttribute("data-copy") || el.textContent.trim();
+      track(el.getAttribute("data-copy-event") || "command_copy");
+      if (!navigator.clipboard) return;
+      navigator.clipboard.writeText(text).then(function () {
+        el.classList.add("copied");
+        setTimeout(function () { el.classList.remove("copied"); }, 1600);
+      }, function () {});
+    }
+    el.addEventListener("click", copy);
+    el.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); copy(); }
+    });
+  });
+
   var nav = document.querySelector(".nav");
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 

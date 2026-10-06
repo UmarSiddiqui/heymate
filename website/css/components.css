@@ -161,6 +161,17 @@
   color: var(--fg);
 }
 
+[data-copy] { cursor: pointer; position: relative; }
+[data-copy]:hover { border-color: var(--fg-3); }
+[data-copy]::after {
+  content: "Copy";
+  margin-left: 12px;
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 12px;
+  color: var(--fg-2);
+}
+[data-copy].copied::after { content: "Copied"; color: var(--fg); }
+
 /* Silver MacBook Pro frame. Screen content sits inside .mbp-screen. */
 .stage {
   position: relative;
@@ -612,6 +623,7 @@
 .step h3 { font-size: 22px; margin-bottom: 10px; }
 .step p { color: var(--fg-2); font-size: 16px; margin: 0; }
 .step .code { margin-top: 12px; }
+.step .code + .caption { margin-top: 10px; }
 
 .footer {
   border-top: 1px solid var(--hairline);

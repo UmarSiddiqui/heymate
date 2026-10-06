@@ -16,11 +16,11 @@
 
 - Platform: macOS 14.2 or later, Apple silicon and Intel. Works on Macs without a notch (a top-center pill instead).
 - Price: free. MIT licensed. Built in native SwiftUI.
-- AI "brains": Claude Code CLI (default), Codex CLI, or OpenCode, using the user's existing sign-in. A custom Anthropic-compatible API is optional for Talk.
+- AI "brains": the user's existing ChatGPT plan (through the Codex CLI) or Claude plan (through the Claude Code CLI). Onboarding asks "Which AI do you already pay for?", installs the official CLI if missing, and signs in through the browser with one click. "Neither" uses Apple Intelligence on-device. OpenCode and a custom Anthropic-compatible API are also supported.
 - Push-to-talk: hold Control + Option, speak, release. Voice input uses on-device Apple Speech and the macOS system voice by default.
 - Screen awareness: HeyMate captures the screen only when a question needs it. Screenshots are never stored or added to chat history. Password managers and System Settings are excluded from capture.
 - Data: chats, memory, mates, and routines are stored locally in ~/Library/Application Support/heymate/. Credentials live in the macOS Keychain. There is no HeyMate server.
-- Builds are ad-hoc signed (not yet Developer ID). First launch: Control-click HeyMate and choose Open.
+- Builds are signed with a stable self-signed certificate, not Apple Developer ID, and are not notarized. The Terminal install (`curl -fsSL https://getheymate.vercel.app/install.sh | bash`) or Homebrew (`brew install umarsiddiqui/tap/heymate`) avoids the macOS warning. HeyMate updates itself.
 
 ## Features
 
@@ -29,7 +29,7 @@
 - Coding agents with an approval gate: the agent first writes a read-only plan in a sandbox folder (~/Projects/heymate). Nothing is written until the user approves. Approved work runs in a background helper that survives quitting the app, with undo snapshots and Terminal takeover.
 - Standing Orders: HeyMate proposes work but never starts it unasked.
 - Mates: persistent helpers with a name, job, personality, face, memory, and workspace folder. Routines run a mate daily at a set time or every N hours.
-- Connectors: Apple Calendar, Reminders, Notes, Mail, Messages, and Shortcuts; local CLIs such as gh, git, docker, kubectl, vercel, supabase, and stripe; any MCP server; 1,400+ toolkits via Composio. Read-only calls run quietly; anything that sends, deletes, or pays asks first.
+- Connectors: Apple Calendar, Reminders, Notes, Mail, Messages, and Shortcuts; local CLIs such as gh, git, docker, kubectl, vercel, supabase, and stripe; any MCP server; 1,400+ toolkits via Composio (with the user's own free Composio key). Read-only calls run quietly; anything that sends, deletes, or pays asks first.
 
 ## How HeyMate compares
 
@@ -43,8 +43,7 @@ HeyMate is an alternative to Boring Notch (a popular open-source notch utility) 
 
 ## Install
 
-1. Download HeyMate.dmg from the latest GitHub release and drag HeyMate to Applications.
-2. Control-click HeyMate and choose Open (first launch only).
-3. Grant Microphone, Accessibility, and Screen Recording.
-4. Sign in to one CLI: `claude auth login --claudeai`, `codex login`, or `opencode auth login`.
-5. Hold Control + Option and say hey.
+1. In Terminal: `curl -fsSL https://getheymate.vercel.app/install.sh | bash`, or `brew install umarsiddiqui/tap/heymate`. (Or download HeyMate.dmg from the latest GitHub release; if macOS can't verify it, open System Settings > Privacy & Security and click Open Anyway.)
+2. Grant Microphone, Accessibility, and Screen Recording.
+3. Pick the AI you already pay for (Claude or ChatGPT) and click sign in. Choose Neither to use Apple Intelligence on-device.
+4. Hold Control + Option and say hey.
