@@ -1,4 +1,3 @@
 HEYMATE_CLIENT_TOKEN=<choose-a-random-value>
-ASSEMBLYAI_API_KEY=<your-assemblyai-key>
 ELEVENLABS_API_KEY=<your-elevenlabs-key>
 ELEVENLABS_VOICE_ID=<your-elevenlabs-voice-id>

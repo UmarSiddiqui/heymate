@@ -7,7 +7,6 @@ const CLIENT_TOKEN = "unit-test-client-token";
 const UNSET_CLIENT_TOKEN = Symbol("unset-client-token");
 const PROVIDER_ROUTES = [
   { path: "/tts", body: { text: "hello" } },
-  { path: "/transcribe-token", body: {} },
   { path: "/v1/tts/stream", body: { text: "hello" } },
   { path: "/v1/stt/session-token", body: {} },
 ];
@@ -16,7 +15,6 @@ function makeEnv(clientToken = CLIENT_TOKEN) {
   const env = {
     ELEVENLABS_API_KEY: "unit-test-elevenlabs-key",
     ELEVENLABS_VOICE_ID: "UnitTestVoice1",
-    ASSEMBLYAI_API_KEY: "unit-test-assemblyai-key",
   };
   if (clientToken !== UNSET_CLIENT_TOKEN) {
     env.HEYMATE_CLIENT_TOKEN = clientToken;
@@ -55,16 +53,16 @@ async function withMockedProviderFetch(run, providerFailure) {
       });
     }
 
+    if (url === "https://api.elevenlabs.io/v1/single-use-token/realtime_scribe") {
+      return new Response('{"token":"unit-test-single-use-token"}', {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
     if (url.startsWith("https://api.elevenlabs.io/")) {
       return new Response(new Uint8Array([1, 2, 3]), {
         status: 200,
         headers: { "content-type": "audio/mpeg" },
-      });
-    }
-    if (url.startsWith("https://streaming.assemblyai.com/")) {
-      return new Response('{"token":"unit-test-temporary-token"}', {
-        status: 200,
-        headers: { "content-type": "application/json" },
       });
     }
     throw new Error(`Unexpected provider URL: ${url}`);
@@ -136,12 +134,12 @@ test("correct Bearer token reaches every legacy and versioned provider route", a
 
     assert.equal(calls.length, PROVIDER_ROUTES.length);
     assert.equal(
-      calls.filter(({ url }) => url.startsWith("https://api.elevenlabs.io/")).length,
+      calls.filter(({ url }) => url.startsWith("https://api.elevenlabs.io/v1/text-to-speech/")).length,
       2
     );
     assert.equal(
-      calls.filter(({ url }) => url.startsWith("https://streaming.assemblyai.com/")).length,
-      2
+      calls.filter(({ url }) => url === "https://api.elevenlabs.io/v1/single-use-token/realtime_scribe").length,
+      1
     );
   });
 });
@@ -190,6 +188,37 @@ test("provider failure logs omit upstream response text", async () => {
       route.path
     );
   }
+});
+
+test("Scribe session token comes from ElevenLabs with the server key", async () => {
+  await withMockedProviderFetch(async (calls) => {
+    const response = await worker.fetch(
+      makeRequest("/v1/stt/session-token", {
+        authorization: `Bearer ${CLIENT_TOKEN}`,
+        body: {},
+      }),
+      makeEnv()
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { token: "unit-test-single-use-token" });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].init.method, "POST");
+    assert.equal(calls[0].init.headers["xi-api-key"], "unit-test-elevenlabs-key");
+  });
+});
+
+test("retired AssemblyAI legacy token route is gone", async () => {
+  await withMockedProviderFetch(async (calls) => {
+    const response = await worker.fetch(
+      makeRequest("/transcribe-token", {
+        authorization: `Bearer ${CLIENT_TOKEN}`,
+        body: {},
+      }),
+      makeEnv()
+    );
+    assert.equal(response.status, 404);
+    assert.equal(calls.length, 0);
+  });
 });
 
 test("authorized account routes return locally without provider fetch", async () => {

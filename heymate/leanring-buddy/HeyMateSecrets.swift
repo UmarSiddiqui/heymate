@@ -7,7 +7,7 @@
 //  never logged — `presentKeys()` returns names only.
 //
 //  Known keys (none are required; missing → nil):
-//  ANTHROPIC_API_KEY, OPENAI_API_KEY, ASSEMBLYAI_API_KEY, ELEVENLABS_API_KEY,
+//  ANTHROPIC_API_KEY, OPENAI_API_KEY, ELEVENLABS_API_KEY,
 //  ELEVENLABS_VOICE_ID, GOG_KEYRING_PASSWORD, HEYMATE_CLIENT_TOKEN,
 //  HEYMATE_BRIDGE_TOKEN
 //
@@ -21,7 +21,6 @@ nonisolated enum HeyMateSecrets {
     static let documentedKeyNames: [String] = [
         "ANTHROPIC_API_KEY",
         "OPENAI_API_KEY",
-        "ASSEMBLYAI_API_KEY",
         "ELEVENLABS_API_KEY",
         "ELEVENLABS_VOICE_ID",
         "GOG_KEYRING_PASSWORD",

@@ -260,7 +260,7 @@ struct DesktopSettingsView: View {
 
             DesktopCard(
                 title: "Listen & speak",
-                footnote: "Mac keeps your voice on this computer. HeyMate cloud voice uses an online service for better accuracy and more natural speech."
+                footnote: "On-device and Mac keep your voice on this computer. ElevenLabs uses your own ElevenLabs account. If a choice can't run, HeyMate falls back to the Mac so you're never left without a voice."
             ) {
                 VStack(alignment: .leading, spacing: 12) {
                     VoiceProviderSettingsContent(companionManager: companionManager)
@@ -850,21 +850,21 @@ struct DesktopSettingsView: View {
     private var voiceCard: some View {
         DesktopCard(
             title: "Voice",
-            footnote: "Spoken replies use this Mac's voice unless HeyMate cloud voice is turned on under Advanced › Listen & speak."
+            footnote: "Used when Speak is set to Mac voice, and whenever ElevenLabs or the on-device voice can't speak. Change Listen and Speak under Advanced › Listen & speak."
         ) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("Spoken voice")
+                        Text("Mac voice")
                             .font(DS.Fonts.body)
                             .foregroundColor(DS.Colors.textPrimary)
-                        Text("Enhanced voices download from System Settings › Accessibility › Spoken Content.")
+                        Text("Automatic picks the best installed voice. Premium voices sound far better; download them free in System Settings › Accessibility › Spoken Content.")
                             .font(DS.Fonts.caption)
                             .foregroundColor(DS.Colors.textSecondary)
                     }
                     Spacer(minLength: 12)
                     Picker("", selection: $selectedSystemVoiceID) {
-                        Text("System default").tag(SpeechVoiceCatalog.systemDefaultVoiceID)
+                        Text("Automatic (best voice)").tag(SpeechVoiceCatalog.systemDefaultVoiceID)
                         ForEach(availableSystemVoices) { voice in
                             Text(voice.displayName).tag(voice.id)
                         }

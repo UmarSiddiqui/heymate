@@ -638,9 +638,55 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         activeTranscriptionSession?.cancel()
         activeTranscriptionSession = nil
 
-        print("🎙️ BuddyDictationManager: opening transcription provider \(transcriptionProvider.displayName)")
+        let activeTranscriptionSession: any BuddyStreamingTranscriptionSession
+        do {
+            activeTranscriptionSession = try await openTranscriptionSession(with: transcriptionProvider)
+        } catch {
+            // ElevenLabs can fail to start (offline, bad key, quota). Rather
+            // than leave the user with nothing, this one press falls back to
+            // the on-device model or Apple Speech. The chosen provider stays
+            // selected, so the next press tries it again.
+            var fallbackProvider = BuddyTranscriptionProviderFactory.offlineFallbackProvider()
+            if fallbackProvider.displayName == transcriptionProvider.displayName {
+                fallbackProvider = AppleSpeechTranscriptionProvider()
+            }
+            guard fallbackProvider.displayName != transcriptionProvider.displayName else { throw error }
+            print("⚠️ BuddyDictationManager: \(transcriptionProvider.displayName) failed to start (\(error.localizedDescription)), using \(fallbackProvider.displayName)")
+            if fallbackProvider.requiresSpeechRecognitionPermission {
+                guard await requestSpeechRecognitionPermissionIfNeeded() else { throw error }
+            }
+            activeTranscriptionSession = try await openTranscriptionSession(with: fallbackProvider)
+        }
 
-        let activeTranscriptionSession = try await transcriptionProvider.startStreamingSession(
+        self.activeTranscriptionSession = activeTranscriptionSession
+        print("🎙️ BuddyDictationManager: provider ready, starting audio engine")
+
+        let inputNode = audioEngine.inputNode
+
+        // Route capture to the user's chosen microphone before reading the
+        // input format — switching devices changes sample rate and channel
+        // count, so the format has to be read after the switch or the tap is
+        // installed with the previous device's format and the engine throws.
+        applySelectedAudioInputDevice(to: inputNode)
+
+        let inputFormat = inputNode.outputFormat(forBus: 0)
+
+        inputNode.removeTap(onBus: 0)
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
+            self?.activeTranscriptionSession?.appendAudioBuffer(buffer)
+            self?.updateAudioPowerLevel(from: buffer)
+        }
+
+        audioEngine.prepare()
+        try audioEngine.start()
+    }
+
+    private func openTranscriptionSession(
+        with provider: any BuddyTranscriptionProvider
+    ) async throws -> any BuddyStreamingTranscriptionSession {
+        print("🎙️ BuddyDictationManager: opening transcription provider \(provider.displayName)")
+
+        return try await provider.startStreamingSession(
             keyterms: buildTranscriptionKeyterms(),
             onTranscriptUpdate: { [weak self] transcriptText in
                 Task { @MainActor in
@@ -665,28 +711,6 @@ final class BuddyDictationManager: NSObject, ObservableObject {
                 }
             }
         )
-
-        self.activeTranscriptionSession = activeTranscriptionSession
-        print("🎙️ BuddyDictationManager: provider ready, starting audio engine")
-
-        let inputNode = audioEngine.inputNode
-
-        // Route capture to the user's chosen microphone before reading the
-        // input format — switching devices changes sample rate and channel
-        // count, so the format has to be read after the switch or the tap is
-        // installed with the previous device's format and the engine throws.
-        applySelectedAudioInputDevice(to: inputNode)
-
-        let inputFormat = inputNode.outputFormat(forBus: 0)
-
-        inputNode.removeTap(onBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
-            self?.activeTranscriptionSession?.appendAudioBuffer(buffer)
-            self?.updateAudioPowerLevel(from: buffer)
-        }
-
-        audioEngine.prepare()
-        try audioEngine.start()
     }
 
     /// Points the engine's input hardware at the device chosen in Settings.

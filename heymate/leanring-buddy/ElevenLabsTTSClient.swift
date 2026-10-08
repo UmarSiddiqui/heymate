@@ -31,11 +31,27 @@ final class ElevenLabsTTSClient: TTSClient {
     /// Sends `text` to ElevenLabs TTS and plays the resulting audio.
     /// Throws on network or decoding errors. Cancellation-safe.
     func speakText(_ text: String) async throws {
-        var request = URLRequest(url: proxyURL)
+        // The user's own key goes straight to ElevenLabs; without one, a
+        // developer build goes through the Worker, which holds the key.
+        let userAPIKey = ElevenLabsCredentials.userAPIKey()
+        let requestURL: URL
+        if userAPIKey != nil {
+            let voiceID = SpeechVoiceCatalog.resolvedElevenLabsVoiceID()
+                ?? SpeechVoiceCatalog.defaultElevenLabsVoiceID
+            requestURL = URL(string: "\(ElevenLabsCredentials.apiBaseURLString)/v1/text-to-speech/\(voiceID)")!
+        } else {
+            requestURL = proxyURL
+        }
+
+        var request = URLRequest(url: requestURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("audio/mpeg", forHTTPHeaderField: "Accept")
-        BackendClient.applyAuthorization(to: &request)
+        if let userAPIKey {
+            request.setValue(userAPIKey, forHTTPHeaderField: "xi-api-key")
+        } else {
+            BackendClient.applyAuthorization(to: &request)
+        }
 
         var body: [String: Any] = [
             "text": text,
@@ -46,10 +62,10 @@ final class ElevenLabsTTSClient: TTSClient {
             ]
         ]
 
-        // The Worker reads this, validates it, and uses it as the upstream
-        // path parameter. Omitting it leaves the Worker on its configured
+        // Worker route only: the Worker reads this, validates it, and uses it
+        // as the upstream path parameter. Omitting it leaves the Worker on its configured
         // ELEVENLABS_VOICE_ID, which is the pre-picker behavior.
-        if let selectedVoiceID = SpeechVoiceCatalog.resolvedElevenLabsVoiceID() {
+        if userAPIKey == nil, let selectedVoiceID = SpeechVoiceCatalog.resolvedElevenLabsVoiceID() {
             body["voice_id"] = selectedVoiceID
         }
 

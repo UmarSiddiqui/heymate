@@ -17,7 +17,7 @@
 - Platform: macOS 14.2 or later, Apple silicon and Intel. Works on Macs without a notch (a top-center pill instead).
 - Price: free. MIT licensed. Built in native SwiftUI.
 - AI "brains": the user's existing ChatGPT plan (through the Codex CLI) or Claude plan (through the Claude Code CLI). Onboarding asks "Which AI do you already pay for?", installs the official CLI if missing, and signs in through the browser with one click. "Neither" uses Apple Intelligence on-device. OpenCode and a custom Anthropic-compatible API are also supported.
-- Push-to-talk: hold Control + Option, speak, release. Voice input uses on-device Apple Speech and the macOS system voice by default.
+- Push-to-talk: hold Control + Option, speak, release. Voice uses Apple Speech and the best installed Mac voice by default. An optional on-device download (Parakeet listens, Kokoro speaks) keeps voice private and offline, and ElevenLabs works with your own API key.
 - Screen awareness: HeyMate captures the screen only when a question needs it. Screenshots are never stored or added to chat history. Password managers and System Settings are excluded from capture.
 - Data: chats, memory, mates, and routines are stored locally in ~/Library/Application Support/heymate/. Credentials live in the macOS Keychain. There is no HeyMate server.
 - Builds are signed with a stable self-signed certificate, not Apple Developer ID, and are not notarized. The Terminal install (`curl -fsSL https://getheymate.vercel.app/install.sh | bash`) or Homebrew (`brew install umarsiddiqui/tap/heymate`) avoids the macOS warning. HeyMate updates itself.

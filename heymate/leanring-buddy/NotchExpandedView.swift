@@ -511,6 +511,19 @@ private struct NotchHomeTab: View {
                                     companionManager: companionManager,
                                     signIn: companionManager.subscriptionSignIn
                                 )
+                                // Optional: HeyMate works with the Mac voice
+                                // straight away, so this is an offer, not a
+                                // step the Start button waits on.
+                                if OnDeviceVoiceModelStore.shared.isSupportedOnThisMac {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        NotchSectionHeader(title: "Voice")
+                                        OnDeviceVoiceDownloadRow(
+                                            companionManager: companionManager,
+                                            isCompact: true
+                                        )
+                                    }
+                                    .padding(.top, 4)
+                                }
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -557,7 +570,7 @@ private struct NotchHomeTab: View {
     @ViewBuilder
     private var setupCopySection: some View {
         if companionManager.allPermissionsGranted {
-            Text("Permissions are done. Pick the AI you already pay for, then hit Start to meet HeyMate.")
+            Text("Permissions are done. Pick the AI you already pay for, then hit Start to meet HeyMate. The on-device voice is optional; you can get it later in Settings.")
                 .font(DS.Fonts.body)
                 .foregroundColor(DS.Colors.textSecondary)
         } else if companionManager.hasCompletedOnboarding {

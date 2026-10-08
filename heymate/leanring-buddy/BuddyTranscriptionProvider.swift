@@ -36,37 +36,23 @@ enum BuddyTranscriptionProviderFactory {
         return provider
     }
 
+    /// The preferred provider when it can run, else the best one that can.
     static func makeProvider(preferred: VoiceListenProvider) -> any BuddyTranscriptionProvider {
-        switch preferred {
-        case .apple:
-            return AppleSpeechTranscriptionProvider()
-        case .assemblyAI:
-            let assemblyAIProvider = AssemblyAIStreamingTranscriptionProvider()
-            if assemblyAIProvider.isConfigured {
-                return assemblyAIProvider
-            }
-            print("⚠️ Transcription: AssemblyAI preferred but not configured, falling back")
-            return fallbackProvider(excluding: .assemblyAI)
-        case .openAI:
-            let openAIProvider = OpenAIAudioTranscriptionProvider()
-            if openAIProvider.isConfigured {
-                return openAIProvider
-            }
-            print("⚠️ Transcription: OpenAI preferred but not configured, falling back")
-            return fallbackProvider(excluding: .openAI)
+        let preferredProvider = makeProviderWithoutFallback(preferred)
+        if preferredProvider.isConfigured {
+            return preferredProvider
         }
+        print("⚠️ Transcription: \(preferredProvider.displayName) preferred but not set up, falling back")
+        return offlineFallbackProvider()
     }
 
-    private static func fallbackProvider(
-        excluding unavailable: VoiceListenProvider
-    ) -> any BuddyTranscriptionProvider {
-        let remaining: [VoiceListenProvider] = VoiceListenProvider.allCases.filter { $0 != unavailable }
-        for candidate in remaining {
-            let provider = makeProviderWithoutFallback(candidate)
-            if provider.isConfigured {
-                print("⚠️ Transcription: using \(provider.displayName) as fallback")
-                return provider
-            }
+    /// What to use when the chosen provider is unavailable or fails to
+    /// start: the downloaded on-device model if there is one, otherwise
+    /// Apple Speech, which every Mac has.
+    static func offlineFallbackProvider() -> any BuddyTranscriptionProvider {
+        let onDeviceProvider = ParakeetTranscriptionProvider()
+        if onDeviceProvider.isConfigured {
+            return onDeviceProvider
         }
         return AppleSpeechTranscriptionProvider()
     }
@@ -75,12 +61,12 @@ enum BuddyTranscriptionProviderFactory {
         _ preferred: VoiceListenProvider
     ) -> any BuddyTranscriptionProvider {
         switch preferred {
+        case .elevenLabs:
+            return ElevenLabsScribeTranscriptionProvider()
+        case .onDevice:
+            return ParakeetTranscriptionProvider()
         case .apple:
             return AppleSpeechTranscriptionProvider()
-        case .assemblyAI:
-            return AssemblyAIStreamingTranscriptionProvider()
-        case .openAI:
-            return OpenAIAudioTranscriptionProvider()
         }
     }
 }

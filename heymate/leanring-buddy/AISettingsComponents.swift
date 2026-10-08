@@ -891,54 +891,67 @@ struct AgentSignInSettingsContent: View {
 // MARK: - Listen and speak
 
 extension VoiceListenProvider {
-    /// One plain-language line under the Listen picker. "Worker" is the
-    /// developer's name for HeyMate's own cloud service; users see that name.
+    /// One plain-language line under the Listen picker.
     var settingsHint: String {
         switch self {
+        case .elevenLabs:
+            return "Your ElevenLabs account. The most accurate; needs an internet connection."
+        case .onDevice:
+            return "Parakeet, running on this Mac. Private, free, and works offline."
         case .apple:
-            return "Private, on this Mac. Needs Speech Recognition permission."
-        case .assemblyAI:
-            return "HeyMate cloud voice. Fast, accurate transcription; needs an internet connection."
-        case .openAI:
-            #if DEBUG
-            return pickerHint
-            #else
-            return "Cloud transcription from OpenAI."
-            #endif
+            return "Apple's built-in dictation. Needs Speech Recognition permission."
         }
     }
 
-    /// Listen choices worth showing. A Release build hides OpenAI unless it
-    /// is configured, because the only way to configure it is a developer
-    /// secrets file no customer has. Debug builds keep it visible (locked)
-    /// so a developer can see why. The current choice always stays visible.
-    static func settingsVisibleCases(selected: VoiceListenProvider) -> [VoiceListenProvider] {
-        #if DEBUG
-        return allCases
-        #else
-        return allCases.filter { $0.isSelectable || $0 == selected }
-        #endif
+    var lockedReason: String {
+        switch self {
+        case .elevenLabs:
+            return "Add your ElevenLabs API key below to use ElevenLabs."
+        case .onDevice:
+            return ParakeetEngine.unsupportedReason ?? "Download the on-device voice below to use it."
+        case .apple:
+            return ""
+        }
     }
 }
 
 extension VoiceSpeakProvider {
     var settingsHint: String {
         switch self {
-        case .macOS:
-            return "This Mac's own voice. Works offline."
         case .elevenLabs:
-            return "HeyMate cloud voice. More natural; needs an internet connection."
+            return "Your ElevenLabs account. The most natural voice; needs an internet connection."
+        case .onDevice:
+            return "Kokoro, running on this Mac. Natural, private, and works offline."
+        case .macOS:
+            return "The best voice installed on this Mac. Always works. For a better one, download a Premium voice in System Settings › Accessibility › Spoken Content."
+        }
+    }
+
+    var lockedReason: String {
+        switch self {
+        case .elevenLabs:
+            return "Add your ElevenLabs API key below to use ElevenLabs."
+        case .onDevice:
+            return KokoroEngine.unsupportedReason ?? "Download the on-device voice below to use it."
+        case .macOS:
+            return ""
         }
     }
 }
 
-/// Listen and Speak provider pickers. Switching is locked while a turn is in
-/// flight so a reply cannot change voice halfway through.
+/// Listen and Speak provider pickers, plus the two ways to unlock the
+/// better options: the on-device download and an ElevenLabs key. Switching
+/// is locked while a turn is in flight so a reply cannot change voice
+/// halfway through.
 struct VoiceProviderSettingsContent: View {
     @ObservedObject var companionManager: CompanionManager
+    @ObservedObject private var onDeviceModels = OnDeviceVoiceModelStore.shared
     /// The notch has no other home for the interaction-sound toggle, so it
     /// rides along here; desktop shows it under General instead.
     var showsInteractionSoundsToggle = false
+
+    /// Bumped after the key is saved or removed so locked states re-read.
+    @State private var credentialsRevision = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -947,29 +960,17 @@ struct VoiceProviderSettingsContent: View {
                 selectedValue: companionManager.selectedListenProvider.displayName,
                 hint: companionManager.selectedListenProvider.settingsHint,
                 content: {
-                    ForEach(
-                        VoiceListenProvider.settingsVisibleCases(selected: companionManager.selectedListenProvider),
-                        id: \.self
-                    ) { provider in
+                    ForEach(VoiceListenProvider.allCases, id: \.self) { provider in
                         SettingsSegmentButton(
                             label: provider.displayName,
                             isSelected: companionManager.selectedListenProvider == provider,
                             isEnabled: provider.isSelectable && companionManager.voiceState == .idle,
-                            disabledReason: listenProviderDisabledReason(provider),
+                            disabledReason: provider.isSelectable ? audioProviderBusyMessage : provider.lockedReason,
                             action: { companionManager.setSelectedListenProvider(provider) }
                         )
                     }
                 }
             )
-
-            #if DEBUG
-            if !VoiceListenProvider.openAI.isSelectable {
-                Text("OpenAI locked — set OPENAI_API_KEY in your local HeyMate secrets file to enable it.")
-                    .font(DS.Fonts.micro)
-                    .foregroundColor(DS.Colors.warningText)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            #endif
 
             providerPicker(
                 label: "Speak",
@@ -980,13 +981,14 @@ struct VoiceProviderSettingsContent: View {
                         SettingsSegmentButton(
                             label: provider.displayName,
                             isSelected: companionManager.selectedSpeakProvider == provider,
-                            isEnabled: companionManager.voiceState == .idle,
-                            disabledReason: audioProviderBusyMessage,
+                            isEnabled: provider.isSelectable && companionManager.voiceState == .idle,
+                            disabledReason: provider.isSelectable ? audioProviderBusyMessage : provider.lockedReason,
                             action: { companionManager.setSelectedSpeakProvider(provider) }
                         )
                     }
                 }
             )
+            .id(credentialsRevision)
 
             if let audioProviderBusyMessage {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -999,6 +1001,10 @@ struct VoiceProviderSettingsContent: View {
                 .foregroundColor(DS.Colors.warningText)
                 .accessibilityElement(children: .combine)
             }
+
+            OnDeviceVoiceDownloadRow(companionManager: companionManager)
+
+            ElevenLabsAPIKeyRow(onCredentialsChanged: { credentialsRevision += 1 })
 
             if showsInteractionSoundsToggle {
                 HStack {
@@ -1051,16 +1057,196 @@ struct VoiceProviderSettingsContent: View {
             return "Let the current reply finish before switching voice options."
         }
     }
+}
 
-    private func listenProviderDisabledReason(_ provider: VoiceListenProvider) -> String? {
-        if !provider.isSelectable {
-            #if DEBUG
-            return "OpenAI unavailable. Set OPENAI_API_KEY in your local HeyMate secrets file."
-            #else
-            return "OpenAI transcription is not available in this version of HeyMate."
-            #endif
+/// One row that explains the on-device voice and downloads it. Shared by
+/// onboarding and Settings, so the copy and states stay identical.
+struct OnDeviceVoiceDownloadRow: View {
+    @ObservedObject var companionManager: CompanionManager
+    @ObservedObject private var store = OnDeviceVoiceModelStore.shared
+    /// Onboarding shows a shorter, friendlier version.
+    var isCompact = false
+
+    @State private var isConfirmingRemoval = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: store.isEverythingInstalled ? "checkmark.circle.fill" : "cpu")
+                    .font(DS.Glyph.regular)
+                    .foregroundColor(store.isEverythingInstalled ? DS.Colors.accentText : DS.Colors.textSecondary)
+                    .frame(width: 18)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(DS.Fonts.body)
+                        .foregroundColor(DS.Colors.textPrimary)
+                    Text(subtitle)
+                        .font(DS.Fonts.caption)
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 8)
+
+                actionButton
+            }
+
+            if store.isDownloading {
+                if let progress = store.combinedProgress {
+                    ProgressView(value: progress)
+                        .progressViewStyle(.linear)
+                        .tint(DS.Colors.accent)
+                } else {
+                    ProgressView()
+                        .progressViewStyle(.linear)
+                        .tint(DS.Colors.accent)
+                }
+            }
+
+            if let failure = store.lastFailureMessage, !store.isDownloading {
+                Text(failure)
+                    .font(DS.Fonts.micro)
+                    .foregroundColor(DS.Colors.warningText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        return audioProviderBusyMessage
+        .confirmationDialog(
+            "Remove the on-device voice?",
+            isPresented: $isConfirmingRemoval
+        ) {
+            Button("Remove", role: .destructive) { removeModels() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("HeyMate switches back to the Mac voice. You can download it again any time.")
+        }
+    }
+
+    private var title: String {
+        if !store.isSupportedOnThisMac { return "On-device voice" }
+        if store.isEverythingInstalled { return "On-device voice is ready" }
+        if store.isDownloading { return "Downloading on-device voice…" }
+        return isCompact ? "Want a private, natural voice?" : "On-device voice"
+    }
+
+    private var subtitle: String {
+        if !store.isSupportedOnThisMac {
+            if case .unsupported(let reason) = store.listenState { return reason }
+            return "Not available on this Mac."
+        }
+        if store.isEverythingInstalled {
+            return "Listening and speaking run on this Mac. Nothing leaves it."
+        }
+        if store.isDownloading {
+            return "One-time download. You can keep using HeyMate meanwhile."
+        }
+        if case .unsupported(let reason) = store.speakState {
+            return "Listens on this Mac, offline. \(reason) Download once, \(OnDeviceVoiceModelStore.approximateDownloadSizeDescription)."
+        }
+        return "Listens and talks on this Mac, offline and free. One-time download, \(OnDeviceVoiceModelStore.approximateDownloadSizeDescription)."
+    }
+
+    @ViewBuilder
+    private var actionButton: some View {
+        if !store.isSupportedOnThisMac || store.isDownloading {
+            EmptyView()
+        } else if store.isEverythingInstalled {
+            if !isCompact {
+                Button("Remove") { isConfirmingRemoval = true }
+                    .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
+            }
+        } else {
+            Button(store.lastFailureMessage == nil ? "Download" : "Try again") {
+                Task { await store.downloadAll() }
+            }
+            .dsCapsuleButtonStyle(.primary, height: DS.ControlSize.small)
+        }
+    }
+
+    private func removeModels() {
+        if companionManager.selectedListenProvider == .onDevice {
+            companionManager.setSelectedListenProvider(.apple)
+        }
+        if companionManager.selectedSpeakProvider == .onDevice {
+            companionManager.setSelectedSpeakProvider(.macOS)
+        }
+        Task { await store.removeAll() }
+    }
+}
+
+/// Paste-your-own ElevenLabs key. HeyMate has no shared key, so this is the
+/// only way a release build gets ElevenLabs. The key lives in the Keychain
+/// and is never shown again after saving.
+struct ElevenLabsAPIKeyRow: View {
+    var onCredentialsChanged: () -> Void = {}
+
+    @State private var apiKeyDraft = ""
+    @State private var hasStoredKey = ElevenLabsCredentials.hasUserAPIKey
+    @State private var statusMessage: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: hasStoredKey ? "checkmark.circle.fill" : "key")
+                    .font(DS.Glyph.regular)
+                    .foregroundColor(hasStoredKey ? DS.Colors.accentText : DS.Colors.textSecondary)
+                    .frame(width: 18)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(hasStoredKey ? "ElevenLabs key saved" : "ElevenLabs (optional)")
+                        .font(DS.Fonts.body)
+                        .foregroundColor(DS.Colors.textPrimary)
+                    Text(hasStoredKey
+                         ? "Pick ElevenLabs above for Listen or Speak."
+                         : "Paste an API key from elevenlabs.io to use their voices. The free plan works.")
+                        .font(DS.Fonts.caption)
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                if hasStoredKey {
+                    Button("Remove") { removeKey() }
+                        .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
+                }
+            }
+
+            if !hasStoredKey {
+                HStack(spacing: 8) {
+                    SecureField("ElevenLabs API key", text: $apiKeyDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit(saveKey)
+                    Button("Save", action: saveKey)
+                        .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)
+                        .disabled(apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+
+            if let statusMessage {
+                Text(statusMessage)
+                    .font(DS.Fonts.micro)
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func saveKey() {
+        guard ElevenLabsCredentials.saveUserAPIKey(apiKeyDraft) else {
+            statusMessage = "Couldn't save the key to the Keychain."
+            return
+        }
+        apiKeyDraft = ""
+        hasStoredKey = true
+        statusMessage = nil
+        onCredentialsChanged()
+    }
+
+    private func removeKey() {
+        ElevenLabsCredentials.removeUserAPIKey()
+        hasStoredKey = ElevenLabsCredentials.hasUserAPIKey
+        statusMessage = hasStoredKey
+            ? "Removed from the Keychain. A key in your developer secrets file is still in use."
+            : nil
+        onCredentialsChanged()
     }
 }
 
@@ -1088,7 +1274,7 @@ struct ElevenLabsVoiceSettingsContent: View {
                 }
                 Spacer(minLength: 12)
                 Picker("", selection: $elevenLabsVoiceSelection) {
-                    Text("HeyMate default").tag("")
+                    Text("Default").tag("")
                     ForEach(SpeechVoiceCatalog.elevenLabsPremadeVoices) { voice in
                         Text(voice.displayName).tag(voice.id)
                     }

@@ -5,8 +5,11 @@
 //  Which voice speaks the replies. Two independent selections, because the two
 //  TTS backends do not share a voice namespace:
 //
-//  - the macOS system synthesizer (the wired-up default) picks from the voices
-//    installed on the machine, identified by AVSpeechSynthesisVoice identifier
+//  - the macOS system synthesizer picks from the voices installed on the
+//    machine, identified by AVSpeechSynthesisVoice identifier. "Automatic"
+//    means the best one installed. Siri voices are not among them: macOS
+//    only lists those to Apple's own processes, so a third-party app gets
+//    nil for their identifiers. Premium/Enhanced voices are the ceiling
 //  - ElevenLabs picks by voice id. Those are global for the premade voices
 //    every account gets, so they can be listed by name in the picker; a
 //    cloned or library voice is still enterable by id
@@ -24,9 +27,11 @@ nonisolated struct SpeechVoiceOption: Identifiable, Hashable {
     let id: String
     let name: String
     let languageCode: String
-    /// Siri / Premium / Enhanced voices sound markedly better and are worth
+    /// Premium / Enhanced voices sound markedly better and are worth
     /// surfacing first.
     let isHighQuality: Bool
+    /// `AVSpeechSynthesisVoiceQuality.rawValue`: premium > enhanced > default.
+    var qualityRank: Int = 0
 
     var displayName: String {
         let localizedLanguage = Locale.current.localizedString(forIdentifier: languageCode) ?? languageCode
@@ -59,28 +64,47 @@ nonisolated enum SpeechVoiceCatalog {
 
     // MARK: macOS system voices
 
-    /// Installed voices, best-sounding first, then alphabetically. Voices for
-    /// the user's own language float to the top — a picker that opens on
-    /// Albanian is useless on an English machine.
+    /// Installed voices worth offering, best-sounding first. Voices for the
+    /// user's own language float to the top — a picker that opens on
+    /// Albanian is useless on an English machine. The novelty voices
+    /// (Zarvox, Bells, Wobble…) and the robotic Eloquence set are left out:
+    /// nobody wants a reply read by them.
     static func availableSystemVoices() -> [SpeechVoiceOption] {
         let preferredLanguagePrefix = String(Locale.current.identifier.prefix(2))
 
         return AVSpeechSynthesisVoice.speechVoices()
+            .filter { !isNoveltyVoiceIdentifier($0.identifier) }
             .map { voice in
                 SpeechVoiceOption(
                     id: voice.identifier,
                     name: voice.name,
                     languageCode: voice.language,
-                    isHighQuality: voice.quality != .default
+                    isHighQuality: voice.quality != .default,
+                    qualityRank: voice.quality.rawValue
                 )
             }
             .sorted { first, second in
                 let firstMatchesLanguage = first.languageCode.hasPrefix(preferredLanguagePrefix)
                 let secondMatchesLanguage = second.languageCode.hasPrefix(preferredLanguagePrefix)
                 if firstMatchesLanguage != secondMatchesLanguage { return firstMatchesLanguage }
-                if first.isHighQuality != second.isHighQuality { return first.isHighQuality }
-                return first.name.localizedCaseInsensitiveCompare(second.name) == .orderedAscending
+                if first.qualityRank != second.qualityRank { return first.qualityRank > second.qualityRank }
+                return first.name.localizedStandardCompare(second.name) == .orderedAscending
             }
+    }
+
+    static func isNoveltyVoiceIdentifier(_ identifier: String) -> Bool {
+        identifier.hasPrefix("com.apple.speech.synthesis.voice.")
+            || identifier.hasPrefix("com.apple.eloquence.")
+    }
+
+    /// The highest-quality installed voice for the user's language.
+    static func bestSystemVoice() -> AVSpeechSynthesisVoice? {
+        let preferredLanguagePrefix = String(Locale.current.identifier.prefix(2))
+        guard let bestOption = availableSystemVoices().first,
+              bestOption.languageCode.hasPrefix(preferredLanguagePrefix) else {
+            return nil
+        }
+        return AVSpeechSynthesisVoice(identifier: bestOption.id)
     }
 
     static var selectedSystemVoiceID: String {
@@ -89,17 +113,25 @@ nonisolated enum SpeechVoiceCatalog {
     }
 
     /// The voice to speak with, or nil to let AVSpeechSynthesizer choose.
-    /// A stored identifier for a voice that has since been uninstalled
-    /// resolves to nil rather than failing to speak.
+    /// "Automatic" (and a stored voice that has since been uninstalled)
+    /// picks the best installed voice.
     static func resolvedSystemVoice() -> AVSpeechSynthesisVoice? {
         let identifier = selectedSystemVoiceID
-        guard identifier != systemDefaultVoiceID else { return nil }
-        return AVSpeechSynthesisVoice(identifier: identifier)
+        if identifier != systemDefaultVoiceID,
+           let chosenVoice = AVSpeechSynthesisVoice(identifier: identifier) {
+            return chosenVoice
+        }
+        return bestSystemVoice()
     }
 
     // MARK: ElevenLabs
 
-    /// Empty means "use whatever voice the Worker is configured with".
+    /// Used with the user's own key when no voice is picked. Sarah is a
+    /// premade voice every account, free ones included, can use.
+    static let defaultElevenLabsVoiceID = "EXAVITQu4vr4xnSDxMaL"
+
+    /// Empty means the default voice: the Worker's configured voice, or
+    /// `defaultElevenLabsVoiceID` with the user's own key.
     static var selectedElevenLabsVoiceID: String {
         get { UserDefaults.standard.string(forKey: elevenLabsVoicePreferenceKey) ?? "" }
         set { UserDefaults.standard.set(newValue, forKey: elevenLabsVoicePreferenceKey) }

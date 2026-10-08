@@ -213,7 +213,15 @@ Select the `leanring-buddy` scheme and **My Mac**, check **Signing & Capabilitie
 
 <br>
 
-**Cloudflare Worker for cloud voices.** [`heymate/worker`](heymate/worker) proxies optional AssemblyAI transcription and ElevenLabs speech. Every route requires a shared `HEYMATE_CLIENT_TOKEN` and fails closed without one. Put provider keys in the git-ignored `heymate/worker/.dev.vars` locally, or in Cloudflare secrets (`npx wrangler secret put HEYMATE_CLIENT_TOKEN`) when deployed. Give the app the same token through its environment or `~/.config/heymate/secrets.env` (`chmod 600` both files). Never put keys in `Info.plist`.
+**Voices.** Listen and Speak each have three options in Settings › Advanced › Listen & speak:
+
+- **Mac** (default): Apple Speech for listening, and the best installed Mac voice for speaking (download a free Premium voice in System Settings › Accessibility › Spoken Content for a better one). Works out of the box.
+- **On-device**: [Parakeet](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml) listens and [Kokoro 82M](https://huggingface.co/FluidInference/kokoro-82m-coreml) speaks, both through [FluidAudio](https://github.com/FluidInference/FluidAudio) on the Neural Engine. One optional download (about 600 MB) from onboarding or Settings. Private, free, and works offline. Needs Apple Silicon.
+- **ElevenLabs**: Scribe v2 Realtime for listening and ElevenLabs TTS for speaking, using your own ElevenLabs API key (stored in Keychain; the free plan works).
+
+If ElevenLabs or on-device can't run, HeyMate falls back to the Mac voice for that turn.
+
+**Cloudflare Worker (developers).** [`heymate/worker`](heymate/worker) can hold an ElevenLabs key server-side instead: it proxies TTS and mints Scribe single-use tokens. Every route requires a shared `HEYMATE_CLIENT_TOKEN` and fails closed without one. Put provider keys in the git-ignored `heymate/worker/.dev.vars` locally, or in Cloudflare secrets (`npx wrangler secret put HEYMATE_CLIENT_TOKEN`) when deployed. Give the app the same token through its environment or `~/.config/heymate/secrets.env` (`chmod 600` both files). Never put keys in `Info.plist`.
 
 **Custom API.** Accepts any Anthropic Messages-compatible endpoint, model, and optional key (stored in Keychain). It answers Talk requests but doesn't run coding-agent jobs.
 
@@ -227,7 +235,7 @@ Select the `leanring-buddy` scheme and **My Mac**, check **Signing & Capabilitie
 | --- | --- |
 | [`heymate/leanring-buddy`](heymate/leanring-buddy) | The SwiftUI app |
 | [`heymate/leanring-buddyTests`](heymate/leanring-buddyTests) · [`UITests`](heymate/leanring-buddyUITests) | Unit and UI tests |
-| [`heymate/worker`](heymate/worker) | Optional Cloudflare Worker for cloud voices |
+| [`heymate/worker`](heymate/worker) | Optional Cloudflare Worker that holds an ElevenLabs key for developers |
 | [`website`](website) | The landing page |
 | [`marketing/demo-video`](marketing/demo-video) | The Remotion project that renders the demo video |
 | [`.github/workflows`](.github/workflows) | The build-and-release pipeline |

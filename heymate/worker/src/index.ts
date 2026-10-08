@@ -1,16 +1,15 @@
 /**
  * HeyMate Proxy Worker
  *
- * Proxies requests to Claude, ElevenLabs, and AssemblyAI APIs so the app never
- * ships with raw API keys. Keys are stored as Cloudflare secrets.
+ * Proxies requests to ElevenLabs so the app never ships with raw API keys.
+ * Keys are stored as Cloudflare secrets.
  *
  * Legacy routes (Bearer-gated; kept only for existing app clients):
  *   POST /tts              → ElevenLabs TTS API
- *   POST /transcribe-token → AssemblyAI realtime websocket token
  *
  * Versioned routes (Bearer-gated):
  *   POST /v1/tts/stream         → ElevenLabs TTS API
- *   POST /v1/stt/session-token  → AssemblyAI realtime websocket token
+ *   POST /v1/stt/session-token  → ElevenLabs Scribe realtime single-use token
  *   GET  /v1/me                 → placeholder account info
  *   GET  /v1/usage              → placeholder usage counters
  *   anything else under /v1/*   → 501 not_implemented
@@ -19,7 +18,6 @@
 interface Env {
   ELEVENLABS_API_KEY: string;
   ELEVENLABS_VOICE_ID: string;
-  ASSEMBLYAI_API_KEY: string;
 
   /**
    * WHY: shared client token for every provider-backed route. It is deliberately
@@ -53,8 +51,7 @@ export default {
       return new Response("Method not allowed", { status: 405 });
     }
 
-    const isLegacyProviderPath =
-      path === "/tts" || path === "/transcribe-token";
+    const isLegacyProviderPath = path === "/tts";
     if (isLegacyProviderPath && !bearerOk(request, env)) {
       return json({ error: "unauthorized" }, 401);
     }
@@ -62,10 +59,6 @@ export default {
     try {
       if (path === "/tts") {
         return await handleTTS(request, env, path);
-      }
-
-      if (path === "/transcribe-token") {
-        return await handleTranscribeToken(env, path);
       }
     } catch (error) {
       return internalError(path, error);
@@ -105,7 +98,7 @@ async function handleVersionedRequest(
   }
 
   if (method === "POST" && path === "/v1/stt/session-token") {
-    return await handleTranscribeToken(env, path);
+    return await handleScribeSessionToken(env, path);
   }
 
   if (method === "GET" && path === "/v1/me") {
@@ -143,7 +136,7 @@ function json(data: Record<string, unknown>, status = 200): Response {
 
 function bearerOk(request: Request, env: Env): boolean {
   // WHY: this checks the shared CLIENT token, never a provider secret — even a
-  // full leak of it exposes no Anthropic/ElevenLabs/AssemblyAI keys. Plain
+  // full leak of it exposes no Anthropic/ElevenLabs keys. Plain
   // equality is intentional: the threat model is drive-by abuse damping, not a
   // determined attacker; real accounts will replace this gate later.
   if (!env.HEYMATE_CLIENT_TOKEN) {
@@ -166,13 +159,19 @@ function logProviderFailure(path: string, status: number, responseBody: string):
   );
 }
 
-async function handleTranscribeToken(env: Env, path: string): Promise<Response> {
+/**
+ * WHY a single-use token: the app opens the Scribe realtime websocket
+ * directly, so it needs a credential it can put in the URL. ElevenLabs mints
+ * one that is consumed on first use and expires after 15 minutes, which keeps
+ * the real API key server-side.
+ */
+async function handleScribeSessionToken(env: Env, path: string): Promise<Response> {
   const response = await fetch(
-    "https://streaming.assemblyai.com/v3/token?expires_in_seconds=480",
+    "https://api.elevenlabs.io/v1/single-use-token/realtime_scribe",
     {
-      method: "GET",
+      method: "POST",
       headers: {
-        authorization: env.ASSEMBLYAI_API_KEY,
+        "xi-api-key": env.ELEVENLABS_API_KEY,
       },
     }
   );

@@ -15,18 +15,28 @@ struct VoiceProviderTests {
 
     @Test func listenStoredPreferenceWinsOverBundleDefault() {
         let resolved = VoiceListenProvider.resolved(
-            storedRawValue: "assemblyai",
+            storedRawValue: "parakeet",
             bundleRawValue: "apple"
         )
-        #expect(resolved == .assemblyAI)
+        #expect(resolved == .onDevice)
     }
 
     @Test func listenFallsBackToBundleWhenNothingIsStored() {
         let resolved = VoiceListenProvider.resolved(
             storedRawValue: nil,
-            bundleRawValue: "openai"
+            bundleRawValue: "elevenlabs"
         )
-        #expect(resolved == .openAI)
+        #expect(resolved == .elevenLabs)
+    }
+
+    @Test func retiredCloudListenChoicesMoveToElevenLabs() {
+        #expect(VoiceListenProvider.resolved(storedRawValue: "assemblyai", bundleRawValue: "apple") == .elevenLabs)
+        #expect(VoiceListenProvider.resolved(storedRawValue: "openai", bundleRawValue: "apple") == .elevenLabs)
+        #expect(VoiceListenProvider.resolved(storedRawValue: "AssemblyAI", bundleRawValue: nil) == .elevenLabs)
+    }
+
+    @Test func speakOnDeviceRoundTrips() {
+        #expect(VoiceSpeakProvider.resolved(storedRawValue: "kokoro", bundleRawValue: "macos") == .onDevice)
     }
 
     @Test func listenInvalidStoredValueFallsBackToBundleThenApple() {
@@ -98,9 +108,13 @@ struct VoiceProviderTests {
     @Test func listenFactoryHonorsPreferredProvider() {
         let apple = BuddyTranscriptionProviderFactory.makeProvider(preferred: .apple)
         #expect(apple.displayName == "Apple Speech")
+    }
 
-        let assembly = BuddyTranscriptionProviderFactory.makeProvider(preferred: .assemblyAI)
-        #expect(assembly.displayName == "AssemblyAI")
+    @Test func listenFactoryFallsBackWhenOnDeviceIsMissing() {
+        // Never pretends a missing model is usable: without the download the
+        // factory hands back something that can actually run.
+        let provider = BuddyTranscriptionProviderFactory.makeProvider(preferred: .onDevice)
+        #expect(provider.isConfigured)
     }
 }
 
@@ -119,14 +133,14 @@ struct VoiceProviderPersistenceTests {
         UserDefaults.standard.removeObject(forKey: CompanionManager.speakPreferenceKey)
         let manager = CompanionManager()
 
-        manager.setSelectedListenProvider(.assemblyAI)
+        manager.setSelectedListenProvider(.apple)
         manager.setSelectedSpeakProvider(.elevenLabs)
 
-        #expect(UserDefaults.standard.string(forKey: CompanionManager.listenPreferenceKey) == "assemblyai")
+        #expect(UserDefaults.standard.string(forKey: CompanionManager.listenPreferenceKey) == "apple")
         #expect(UserDefaults.standard.string(forKey: CompanionManager.speakPreferenceKey) == "elevenlabs")
-        #expect(manager.selectedListenProvider == .assemblyAI)
+        #expect(manager.selectedListenProvider == .apple)
         #expect(manager.selectedSpeakProvider == .elevenLabs)
-        #expect(manager.buddyDictationManager.transcriptionProviderDisplayName == "AssemblyAI")
+        #expect(manager.buddyDictationManager.transcriptionProviderDisplayName == "Apple Speech")
 
         UserDefaults.standard.removeObject(forKey: CompanionManager.listenPreferenceKey)
         UserDefaults.standard.removeObject(forKey: CompanionManager.speakPreferenceKey)

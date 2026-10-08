@@ -150,6 +150,7 @@ final class CompanionManager: ObservableObject {
             workerBaseURL: Self.workerBaseURL
         )
         print("🔊 Speak: using \(speakProvider.displayName)")
+        bindOnDeviceVoiceModels()
         AppTheme.currentHex = themeColorHex
 
         bindAgentLauncher()
@@ -1278,18 +1279,54 @@ final class CompanionManager: ObservableObject {
         )
     }
 
+    /// A finished on-device download switches Listen or Speak over to it —
+    /// the user downloaded it to use it. Also warms Parakeet when it is
+    /// already the Listen choice, so the first press after launch is quick.
+    private func bindOnDeviceVoiceModels() {
+        OnDeviceVoiceModelStore.shared.onModelInstalled = { [weak self] kind in
+            guard let self, self.voiceState == .idle else { return }
+            switch kind {
+            case .listen:
+                self.setSelectedListenProvider(.onDevice)
+            case .speak:
+                self.setSelectedSpeakProvider(.onDevice)
+            }
+        }
+
+        if selectedListenProvider == .onDevice, ParakeetEngine.modelsAreInstalled() {
+            Task.detached(priority: .utility) {
+                _ = try? await ParakeetEngine.shared.loadIfNeeded()
+            }
+        }
+    }
+
     private static func makeVoiceSynthesisClient(
         for provider: VoiceSpeakProvider,
         workerBaseURL: String
     ) -> any TTSClient {
-        let providerClient: any TTSClient
+        SilentModeAwareTTSClient(wrapping: makeSpeakingClient(for: provider, workerBaseURL: workerBaseURL))
+    }
+
+    /// The client for a Speak choice. ElevenLabs and on-device fall back to
+    /// the Mac voice when they fail, so a reply is never lost.
+    static func makeSpeakingClient(
+        for provider: VoiceSpeakProvider,
+        workerBaseURL: String
+    ) -> any TTSClient {
         switch provider {
         case .macOS:
-            providerClient = MacOSSpeechSynthesizerClient()
+            return MacOSSpeechSynthesizerClient()
         case .elevenLabs:
-            providerClient = ElevenLabsTTSClient(proxyURL: "\(workerBaseURL)/tts")
+            return FallbackTTSClient(
+                primary: ElevenLabsTTSClient(proxyURL: "\(workerBaseURL)/tts"),
+                fallback: MacOSSpeechSynthesizerClient()
+            )
+        case .onDevice:
+            return FallbackTTSClient(
+                primary: KokoroTTSClient(),
+                fallback: MacOSSpeechSynthesizerClient()
+            )
         }
-        return SilentModeAwareTTSClient(wrapping: providerClient)
     }
 
     /// Applies a model picked in the panel or Settings. Both fields go through

@@ -285,13 +285,10 @@ extension CompanionManager {
         if isSilentModeEnabled {
             return .accepted(["speaking": false, "silentMode": true, "textLength": text.count])
         }
-        let client: any TTSClient
-        switch selectedSpeakProvider {
-        case .macOS:
-            client = MacOSSpeechSynthesizerClient()
-        case .elevenLabs:
-            client = ElevenLabsTTSClient(proxyURL: "\(workerBaseURLForDisplay)/tts")
-        }
+        let client = Self.makeSpeakingClient(
+            for: selectedSpeakProvider,
+            workerBaseURL: workerBaseURLForDisplay
+        )
         HeyMateExternalControlSpeech.activeClient?.stopPlayback()
         HeyMateExternalControlSpeech.activeClient = client
         Task { @MainActor in

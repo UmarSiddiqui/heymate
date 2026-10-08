@@ -19,7 +19,7 @@ struct HeyMateSecretsTests {
     ANTHROPIC_API_KEY=from-file
 
     export OPENAI_API_KEY=exported-key
-    ASSEMBLYAI_API_KEY="double-quoted"
+    HEYMATE_CLIENT_TOKEN="double-quoted"
     ELEVENLABS_API_KEY='single-quoted'
     ELEVENLABS_VOICE_ID=$(PLACEHOLDER)
     GOG_KEYRING_PASSWORD=
@@ -45,7 +45,7 @@ struct HeyMateSecretsTests {
 
     @Test func matchingQuotesAreStripped() {
         let doubleQuoted = HeyMateSecrets.lookup(
-            "ASSEMBLYAI_API_KEY",
+            "HEYMATE_CLIENT_TOKEN",
             fileContents: Self.sampleFileContents,
             processEnvironment: [:]
         )
