@@ -60,7 +60,7 @@ struct ClaudeModelCatalogTests {
         #expect(options.contains { $0.id == "mythos" && $0.displayName == "Mythos 5.1" && $0.isLatestAlias })
         #expect(options.contains { $0.id == "opus" && $0.displayName == "Opus 5.5" && $0.isLatestAlias })
         #expect(options.contains { $0.id == "sonnet" && $0.displayName == "Sonnet 5.5" && $0.isLatestAlias })
-        #expect(options.contains { $0.id == "haiku" && $0.displayName == "Haiku 4.5" && $0.isLatestAlias })
+        #expect(options.contains { $0.id == "haiku" && $0.displayName == "Haiku 5.5" && $0.isLatestAlias })
     }
 
     @Test func effortLevelsComeFromTheCLIHelpText() {
