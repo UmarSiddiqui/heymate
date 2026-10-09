@@ -356,7 +356,7 @@ struct DesktopSettingsView: View {
     private var composioCard: some View {
         DesktopCard(
             title: "Your own Composio key",
-            footnote: "Stored in macOS Keychain. HeyMate never receives tokens for Gmail, Slack, or other connected apps."
+            footnote: "Stored in a private file only your Mac account can read. HeyMate never receives tokens for Gmail, Slack, or other connected apps."
         ) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Optional. Composio is the service that signs HeyMate in to apps like Gmail and Slack. Paste your own Composio key to use your account; its free tier is enough to get started.")
@@ -413,7 +413,7 @@ struct DesktopSettingsView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("HeyMate will delete it from the Keychain and sign out of Composio on this Mac.")
+            Text("HeyMate will delete it from this Mac and sign out of Composio on this Mac.")
         }
     }
 

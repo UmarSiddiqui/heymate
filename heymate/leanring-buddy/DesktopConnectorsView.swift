@@ -461,7 +461,7 @@ struct DesktopConnectorsView: View {
 
             VStack(alignment: .leading, spacing: 7) {
                 requirementRow("OpenAPI 3 schema", detail: "Defines operations and parameters.")
-                requirementRow("Authentication header", detail: "Stored in macOS Keychain.")
+                requirementRow("Authentication header", detail: "Stored privately on this Mac.")
                 requirementRow("Risk review", detail: "Writes, sends, and deletes stay approval-gated.")
             }
 
@@ -658,7 +658,7 @@ struct DesktopConnectorsView: View {
             Text("Connect \(connector.displayName)")
                 .font(DS.Fonts.title)
 
-            Text("HeyMate stores this in your macOS Keychain and passes it to the server as `\(ConnectorRuntime.environmentVariableName(forConnectorID: connector.id))`. It is never written to a file and never sent anywhere else.")
+            Text("HeyMate stores this in a private file only your Mac account can read and passes it to the server as `\(ConnectorRuntime.environmentVariableName(forConnectorID: connector.id))`. It is never sent anywhere else.")
                 .font(DS.Fonts.body)
                 .foregroundColor(DS.Colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)

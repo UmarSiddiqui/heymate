@@ -563,7 +563,7 @@ struct CustomAPISettingsContent: View {
                 .pointerCursor()
             }
 
-            AISettingsFootnote("Works with any Anthropic-compatible server. You pay that provider per use. The key is stored in your Keychain, never in preferences; leave it empty if the server holds its own key.")
+            AISettingsFootnote("Works with any Anthropic-compatible server. You pay that provider per use. The key is stored in a private file only your Mac account can read, never in preferences; leave it empty if the server holds its own key.")
         }
     }
 
@@ -1175,8 +1175,8 @@ struct OnDeviceVoiceDownloadRow: View {
 }
 
 /// Paste-your-own ElevenLabs key. HeyMate has no shared key, so this is the
-/// only way a release build gets ElevenLabs. The key lives in the Keychain
-/// and is never shown again after saving.
+/// only way a release build gets ElevenLabs. The key lives in HeyMate's
+/// private secrets file and is never shown again after saving.
 struct ElevenLabsAPIKeyRow: View {
     var onCredentialsChanged: () -> Void = {}
 
@@ -1231,7 +1231,7 @@ struct ElevenLabsAPIKeyRow: View {
 
     private func saveKey() {
         guard ElevenLabsCredentials.saveUserAPIKey(apiKeyDraft) else {
-            statusMessage = "Couldn't save the key to the Keychain."
+            statusMessage = "Couldn't save the key."
             return
         }
         apiKeyDraft = ""
@@ -1244,7 +1244,7 @@ struct ElevenLabsAPIKeyRow: View {
         ElevenLabsCredentials.removeUserAPIKey()
         hasStoredKey = ElevenLabsCredentials.hasUserAPIKey
         statusMessage = hasStoredKey
-            ? "Removed from the Keychain. A key in your developer secrets file is still in use."
+            ? "Removed. A key in your developer secrets file is still in use."
             : nil
         onCredentialsChanged()
     }
