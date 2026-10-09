@@ -16,7 +16,7 @@ nonisolated struct MateFileEntry: Equatable, Identifiable {
 
 nonisolated enum MateWorkspace {
     static func projectsRoot(
-        home: URL = FileManager.default.homeDirectoryForCurrentUser
+        home: URL = HeyMateDataDirectory.homeURL
     ) -> URL {
         home.appendingPathComponent("Projects", isDirectory: true)
             .appendingPathComponent("heymate", isDirectory: true)

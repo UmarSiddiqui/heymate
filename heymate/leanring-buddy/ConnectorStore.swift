@@ -299,10 +299,7 @@ enum ConnectorSecretStore {
 
     /// The unit tests run inside the real app, so without this a test that
     /// saves or deletes a key would do it to the user's own keys.
-    private static var isRunningTests: Bool {
-        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-            || NSClassFromString("XCTestCase") != nil
-    }
+    private static var isRunningTests: Bool { HeyMateDataDirectory.isHostingTests }
 
     private static var scratchFileURL: URL {
         FileManager.default.temporaryDirectory
@@ -311,7 +308,7 @@ enum ConnectorSecretStore {
     }
 
     static var defaultFileURL: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        HeyMateDataDirectory.applicationSupportURL
             .appendingPathComponent("heymate", isDirectory: true)
             .appendingPathComponent("secrets", isDirectory: true)
             .appendingPathComponent("connector-secrets.json", isDirectory: false)

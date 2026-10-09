@@ -154,10 +154,7 @@ nonisolated enum SkillMarkdownParser {
     /// Default dir: Application Support/heymate/skills (auto-created).
     static func defaultDirectory() -> URL {
         let fileManager = FileManager.default
-        let applicationSupportURL = fileManager.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first ?? fileManager.temporaryDirectory
+        let applicationSupportURL = HeyMateDataDirectory.applicationSupportURL
 
         let skillsDirectoryURL = applicationSupportURL
             .appendingPathComponent("heymate", isDirectory: true)

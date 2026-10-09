@@ -270,10 +270,7 @@ final class FileAgentUndoLedger {
     }
 
     nonisolated static func appSupportDirectoryURL() -> URL {
-        let applicationSupportDirectory = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        )[0]
+        let applicationSupportDirectory = HeyMateDataDirectory.applicationSupportURL
         return applicationSupportDirectory
             .appendingPathComponent("heymate", isDirectory: true)
             .appendingPathComponent("undo-ledger", isDirectory: true)

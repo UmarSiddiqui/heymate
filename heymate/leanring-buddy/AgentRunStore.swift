@@ -160,10 +160,7 @@ final class FileAgentRunStore {
     }
 
     nonisolated static func appSupportFileURL() -> URL {
-        let applicationSupportDirectory = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        )[0]
+        let applicationSupportDirectory = HeyMateDataDirectory.applicationSupportURL
         let heymateDirectory = applicationSupportDirectory.appendingPathComponent("heymate", isDirectory: true)
         try? FileManager.default.createDirectory(
             at: heymateDirectory,

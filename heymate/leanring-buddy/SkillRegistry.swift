@@ -236,10 +236,7 @@ final class SkillRegistryInstallationStore {
     }
 
     nonisolated static func defaultDirectory(fileManager: FileManager = .default) -> URL {
-        let applicationSupportURL = fileManager.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first ?? fileManager.temporaryDirectory
+        let applicationSupportURL = HeyMateDataDirectory.applicationSupportURL
         return applicationSupportURL
             .appendingPathComponent("heymate", isDirectory: true)
             .appendingPathComponent("installed-skills", isDirectory: true)

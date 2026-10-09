@@ -22,6 +22,7 @@
 		A100010C2F90010C0000010C /* leanring-buddy/DetachedAgentCommandMailbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100031C2F90031C0000031C /* leanring-buddy/DetachedAgentCommandMailbox.swift */; };
 		A100010D2F90010D0000010D /* leanring-buddy/DetachedAgentLaunchRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100031D2F90031D0000031D /* leanring-buddy/DetachedAgentLaunchRequest.swift */; };
 		A100010E2F90010E0000010E /* leanring-buddy/DetachedAgentRuntimePaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100031E2F90031E0000031E /* leanring-buddy/DetachedAgentRuntimePaths.swift */; };
+		A10001F02F9001F0000001F0 /* leanring-buddy/HeyMateDataDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003F02F9003F0000003F0 /* leanring-buddy/HeyMateDataDirectory.swift */; };
 		A100010F2F90010F0000010F /* leanring-buddy/DetachedAgentRuntimePersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100031F2F90031F0000031F /* leanring-buddy/DetachedAgentRuntimePersistence.swift */; };
 		A10001102F90011000000110 /* leanring-buddy/DetachedAgentRuntimeProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003202F90032000000320 /* leanring-buddy/DetachedAgentRuntimeProtocol.swift */; };
 		A10001112F90011100000111 /* leanring-buddy/DetachedAgentRunnerInvocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003212F90032100000321 /* leanring-buddy/DetachedAgentRunnerInvocation.swift */; };
@@ -90,6 +91,7 @@
 		A100031C2F90031C0000031C /* leanring-buddy/DetachedAgentCommandMailbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/DetachedAgentCommandMailbox.swift"; sourceTree = SOURCE_ROOT; };
 		A100031D2F90031D0000031D /* leanring-buddy/DetachedAgentLaunchRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/DetachedAgentLaunchRequest.swift"; sourceTree = SOURCE_ROOT; };
 		A100031E2F90031E0000031E /* leanring-buddy/DetachedAgentRuntimePaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/DetachedAgentRuntimePaths.swift"; sourceTree = SOURCE_ROOT; };
+		A10003F02F9003F0000003F0 /* leanring-buddy/HeyMateDataDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/HeyMateDataDirectory.swift"; sourceTree = SOURCE_ROOT; };
 		A100031F2F90031F0000031F /* leanring-buddy/DetachedAgentRuntimePersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/DetachedAgentRuntimePersistence.swift"; sourceTree = SOURCE_ROOT; };
 		A10003202F90032000000320 /* leanring-buddy/DetachedAgentRuntimeProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/DetachedAgentRuntimeProtocol.swift"; sourceTree = SOURCE_ROOT; };
 		A10003212F90032100000321 /* leanring-buddy/DetachedAgentRunnerInvocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "leanring-buddy/DetachedAgentRunnerInvocation.swift"; sourceTree = SOURCE_ROOT; };
@@ -203,6 +205,7 @@
 				A100031C2F90031C0000031C /* leanring-buddy/DetachedAgentCommandMailbox.swift */,
 				A100031D2F90031D0000031D /* leanring-buddy/DetachedAgentLaunchRequest.swift */,
 				A100031E2F90031E0000031E /* leanring-buddy/DetachedAgentRuntimePaths.swift */,
+				A10003F02F9003F0000003F0 /* leanring-buddy/HeyMateDataDirectory.swift */,
 				A100031F2F90031F0000031F /* leanring-buddy/DetachedAgentRuntimePersistence.swift */,
 				A10003202F90032000000320 /* leanring-buddy/DetachedAgentRuntimeProtocol.swift */,
 				A10003212F90032100000321 /* leanring-buddy/DetachedAgentRunnerInvocation.swift */,
@@ -425,6 +428,7 @@
 				A100010C2F90010C0000010C /* leanring-buddy/DetachedAgentCommandMailbox.swift in Sources */,
 				A100010D2F90010D0000010D /* leanring-buddy/DetachedAgentLaunchRequest.swift in Sources */,
 				A100010E2F90010E0000010E /* leanring-buddy/DetachedAgentRuntimePaths.swift in Sources */,
+				A10001F02F9001F0000001F0 /* leanring-buddy/HeyMateDataDirectory.swift in Sources */,
 				A100010F2F90010F0000010F /* leanring-buddy/DetachedAgentRuntimePersistence.swift in Sources */,
 				A10001102F90011000000110 /* leanring-buddy/DetachedAgentRuntimeProtocol.swift in Sources */,
 				A10001112F90011100000111 /* leanring-buddy/DetachedAgentRunnerInvocation.swift in Sources */,

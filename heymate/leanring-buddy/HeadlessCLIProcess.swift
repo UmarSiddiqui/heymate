@@ -314,11 +314,15 @@ nonisolated enum HeadlessChildEnvironment {
         "TMPDIR", "TMP", "TEMP",
         "LANG", "LC_ALL", "LC_CTYPE",
         "CLAUDE_CONFIG_DIR", "CODEX_HOME",
-        "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"
+        "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME",
+        // Set only inside the unit-test host, so the detached runner follows
+        // the app into its scratch data folder instead of the user's real one.
+        HeyMateDataDirectory.testDataRootKey
     ]
     private static let configurationPathKeys: Set<String> = [
         "HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME",
-        "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"
+        "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME",
+        HeyMateDataDirectory.testDataRootKey
     ]
 
     static func build(

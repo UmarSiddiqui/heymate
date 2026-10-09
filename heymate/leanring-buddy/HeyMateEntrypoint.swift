@@ -18,6 +18,8 @@ nonisolated enum HeyMateEntrypoint {
             try? FileHandle.standardError.write(contentsOf: Data(message.utf8))
             Darwin.exit(EX_USAGE)
         }
+        // Before anything reads or writes a preference.
+        HeyMateDataDirectory.protectPreferencesWhileHostingTests()
         leanring_buddyApp.main()
     }
 }
