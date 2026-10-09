@@ -161,6 +161,8 @@ struct WarmTalkTests {
         defer { other.child.discard() }
         #expect(other.child !== child)
         #expect(!other.isContinuing)
+        // terminate() is asynchronous; the retired child exits shortly after.
+        child.process.waitUntilExit()
         #expect(!child.isRunning)
     }
 
@@ -204,6 +206,8 @@ struct WarmTalkTests {
         child.nextConversationPosition = 3
         child.imageTurns = WarmTalkPool.maximumImageTurns
         pool.checkIn(child)
+        // terminate() is asynchronous; the retired child exits shortly after.
+        child.process.waitUntilExit()
         #expect(!child.isRunning)
         let next = try #require(pool.takeChild(for: launch, conversationKey: "chat", position: 3))
         defer { next.child.discard() }

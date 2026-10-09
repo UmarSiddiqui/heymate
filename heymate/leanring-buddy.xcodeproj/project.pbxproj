@@ -30,6 +30,7 @@
 		AA00BB032F6500030039DA55 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB022F6500020039DA55 /* Sparkle */; };
 		AA00BB062F6500060039DA55 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB052F6500050039DA55 /* PostHog */; };
 		AA00BB092F6500090039DA55 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB082F6500080039DA55 /* FluidAudio */; };
+		AA00BB0C2F65000C0039DA55 /* HeyMateComputerUse in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB0B2F65000B0039DA55 /* HeyMateComputerUse */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -135,6 +136,7 @@
 				AA00BB032F6500030039DA55 /* Sparkle in Frameworks */,
 				AA00BB062F6500060039DA55 /* PostHog in Frameworks */,
 				AA00BB092F6500090039DA55 /* FluidAudio in Frameworks */,
+				AA00BB0C2F65000C0039DA55 /* HeyMateComputerUse in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -235,6 +237,7 @@
 				AA00BB022F6500020039DA55 /* Sparkle */,
 				AA00BB052F6500050039DA55 /* PostHog */,
 				AA00BB082F6500080039DA55 /* FluidAudio */,
+				AA00BB0B2F65000B0039DA55 /* HeyMateComputerUse */,
 			);
 			productName = "leanring-buddy";
 			productReference = 28F22CBF2F56440300A0FC59 /* Clicky.app */;
@@ -343,6 +346,7 @@
 				AA00BB012F6500010039DA55 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				AA00BB042F6500040039DA55 /* XCRemoteSwiftPackageReference "posthog-ios" */,
 				AA00BB072F6500070039DA55 /* XCRemoteSwiftPackageReference "FluidAudio" */,
+				AA00BB0A2F65000A0039DA55 /* XCLocalSwiftPackageReference "Packages/HeyMateComputerUse" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 28F22CC02F56440300A0FC59 /* Products */;
@@ -830,6 +834,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		AA00BB0A2F65000A0039DA55 /* XCLocalSwiftPackageReference "Packages/HeyMateComputerUse" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/HeyMateComputerUse;
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		AA00BB012F6500010039DA55 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -872,6 +883,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = AA00BB072F6500070039DA55 /* XCRemoteSwiftPackageReference "FluidAudio" */;
 			productName = FluidAudio;
+		};
+		AA00BB0B2F65000B0039DA55 /* HeyMateComputerUse */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA00BB0A2F65000A0039DA55 /* XCLocalSwiftPackageReference "Packages/HeyMateComputerUse" */;
+			productName = HeyMateComputerUse;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
