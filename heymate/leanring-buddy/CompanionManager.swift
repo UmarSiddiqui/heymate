@@ -1128,9 +1128,19 @@ final class CompanionManager: ObservableObject {
 
     /// The model the user picked is the model that answers, with or without
     /// a screenshot. Spark is only the stand-in before Codex has a selection.
+    /// Talk's client. A subscription CLI brain is bound to the open chat so
+    /// follow-ups continue one CLI session instead of starting cold; other
+    /// callers of `activeConversationClient` (dictation rewrite, onboarding)
+    /// stay one-off and never touch that session.
     private func conversationClient(hasScreenContext: Bool) -> any VisionConversationClient {
         _ = hasScreenContext
-        return activeConversationClient
+        let client = activeConversationClient
+        guard let subscriptionClient = client as? SubscriptionCLIVisionClient,
+              backgroundRoutineSession == nil else { return client }
+        return subscriptionClient.boundToConversation(
+            key: currentChat.id.uuidString,
+            position: currentChat.messages.count
+        )
     }
 
     /// Trims user-edited server URLs (trailing slashes/spaces) and falls back
@@ -4439,15 +4449,31 @@ final class CompanionManager: ObservableObject {
         agentLauncher.openCodeMCPConfigurationJSON = {
             HeyMateMCPServer.openCodeConfigurationJSON()
         }
-        agentLauncher.claudeMCPConfigurationJSON = {
-            HeyMateMCPServer.claudeCodeConfigurationJSON()
+        // Cua's driver rides only on approved legs (the launcher never asks
+        // for a config on a read-only leg) and only while computer control
+        // is switched on.
+        agentLauncher.claudeMCPConfigurationJSON = { [weak self] in
+            HeyMateMCPServer.claudeCodeConfigurationJSON(
+                additionalServers: CuaDriverSetup.shared.claudeServers(
+                    computerControlEnabled: self?.computerUseCoordinator.isEnabled == true
+                )
+            )
+        }
+        agentLauncher.claudeMCPAllowedToolNames = { [weak self] in
+            HeyMateMCPServer.claudeCodeToolNames() + CuaDriverSetup.shared.claudeAllowedToolNames(
+                computerControlEnabled: self?.computerUseCoordinator.isEnabled == true
+            )
         }
         // No allow-list: connector tools are discovered from the user's live
         // sessions at `tools/list` time, so naming only the overlay tools here
         // would filter out every connected app a mate's job needs.
-        agentLauncher.codexMCPConfigurationArguments = {
+        agentLauncher.codexMCPConfigurationArguments = { [weak self] in
             HeyMateMCPServer.codexConfigurationArguments(enabledTools: nil)
+                + CuaDriverSetup.shared.codexArguments(
+                    computerControlEnabled: self?.computerUseCoordinator.isEnabled == true
+                )
         }
+        Task { await CuaDriverSetup.shared.refresh() }
         agentLauncher.mcpChildEnvironment = { executor in
             _ = executor
             return HeyMateMCPServer.childEnvironment()

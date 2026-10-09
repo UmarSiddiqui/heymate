@@ -164,6 +164,7 @@ final class HeadlessAgentLauncher {
     /// seeded lazily; nil is a normal answer and simply means no HeyMate tools.
     var openCodeMCPConfigurationJSON: () -> String? = { nil }
     var claudeMCPConfigurationJSON: () -> String? = { nil }
+    var claudeMCPAllowedToolNames: () -> [String] = { HeyMateMCPServer.claudeCodeToolNames() }
     var codexMCPConfigurationArguments: () -> [String] = { [] }
     var mcpChildEnvironment: (HeadlessExecutor) -> [String: String] = { _ in [:] }
 
@@ -800,7 +801,7 @@ final class HeadlessAgentLauncher {
             claudeMCPConfigurationJSON: leg.isReadOnly
                 ? nil
                 : claudeMCPConfigurationJSON(),
-            claudeMCPAllowedToolNames: HeyMateMCPServer.claudeCodeToolNames(),
+            claudeMCPAllowedToolNames: claudeMCPAllowedToolNames(),
             codexMCPConfigurationArguments: leg.isReadOnly
                 ? []
                 : codexMCPConfigurationArguments(),

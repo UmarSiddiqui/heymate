@@ -24,6 +24,7 @@
 
 import AppKit
 import Combine
+import HeyMateComputerUse
 import SwiftUI
 
 /// The Settings tabs. Raw values are persisted and written by deep links —
@@ -68,6 +69,7 @@ struct DesktopSettingsView: View {
     /// permission warning underneath it without waiting for some other
     /// change on the manager.
     @ObservedObject private var computerUseCoordinator: ComputerUseCoordinator
+    @ObservedObject private var cuaDriverSetup = CuaDriverSetup.shared
 
     @ObservedObject private var presencePreferences = AppPresencePreferences.shared
     @ObservedObject private var updateController = AppUpdateController.shared
@@ -632,6 +634,10 @@ struct DesktopSettingsView: View {
                     }
                 }
 
+                if computerUseCoordinator.isEnabled {
+                    cuaDriverRow
+                }
+
                 Divider().opacity(0.25)
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -641,6 +647,52 @@ struct DesktopSettingsView: View {
                     ruleLine("When a real click is unavoidable, the companion cursor flies there first so you see it.")
                 }
             }
+        }
+    }
+
+    /// Cua's background driver, for approved jobs that operate apps.
+    private var cuaDriverRow: some View {
+        HStack(alignment: .center, spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Background app control")
+                    .font(DS.Fonts.body)
+                    .foregroundColor(DS.Colors.textPrimary)
+                Text(cuaDriverStatusText)
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            if cuaDriverSetup.phase == .installing {
+                ProgressView().controlSize(.small)
+            } else if let action = cuaDriverActionTitle {
+                Button(action) {
+                    Task { await cuaDriverSetup.install() }
+                }
+                .buttonStyle(DSSecondaryButtonStyle())
+            }
+        }
+        .task { await cuaDriverSetup.refresh() }
+    }
+
+    private var cuaDriverStatusText: String {
+        if case .failed(let message) = cuaDriverSetup.phase { return message }
+        if cuaDriverSetup.phase == .installing { return "Installing Cua's driver. macOS will ask for permissions for CuaDriver." }
+        switch cuaDriverSetup.installation {
+        case .missing:
+            return "Approved jobs can operate other apps in the background without taking your cursor. Uses Cua's open-source driver."
+        case .outdated(_, let version):
+            return "Cua driver \(version) is too old for HeyMate. Update to keep background app control."
+        case .ready(_, let version):
+            return "Ready — Cua driver \(version). Approved jobs can operate apps in the background."
+        }
+    }
+
+    private var cuaDriverActionTitle: String? {
+        switch cuaDriverSetup.installation {
+        case .missing: return "Install"
+        case .outdated: return "Update"
+        case .ready: return nil
         }
     }
 

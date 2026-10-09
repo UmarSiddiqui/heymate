@@ -42,6 +42,46 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
     /// without it a subscription brain never sees that connector's tools.
     let carriesConnectedAppTools: Bool
 
+    /// The chat this turn belongs to. Turns that share it continue one CLI
+    /// session; nil gives every turn a fresh child, as before.
+    private(set) var conversationKey: String?
+    /// How many messages the chat holds as this turn starts, its question
+    /// included. Continuing needs exactly the two the last turn implied
+    /// (its answer, then this question); anything else means the chat was
+    /// edited or something else spoke, and the child is not continued.
+    private(set) var conversationPosition = 0
+
+    /// This client, bound to one chat at `position`.
+    func boundToConversation(key: String, position: Int) -> SubscriptionCLIVisionClient {
+        let bound = SubscriptionCLIVisionClient(
+            backend: backend,
+            model: model,
+            reasoningEffort: reasoningEffort,
+            textOnlyModel: textOnlyModel,
+            carriesComposioTools: carriesComposioTools,
+            carriesConnectedAppTools: carriesConnectedAppTools
+        )
+        bound.conversationKey = key
+        bound.conversationPosition = position
+        return bound
+    }
+
+    private init(
+        backend: Backend,
+        model: String,
+        reasoningEffort: String,
+        textOnlyModel: String?,
+        carriesComposioTools: Bool,
+        carriesConnectedAppTools: Bool
+    ) {
+        self.backend = backend
+        self.model = model
+        self.reasoningEffort = reasoningEffort
+        self.textOnlyModel = textOnlyModel
+        self.carriesComposioTools = carriesComposioTools
+        self.carriesConnectedAppTools = carriesConnectedAppTools
+    }
+
     init(
         backend: Backend,
         model: String,
@@ -73,7 +113,8 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
                     images: images,
                     systemPrompt: systemPrompt,
                     conversationHistory: conversationHistory,
-                    userPrompt: userPrompt
+                    userPrompt: userPrompt,
+                    onTextChunk: onTextChunk
                 )
                 await onTextChunk(text)
                 return (text, Date().timeIntervalSince(startTime))
@@ -353,107 +394,168 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
         images: [(data: Data, label: String)],
         systemPrompt: String,
         conversationHistory: [(userPlaceholder: String, assistantResponse: String)],
-        userPrompt: String
+        userPrompt: String,
+        onTextChunk: @MainActor @Sendable (String) -> Void
     ) async throws -> String {
-        var prompt = userPrompt
-        if !conversationHistory.isEmpty {
-            let replayed = conversationHistory.map {
-                "User: \($0.userPlaceholder)\nAssistant: \($0.assistantResponse)"
-            }.joined(separator: "\n\n")
-            prompt = replayed + "\n\n" + prompt
-        }
         let timeout = carriesConnectedAppTools ? Self.connectedAppTurnTimeout : Self.plainTurnTimeout
         let backend = self.backend
         let engineName = backend == .claude ? "Claude" : "Codex"
+        let conversationKey = self.conversationKey
+        let conversationPosition = self.conversationPosition
 
-        let text: String = try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                func fail(_ message: String, code: Int) {
-                    continuation.resume(throwing: NSError(
-                        domain: "SubscriptionCLIVisionClient",
-                        code: code,
-                        userInfo: [NSLocalizedDescriptionKey: String(message.prefix(500))]
-                    ))
-                }
-
-                guard let child = WarmTalkPool.shared.takeChild(for: launch) else {
-                    fail("\(engineName) could not be started.", code: 4)
-                    return
-                }
-                defer { child.discard() }
-
-                let watchdog = DispatchWorkItem { child.discard() }
-                DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
-                defer { watchdog.cancel() }
-
-                let request: Data?
-                switch backend {
-                case .claude:
-                    request = Self.warmUserMessageJSON(systemPrompt: systemPrompt, prompt: prompt, images: images)
-                case .codex:
-                    // app-server reads images from disk; the child's own
-                    // scratch folder goes away with the child.
-                    var imagePaths: [(path: String, label: String)] = []
-                    for (index, image) in images.enumerated() {
-                        let fileExtension = Self.imageMediaType(for: image.data) == "image/png" ? "png" : "jpg"
-                        let fileURL = child.workingDirectory.appendingPathComponent("screen-\(index).\(fileExtension)")
-                        guard (try? image.data.write(to: fileURL)) != nil else { continue }
-                        imagePaths.append((path: fileURL.path, label: image.label))
-                    }
-                    request = child.codexThreadID.flatMap {
-                        CodexAppServerProtocol.turnStartJSON(
-                            threadID: $0,
-                            systemPrompt: systemPrompt,
-                            prompt: prompt,
-                            imagePaths: imagePaths
-                        )
-                    }
-                }
-                guard let request else {
-                    fail("HeyMate could not package this question.", code: 3)
-                    return
-                }
-                do {
-                    try child.write(request)
-                } catch {
-                    continuation.resume(throwing: error)
-                    return
-                }
-
-                while let line = child.readLine() {
-                    switch backend {
-                    case .claude:
-                        switch Self.warmTurnOutcome(fromStdoutLine: line) {
-                        case .answered(let answer):
-                            continuation.resume(returning: answer)
-                            return
-                        case .failed(let message):
-                            fail(message, code: 1)
-                            return
-                        case nil:
-                            continue
-                        }
-                    case .codex:
-                        switch CodexAppServerProtocol.turnEvent(fromLine: line) {
-                        case .answered(let answer):
-                            continuation.resume(returning: answer)
-                            return
-                        case .failed(let message):
-                            fail(message, code: 1)
-                            return
-                        case nil:
-                            continue
-                        }
-                    }
-                }
-                fail("\(engineName) stopped before it answered.", code: 2)
-            }
+        guard let (child, isContinuing) = WarmTalkPool.shared.takeChild(
+            for: launch,
+            conversationKey: conversationKey,
+            position: conversationPosition
+        ) else {
+            throw NSError(
+                domain: "SubscriptionCLIVisionClient",
+                code: 4,
+                userInfo: [NSLocalizedDescriptionKey: "\(engineName) could not be started."]
+            )
         }
 
-        // The next question — a follow-up is the common case — finds a child
-        // already waiting.
-        DispatchQueue.global(qos: .utility).async {
-            WarmTalkPool.shared.prewarm(launch)
+        // A continuing child already holds the earlier exchanges; replaying
+        // them would make it read the whole chat twice.
+        let prompt = isContinuing
+            ? userPrompt
+            : Self.replayedPrompt(history: conversationHistory, userPrompt: userPrompt)
+        let instructions = Self.instructionsToSend(systemPrompt, previous: child.lastInstructions)
+
+        let (events, continuation) = AsyncThrowingStream<WarmTurnEvent, Error>.makeStream()
+        DispatchQueue.global(qos: .userInitiated).async {
+                    func fail(_ message: String, code: Int) {
+                        child.discard()
+                        continuation.finish(throwing: NSError(
+                            domain: "SubscriptionCLIVisionClient",
+                            code: code,
+                            userInfo: [NSLocalizedDescriptionKey: String(message.prefix(500))]
+                        ))
+                    }
+
+                    let watchdog = DispatchWorkItem { child.discard() }
+                    DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
+                    defer { watchdog.cancel() }
+
+                    let request: Data?
+                    var codexRequestID = 0
+                    switch backend {
+                    case .claude:
+                        request = Self.warmUserMessageJSON(systemPrompt: instructions, prompt: prompt, images: images)
+                    case .codex:
+                        // app-server reads images from disk; the child's own
+                        // scratch folder goes away with the child.
+                        var imagePaths: [(path: String, label: String)] = []
+                        for (index, image) in images.enumerated() {
+                            let fileExtension = Self.imageMediaType(for: image.data) == "image/png" ? "png" : "jpg"
+                            let fileURL = child.workingDirectory
+                                .appendingPathComponent("screen-\(child.completedTurns)-\(index).\(fileExtension)")
+                            guard (try? image.data.write(to: fileURL)) != nil else { continue }
+                            imagePaths.append((path: fileURL.path, label: image.label))
+                        }
+                        codexRequestID = child.takeCodexRequestID()
+                        request = child.codexThreadID.flatMap {
+                            CodexAppServerProtocol.turnStartJSON(
+                                threadID: $0,
+                                systemPrompt: instructions,
+                                prompt: prompt,
+                                imagePaths: imagePaths,
+                                requestID: codexRequestID
+                            )
+                        }
+                    }
+                    guard let request else {
+                        fail("HeyMate could not package this question.", code: 3)
+                        return
+                    }
+                    do {
+                        try child.write(request)
+                    } catch {
+                        child.discard()
+                        continuation.finish(throwing: error)
+                        return
+                    }
+
+                    var streamed = ""
+                    func publish(_ delta: String) {
+                        streamed += delta
+                        continuation.yield(.partial(streamed))
+                    }
+
+                    while let line = child.readLine() {
+                        let outcome: WarmTurnOutcome?
+                        switch backend {
+                        case .claude:
+                            if let delta = Self.warmTextDelta(fromStdoutLine: line) {
+                                publish(delta)
+                                continue
+                            }
+                            outcome = Self.warmTurnOutcome(fromStdoutLine: line)
+                        case .codex:
+                            if let delta = CodexAppServerProtocol.textDelta(fromLine: line) {
+                                publish(delta)
+                                continue
+                            }
+                            switch CodexAppServerProtocol.turnEvent(fromLine: line, requestID: codexRequestID) {
+                            case .answered(let answer): outcome = .answered(answer)
+                            case .failed(let message): outcome = .failed(message)
+                            case nil: outcome = nil
+                            }
+                        }
+                        switch outcome {
+                        case .answered(let answer):
+                            if backend == .codex {
+                                // `item/completed` arrives before
+                                // `turn/completed`; the child is only ready
+                                // for the next question after the latter.
+                                guard Self.drainCodexTurn(child) else {
+                                    child.discard()
+                                    continuation.yield(.answered(answer))
+                                    continuation.finish()
+                                    return
+                                }
+                            }
+                            child.conversationKey = conversationKey
+                            // Next: this answer, then the follow-up question.
+                            child.nextConversationPosition = conversationPosition + 2
+                            child.completedTurns += 1
+                            if !images.isEmpty { child.imageTurns += 1 }
+                            child.lastInstructions = systemPrompt
+                            if conversationKey == nil {
+                                // Nothing to continue: the next question is
+                                // a different chat, so it gets a fresh child.
+                                child.discard()
+                                WarmTalkPool.shared.prewarm(launch)
+                            } else {
+                                WarmTalkPool.shared.checkIn(child)
+                            }
+                            continuation.yield(.answered(answer))
+                            continuation.finish()
+                            return
+                        case .failed(let message):
+                            fail(message, code: 1)
+                            return
+                        case nil:
+                            continue
+                        }
+                    }
+                    fail("\(engineName) stopped before it answered.", code: 2)
+        }
+
+        var text = ""
+        try await withTaskCancellationHandler {
+            for try await event in events {
+                switch event {
+                case .partial(let soFar):
+                    await onTextChunk(soFar)
+                case .answered(let answer):
+                    text = answer
+                }
+            }
+        } onCancel: {
+            // An interrupted answer must not live on in the session the next
+            // question continues.
+            child.discard()
         }
 
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -465,6 +567,58 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
             )
         }
         return trimmed
+    }
+
+    /// Reads a Codex child up to its `turn/completed`. False when the child
+    /// closed first, which means it cannot be continued.
+    nonisolated private static func drainCodexTurn(_ child: WarmTalkChild) -> Bool {
+        while let line = child.readLine() {
+            if line.contains("\"turn/completed\"") { return true }
+        }
+        return false
+    }
+
+    /// The earlier exchanges as plain text ahead of the question, for a
+    /// child that has not seen them.
+    nonisolated static func replayedPrompt(
+        history: [(userPlaceholder: String, assistantResponse: String)],
+        userPrompt: String
+    ) -> String {
+        guard !history.isEmpty else { return userPrompt }
+        let replayed = history.map {
+            "User: \($0.userPlaceholder)\nAssistant: \($0.assistantResponse)"
+        }.joined(separator: "\n\n")
+        return replayed + "\n\n" + userPrompt
+    }
+
+    /// The instruction block for this turn. Unchanged instructions are
+    /// pointed back to rather than pasted again, so a long chat does not
+    /// fill the session with copies of the same block.
+    nonisolated static func instructionsToSend(_ systemPrompt: String, previous: String?) -> String {
+        guard !systemPrompt.isEmpty, systemPrompt == previous else { return systemPrompt }
+        return "Same instructions as your previous reply."
+    }
+
+    /// One streamed piece of Claude's answer, from a `stream_event` line
+    /// that `--include-partial-messages` emits. Nil for every other line.
+    nonisolated static func warmTextDelta(fromStdoutLine line: String) -> String? {
+        guard line.contains("text_delta"),
+              let data = line.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              json["type"] as? String == "stream_event",
+              // Only the top-level answer; a subagent's text is not Talk.
+              json["parent_tool_use_id"] is NSNull || json["parent_tool_use_id"] == nil,
+              let event = json["event"] as? [String: Any],
+              event["type"] as? String == "content_block_delta",
+              let delta = event["delta"] as? [String: Any],
+              delta["type"] as? String == "text_delta",
+              let text = delta["text"] as? String else { return nil }
+        return text
+    }
+
+    enum WarmTurnEvent: Sendable {
+        case partial(String)
+        case answered(String)
     }
 
     enum WarmTurnOutcome: Equatable, Sendable {
@@ -574,7 +728,7 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
         // A warm child takes its question on stdin, after it has booted, so
         // the prompt is not on the command line at all.
         var arguments = streamsInput
-            ? ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"]
+            ? ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages"]
             : ["-p", prompt, "--output-format", "text"]
         arguments.append(contentsOf: [
             "--permission-mode", carriesComposio ? "acceptEdits" : "plan"
