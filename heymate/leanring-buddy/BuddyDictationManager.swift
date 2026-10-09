@@ -227,6 +227,24 @@ enum BuddyPushToTalkShortcut {
         )
     }
 
+    /// Reads the live keyboard state instead of waiting for an event. The
+    /// event tap can miss a key-up (tap disabled by timeout, secure input,
+    /// the tap restarting), so the monitor polls this while a shortcut is
+    /// held and treats "not held" as a release.
+    static func isShortcutPhysicallyHeld(option: ShortcutOption) -> Bool {
+        let liveFlagsRawValue = CGEventSource.flagsState(.combinedSessionState).rawValue
+        let liveModifierFlags = NSEvent.ModifierFlags(rawValue: UInt(liveFlagsRawValue))
+            .intersection(.deviceIndependentFlagsMask)
+
+        if let modifierOnlyFlags = option.modifierOnlyFlags {
+            return liveModifierFlags.contains(modifierOnlyFlags)
+        }
+
+        guard let spaceShortcutModifierFlags = option.spaceShortcutModifierFlags else { return false }
+        return CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(pushToTalkKeyCode))
+            && liveModifierFlags.isSuperset(of: spaceShortcutModifierFlags)
+    }
+
     private static func shortcutEventType(for eventType: NSEvent.EventType) -> ShortcutEventType? {
         switch eventType {
         case .flagsChanged:

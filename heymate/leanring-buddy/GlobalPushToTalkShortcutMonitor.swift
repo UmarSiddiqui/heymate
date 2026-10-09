@@ -22,6 +22,9 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
 
     private var globalEventTap: CFMachPort?
     private var globalEventTapRunLoopSource: CFRunLoopSource?
+    /// Safety net for a missed key-up: while the shortcut is held, polls the
+    /// live keyboard state and synthesizes the release if the keys are up.
+    private var releaseWatchdogTimer: Timer?
     /// Mutated exclusively from the CGEvent tap callback, which runs on
     /// `CFRunLoopGetMain()` and therefore always executes on the main thread.
     /// Published so the overlay can hide immediately on key release without
@@ -103,6 +106,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
     }
 
     func stop() {
+        stopReleaseWatchdog()
         isShortcutCurrentlyPressed = false
 
         if let globalEventTapRunLoopSource {
@@ -124,6 +128,8 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
             if let globalEventTap {
                 CGEvent.tapEnable(tap: globalEventTap, enable: true)
             }
+            // Key-ups that landed while the tap was off are gone for good.
+            releaseIfShortcutNoLongerHeld()
             return Unmanaged.passUnretained(event)
         }
 
@@ -141,12 +147,36 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
             break
         case .pressed:
             isShortcutCurrentlyPressed = true
+            startReleaseWatchdog()
             shortcutTransitionPublisher.send(.pressed)
         case .released:
+            stopReleaseWatchdog()
             isShortcutCurrentlyPressed = false
             shortcutTransitionPublisher.send(.released)
         }
 
         return Unmanaged.passUnretained(event)
+    }
+
+    private func startReleaseWatchdog() {
+        releaseWatchdogTimer?.invalidate()
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            self?.releaseIfShortcutNoLongerHeld()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        releaseWatchdogTimer = timer
+    }
+
+    private func stopReleaseWatchdog() {
+        releaseWatchdogTimer?.invalidate()
+        releaseWatchdogTimer = nil
+    }
+
+    private func releaseIfShortcutNoLongerHeld() {
+        guard isShortcutCurrentlyPressed else { return }
+        guard !BuddyPushToTalkShortcut.isShortcutPhysicallyHeld(option: shortcutOptionProvider()) else { return }
+        stopReleaseWatchdog()
+        isShortcutCurrentlyPressed = false
+        shortcutTransitionPublisher.send(.released)
     }
 }

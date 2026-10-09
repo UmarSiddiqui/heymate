@@ -53,6 +53,12 @@ final class NotchPillModel: ObservableObject {
     /// the drop target is unmistakable while the pointer holds a file.
     @Published var isDropTargeted = false
 
+    /// The card is about to open from this tab. The peek slots blur and fade
+    /// out first (the controller waits `NotchLayoutMath.pillYieldDuration`),
+    /// so the frame grows from a clean black pill instead of carrying the
+    /// glyph and label with it.
+    @Published var isYieldingToCard = false
+
     /// Highest-priority ambient fact from the micro-apps (media, timer,
     /// shelf, battery…). Shown in the trailing slot when the companion is
     /// idle, because voice state always outranks ambient state.
@@ -120,6 +126,8 @@ struct NotchPillView: View {
                 leadingSlot
                     .frame(width: exposedSideWidth, alignment: .center)
                     .opacity(slotOpacity(forExposedWidth: exposedSideWidth))
+                    .blur(radius: model.isYieldingToCard ? NotchLayoutMath.pillYieldBlur : 0)
+                    .opacity(model.isYieldingToCard ? 0 : 1)
                     .allowsHitTesting(false)
 
                 Spacer(minLength: 0)
@@ -127,6 +135,8 @@ struct NotchPillView: View {
                 trailingSlot
                     .frame(width: exposedSideWidth, alignment: .center)
                     .opacity(slotOpacity(forExposedWidth: exposedSideWidth))
+                    .blur(radius: model.isYieldingToCard ? NotchLayoutMath.pillYieldBlur : 0)
+                    .opacity(model.isYieldingToCard ? 0 : 1)
                     .allowsHitTesting(false)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
@@ -144,6 +154,10 @@ struct NotchPillView: View {
         .overlay(alignment: .bottom) { bottomHairline }
         .animation(accessibilityReduceMotion ? nil : .easeOut(duration: 0.18), value: model.isHovered)
         .animation(accessibilityReduceMotion ? nil : .easeOut(duration: 0.16), value: model.isDropTargeted)
+        .animation(
+            accessibilityReduceMotion ? nil : .easeIn(duration: NotchLayoutMath.pillYieldDuration),
+            value: model.isYieldingToCard
+        )
         .animation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.22), value: model.voiceState)
         .animation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.22), value: model.activity)
         .animation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.2), value: model.isOutlineEnabled)

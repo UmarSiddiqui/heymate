@@ -28,6 +28,12 @@ struct TalkContextPolicyTests {
         ))
     }
 
+    @Test func perceptionQuestionsWithoutDemonstrativesKeepScreenContext() {
+        for phrase in ["what am i looking at", "what do you see", "what's on my screen"] {
+            #expect(TalkContextPolicy.shouldCaptureScreen(for: phrase, hasSpatialSelection: false), "\(phrase)")
+        }
+    }
+
     @Test func selectedCodexModelWinsWithOrWithoutImages() {
         let selected = "gpt-5.3-codex"
         let spark = SubscriptionCLIVisionClient.codexFastTalkModelIdentifier

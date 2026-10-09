@@ -2,8 +2,9 @@
 //  NotchCursorDock.swift
 //  leanring-buddy
 //
-//  Compact rocket launch bay in the expanded notch footer. Its glyph reports
-//  a live screen-space anchor so overlay flight starts and ends on the bay.
+//  Cursor dock in the expanded notch footer. The docked buddy cursor sits in
+//  the bay, and its glyph reports a live screen-space anchor so overlay
+//  flight starts and ends exactly on it.
 //
 
 import AppKit
@@ -27,9 +28,14 @@ struct NotchCursorDock: View {
                 RocketLaunchBayGlyph(phase: phase)
                     .frame(width: 20, height: 20)
                     .background {
-                        DockScreenAnchorReader { point in
-                            companionManager.updateCursorDockAnchorScreenPoint(point)
-                        }
+                        DockScreenAnchorReader(
+                            onAnchorChange: { point in
+                                companionManager.updateCursorDockAnchorScreenPoint(point)
+                            },
+                            onProviderChange: { provider in
+                                companionManager.setCursorDockAnchorProvider(provider)
+                            }
+                        )
                     }
 
                 Text(compactTitle(for: phase))
@@ -108,11 +114,17 @@ struct NotchCursorDock: View {
 
 private struct DockScreenAnchorReader: NSViewRepresentable {
     let onAnchorChange: (CGPoint) -> Void
+    let onProviderChange: ((() -> CGPoint?)?) -> Void
 
     func makeNSView(context: Context) -> DockScreenAnchorView {
         let view = DockScreenAnchorView()
         view.onAnchorChange = onAnchorChange
+        onProviderChange { [weak view] in view?.currentAnchor() }
         return view
+    }
+
+    static func dismantleNSView(_ nsView: DockScreenAnchorView, coordinator: ()) {
+        nsView.onAnchorChange = nil
     }
 
     func updateNSView(_ nsView: DockScreenAnchorView, context: Context) {
@@ -135,59 +147,41 @@ private final class DockScreenAnchorView: NSView {
     }
 
     func reportAnchor() {
-        guard let window else { return }
+        guard let anchor = currentAnchor() else { return }
+        onAnchorChange?(anchor)
+    }
+
+    /// Center of the glyph in screen coordinates right now. Nil while the
+    /// notch is collapsed and the glyph is off screen.
+    func currentAnchor() -> CGPoint? {
+        guard let window, window.isVisible, !isHiddenOrHasHiddenAncestor else { return nil }
         let centerInWindow = convert(
             CGPoint(x: bounds.midX, y: bounds.midY),
             to: nil
         )
-        onAnchorChange?(window.convertPoint(toScreen: centerInWindow))
+        return window.convertPoint(toScreen: centerInWindow)
     }
 }
 
+/// The bay the buddy cursor lives in while docked. It draws the exact cursor
+/// the overlay flies (same shape, size, rest angle and glow), so a return
+/// flight lands on it and an undock lifts off from it without a visible swap.
 private struct RocketLaunchBayGlyph: View {
     let phase: CursorDockPhase
 
-    private var rocketOffset: CGFloat {
-        switch phase {
-        case .docked, .returning: return 1
-        case .launching, .deployed: return 8
-        }
-    }
-
     var body: some View {
-        ZStack(alignment: .leading) {
-            Capsule()
-                .fill(DS.Colors.surface4)
-                .frame(width: 17, height: 3)
-                .offset(x: 1, y: 6)
+        ZStack {
+            Circle()
+                .stroke(DS.Colors.borderStrong.opacity(phase == .docked ? 0 : 0.6), lineWidth: 0.8)
+                .frame(width: 14, height: 14)
 
-            RoundedRectangle(cornerRadius: 2, style: .continuous)
-                .fill(DS.Colors.surface4)
-                .frame(width: 5, height: 10)
-                .offset(x: 0, y: 0)
-
-            Image(systemName: "paperplane.fill")
-                .font(DS.Glyph.micro)
-                .rotationEffect(.degrees(-42))
-                .foregroundColor(
-                    phase == .docked
-                        ? DS.Colors.textSecondary
-                        : DS.Colors.accent
-                )
-                .shadow(
-                    color: DS.Colors.accent.opacity(phase == .docked ? 0 : 0.7),
-                    radius: 5
-                )
-                .offset(x: rocketOffset, y: -1)
-
-            HStack(spacing: 2) {
-                Circle().fill(Color.white.opacity(0.9)).frame(width: 2.5, height: 2.5)
-                Circle().fill(DS.Colors.accent.opacity(0.65)).frame(width: 3, height: 3)
-            }
-            .offset(x: max(5, rocketOffset - 3), y: 8)
-            .opacity(phase.isTransitioning ? 1 : 0)
+            BuddyCursorShape()
+                .fill(DS.Colors.overlayCursorBlue)
+                .frame(width: 16, height: 16)
+                .rotationEffect(.degrees(-35))
+                .shadow(color: DS.Colors.overlayCursorBlue, radius: 8)
+                .opacity(phase == .docked ? 1 : 0)
         }
-        .animation(.spring(response: 0.42, dampingFraction: 0.72), value: phase)
     }
 }
 

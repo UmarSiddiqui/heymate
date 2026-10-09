@@ -91,6 +91,14 @@ struct MemoryAndSkillsPromptTests {
         #expect(!fragment.contains(String(repeating: "a", count: 161)))
     }
 
+    @Test func greetingsAndFreshQuestionsSkipTheAnchor() {
+        #expect(!CompanionManager.shouldAnchorToPriorTopic(transcript: "Hi"))
+        #expect(!CompanionManager.shouldAnchorToPriorTopic(transcript: "hey heymate"))
+        #expect(!CompanionManager.shouldAnchorToPriorTopic(transcript: "what am i looking at"))
+        #expect(CompanionManager.shouldAnchorToPriorTopic(transcript: "okay"))
+        #expect(CompanionManager.shouldAnchorToPriorTopic(transcript: "what now"))
+    }
+
     // MARK: - Skills prompt block
 
     private static let emailSkill = SkillFile(

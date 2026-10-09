@@ -2174,6 +2174,18 @@ final class CompanionManager: ObservableObject {
         """
     }
 
+    /// Only a short, ambiguous follow-up ("okay", "what now") needs the anchor.
+    /// A greeting or a fresh question must not be dragged back to whatever was
+    /// said last, which could be hours old ("hi" -> "still on the textedit task").
+    nonisolated static func shouldAnchorToPriorTopic(transcript: String) -> Bool {
+        let words = transcript
+            .lowercased()
+            .split { !$0.isLetter && !$0.isNumber && $0 != "'" }
+        guard !words.isEmpty, words.count <= 3 else { return false }
+        let greetings: Set<Substring> = ["hi", "hey", "hello", "yo", "sup", "heymate", "morning", "evening"]
+        return !words.allSatisfy { greetings.contains($0) }
+    }
+
     nonisolated static func skillsPromptBlock(skills: [SkillFile]) -> String? {
         guard !skills.isEmpty else { return nil }
         let blocks = skills.map { skill in
@@ -2258,13 +2270,29 @@ final class CompanionManager: ObservableObject {
             : UserDefaults.standard.bool(forKey: "isClickyCursorEnabled")
     )
 
-    /// Live AppKit screen coordinate for the rocket glyph in the expanded
-    /// notch footer. Not published: overlay reads it when a transition begins.
-    private(set) var cursorDockAnchorScreenPoint: CGPoint?
+    /// AppKit screen coordinate for the dock glyph in the expanded notch
+    /// footer. Not published: the overlay reads it every flight frame. Asks
+    /// the glyph's view directly when it is on screen, so a notch that is
+    /// still settling or has moved does not leave the landing point stale.
+    var cursorDockAnchorScreenPoint: CGPoint? {
+        if let livePoint = cursorDockAnchorProvider?(),
+           livePoint.x.isFinite, livePoint.y.isFinite {
+            lastCursorDockAnchorScreenPoint = livePoint
+            return livePoint
+        }
+        return lastCursorDockAnchorScreenPoint
+    }
+
+    private var lastCursorDockAnchorScreenPoint: CGPoint?
+    private var cursorDockAnchorProvider: (() -> CGPoint?)?
 
     func updateCursorDockAnchorScreenPoint(_ point: CGPoint) {
         guard point.x.isFinite, point.y.isFinite else { return }
-        cursorDockAnchorScreenPoint = point
+        lastCursorDockAnchorScreenPoint = point
+    }
+
+    func setCursorDockAnchorProvider(_ provider: (() -> CGPoint?)?) {
+        cursorDockAnchorProvider = provider
     }
 
     /// True while the user is typing and the pointer has not moved yet.
@@ -3719,7 +3747,8 @@ final class CompanionManager: ObservableObject {
                 if let memoryBlock = Self.memoryPromptBlock(items: memoryItems) {
                     promptParts.append(memoryBlock)
                 }
-                if let topicAnchor = Self.topicAnchorPromptFragment(mostRecentExchange: historyForAPI.last) {
+                if Self.shouldAnchorToPriorTopic(transcript: transcript),
+                   let topicAnchor = Self.topicAnchorPromptFragment(mostRecentExchange: historyForAPI.last) {
                     promptParts.append(topicAnchor)
                 }
                 promptParts.append(contentsOf: await macAccountContextBlocks(for: transcript))
