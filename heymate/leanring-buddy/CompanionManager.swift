@@ -2270,13 +2270,29 @@ final class CompanionManager: ObservableObject {
             : UserDefaults.standard.bool(forKey: "isClickyCursorEnabled")
     )
 
-    /// Live AppKit screen coordinate for the rocket glyph in the expanded
-    /// notch footer. Not published: overlay reads it when a transition begins.
-    private(set) var cursorDockAnchorScreenPoint: CGPoint?
+    /// AppKit screen coordinate for the dock glyph in the expanded notch
+    /// footer. Not published: the overlay reads it every flight frame. Asks
+    /// the glyph's view directly when it is on screen, so a notch that is
+    /// still settling or has moved does not leave the landing point stale.
+    var cursorDockAnchorScreenPoint: CGPoint? {
+        if let livePoint = cursorDockAnchorProvider?(),
+           livePoint.x.isFinite, livePoint.y.isFinite {
+            lastCursorDockAnchorScreenPoint = livePoint
+            return livePoint
+        }
+        return lastCursorDockAnchorScreenPoint
+    }
+
+    private var lastCursorDockAnchorScreenPoint: CGPoint?
+    private var cursorDockAnchorProvider: (() -> CGPoint?)?
 
     func updateCursorDockAnchorScreenPoint(_ point: CGPoint) {
         guard point.x.isFinite, point.y.isFinite else { return }
-        cursorDockAnchorScreenPoint = point
+        lastCursorDockAnchorScreenPoint = point
+    }
+
+    func setCursorDockAnchorProvider(_ provider: (() -> CGPoint?)?) {
+        cursorDockAnchorProvider = provider
     }
 
     /// True while the user is typing and the pointer has not moved yet.

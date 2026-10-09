@@ -148,8 +148,7 @@ struct BlueCursorView: View {
     @State private var responseBubbleSize: CGSize = .zero
     @State private var cursorOpacity: Double = 0.0
     @State private var typingMonitorInstalled = false
-    @State private var isRocketTrailVisible = false
-    @State private var launchBayGlowOpacity: Double = 0
+    @State private var isDockFlightActive = false
 
     // MARK: - Buddy Navigation State
 
@@ -350,20 +349,6 @@ struct BlueCursorView: View {
                     }
             }
 
-            if isCursorOnThisScreen && launchBayGlowOpacity > 0 {
-                RocketLaunchBayGlow(color: DS.Colors.overlayCursorBlue)
-                    .opacity(launchBayGlowOpacity)
-                    .position(rocketLaunchBayPosition)
-                    .allowsHitTesting(false)
-            }
-
-            if isCursorOnThisScreen && isRocketTrailVisible {
-                RocketExhaustTrail(color: DS.Colors.overlayCursorBlue)
-                    .rotationEffect(.degrees(triangleRotationDegrees))
-                    .position(cursorPosition)
-                    .allowsHitTesting(false)
-            }
-
             // Blue shaftless cursor — shown when idle or while TTS is playing (responding).
             // Position is sampled at 60fps; do not spring-animate every sample or
             // SwiftUI will run a full-screen layout transaction on each tick.
@@ -425,7 +410,7 @@ struct BlueCursorView: View {
                 && shouldRunDockTransitionOnThisScreen {
                 showWelcome = false
                 cursorPosition = rocketLaunchBayPosition
-                startRocketLaunchSequence()
+                startDockLaunchFlight()
             // Only show welcome message on first appearance (app start)
             // and only if the cursor starts on this screen
             } else if isFirstAppearance && isCursorOnThisScreen {
@@ -463,10 +448,9 @@ struct BlueCursorView: View {
         }
         .onChange(of: companionManager.cursorDockPhase) { _, phase in
             if phase == .returning && shouldRunDockTransitionOnThisScreen {
-                startRocketReturnSequence()
+                startDockReturnFlight()
             } else if phase == .deployed {
-                isRocketTrailVisible = false
-                launchBayGlowOpacity = 0
+                isDockFlightActive = false
                 buddyFlightScale = 1
                 cursorOpacity = 1
                 triangleRotationDegrees = -35
@@ -489,7 +473,7 @@ struct BlueCursorView: View {
     }
 
     private var buddyIsVisibleOnThisScreen: Bool {
-        if companionManager.cursorDockPhase.isTransitioning && isRocketTrailVisible {
+        if companionManager.cursorDockPhase.isTransitioning && isDockFlightActive {
             return true
         }
         switch buddyNavigationMode {
@@ -606,72 +590,50 @@ struct BlueCursorView: View {
         return CGPoint(x: cursorInSwiftUI.x + 35, y: cursorInSwiftUI.y + 25)
     }
 
-    private func rocketRotation(from start: CGPoint, to end: CGPoint) -> Double {
-        atan2(end.y - start.y, end.x - start.x) * (180.0 / .pi) + 90.0
-    }
-
-    private func startRocketLaunchSequence() {
+    /// Undock: the buddy leaves the footer bay on the same bezier arc it uses
+    /// to point at things on screen, homing on the live pointer so it lands
+    /// where the mouse is now, not where it was when the flight began.
+    private func startDockLaunchFlight() {
         guard companionManager.cursorDockPhase == .launching else { return }
 
-        let startPosition = rocketLaunchBayPosition
-        let destination = cursorFollowingPosition()
-        let duration = accessibilityReduceMotion ? 0.12 : 0.78
+        isDockFlightActive = true
+        cursorPosition = rocketLaunchBayPosition
+        cursorOpacity = 1
+        buddyFlightScale = 1
+        triangleRotationDegrees = -35
 
-        cursorPosition = startPosition
-        cursorOpacity = accessibilityReduceMotion ? 0 : 0.35
-        buddyFlightScale = accessibilityReduceMotion ? 1 : 0.58
-        triangleRotationDegrees = rocketRotation(from: startPosition, to: destination)
-        isRocketTrailVisible = !accessibilityReduceMotion
-        launchBayGlowOpacity = accessibilityReduceMotion ? 0 : 1
-
-        DispatchQueue.main.async {
-            withAnimation(.timingCurve(0.16, 0.78, 0.20, 1, duration: duration)) {
-                cursorPosition = destination
-                cursorOpacity = 1
-                buddyFlightScale = accessibilityReduceMotion ? 1 : 1.28
-                launchBayGlowOpacity = 0
-            }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration * 0.62) {
-                guard companionManager.cursorDockPhase == .launching else { return }
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.68)) {
-                    buddyFlightScale = 1
-                }
-            }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-                guard companionManager.cursorDockPhase == .launching else { return }
-                isRocketTrailVisible = false
-                triangleRotationDegrees = -35
-                buddyFlightScale = 1
-                companionManager.completeCursorLaunchAnimation()
-            }
+        animateBezierFlightArc(
+            to: cursorFollowingPosition(),
+            liveDestination: { self.cursorFollowingPosition() }
+        ) {
+            guard self.companionManager.cursorDockPhase == .launching else { return }
+            self.isDockFlightActive = false
+            self.triangleRotationDegrees = -35
+            self.companionManager.completeCursorLaunchAnimation()
         }
     }
 
-    private func startRocketReturnSequence() {
+    /// Dock: the buddy flies the same arc back into the footer bay and stays
+    /// there as the bay's docked cursor.
+    private func startDockReturnFlight() {
         guard companionManager.cursorDockPhase == .returning else { return }
 
-        let startPosition = cursorFollowingPosition()
-        let destination = rocketLaunchBayPosition
-        let duration = accessibilityReduceMotion ? 0.12 : 0.65
+        isDockFlightActive = true
 
-        triangleRotationDegrees = rocketRotation(from: startPosition, to: destination)
-        isRocketTrailVisible = !accessibilityReduceMotion
-        launchBayGlowOpacity = accessibilityReduceMotion ? 0 : 0.25
-
-        withAnimation(.timingCurve(0.44, 0, 0.84, 0.22, duration: duration)) {
-            cursorPosition = destination
-            cursorOpacity = accessibilityReduceMotion ? 0 : 0.18
-            buddyFlightScale = accessibilityReduceMotion ? 1 : 0.42
-            launchBayGlowOpacity = accessibilityReduceMotion ? 0 : 1
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-            guard companionManager.cursorDockPhase == .returning else { return }
-            isRocketTrailVisible = false
-            launchBayGlowOpacity = 0
-            companionManager.completeCursorReturnAnimation()
+        animateBezierFlightArc(
+            to: rocketLaunchBayPosition,
+            liveDestination: { self.rocketLaunchBayPosition }
+        ) {
+            guard self.companionManager.cursorDockPhase == .returning else { return }
+            // Settle into the docked pose the bay draws, then hand off: the
+            // overlay hides and the bay's cursor appears in the same spot.
+            self.cursorPosition = self.rocketLaunchBayPosition
+            self.triangleRotationDegrees = -35
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                guard self.companionManager.cursorDockPhase == .returning else { return }
+                self.isDockFlightActive = false
+                self.companionManager.completeCursorReturnAnimation()
+            }
         }
     }
 
@@ -727,12 +689,13 @@ struct BlueCursorView: View {
     /// for a "swooping" feel, and the glow intensifies during flight.
     private func animateBezierFlightArc(
         to destination: CGPoint,
+        liveDestination: (() -> CGPoint)? = nil,
         onComplete: @escaping () -> Void
     ) {
         navigationAnimationTimer?.invalidate()
 
         let startPosition = cursorPosition
-        let endPosition = destination
+        var endPosition = destination
 
         let deltaX = endPosition.x - startPosition.x
         let deltaY = endPosition.y - startPosition.y
@@ -752,10 +715,19 @@ struct BlueCursorView: View {
             y: (startPosition.y + endPosition.y) / 2.0
         )
         let arcHeight = min(distance * 0.2, 80.0)
-        let controlPoint = CGPoint(x: midPoint.x, y: midPoint.y - arcHeight)
+        var controlPoint = CGPoint(x: midPoint.x, y: midPoint.y - arcHeight)
 
         navigationAnimationTimer = Timer.scheduledTimer(withTimeInterval: frameInterval, repeats: true) { _ in
             currentFrame += 1
+
+            // A live destination re-aims the arc each frame so the landing
+            // follows a target that keeps moving (the user's pointer).
+            if let liveDestination {
+                let liveEnd = liveDestination()
+                let shift = CGPoint(x: liveEnd.x - endPosition.x, y: liveEnd.y - endPosition.y)
+                endPosition = liveEnd
+                controlPoint = CGPoint(x: controlPoint.x + shift.x / 2, y: controlPoint.y + shift.y / 2)
+            }
 
             if currentFrame > totalFrames {
                 self.navigationAnimationTimer?.invalidate()
@@ -931,39 +903,6 @@ struct BlueCursorView: View {
             let index = self.fullWelcomeMessage.index(self.fullWelcomeMessage.startIndex, offsetBy: currentIndex)
             self.welcomeText.append(self.fullWelcomeMessage[index])
             currentIndex += 1
-        }
-    }
-}
-
-private struct RocketExhaustTrail: View {
-    let color: Color
-
-    var body: some View {
-        VStack(spacing: 1.5) {
-            Capsule().fill(Color.white.opacity(0.92)).frame(width: 3, height: 7)
-            Capsule().fill(color.opacity(0.88)).frame(width: 5, height: 10)
-            Capsule().fill(color.opacity(0.28)).frame(width: 7, height: 14)
-        }
-        .offset(y: 16)
-        .blur(radius: 0.45)
-        .shadow(color: color.opacity(0.85), radius: 8)
-    }
-}
-
-private struct RocketLaunchBayGlow: View {
-    let color: Color
-
-    var body: some View {
-        ZStack {
-            Capsule()
-                .fill(color.opacity(0.18))
-                .frame(width: 48, height: 7)
-                .blur(radius: 3)
-            HStack(spacing: 4) {
-                Capsule().fill(color.opacity(0.45)).frame(width: 12, height: 2)
-                Capsule().fill(Color.white.opacity(0.8)).frame(width: 8, height: 2)
-                Capsule().fill(color.opacity(0.45)).frame(width: 12, height: 2)
-            }
         }
     }
 }
