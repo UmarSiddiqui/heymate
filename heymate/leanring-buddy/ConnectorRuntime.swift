@@ -70,12 +70,37 @@ final class ConnectorRuntime: ObservableObject {
     /// so a connector whose permission is still outstanding comes back as
     /// `.needsAttention` with a Connect button rather than as a dialog.
     func restoreEnabledConnectors() async {
+        reenableComposioBridgeIfOrphaned()
         for connector in ConnectorCatalog.all where store.record(for: connector.id).isEnabled {
             await connect(connector, isRestoring: true)
         }
         for connector in store.additionalCustomMCPConnectors() where store.record(for: connector.id).isEnabled {
             await connect(connector, isRestoring: true)
         }
+    }
+
+    /// Turns the Composio bridge back on when everything it needs is still
+    /// here but its own record is not: a saved key, and apps authorised
+    /// through it. Without this the Apps page shows Gmail connected while
+    /// chat is told no connected app is reachable, and a mate answers "how
+    /// many emails?" by starting a job that drives Mail.app. Only the bridge
+    /// record is restored; the restore pass that follows reconnects it.
+    private func reenableComposioBridgeIfOrphaned() {
+        let connectorID = ComposioSessionStore.connectorID
+        guard Self.composioBridgeIsOrphaned(
+            isEnabled: store.record(for: connectorID).isEnabled,
+            hasStoredKey: ConnectorSecretStore.hasSecret(forConnectorID: connectorID),
+            authorisedToolkitCount: ComposioAgentAttachment.connectedScope().count
+        ) else { return }
+        store.setEnabled(true, for: connectorID)
+    }
+
+    nonisolated static func composioBridgeIsOrphaned(
+        isEnabled: Bool,
+        hasStoredKey: Bool,
+        authorisedToolkitCount: Int
+    ) -> Bool {
+        !isEnabled && hasStoredKey && authorisedToolkitCount > 0
     }
 
     // MARK: Connect

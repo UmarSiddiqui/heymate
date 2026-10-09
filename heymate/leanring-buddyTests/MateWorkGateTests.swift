@@ -60,3 +60,15 @@ struct MateWorkGateTests {
         #expect(block.contains("none of your connected apps can reach"))
     }
 }
+
+struct ComposioBridgeRepairTests {
+    @Test func bridgeIsRepairedOnlyWhenItsKeyAndAppsSurvived() {
+        #expect(ConnectorRuntime.composioBridgeIsOrphaned(isEnabled: false, hasStoredKey: true, authorisedToolkitCount: 3))
+        // Already on: nothing to repair.
+        #expect(!ConnectorRuntime.composioBridgeIsOrphaned(isEnabled: true, hasStoredKey: true, authorisedToolkitCount: 3))
+        // Disconnecting deletes the key, so a deliberate disconnect stays off.
+        #expect(!ConnectorRuntime.composioBridgeIsOrphaned(isEnabled: false, hasStoredKey: false, authorisedToolkitCount: 3))
+        // A key with no authorised apps has nothing to bridge to.
+        #expect(!ConnectorRuntime.composioBridgeIsOrphaned(isEnabled: false, hasStoredKey: true, authorisedToolkitCount: 0))
+    }
+}
