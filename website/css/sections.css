@@ -8,6 +8,7 @@
 .hero .sub { margin: 28px auto 0; }
 
 .hero .cta-row { margin-top: 36px; }
+.hero .download-count { margin-top: 18px; font-variant-numeric: tabular-nums; }
 
 .film { padding: var(--s-7) 0 0; }
 .film-frame {

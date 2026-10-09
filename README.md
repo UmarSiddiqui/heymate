@@ -8,6 +8,7 @@
 Hold a key, ask about anything on your screen, and it answers out loud. It can also hand real coding work to Claude Code, Codex, or OpenCode, running on the subscription you already pay for.
 
 [![Latest release](https://img.shields.io/github/v/release/UmarSiddiqui/heymate?label=download&color=3380FF&style=flat-square)](https://github.com/UmarSiddiqui/heymate/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/UmarSiddiqui/heymate/total?label=downloads&color=111113&style=flat-square)](https://github.com/UmarSiddiqui/heymate/releases)
 [![Release build](https://img.shields.io/github/actions/workflow/status/UmarSiddiqui/heymate/release.yml?branch=main&label=build&style=flat-square)](https://github.com/UmarSiddiqui/heymate/actions/workflows/release.yml)
 ![macOS 14.2+](https://img.shields.io/badge/macOS-14.2%2B-111113?style=flat-square&logo=apple)
 ![Swift](https://img.shields.io/badge/SwiftUI-native-F05138?style=flat-square&logo=swift&logoColor=white)

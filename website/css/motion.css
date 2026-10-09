@@ -19,6 +19,7 @@ html.js .hero-reveal > *:nth-child(1) { animation-delay: 40ms; }
 html.js .hero-reveal > *:nth-child(2) { animation-delay: 160ms; }
 html.js .hero-reveal > *:nth-child(3) { animation-delay: 280ms; }
 html.js .hero-reveal > *:nth-child(4) { animation-delay: 400ms; }
+html.js .hero-reveal > *:nth-child(5) { animation-delay: 520ms; }
 
 .stage.hero-device {
   opacity: 0;
