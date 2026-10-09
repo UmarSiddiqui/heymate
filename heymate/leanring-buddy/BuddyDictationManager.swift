@@ -607,9 +607,13 @@ final class BuddyDictationManager: NSObject, ObservableObject {
 
         print("🎙️ BuddyDictationManager: stop requested (\(expectedStartSource))")
 
+        // Finalizing first: observers see "recording stopped" and
+        // "finalizing" as one step instead of a moment where neither is true,
+        // which read as an empty press and dropped the companion to idle
+        // while the transcript was still on its way.
+        isFinalizingTranscript = true
         isRecordingFromMicrophoneButton = false
         isRecordingFromKeyboardShortcut = false
-        isFinalizingTranscript = true
 
         let finalTranscriptFallbackDelaySeconds = activeTranscriptionSession?.finalTranscriptFallbackDelaySeconds
             ?? Self.defaultFinalTranscriptFallbackDelaySeconds

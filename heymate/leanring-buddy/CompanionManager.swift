@@ -1624,6 +1624,16 @@ final class CompanionManager: ObservableObject {
     /// Guards stale Talk completions after a newer turn cancelled the task.
     private var currentResponseCompletion: HeyMateRequestCompletionState?
 
+    /// Whether a reply is still being produced. `currentResponseTask` keeps
+    /// pointing at a finished turn, so it alone cannot answer this: after the
+    /// first reply it is never nil again, and a press that ended with no
+    /// transcript (released too fast, nothing heard, speech permission
+    /// missing) then left HeyMate showing Listening forever.
+    private var isResponseInFlight: Bool {
+        guard currentResponseTask != nil, let completion = currentResponseCompletion else { return false }
+        return !completion.didComplete
+    }
+
     private var shortcutTransitionCancellable: AnyCancellable?
     private var dictateTransitionCancellable: AnyCancellable?
     private var spatialTransitionCancellable: AnyCancellable?
@@ -2640,7 +2650,7 @@ final class CompanionManager: ObservableObject {
                 buddyDictationManager.$isPreparingToRecord
             )
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] isRecording, isFinalizing, _ in
+            .sink { [weak self] isRecording, isFinalizing, isPreparing in
                 guard let self else { return }
                 // The reducer rejects transitions that would stomp
                 // pipeline-owned states (capturing/thinking/guiding/speaking),
@@ -2651,7 +2661,10 @@ final class CompanionManager: ObservableObject {
                     self.dispatch(.startListening(self.inputModeOfActiveSession))
                     // The seconds spent speaking cover the CLI's boot.
                     self.prewarmTalkEngine()
-                } else if !self.state.isIdle && self.currentResponseTask == nil {
+                } else if isPreparing {
+                    // The microphone is still starting. Keep showing
+                    // Listening instead of flickering to idle and back.
+                } else if !self.state.isIdle && !self.isResponseInFlight {
                     // Recording stopped without producing a response — e.g.
                     // the user pressed and released without saying anything.
                     // Return to idle and schedule the transient hide so the
@@ -2987,10 +3000,14 @@ final class CompanionManager: ObservableObject {
         // Occupy the shared response-task slot synchronously so the voiceState
         // binding doesn't stampede to idle while the pipeline is still working.
         currentResponseTask?.cancel()
+        currentResponseCompletion?.didComplete = true
+        let dictationCompletion = HeyMateRequestCompletionState()
+        currentResponseCompletion = dictationCompletion
 
         let usesSmartMode = dictationUsesSmartMode
 
         currentResponseTask = Task {
+            defer { dictationCompletion.didComplete = true }
             var textToInsert = trimmedTranscript
             var insertionContextSummary = "literal"
 
@@ -3629,6 +3646,10 @@ final class CompanionManager: ObservableObject {
         let completion = HeyMateRequestCompletionState()
         currentResponseCompletion = completion
         currentResponseTask = Task {
+            // Every exit, early returns included, ends the turn. Runs after
+            // the closing `guard !completion.didComplete` below, so the
+            // normal ending still dispatches `interactionFinished` first.
+            defer { completion.didComplete = true }
             appendUserMessage(
                 transcript,
                 attachmentNames: imageAttachments.map(\.fileName)
