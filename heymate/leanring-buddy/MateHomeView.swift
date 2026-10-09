@@ -385,12 +385,10 @@ struct MateHomeView: View {
                 }
             }
             if mate.unreadCount > 0 {
-                Text("\(mate.unreadCount)")
-                    .font(DS.Fonts.caption.weight(.semibold))
-                    .foregroundColor(DS.Colors.textOnAccent)
-                    .padding(.horizontal, 6)
-                    .frame(minWidth: 18, minHeight: 18)
-                    .background(Capsule().fill(companionManager.themeColor))
+                Circle()
+                    .fill(companionManager.themeColor)
+                    .frame(width: 8, height: 8)
+                    .accessibilityLabel("Unread")
             }
         }
         .padding(.horizontal, 8)

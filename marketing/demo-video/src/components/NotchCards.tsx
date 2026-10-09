@@ -180,7 +180,7 @@ export const NotchFooter: React.FC = () => (
   </div>
 );
 
-const Tile: React.FC<{icon: React.ReactNode; title: string; sub: string; kbd: string}> = ({icon, title, sub, kbd}) => (
+const Tile: React.FC<{icon: React.ReactNode; title: string; sub: string}> = ({icon, title, sub}) => (
   <div
     style={{
       height: 70,
@@ -211,7 +211,6 @@ const Tile: React.FC<{icon: React.ReactNode; title: string; sub: string; kbd: st
     <div style={{flex: 1, minWidth: 0}}>
       <div style={{display: 'flex', alignItems: 'baseline'}}>
         <span style={{fontSize: 15, fontWeight: 600}}>{title}</span>
-        <span style={{marginLeft: 'auto', fontSize: 11, color: COLORS.textTertiary}}>{kbd}</span>
       </div>
       <div style={{fontSize: 12, color: COLORS.textSecondary, whiteSpace: 'nowrap'}}>{sub}</div>
     </div>
@@ -293,16 +292,16 @@ export const NotchHome: React.FC<{stagger: (i: number) => number}> = ({stagger})
         <div style={{...label, ...s(1)}}>Jump to</div>
         <div style={{marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10}}>
           <div style={s(2)}>
-            <Tile icon={<SparkleIcon size={15} />} title="Agents" sub="1 running" kbd="⌘1" />
+            <Tile icon={<SparkleIcon size={15} />} title="Agents" sub="1 running" />
           </div>
           <div style={s(3)}>
-            <Tile icon={<WindowIcon size={15} />} title="Window" sub="Chat and history" kbd="⌘2" />
+            <Tile icon={<WindowIcon size={15} />} title="Window" sub="Chat and history" />
           </div>
           <div style={s(4)}>
-            <Tile icon={<WandIcon size={15} />} title="Skills" sub="How it answers" kbd="⌘3" />
+            <Tile icon={<WandIcon size={15} />} title="Skills" sub="How it answers" />
           </div>
           <div style={s(5)}>
-            <Tile icon={<GearIcon size={15} />} title="Settings" sub="Voice, keys" kbd="⌘4" />
+            <Tile icon={<GearIcon size={15} />} title="Settings" sub="Voice, keys" />
           </div>
         </div>
       </div>

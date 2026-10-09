@@ -254,7 +254,7 @@ struct NotchExpandedView: View {
     }
 
     /// The Home tab's Doors row already puts Window and Settings one tap
-    /// away with a ⌘-shortcut. Repeating them here is only useful on the
+    /// away. Repeating them here is only useful on the
     /// tabs that don't have a Doors row — Apps and Agents — so this bar
     /// drops them exactly where they'd be
     /// a pure duplicate instead of always carrying six icons.
@@ -817,7 +817,7 @@ private struct NotchHomeTab: View {
                         subtitle: agentsDoorSubtitle,
                         systemName: "sparkles",
                         key: "1",
-                        help: "See running and finished jobs (⌘1)"
+                        help: "See running and finished jobs"
                     ) {
                         companionManager.shouldRevealAgentsTab = true
                     }
@@ -826,7 +826,7 @@ private struct NotchHomeTab: View {
                         subtitle: "Chat and history",
                         systemName: "macwindow",
                         key: "2",
-                        help: "Open the full HeyMate window (⌘2)"
+                        help: "Open the full HeyMate window"
                     ) {
                         companionManager.openDesktopWindow(section: .chat)
                     }
@@ -837,7 +837,7 @@ private struct NotchHomeTab: View {
                         subtitle: "How it answers",
                         systemName: "wand.and.stars",
                         key: "3",
-                        help: "Markdown files that shape how HeyMate answers (⌘3)"
+                        help: "Markdown files that shape how HeyMate answers"
                     ) {
                         companionManager.openDesktopWindow(section: .skills)
                     }
@@ -846,7 +846,7 @@ private struct NotchHomeTab: View {
                         subtitle: "Engine, voice, keys",
                         systemName: "gearshape",
                         key: "4",
-                        help: "Engine, model, voice, shortcuts, and appearance (⌘4)"
+                        help: "Engine, model, voice, shortcuts, and appearance"
                     ) {
                         companionManager.openDesktopWindow(section: .settings)
                     }
@@ -979,7 +979,6 @@ private struct NotchDoorTile: View {
     let subtitle: String
     let systemName: String
     let key: KeyEquivalent
-    let shortcutLabel: String
     let help: String
     let action: () -> Void
 
@@ -995,7 +994,6 @@ private struct NotchDoorTile: View {
         self.subtitle = subtitle
         self.systemName = systemName
         self.key = key
-        self.shortcutLabel = "⌘\(key.character)".uppercased()
         self.help = help
         self.action = action
     }
@@ -1014,19 +1012,11 @@ private struct NotchDoorTile: View {
                             .foregroundColor(isHovering ? DS.Colors.accentText : DS.Colors.textSecondary)
                     )
 
-                // Shortcut rides the title line so the subtitle gets the
-                // tile's full width instead of truncating beside a key cap.
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 4) {
-                        Text(title)
-                            .font(DS.Fonts.control)
-                            .foregroundColor(DS.Colors.textPrimary)
-                            .lineLimit(1)
-                        Spacer(minLength: 2)
-                        Text(shortcutLabel)
-                            .font(DS.Fonts.keycap)
-                            .foregroundColor(DS.Colors.textTertiary)
-                    }
+                    Text(title)
+                        .font(DS.Fonts.control)
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .lineLimit(1)
                     Text(subtitle)
                         .font(DS.Fonts.caption)
                         .foregroundColor(DS.Colors.textTertiary)

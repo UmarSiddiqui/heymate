@@ -342,14 +342,6 @@ final class NotchCompanionController {
                 self?.pillModel.agentFilaments = AgentFilament.live(from: runs)
             }
             .store(in: &cancellables)
-
-        companionManager.$mates
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] mates in
-                let unread = mates.filter { !$0.archived }.reduce(0) { $0 + $1.unreadCount }
-                self?.pillModel.unreadCount = unread
-            }
-            .store(in: &cancellables)
     }
 
     /// Attach/detach the mic-power subscription so it exists only while the
