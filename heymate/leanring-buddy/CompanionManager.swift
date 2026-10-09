@@ -2174,6 +2174,18 @@ final class CompanionManager: ObservableObject {
         """
     }
 
+    /// Only a short, ambiguous follow-up ("okay", "what now") needs the anchor.
+    /// A greeting or a fresh question must not be dragged back to whatever was
+    /// said last, which could be hours old ("hi" -> "still on the textedit task").
+    nonisolated static func shouldAnchorToPriorTopic(transcript: String) -> Bool {
+        let words = transcript
+            .lowercased()
+            .split { !$0.isLetter && !$0.isNumber && $0 != "'" }
+        guard !words.isEmpty, words.count <= 3 else { return false }
+        let greetings: Set<Substring> = ["hi", "hey", "hello", "yo", "sup", "heymate", "morning", "evening"]
+        return !words.allSatisfy { greetings.contains($0) }
+    }
+
     nonisolated static func skillsPromptBlock(skills: [SkillFile]) -> String? {
         guard !skills.isEmpty else { return nil }
         let blocks = skills.map { skill in
@@ -3719,7 +3731,8 @@ final class CompanionManager: ObservableObject {
                 if let memoryBlock = Self.memoryPromptBlock(items: memoryItems) {
                     promptParts.append(memoryBlock)
                 }
-                if let topicAnchor = Self.topicAnchorPromptFragment(mostRecentExchange: historyForAPI.last) {
+                if Self.shouldAnchorToPriorTopic(transcript: transcript),
+                   let topicAnchor = Self.topicAnchorPromptFragment(mostRecentExchange: historyForAPI.last) {
                     promptParts.append(topicAnchor)
                 }
                 promptParts.append(contentsOf: await macAccountContextBlocks(for: transcript))

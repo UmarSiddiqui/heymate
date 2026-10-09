@@ -60,7 +60,7 @@ nonisolated enum VoiceRouter {
         if containsHybridForegroundCue(normalized), containsHybridBackgroundCue(normalized) {
             return .hybrid
         }
-        if isScreenQuestion(normalized) {
+        if isScreenQuestion(normalized) || isPerceptionQuestion(normalized) {
             return .talk
         }
         // "open this", "read that out" — pointing at what is visible with
@@ -90,6 +90,13 @@ nonisolated enum VoiceRouter {
         }
         let screenReferencePattern = #"\b(?:this|that|it|here|screen|display|visible|selected|highlighted|window|page|says|saying|shown|showing)\b"#
         return normalized.range(of: screenReferencePattern, options: .regularExpression) != nil
+    }
+
+    /// "What am I looking at" names no demonstrative, so `isScreenQuestion`
+    /// misses it, yet only the screen can answer it.
+    static func isPerceptionQuestion(_ normalized: String) -> Bool {
+        let perceptionCue = #"\b(?:looking\s+at|you\s+see|i\s+see|seeing|on\s+my\s+(?:screen|display|monitor)|in\s+front\s+of\s+me)\b"#
+        return normalized.range(of: perceptionCue, options: .regularExpression) != nil
     }
 
     static func looksLikeAgentWork(_ normalized: String) -> Bool {

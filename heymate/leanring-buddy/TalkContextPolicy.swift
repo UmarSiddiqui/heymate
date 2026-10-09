@@ -21,6 +21,8 @@ nonisolated enum TalkContextPolicy {
             return true
         }
 
+        if VoiceRouter.isPerceptionQuestion(normalized) { return true }
+
         let explicitVisualCue = #"\b(?:screen|display|window|page|button|menu|icon|field|selected|highlighted|visible|cursor|point|click|press|scroll)\b"#
         return normalized.range(of: explicitVisualCue, options: .regularExpression) != nil
     }
