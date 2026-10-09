@@ -475,26 +475,8 @@ struct NotchConnectorSuggestionCard: View {
             .background(Capsule().fill(DS.Colors.surface3.opacity(0.68)))
     }
 
-    @ViewBuilder
     private func toolkitIcon(for suggestion: ContextualConnectorSuggestion) -> some View {
-        RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
-            .fill(suggestion.toolkitSlug == "youtube" ? Color.red : DS.Colors.surface3)
-            .frame(width: 32, height: 32)
-            .overlay {
-                if suggestion.toolkitSlug == "youtube" {
-                    Image(systemName: "play.fill")
-                        .font(DS.Glyph.small)
-                        .foregroundColor(.white)
-                } else {
-                    Text(String(suggestion.toolkitName.prefix(1)))
-                        .font(DS.Fonts.title)
-                        .foregroundColor(DS.Colors.textPrimary)
-                }
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
-                    .stroke(DS.Colors.borderStrong.opacity(0.6), lineWidth: 0.5)
-            }
+        ComposioToolkitLogoView(toolkit: suggestion.toolkit, compactSize: 32)
     }
 
     private func actionButton(

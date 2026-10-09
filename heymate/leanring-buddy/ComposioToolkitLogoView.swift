@@ -14,11 +14,48 @@ import SwiftUI
 struct ComposioToolkitLogoView: View {
     let toolkit: ComposioToolkit
     var isConnected = false
+    /// Compact mode is for the notch suggestion card: flat white tile so
+    /// dark brand marks (GitHub, Notion) stay legible on the matte surface.
+    var compactSize: CGFloat?
 
     @State private var logoImage: NSImage?
     @State private var hasFinishedLoading = false
 
     var body: some View {
+        if let compactSize {
+            compactBody(size: compactSize)
+        } else {
+            fullBody
+        }
+    }
+
+    private func compactBody(size: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+            .fill(Color.white)
+            .frame(width: size, height: size)
+            .overlay {
+                if let logoImage {
+                    Image(nsImage: logoImage)
+                        .resizable()
+                        .scaledToFit()
+                        .padding(size * 0.2)
+                } else if hasFinishedLoading {
+                    Text(toolkit.logoMonogram)
+                        .font(DS.Fonts.title)
+                        .foregroundStyle(Color.black)
+                }
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                    .stroke(DS.Colors.borderStrong.opacity(0.6), lineWidth: 0.5)
+            }
+            .task(id: toolkit.slug) {
+                await loadLogo()
+            }
+            .accessibilityHidden(true)
+    }
+
+    private var fullBody: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(

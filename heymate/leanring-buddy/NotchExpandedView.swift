@@ -217,17 +217,17 @@ struct NotchExpandedView: View {
                 .frame(width: max(hardwareNotchWidth, 0))
                 .accessibilityHidden(true)
 
-            // Status and collapse live on the right wing so the bottom bar
-            // only carries tools, and neither wing reads as an empty box.
-            // Quit sits against the camera housing, away from Collapse —
-            // there is no Dock icon or menu bar to quit from otherwise.
+            // Status, collapse and quit live on the right wing so the bottom
+            // bar only carries tools, and neither wing reads as an empty box.
+            // Quit takes the top-right corner — there is no Dock icon or
+            // menu bar to quit from otherwise.
             HStack(spacing: 8) {
-                headerIconButton(systemName: "power", help: "Quit HeyMate") {
-                    NSApp.terminate(nil)
-                }
                 Spacer(minLength: 0)
                 headerStatusPill
                 headerIconButton(systemName: "chevron.up", help: "Collapse", action: onClose)
+                headerIconButton(systemName: "power", help: "Quit HeyMate") {
+                    NSApp.terminate(nil)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
@@ -1058,14 +1058,7 @@ private struct ContextualConnectorSuggestionBanner: View {
            !connections.state(for: suggestion.toolkitSlug).isConnected {
             VStack(alignment: .leading, spacing: 9) {
                 HStack(spacing: 9) {
-                    RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
-                        .fill(Color(red: 0.92, green: 0.12, blue: 0.14))
-                        .frame(width: 30, height: 30)
-                        .overlay(
-                            Image(systemName: "play.fill")
-                                .font(DS.Glyph.small)
-                                .foregroundColor(.white)
-                        )
+                    ComposioToolkitLogoView(toolkit: suggestion.toolkit, compactSize: 30)
 
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Connect \(suggestion.toolkitName) to HeyMate")
