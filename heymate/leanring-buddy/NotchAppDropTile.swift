@@ -2,7 +2,8 @@
 //  NotchAppDropTile.swift
 //  leanring-buddy
 //
-//  AppKit file-URL drag of HeyMate.app for Privacy settings. SwiftUI
+//  AppKit file-URL drag of HeyMate.app for Privacy settings. The whole
+//  card is the drag source. SwiftUI
 //  `.draggable(FileRepresentation)` sends a file *promise*, which the
 //  Accessibility / Screen Recording lists reject. The notch card also
 //  sits above Settings and eats the drop — we click-through + fade it
@@ -16,11 +17,14 @@ struct NotchAppDropTile: View {
     var missingAccessibility: Bool
     var missingScreenRecording: Bool
 
+    @State private var isHovering = false
+    @State private var isDragging = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            AppBundleDragHandle()
-                .frame(height: 64)
+            dragCard
                 .help("Drag HeyMate.app into the Settings list")
+                .onAppear(perform: WindowPositionManager.prewarmAppBundleForPrivacyDrop)
 
             HStack(spacing: 6) {
                 if missingAccessibility {
@@ -49,94 +53,184 @@ struct NotchAppDropTile: View {
         }
     }
 
+    /// The whole card is the drag source, not just the icon: the AppKit view
+    /// sits on top and covers every point of it.
+    private var dragCard: some View {
+        HStack(spacing: 12) {
+            Image(nsImage: NSWorkspace.shared.icon(forFile: WindowPositionManager.runningAppBundleURL.path))
+                .resizable()
+                .frame(width: 44, height: 44)
+                .scaleEffect(isHovering && !isDragging ? 1.06 : 1)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("HeyMate.app")
+                    .font(DS.Fonts.bodyLarge.weight(.semibold))
+                    .foregroundColor(DS.Colors.textPrimary)
+                Text(isDragging
+                     ? "Drop it in the list, then turn it on."
+                     : "Grab anywhere here and drag into Settings.")
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+
+            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(isHovering ? DS.Colors.textSecondary : DS.Colors.textTertiary)
+        }
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, minHeight: 72)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(isHovering ? DS.Colors.surface3 : DS.Colors.surface2)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(
+                    isHovering ? DS.Colors.borderStrong : DS.Colors.borderSubtle,
+                    style: StrokeStyle(lineWidth: 1, dash: [5, 4])
+                )
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            AppBundleDragHandle(
+                settingsPane: missingAccessibility ? .accessibility : .screenRecording,
+                onHoverChange: { isHovering = $0 },
+                onDragChange: { isDragging = $0 }
+            )
+        )
+        .animation(.easeOut(duration: 0.15), value: isHovering)
+        .animation(.easeOut(duration: 0.15), value: isDragging)
+    }
+
     private func settingsLink(title: String, action: @escaping () -> Void) -> some View {
         Button(title, action: action)
             .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)
     }
 }
 
-private struct AppBundleDragHandle: NSViewRepresentable {
-    func makeNSView(context: Context) -> AppBundleDragSourceView {
-        AppBundleDragSourceView()
-    }
+enum PrivacySettingsPane {
+    case accessibility
+    case screenRecording
 
-    func updateNSView(_ nsView: AppBundleDragSourceView, context: Context) {}
+    @MainActor
+    func open() {
+        switch self {
+        case .accessibility: WindowPositionManager.openAccessibilitySettings()
+        case .screenRecording: WindowPositionManager.openScreenRecordingSettings()
+        }
+    }
 }
 
-/// Writes the real file URL + legacy filenames type so System Settings
-/// treats the drop as an application bundle, not a promised copy.
+private struct AppBundleDragHandle: NSViewRepresentable {
+    var settingsPane: PrivacySettingsPane
+    var onHoverChange: (Bool) -> Void
+    var onDragChange: (Bool) -> Void
+
+    func makeNSView(context: Context) -> AppBundleDragSourceView {
+        let view = AppBundleDragSourceView()
+        updateNSView(view, context: context)
+        return view
+    }
+
+    func updateNSView(_ nsView: AppBundleDragSourceView, context: Context) {
+        nsView.settingsPane = settingsPane
+        nsView.onHoverChange = onHoverChange
+        nsView.onDragChange = onDragChange
+    }
+}
+
+/// Transparent drag source laid over the whole card. Writes the real file
+/// URL so System Settings treats the drop as an application bundle, not a
+/// promised copy.
 final class AppBundleDragSourceView: NSView, NSDraggingSource {
-    private var dragStartLocation: NSPoint?
+    var settingsPane: PrivacySettingsPane = .accessibility
+    var onHoverChange: ((Bool) -> Void)?
+    var onDragChange: ((Bool) -> Void)?
 
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
+    private var mouseDownEvent: NSEvent?
+    private var trackingArea: NSTrackingArea?
+
+    /// The notch panel is rarely key. Without this the first click only
+    /// focuses the panel and `mouseDown` never arrives, which is why the drag
+    /// worked on some tries and not others.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func shouldDelayWindowOrdering(for event: NSEvent) -> Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect, .cursorUpdate],
+            owner: self
+        )
+        addTrackingArea(area)
+        trackingArea = area
     }
 
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        wantsLayer = true
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .openHand)
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
+    override func cursorUpdate(with event: NSEvent) {
+        NSCursor.openHand.set()
+    }
 
-        let icon = NSWorkspace.shared.icon(forFile: WindowPositionManager.runningAppBundleURL.path)
-        let iconRect = NSRect(x: 10, y: (bounds.height - 44) / 2, width: 44, height: 44)
-        icon.draw(in: iconRect)
+    override func mouseEntered(with event: NSEvent) {
+        onHoverChange?(true)
+    }
 
-        let title = NSAttributedString(
-            string: "HeyMate.app",
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
-                .foregroundColor: NSColor.white.withAlphaComponent(0.92)
-            ]
-        )
-        let subtitle = NSAttributedString(
-            string: "Drag into the Settings list, then turn it on.",
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 10, weight: .regular),
-                .foregroundColor: NSColor.white.withAlphaComponent(0.5)
-            ]
-        )
-        title.draw(at: NSPoint(x: 64, y: bounds.midY + 2))
-        subtitle.draw(at: NSPoint(x: 64, y: bounds.midY - 14))
+    override func mouseExited(with event: NSEvent) {
+        onHoverChange?(false)
     }
 
     override func mouseDown(with event: NSEvent) {
-        dragStartLocation = event.locationInWindow
+        mouseDownEvent = event
+        NSCursor.closedHand.set()
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let dragStartLocation else { return }
+        guard let mouseDownEvent else { return }
         let delta = hypot(
-            event.locationInWindow.x - dragStartLocation.x,
-            event.locationInWindow.y - dragStartLocation.y
+            event.locationInWindow.x - mouseDownEvent.locationInWindow.x,
+            event.locationInWindow.y - mouseDownEvent.locationInWindow.y
         )
-        guard delta >= 4 else { return }
-        self.dragStartLocation = nil
-        beginAppBundleDrag(with: event)
+        guard delta >= 3 else { return }
+        self.mouseDownEvent = nil
+        beginAppBundleDrag(downEvent: mouseDownEvent)
     }
 
     override func mouseUp(with event: NSEvent) {
-        dragStartLocation = nil
+        mouseDownEvent = nil
+        NSCursor.openHand.set()
     }
 
-    private func beginAppBundleDrag(with event: NSEvent) {
+    private func beginAppBundleDrag(downEvent: NSEvent) {
         let bundleURL = WindowPositionManager.prepareAppBundleForPrivacyDrop()
-        let pasteboardItem = AppBundlePasteboardWriter(fileURL: bundleURL)
-        let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
+        let draggingItem = NSDraggingItem(pasteboardWriter: AppBundlePasteboardWriter(fileURL: bundleURL))
         let icon = NSWorkspace.shared.icon(forFile: bundleURL.path)
-        icon.size = NSSize(width: 64, height: 64)
+        icon.size = NSSize(width: 56, height: 56)
+
+        // Centre the icon under the point the user grabbed, so it follows the
+        // cursor wherever on the card the drag started.
+        let grabPoint = convert(downEvent.locationInWindow, from: nil)
         draggingItem.setDraggingFrame(
-            NSRect(x: 10, y: (bounds.height - 44) / 2, width: 44, height: 44),
+            NSRect(x: grabPoint.x - 28, y: grabPoint.y - 28, width: 56, height: 56),
             contents: icon
         )
 
+        onDragChange?(true)
         NotificationCenter.default.post(name: .clickyPrivacyDragDidBegin, object: nil)
-        WindowPositionManager.openAccessibilitySettings()
 
-        beginDraggingSession(with: [draggingItem], event: event, source: self)
+        // Start from the mouse-down event: the drag image then begins where
+        // the press happened instead of jumping a few points behind.
+        let session = beginDraggingSession(with: [draggingItem], event: downEvent, source: self)
+        session.animatesToStartingPositionsOnCancelOrFail = true
+        settingsPane.open()
     }
 
     func draggingSession(
@@ -151,6 +245,8 @@ final class AppBundleDragSourceView: NSView, NSDraggingSource {
         endedAt screenPoint: NSPoint,
         operation: NSDragOperation
     ) {
+        onDragChange?(false)
+        onHoverChange?(false)
         NotificationCenter.default.post(name: .clickyPrivacyDragDidEnd, object: nil)
     }
 }

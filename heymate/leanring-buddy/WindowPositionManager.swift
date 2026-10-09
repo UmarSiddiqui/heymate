@@ -74,7 +74,7 @@ class WindowPositionManager {
     }
 
     /// The running `.app` bundle — dragged into System Settings Privacy lists.
-    static var runningAppBundleURL: URL {
+    nonisolated static var runningAppBundleURL: URL {
         Bundle.main.bundleURL
     }
 
@@ -178,7 +178,7 @@ class WindowPositionManager {
     /// Where Privacy settings should receive a dropped `.app`. Prefer
     /// `/Applications/HeyMate.app` so TCC sees a stable path; fall back to
     /// Desktop when Applications is not writable.
-    static func privacyDropPlan(
+    nonisolated static func privacyDropPlan(
         isAlreadyInApplications: Bool,
         canCopyToApplications: Bool
     ) -> PrivacyBundleDropPlan {
@@ -197,10 +197,38 @@ class WindowPositionManager {
         case copyToDesktop
     }
 
+    private static let privacyDropLock = NSLock()
+    nonisolated(unsafe) private static var preparedPrivacyDropURL: URL?
+
     /// Copies the running bundle to `/Applications` (or Desktop) and returns
     /// the URL Privacy settings will accept as a dropped app.
+    ///
+    /// The copy happens once per launch. It used to run on every drag, inside
+    /// `mouseDragged`, so a build running outside `/Applications` deleted and
+    /// re-copied the whole bundle before the drag began — by then the mouse
+    /// was often already up and the drag never started.
     @discardableResult
-    static func prepareAppBundleForPrivacyDrop() -> URL {
+    nonisolated static func prepareAppBundleForPrivacyDrop() -> URL {
+        privacyDropLock.lock()
+        defer { privacyDropLock.unlock() }
+
+        if let preparedPrivacyDropURL,
+           FileManager.default.fileExists(atPath: preparedPrivacyDropURL.path) {
+            return preparedPrivacyDropURL
+        }
+        let url = copyAppBundleForPrivacyDrop()
+        preparedPrivacyDropURL = url
+        return url
+    }
+
+    /// Runs the one-time copy in the background so the first drag is instant.
+    nonisolated static func prewarmAppBundleForPrivacyDrop() {
+        Task.detached(priority: .utility) {
+            _ = prepareAppBundleForPrivacyDrop()
+        }
+    }
+
+    private nonisolated static func copyAppBundleForPrivacyDrop() -> URL {
         let runningURL = runningAppBundleURL.standardizedFileURL
         let applicationsTarget = applicationsHeyMateURL().standardizedFileURL
         let desktopTarget = desktopHeyMateURL().standardizedFileURL
@@ -233,17 +261,17 @@ class WindowPositionManager {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
-    static func applicationsHeyMateURL() -> URL {
+    nonisolated static func applicationsHeyMateURL() -> URL {
         FileManager.default.urls(for: .applicationDirectory, in: .localDomainMask)[0]
             .appendingPathComponent("HeyMate.app")
     }
 
-    static func desktopHeyMateURL() -> URL {
+    nonisolated static func desktopHeyMateURL() -> URL {
         FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("HeyMate.app")
     }
 
-    private static func copyAppBundle(from sourceURL: URL, to destinationURL: URL) -> Bool {
+    private nonisolated static func copyAppBundle(from sourceURL: URL, to destinationURL: URL) -> Bool {
         let fileManager = FileManager.default
         let standardizedSource = sourceURL.standardizedFileURL
         let standardizedDestination = destinationURL.standardizedFileURL
