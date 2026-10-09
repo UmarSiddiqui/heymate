@@ -1128,9 +1128,19 @@ final class CompanionManager: ObservableObject {
 
     /// The model the user picked is the model that answers, with or without
     /// a screenshot. Spark is only the stand-in before Codex has a selection.
+    /// Talk's client. A subscription CLI brain is bound to the open chat so
+    /// follow-ups continue one CLI session instead of starting cold; other
+    /// callers of `activeConversationClient` (dictation rewrite, onboarding)
+    /// stay one-off and never touch that session.
     private func conversationClient(hasScreenContext: Bool) -> any VisionConversationClient {
         _ = hasScreenContext
-        return activeConversationClient
+        let client = activeConversationClient
+        guard let subscriptionClient = client as? SubscriptionCLIVisionClient,
+              backgroundRoutineSession == nil else { return client }
+        return subscriptionClient.boundToConversation(
+            key: currentChat.id.uuidString,
+            position: currentChat.messages.count
+        )
     }
 
     /// Trims user-edited server URLs (trailing slashes/spaces) and falls back

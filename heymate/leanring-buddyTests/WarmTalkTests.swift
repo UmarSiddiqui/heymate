@@ -21,7 +21,7 @@ struct WarmTalkTests {
             model: "sonnet",
             streamsInput: true
         )
-        #expect(Array(arguments.prefix(6)) == ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose"])
+        #expect(Array(arguments.prefix(7)) == ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages"])
         #expect(!arguments.contains("ignored"))
         #expect(arguments.contains("--safe-mode"))
         #expect(arguments.contains("plan"))
@@ -124,7 +124,7 @@ struct WarmTalkTests {
         let pool = WarmTalkPool()
         pool.prewarm(launch)
 
-        let child = try #require(pool.takeChild(for: launch))
+        let child = try #require(pool.takeChild(for: launch)?.child)
         defer { child.discard() }
         #expect(child.isRunning)
 
@@ -133,9 +133,109 @@ struct WarmTalkTests {
         #expect(line.contains("warm answer"))
 
         // Taking again starts a new child rather than reusing the used one.
-        let second = try #require(pool.takeChild(for: launch))
+        let second = try #require(pool.takeChild(for: launch)?.child)
         defer { second.discard() }
         #expect(second !== child)
+    }
+
+    // MARK: Conversation sessions
+
+    @Test func answeredChildContinuesItsOwnChatOnly() throws {
+        let launch = WarmTalkLaunch(executableURL: try fakeCLI(), arguments: [], environmentKeysToRemove: [], environmentOverrides: [:])
+        let pool = WarmTalkPool()
+        let (child, isContinuing) = try #require(pool.takeChild(for: launch, conversationKey: "chat-a", position: 1))
+        #expect(!isContinuing)
+        child.conversationKey = "chat-a"
+        child.nextConversationPosition = 3
+        child.completedTurns = 1
+        pool.checkIn(child)
+
+        // Same chat, the expected position: the same child, continuing.
+        let next = try #require(pool.takeChild(for: launch, conversationKey: "chat-a", position: 3))
+        #expect(next.child === child)
+        #expect(next.isContinuing)
+        pool.checkIn(next.child)
+
+        // A different chat never inherits it.
+        let other = try #require(pool.takeChild(for: launch, conversationKey: "chat-b", position: 1))
+        defer { other.child.discard() }
+        #expect(other.child !== child)
+        #expect(!other.isContinuing)
+        #expect(!child.isRunning)
+    }
+
+    @Test func editedChatDoesNotContinue() throws {
+        let launch = WarmTalkLaunch(executableURL: try fakeCLI(), arguments: [], environmentKeysToRemove: [], environmentOverrides: [:])
+        let pool = WarmTalkPool()
+        let child = try #require(pool.takeChild(for: launch, conversationKey: "chat", position: 1)?.child)
+        child.conversationKey = "chat"
+        child.nextConversationPosition = 3
+        pool.checkIn(child)
+        // A message was deleted: the chat is at 2, not the 3 the child expects.
+        let next = try #require(pool.takeChild(for: launch, conversationKey: "chat", position: 2))
+        defer { next.child.discard() }
+        #expect(!next.isContinuing)
+        #expect(next.child !== child)
+    }
+
+    @Test func oneOffQuestionLeavesTheChatSessionAlone() throws {
+        let launch = WarmTalkLaunch(executableURL: try fakeCLI(), arguments: [], environmentKeysToRemove: [], environmentOverrides: [:])
+        let pool = WarmTalkPool()
+        let child = try #require(pool.takeChild(for: launch, conversationKey: "chat", position: 1)?.child)
+        child.conversationKey = "chat"
+        child.nextConversationPosition = 3
+        pool.checkIn(child)
+
+        let oneOff = try #require(pool.takeChild(for: launch))
+        oneOff.child.discard()
+        #expect(oneOff.child !== child)
+
+        let resumed = try #require(pool.takeChild(for: launch, conversationKey: "chat", position: 3))
+        defer { resumed.child.discard() }
+        #expect(resumed.child === child)
+        #expect(resumed.isContinuing)
+    }
+
+    @Test func childPastItsScreenLimitIsRetired() throws {
+        let launch = WarmTalkLaunch(executableURL: try fakeCLI(), arguments: [], environmentKeysToRemove: [], environmentOverrides: [:])
+        let pool = WarmTalkPool()
+        let child = try #require(pool.takeChild(for: launch, conversationKey: "chat", position: 1)?.child)
+        child.conversationKey = "chat"
+        child.nextConversationPosition = 3
+        child.imageTurns = WarmTalkPool.maximumImageTurns
+        pool.checkIn(child)
+        #expect(!child.isRunning)
+        let next = try #require(pool.takeChild(for: launch, conversationKey: "chat", position: 3))
+        defer { next.child.discard() }
+        #expect(!next.isContinuing)
+    }
+
+    @Test func claudeTextDeltasAreReadFromPartialMessages() {
+        let delta = #"{"type":"stream_event","parent_tool_use_id":null,"event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hel"}}}"#
+        #expect(SubscriptionCLIVisionClient.warmTextDelta(fromStdoutLine: delta) == "Hel")
+        let subagent = #"{"type":"stream_event","parent_tool_use_id":"toolu_1","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"x"}}}"#
+        #expect(SubscriptionCLIVisionClient.warmTextDelta(fromStdoutLine: subagent) == nil)
+        #expect(SubscriptionCLIVisionClient.warmTextDelta(fromStdoutLine: #"{"type":"result","result":"text_delta"}"#) == nil)
+    }
+
+    @Test func codexTextDeltasAreRead() {
+        let line = #"{"method":"item/agentMessage/delta","params":{"threadId":"t","itemId":"i","delta":"lo"}}"#
+        #expect(CodexAppServerProtocol.textDelta(fromLine: line) == "lo")
+        #expect(CodexAppServerProtocol.textDelta(fromLine: #"{"method":"turn/completed","params":{}}"#) == nil)
+    }
+
+    @Test func codexTurnIDsAdvance() throws {
+        let line = try #require(CodexAppServerProtocol.turnStartJSON(threadID: "t", systemPrompt: "", prompt: "hi", imagePaths: [], requestID: 7))
+        let json = try #require(try JSONSerialization.jsonObject(with: line.dropLast()) as? [String: Any])
+        #expect(json["id"] as? Int == 7)
+        #expect(CodexAppServerProtocol.turnEvent(fromLine: #"{"id":7,"error":{"message":"no"}}"#, requestID: 7) == .failed("no"))
+        #expect(CodexAppServerProtocol.turnEvent(fromLine: #"{"id":3,"error":{"message":"no"}}"#, requestID: 7) == nil)
+    }
+
+    @Test func unchangedInstructionsAreNotPastedAgain() {
+        #expect(SubscriptionCLIVisionClient.instructionsToSend("be brief", previous: nil) == "be brief")
+        #expect(SubscriptionCLIVisionClient.instructionsToSend("be brief", previous: "be brief") != "be brief")
+        #expect(SubscriptionCLIVisionClient.instructionsToSend("be kind", previous: "be brief") == "be kind")
     }
 
     @Test func mismatchedLaunchIsNotReused() throws {
@@ -144,7 +244,7 @@ struct WarmTalkTests {
         let second = WarmTalkLaunch(executableURL: executable, arguments: ["--model", "b"], environmentKeysToRemove: [], environmentOverrides: [:])
         let pool = WarmTalkPool()
         pool.prewarm(first)
-        let child = try #require(pool.takeChild(for: second))
+        let child = try #require(pool.takeChild(for: second)?.child)
         defer { child.discard() }
         #expect(child.launch == second)
     }
@@ -260,7 +360,7 @@ struct WarmTalkTests {
         )
         let pool = WarmTalkPool()
         pool.prewarm(launch)
-        let child = try #require(pool.takeChild(for: launch))
+        let child = try #require(pool.takeChild(for: launch)?.child)
         defer { child.discard() }
         #expect(child.codexThreadID == "thread-42")
 
