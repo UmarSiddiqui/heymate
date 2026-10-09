@@ -68,9 +68,6 @@ final class NotchPillModel: ObservableObject {
     /// notch or show dashboard count.
     @Published var agentFilaments: [AgentFilament] = []
 
-    /// Mates with something new. Drawn as a gel badge on the resting tab.
-    @Published var unreadCount: Int = 0
-
     /// Height of the camera housing (`NSScreen.safeAreaInsets.top`).
     @Published var occludedTopInset: CGFloat = 0
 
@@ -144,7 +141,6 @@ struct NotchPillView: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 2)
         }
-        .overlay(alignment: .bottomTrailing) { unreadBadge }
         .overlay(alignment: .bottom) { bottomHairline }
         .animation(accessibilityReduceMotion ? nil : .easeOut(duration: 0.18), value: model.isHovered)
         .animation(accessibilityReduceMotion ? nil : .easeOut(duration: 0.16), value: model.isDropTargeted)
@@ -173,21 +169,6 @@ struct NotchPillView: View {
     /// One hairline under the housing, tinted while a voice interaction is
     /// live. Previously two stacked overlays; a single rectangle whose color
     /// interpolates is both cheaper and avoids the double-edge seam.
-    @ViewBuilder
-    private var unreadBadge: some View {
-        if model.unreadCount > 0 {
-            Text(model.unreadCount > 9 ? "9+" : "\(model.unreadCount)")
-                .font(DS.Fonts.keycap)
-                .foregroundColor(DS.Colors.textOnAccent)
-                .padding(.horizontal, 5)
-                .frame(minWidth: 16, minHeight: 16)
-                .background(Capsule().fill(model.themeColor))
-                .padding(.trailing, 8)
-                .padding(.bottom, 4)
-                .accessibilityLabel("\(model.unreadCount) unread")
-        }
-    }
-
     private var bottomHairline: some View {
         Rectangle()
             .fill(hairlineColor)
