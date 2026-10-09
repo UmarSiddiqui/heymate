@@ -10,7 +10,7 @@
 import Foundation
 
 enum MateAgentBrief {
-    static func promptBlock(mate: Mate) -> String {
+    static func promptBlock(mate: Mate, runsCanOperateApps: Bool = false) -> String {
         let workspace = mate.folderPath.map { "your files live in \($0)." }
             ?? "your files live in your own workspace folder."
         var lines = [
@@ -23,6 +23,12 @@ enum MateAgentBrief {
             "- when no file or command work is needed, answer directly and briefly. ask a question only when a wrong guess would waste real work, and ask one.",
             "- for anything current or that you are not sure of, search the web with the tools you have instead of guessing or telling the user to look it up.",
         ]
+        if runsCanOperateApps {
+            // Without this the chat model only sees its own tools and answers
+            // "no app control is available here" instead of starting the run
+            // that has it.
+            lines.append("- a run can also operate other mac apps in the background: open an app, click, type, use menus, without taking the user's cursor. when the user asks you to do something in another app, start a [WORK: ...] run for it. never say app control is unavailable.")
+        }
         if mate.conductsOthers {
             lines.append("- for a specialist's job, hand it over with [ASK: ...] instead of [WORK: ...].")
         }

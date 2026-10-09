@@ -1562,14 +1562,20 @@ final class CompanionManager: ObservableObject {
                 ),
                 meetingNotesAreOn: isRecordingMeeting
             )
-            return [brief, MateAgentBrief.promptBlock(mate: mate)].joined(separator: "\n")
+            return [brief, MateAgentBrief.promptBlock(mate: mate, runsCanOperateApps: runsCanOperateApps)].joined(separator: "\n")
         }
         let blocks = [
             MateSoul.promptBlock(name: mate.name, job: mate.job, soul: mate.soul),
             MateMessagingBrief.promptBlock(sender: mate, mates: mateDirectory.mates),
-            MateAgentBrief.promptBlock(mate: mate)
+            MateAgentBrief.promptBlock(mate: mate, runsCanOperateApps: runsCanOperateApps)
         ].compactMap { $0 }
         return blocks.joined(separator: "\n")
+    }
+
+    /// Whether an approved run will get Cua's background app control: the
+    /// same two conditions the launcher checks before attaching it.
+    private var runsCanOperateApps: Bool {
+        computerUseCoordinator.isEnabled && CuaDriverSetup.shared.isReady
     }
 
     func toggleSubscriptionVoiceChat() {

@@ -245,5 +245,17 @@ struct MateAgentBriefTests {
         #expect(block.contains("[WORK:"))
         #expect(block.contains("/tmp/site"))
         #expect(block.contains("never ask for approval, a path"))
+        #expect(!block.contains("operate other mac apps"))
+    }
+
+    @Test func briefSendsAppTasksToARunWhenRunsCanOperateApps() {
+        let mate = Mate(
+            id: UUID(), name: "Web Smith", job: "website", pinned: false, archived: false,
+            unreadCount: 0, createdAt: Date(), updatedAt: Date(), memoryNote: "",
+            folderPath: "/tmp/site"
+        )
+        let block = MateAgentBrief.promptBlock(mate: mate, runsCanOperateApps: true)
+        #expect(block.contains("operate other mac apps"))
+        #expect(block.contains("never say app control is unavailable"))
     }
 }

@@ -35,6 +35,9 @@ final class CuaDriverSetup: ObservableObject {
 
     private let release = CuaDriverRelease.pinned
 
+    /// A current driver is installed and can be handed to a run.
+    var isReady: Bool { installation.readyExecutable != nil }
+
     private init() {}
 
     // MARK: - Status
