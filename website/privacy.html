@@ -84,7 +84,7 @@
           <tr><td>faces/</td><td>Custom mate faces you imported.</td></tr>
         </tbody>
       </table>
-      <p>API keys and connector tokens go in the macOS Keychain, not in those files. Clipboard history stays in memory and is dropped when you quit.</p>
+      <p>API keys and connector tokens go in a separate file only your Mac account can read (<span class="code">secrets/connector-secrets.json</span>, permissions 0600), the way the Claude, Codex, and GitHub command-line tools keep theirs. Clipboard history stays in memory and is dropped when you quit.</p>
 
       <h2>What leaves your Mac</h2>
       <ul>
@@ -99,7 +99,7 @@
       <p>The site also sends Hotjar a short event name when someone clicks a download or GitHub link or copies an install command, so we can tell which pages lead to installs. Page counts come from Vercel Web Analytics, which sets no cookies and reports only totals such as pages viewed, referring sites, and countries.</p>
 
       <h2>How to delete everything</h2>
-      <p>In the app, clear memory from the Memory section. To remove the local files entirely, quit HeyMate and delete <span class="code">~/Library/Application Support/heymate/</span>. Keychain items named for HeyMate can be removed in Keychain Access.</p>
+      <p>In the app, clear memory from the Memory section. To remove the local files entirely, quit HeyMate and delete <span class="code">~/Library/Application Support/heymate/</span>. Older versions kept keys in the Keychain; any items named com.heymate.app.connector can be removed in Keychain Access.</p>
       <p><a href="index.html">Back to HeyMate</a></p>
     </div>
   </main>

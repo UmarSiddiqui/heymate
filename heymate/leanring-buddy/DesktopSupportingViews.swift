@@ -622,7 +622,7 @@ struct DesktopPrivacyView: View {
                     privacyFact("Transcripts", "On-device by default (Apple Speech). Cloud providers are opt-in.")
                     privacyFact("Memory", "A local JSON file. Text only, by construction.")
                     privacyFact("Clipboard history", "In memory only, cleared when HeyMate quits.")
-                    privacyFact("Connector keys", "macOS Keychain, this device only.")
+                    privacyFact("Connector keys", "A private file on this Mac, readable only by your account.")
                 }
             }
 

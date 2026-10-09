@@ -268,38 +268,64 @@ final class ConnectorStore: ObservableObject {
 
 // MARK: - Secrets
 
-/// Keychain-backed storage for connector credentials. Deliberately tiny:
-/// one generic-password item per connector, and no logging of any value.
+/// Storage for connector credentials: the Composio key, a custom API key,
+/// MCP connector keys, ElevenLabs. Deliberately tiny, and no logging of any
+/// value.
 ///
-/// Two rules exist purely so macOS never puts an unexplained "HeyMate
-/// wants to use your confidential information" panel in front of the user:
+/// ## Why a private file and not the Keychain
 ///
-///   1. `hasSecret` asks for attributes, never for the data. Reading the
-///      data is what trips the item's access control; an existence check
-///      does not need it, and existence is what most callers — including
-///      SwiftUI bodies, which re-run constantly — actually want.
-///   2. `secret` caches per process — including a *refusal*. One stored
-///      credential is read by several callers in a row (session mint,
-///      server environment, revalidation), so without remembering the
-///      dismissal, one cancelled panel becomes four more panels. A refusal
-///      is the user saying no; asking again immediately just relitigates it.
+/// A legacy Keychain item remembers which app may read it. An app with no
+/// Apple Team ID is remembered by the exact hash of that build, so every
+/// HeyMate update — self-signed, by choice, not Developer ID — lost access
+/// and macOS asked for the login password again, once per key, even after
+/// "Always Allow". The keys now live in one file only this user can read
+/// (directory 0700, file 0600), the same place the `codex`, `claude`, and
+/// `gh` CLIs keep their tokens. Any program running as this user could read
+/// it, as it can read theirs; FileVault encrypts it at rest.
+///
+/// Keys saved by an older build are still in the Keychain. The first read of
+/// each copies it into the file and deletes the Keychain item — one last
+/// panel, then never again.
+///
+/// `secret` caches per process, including a *refusal* of that one-time
+/// migration panel: several callers read one key in a row, and one cancelled
+/// panel must not become four more.
 enum ConnectorSecretStore {
 
-    private static let service = "com.heymate.app.connector"
+    private static let legacyKeychainService = "com.heymate.app.connector"
 
-    /// What a previous read of this key established. Distinguishing
-    /// "nothing is stored" from "the user declined to unlock it" is the
-    /// whole point: the first is a permanent fact, the second is a decision
-    /// that only an explicit user action should be allowed to revisit.
+    /// Where the keys live. Tests point it somewhere disposable.
+    nonisolated(unsafe) static var fileURL: URL = isRunningTests ? scratchFileURL : defaultFileURL
+
+    /// The unit tests run inside the real app, so without this a test that
+    /// saves or deletes a key would do it to the user's own keys.
+    private static var isRunningTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            || NSClassFromString("XCTestCase") != nil
+    }
+
+    private static var scratchFileURL: URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("heymate-test-secrets-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
+            .appendingPathComponent("connector-secrets.json", isDirectory: false)
+    }
+
+    static var defaultFileURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("heymate", isDirectory: true)
+            .appendingPathComponent("secrets", isDirectory: true)
+            .appendingPathComponent("connector-secrets.json", isDirectory: false)
+    }
+
+    /// Off in tests, so a test run never touches the user's real Keychain.
+    nonisolated(unsafe) static var migratesFromKeychain = !isRunningTests
+
     private enum CachedOutcome {
         case value(String)
         case absent
         case refused
     }
 
-    /// Process-lifetime cache. `@unchecked Sendable` with an explicit lock
-    /// because the store is `nonisolated` and read from both the main actor
-    /// and background connector work.
     private final class SecretCache: @unchecked Sendable {
         private let lock = NSLock()
         private var storage: [String: CachedOutcome] = [:]
@@ -316,8 +342,6 @@ enum ConnectorSecretStore {
             lock.unlock()
         }
 
-        /// Forget every refusal so a deliberate retry can ask again. Values
-        /// and known-absent entries are kept — neither needs re-proving.
         func clearRefusals() {
             lock.lock()
             storage = storage.filter {
@@ -332,36 +356,38 @@ enum ConnectorSecretStore {
             storage[key] = nil
             lock.unlock()
         }
+
+        func reset() {
+            lock.lock()
+            storage = [:]
+            lock.unlock()
+        }
     }
 
     private static let cache = SecretCache()
+    /// Serialises read-modify-write of the file.
+    private static let fileLock = NSLock()
+
+    /// Test hook: forget everything cached in this process.
+    static func resetCacheForTesting() {
+        cache.reset()
+    }
 
     @discardableResult
     static func setSecret(_ secret: String, forConnectorID connectorID: String) -> Bool {
-        guard let secretData = secret.data(using: .utf8) else { return false }
-        deleteSecret(forConnectorID: connectorID)
-
-        let attributes: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: connectorID,
-            kSecValueData as String: secretData,
-            // The app runs from the menu bar and needs this after unlock,
-            // but never while locked and never on another device.
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        ]
-        let didAdd = SecItemAdd(attributes as CFDictionary, nil) == errSecSuccess
-        // The value just came from the user, so seeding the cache here means
-        // the connect that follows never has to re-read the item.
-        cache.store(didAdd ? .value(secret) : .absent, for: connectorID)
-        return didAdd
+        let didWrite = updateFile { $0[connectorID] = secret }
+        if didWrite {
+            // A newer value supersedes anything an older build left behind.
+            deleteLegacyKeychainItem(forConnectorID: connectorID)
+        }
+        cache.store(didWrite ? .value(secret) : .absent, for: connectorID)
+        return didWrite
     }
 
-    /// Reads the stored value. This is the one call that can surface the
-    /// system's keychain-access panel, so only reach for it when the value
-    /// itself is about to be used — never to test for presence.
+    /// Reads the stored value. Only the one-time migration of a key an older
+    /// build saved can show a system panel.
     ///
-    /// Returns nil without asking again if the user already dismissed the
+    /// Returns nil without asking again if the user already dismissed that
     /// panel this session. `retryRefusedSecrets()` lifts that.
     static func secret(forConnectorID connectorID: String) -> String? {
         switch cache.cached(connectorID) {
@@ -370,46 +396,132 @@ enum ConnectorSecretStore {
         case nil: break
         }
 
+        if let value = readFile()[connectorID] {
+            cache.store(.value(value), for: connectorID)
+            return value
+        }
+
+        switch readLegacyKeychainItem(forConnectorID: connectorID) {
+        case .value(let value):
+            // Only drop the Keychain copy once the file holds the key.
+            if updateFile({ $0[connectorID] = value }) {
+                deleteLegacyKeychainItem(forConnectorID: connectorID)
+            }
+            cache.store(.value(value), for: connectorID)
+            return value
+        case .absent:
+            cache.store(.absent, for: connectorID)
+            return nil
+        case .refused:
+            cache.store(.refused, for: connectorID)
+            return nil
+        }
+    }
+
+    /// Clears remembered refusals so a deliberate user action — clicking
+    /// Connect, entering a key — gets a fresh attempt at the migration panel.
+    static func retryRefusedSecrets() {
+        cache.clearRefusals()
+    }
+
+    /// Whether a secret is stored, without ever showing a panel. Safe from a
+    /// view body or at launch.
+    static func hasSecret(forConnectorID connectorID: String) -> Bool {
+        switch cache.cached(connectorID) {
+        case .value: return true
+        case .absent: return false
+        case .refused, nil: break
+        }
+        if readFile()[connectorID] != nil { return true }
+        return legacyKeychainItemExists(forConnectorID: connectorID)
+    }
+
+    @discardableResult
+    static func deleteSecret(forConnectorID connectorID: String) -> Bool {
+        cache.invalidate(connectorID)
+        let removedFromFile = updateFile { $0[connectorID] = nil }
+        let removedFromKeychain = deleteLegacyKeychainItem(forConnectorID: connectorID)
+        return removedFromFile && removedFromKeychain
+    }
+
+    // MARK: - File
+
+    private static func readFile() -> [String: String] {
+        fileLock.lock()
+        defer { fileLock.unlock() }
+        return unlockedRead()
+    }
+
+    private static func unlockedRead() -> [String: String] {
+        guard let data = try? Data(contentsOf: fileURL),
+              let decoded = try? JSONDecoder().decode([String: String].self, from: data) else { return [:] }
+        return decoded
+    }
+
+    /// Applies `change` and writes the result atomically, created with
+    /// owner-only permissions so the keys are never briefly world-readable.
+    @discardableResult
+    private static func updateFile(_ change: (inout [String: String]) -> Void) -> Bool {
+        fileLock.lock()
+        defer { fileLock.unlock() }
+        var secrets = unlockedRead()
+        let before = secrets
+        change(&secrets)
+        if secrets == before, FileManager.default.fileExists(atPath: fileURL.path) || secrets.isEmpty {
+            return true
+        }
+        let fileManager = FileManager.default
+        let directory = fileURL.deletingLastPathComponent()
+        do {
+            try fileManager.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+            // An existing directory keeps whatever mode it had; tighten it.
+            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+            let data = try JSONEncoder().encode(secrets)
+            let temporaryURL = directory.appendingPathComponent(".connector-secrets-\(UUID().uuidString)")
+            guard fileManager.createFile(
+                atPath: temporaryURL.path,
+                contents: data,
+                attributes: [.posixPermissions: 0o600]
+            ) else { return false }
+            _ = try fileManager.replaceItemAt(fileURL, withItemAt: temporaryURL)
+            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    // MARK: - Keychain left by older builds
+
+    private static func readLegacyKeychainItem(forConnectorID connectorID: String) -> CachedOutcome {
+        guard migratesFromKeychain else { return .absent }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: legacyKeychainService,
             kSecAttrAccount as String: connectorID,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return .absent }
         guard status == errSecSuccess,
               let data = result as? Data,
-              let value = String(data: data, encoding: .utf8) else {
-            cache.store(status == errSecItemNotFound ? .absent : .refused, for: connectorID)
-            return nil
-        }
-        cache.store(.value(value), for: connectorID)
-        return value
+              let value = String(data: data, encoding: .utf8) else { return .refused }
+        return .value(value)
     }
 
-    /// Clears remembered refusals so a deliberate user action — clicking
-    /// Connect, entering a key — gets a fresh attempt at the panel.
-    static func retryRefusedSecrets() {
-        cache.clearRefusals()
-    }
-
-    /// Whether a secret is stored, without decrypting it. Attribute-only
-    /// queries do not trigger the keychain-access panel, which is what makes
-    /// this safe to call from a view body or at launch.
-    static func hasSecret(forConnectorID connectorID: String) -> Bool {
-        switch cache.cached(connectorID) {
-        case .value: return true
-        case .absent: return false
-        // A refusal says nothing about existence — the item is there, the
-        // user just did not unlock it. Fall through to the silent check.
-        case .refused, nil: break
-        }
-
+    /// Attributes only: an existence check never needs the item unlocked,
+    /// so it never shows a panel.
+    private static func legacyKeychainItemExists(forConnectorID connectorID: String) -> Bool {
+        guard migratesFromKeychain else { return false }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: legacyKeychainService,
             kSecAttrAccount as String: connectorID,
             kSecReturnData as String: false,
             kSecReturnAttributes as String: true,
@@ -420,11 +532,11 @@ enum ConnectorSecretStore {
     }
 
     @discardableResult
-    static func deleteSecret(forConnectorID connectorID: String) -> Bool {
-        cache.invalidate(connectorID)
+    private static func deleteLegacyKeychainItem(forConnectorID connectorID: String) -> Bool {
+        guard migratesFromKeychain else { return true }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: legacyKeychainService,
             kSecAttrAccount as String: connectorID
         ]
         let status = SecItemDelete(query as CFDictionary)

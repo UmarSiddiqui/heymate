@@ -163,7 +163,7 @@ HeyMate finds CLIs through your login-shell `PATH` (Homebrew, npm, Bun, and `~/.
 > Nothing runs in the background. HeyMate only takes a screenshot when you press the hotkey, and screenshots are never stored.
 
 - **On your disk.** Chats, memory, mates, and routines live in `~/Library/Application Support/heymate/`, as text only. Memory can be turned off or cleared in Settings.
-- **In your Keychain.** Custom-endpoint and connector credentials never touch a HeyMate server, because there isn't one.
+- **On your Mac.** Custom-endpoint and connector credentials sit in a file only your account can read and never touch a HeyMate server, because there isn't one.
 - **Excluded apps.** Password managers and System Settings are never captured by Talk, dictation, or screen-reading standing orders.
 - **Invisible on calls.** One switch hides the notch and cursor from screen shares.
 - **No analytics** unless a build explicitly supplies a PostHog key.
@@ -218,13 +218,13 @@ Select the `leanring-buddy` scheme and **My Mac**, check **Signing & Capabilitie
 
 - **Mac** (default): Apple Speech for listening, and the best installed Mac voice for speaking (download a free Premium voice in System Settings › Accessibility › Spoken Content for a better one). Works out of the box.
 - **On-device**: [Parakeet](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml) listens and [Kokoro 82M](https://huggingface.co/FluidInference/kokoro-82m-coreml) speaks, both through [FluidAudio](https://github.com/FluidInference/FluidAudio) on the Neural Engine. One optional download (about 600 MB) from onboarding or Settings. Private, free, and works offline. Needs Apple Silicon.
-- **ElevenLabs**: Scribe v2 Realtime for listening and ElevenLabs TTS for speaking, using your own ElevenLabs API key (stored in Keychain; the free plan works).
+- **ElevenLabs**: Scribe v2 Realtime for listening and ElevenLabs TTS for speaking, using your own ElevenLabs API key (stored privately on your Mac; the free plan works).
 
 If ElevenLabs or on-device can't run, HeyMate falls back to the Mac voice for that turn.
 
 **Cloudflare Worker (developers).** [`heymate/worker`](heymate/worker) can hold an ElevenLabs key server-side instead: it proxies TTS and mints Scribe single-use tokens. Every route requires a shared `HEYMATE_CLIENT_TOKEN` and fails closed without one. Put provider keys in the git-ignored `heymate/worker/.dev.vars` locally, or in Cloudflare secrets (`npx wrangler secret put HEYMATE_CLIENT_TOKEN`) when deployed. Give the app the same token through its environment or `~/.config/heymate/secrets.env` (`chmod 600` both files). Never put keys in `Info.plist`.
 
-**Custom API.** Accepts any Anthropic Messages-compatible endpoint, model, and optional key (stored in Keychain). It answers Talk requests but doesn't run coding-agent jobs.
+**Custom API.** Accepts any Anthropic Messages-compatible endpoint, model, and optional key (stored privately on your Mac). It answers Talk requests but doesn't run coding-agent jobs.
 
 **OpenCode Talk.** Run `opencode serve` first. HeyMate defaults to `http://127.0.0.1:4096`. Plain HTTP is allowed only on loopback addresses.
 
