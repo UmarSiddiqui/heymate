@@ -55,12 +55,14 @@
       var open = nav.classList.toggle("open");
       menu.setAttribute("aria-expanded", open ? "true" : "false");
       menu.textContent = open ? "Close" : "Menu";
+      document.documentElement.classList.toggle("menu-open", open);
     });
     nav.querySelectorAll(".nav-sheet a").forEach(function (a) {
       a.addEventListener("click", function () {
         nav.classList.remove("open");
         menu.setAttribute("aria-expanded", "false");
         menu.textContent = "Menu";
+        document.documentElement.classList.remove("menu-open");
       });
     });
   }

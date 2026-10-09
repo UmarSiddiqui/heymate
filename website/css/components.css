@@ -696,14 +696,23 @@
   .nav { grid-template-columns: 1fr auto; }
   .nav-links, .nav-cta { display: none; }
   .menu-btn { display: inline-flex; }
+  .nav.open { background: var(--bg); }
+  .menu-open { overflow: hidden; }
+  /* .nav's backdrop-filter makes it the containing block for fixed
+     children, so size the sheet against the viewport explicitly. */
   .nav.open .nav-sheet {
     display: flex;
     flex-direction: column;
     gap: 18px;
-    position: fixed;
-    inset: var(--nav-h) 0 0 0;
-    background: rgba(245, 245, 247, 0.96);
-    backdrop-filter: blur(24px);
+    position: absolute;
+    top: var(--nav-h);
+    left: 0;
+    right: 0;
+    height: calc(100vh - var(--nav-h));
+    height: calc(100dvh - var(--nav-h));
+    overflow-y: auto;
+    background: var(--bg);
+    border-top: 1px solid var(--hairline);
     padding: 32px 24px;
   }
   .nav-sheet a { font-size: 28px; letter-spacing: -0.03em; color: var(--fg); }
