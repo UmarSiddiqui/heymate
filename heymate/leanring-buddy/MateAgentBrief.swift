@@ -27,12 +27,36 @@ enum MateAgentBrief {
             // Without this the chat model only sees its own tools and answers
             // "no app control is available here" instead of starting the run
             // that has it.
-            lines.append("- a run can also operate other mac apps in the background: open an app, click, type, use menus, without taking the user's cursor. when the user asks you to do something in another app, start a [WORK: ...] run for it. never say app control is unavailable.")
+            lines.append("- a run can also operate other mac apps in the background: open an app, click, type, use menus, without taking the user's cursor. when the user asks you to do something in an app that none of your connected apps can reach, start a [WORK: ...] run for it. never say app control is unavailable.")
+            // Without this the brief above sent "how many emails today?" to a
+            // run that drove Mail.app, when connected Gmail answers in seconds.
+            lines.append("- for email, calendar, and other services listed as connected apps, use those tools directly in this chat. they answer in seconds; a run is slower and needs the user's approval.")
         }
         if mate.conductsOthers {
             lines.append("- for a specialist's job, hand it over with [ASK: ...] instead of [WORK: ...].")
         }
         return lines.joined(separator: "\n")
+    }
+}
+
+/// Keeps a mate from stacking runs. A follow-up like "well?" while a plan
+/// waits for approval used to start a second, duplicate run.
+enum MateWorkGate {
+    /// The run this mate is already waiting on the user for, if any.
+    static func runAwaitingUser(
+        ownedBy mateID: UUID,
+        owners: [UUID: UUID],
+        runs: [AgentRun]
+    ) -> AgentRun? {
+        runs.first { run in
+            owners[run.id] == mateID && (run.status == .awaitingPlanApproval || run.status == .planning)
+        }
+    }
+
+    static func reminder(for run: AgentRun) -> String {
+        run.status == .planning
+            ? "I'm still writing the plan for that. You'll see it here in a moment, and nothing changes until you approve it."
+            : "That plan is still waiting for you. Approve it below or in Jobs and I'll start, or dismiss it and ask again."
     }
 }
 

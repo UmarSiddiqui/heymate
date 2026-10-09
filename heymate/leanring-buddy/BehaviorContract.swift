@@ -39,10 +39,7 @@ nonisolated enum BehaviorContract {
     /// `Application Support/heymate/behavior-contract.md`, auto-created.
     nonisolated static func fileURL() -> URL {
         let fileManager = FileManager.default
-        let applicationSupportURL = fileManager.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first ?? fileManager.temporaryDirectory
+        let applicationSupportURL = HeyMateDataDirectory.applicationSupportURL
 
         let heymateDirectoryURL = applicationSupportURL.appendingPathComponent("heymate", isDirectory: true)
         try? fileManager.createDirectory(at: heymateDirectoryURL, withIntermediateDirectories: true)

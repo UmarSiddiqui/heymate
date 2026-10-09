@@ -7,10 +7,7 @@ import Foundation
 
 nonisolated enum DetachedAgentRuntimePaths {
     static var defaultRootURL: URL {
-        FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        )[0]
+        HeyMateDataDirectory.applicationSupportURL
         .appendingPathComponent("heymate", isDirectory: true)
         .appendingPathComponent("detached-agent-runtime", isDirectory: true)
     }

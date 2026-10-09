@@ -54,10 +54,7 @@ final class NotchShelfStore: ObservableObject {
     }
 
     private static func defaultBookmarkFileURL() -> URL {
-        let applicationSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        )[0].appendingPathComponent("heymate", isDirectory: true)
+        let applicationSupport = HeyMateDataDirectory.applicationSupportURL.appendingPathComponent("heymate", isDirectory: true)
         try? FileManager.default.createDirectory(
             at: applicationSupport,
             withIntermediateDirectories: true

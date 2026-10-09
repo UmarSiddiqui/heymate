@@ -54,7 +54,7 @@ enum LocalDataErase {
     // MARK: - Files
 
     private static func heymateSupportRoot() -> URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        HeyMateDataDirectory.applicationSupportURL
             .appendingPathComponent("heymate", isDirectory: true)
             .standardizedFileURL
             .resolvingSymlinksInPath()

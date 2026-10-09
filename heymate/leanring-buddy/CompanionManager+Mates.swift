@@ -110,6 +110,10 @@ extension CompanionManager: MateRoutineRunning {
             }
         }
         let ownerID = mate?.id ?? mateDirectory.defaultMateID
+        if let pending = MateWorkGate.runAwaitingUser(ownedBy: ownerID, owners: mateRunOwners, runs: agentRuns) {
+            postMateMessage(mateID: ownerID, text: MateWorkGate.reminder(for: pending))
+            return
+        }
         for task in tasks {
             let runID = workspaceURL.map { startAttachedAgent(prompt: task, workspaceURL: $0) }
                 ?? startSandboxAgent(prompt: task)

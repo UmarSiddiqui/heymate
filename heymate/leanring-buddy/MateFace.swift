@@ -122,10 +122,7 @@ enum MateFaceStore {
     }
 
     static func facesDirectory() -> URL {
-        let applicationSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        )[0]
+        let applicationSupport = HeyMateDataDirectory.applicationSupportURL
         let directory = applicationSupport
             .appendingPathComponent("heymate", isDirectory: true)
             .appendingPathComponent("faces", isDirectory: true)

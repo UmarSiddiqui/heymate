@@ -81,10 +81,7 @@ nonisolated enum HeyMateMCPServer {
     }
 
     private static func supportDirectoryURL() -> URL {
-        let applicationSupportDirectory = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        )[0]
+        let applicationSupportDirectory = HeyMateDataDirectory.applicationSupportURL
         return applicationSupportDirectory
             .appendingPathComponent("heymate", isDirectory: true)
             .appendingPathComponent("mcp", isDirectory: true)
