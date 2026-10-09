@@ -125,6 +125,10 @@ final class NotchCompanionController {
     /// re-enters the card within the grace window.
     private var pendingGraceCollapseTask: Task<Void, Never>?
 
+    /// The short wait while the pill's peek slots blur out ahead of the card
+    /// growing. Canceled by any new transition; see `presentSurface`.
+    private var pendingPresentTask: Task<Void, Never>?
+
     /// Vsync-driven frame animator — compact activity resizing and the card's
     /// real expand/collapse frame growth. Replaced a `Task.sleep(16.6 ms)` loop
     /// that assumed a 60 Hz display and landed its `setFrame` calls at
@@ -1014,6 +1018,35 @@ final class NotchCompanionController {
         takesKey: Bool? = nil
     ) {
         cancelScheduledTransitions()
+
+        // A pill that is showing peek slots (voice state, drop target, an
+        // ambient activity) lets go of them first: blur them out, then grow
+        // the frame from a clean black pill. Without this the glyph and
+        // label ride the frame as it widens.
+        let pillIsShowingSlots = pillPanel?.isVisible == true
+            && expandedPanel?.isVisible != true
+            && pillModel.wantsWidenedFrame
+        if pillIsShowingSlots && !prefersReducedMotion {
+            frameAnimator.cancel()
+            pillModel.isYieldingToCard = true
+            isTransitioning = true
+            pendingPresentTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(NotchLayoutMath.pillYieldDuration * 1_000_000_000))
+                guard !Task.isCancelled, let self else { return }
+                self.pendingPresentTask = nil
+                self.performPresentSurface(surface, pinned: pinned, takesKey: takesKey)
+            }
+            return
+        }
+        performPresentSurface(surface, pinned: pinned, takesKey: takesKey)
+    }
+
+    private func performPresentSurface(
+        _ surface: NotchPresentedSurface,
+        pinned: Bool,
+        takesKey: Bool?
+    ) {
+        cancelScheduledTransitions()
         // Stop any in-flight pill hover-widen so it doesn't keep ticking
         // frames under/after the card morph — that double animation is what
         // reads as "widens left-right, then finally opens" instead of one
@@ -1083,6 +1116,7 @@ final class NotchCompanionController {
         // black pixels for the handoff frame.
         expandedPanel.contentView?.displayIfNeeded()
         pillPanel?.orderOut(nil)
+        pillModel.isYieldingToCard = false
 
         if prefersReducedMotion {
             expandedPanel.setFrame(destinationFrame, display: true, animate: false)
@@ -1093,11 +1127,15 @@ final class NotchCompanionController {
         }
 
         surfaceTransitionModel.present()
+        // Growing out of the pill: let the card's height settle past its
+        // final size and back. Surface-to-surface changes (already open)
+        // keep the plain swoosh.
+        let growsFromPill = destinationFrame.height > startFrame.height + 1
         animateFrame(
             of: expandedPanel,
             to: destinationFrame,
             duration: NotchLayoutMath.expandDuration,
-            curve: .swoosh,
+            curve: growsFromPill ? .liquidOpen : .swoosh,
             onProgress: { [weak self] easedProgress, linearProgress in
                 self?.surfaceTransitionModel.updateMorph(
                     easedProgress: easedProgress,
@@ -1312,6 +1350,17 @@ final class NotchCompanionController {
     private func cancelScheduledTransitions() {
         cancelPendingHoverExpand()
         cancelPendingGraceCollapse()
+        cancelPendingPresent()
+    }
+
+    /// Abandons a card open that is still waiting on the pill's slots to
+    /// blur out, and puts the pill back the way it was.
+    private func cancelPendingPresent() {
+        guard let pendingPresentTask else { return }
+        pendingPresentTask.cancel()
+        self.pendingPresentTask = nil
+        pillModel.isYieldingToCard = false
+        isTransitioning = false
     }
 }
 
@@ -1336,6 +1385,9 @@ private final class NotchFrameAnimator: NSObject {
         case easeOutExpo
         case easeInCubic
         case swoosh
+        /// Swoosh for width and position; height additionally overshoots
+        /// by ~3% and settles. The top edge stays flush with the bezel.
+        case liquidOpen
     }
 
     private weak var panel: NSPanel?
@@ -1408,15 +1460,22 @@ private final class NotchFrameAnimator: NSObject {
         let linearProgress = CGFloat(min(elapsed / animationDuration, 1))
         let easedProgress = eased(linearProgress)
 
-        panel.setFrame(
-            NotchLayoutMath.interpolatedRect(
+        let frame: CGRect
+        if curve == .liquidOpen {
+            frame = NotchLayoutMath.interpolatedRect(
+                from: sourceFrame,
+                to: targetFrame,
+                widthProgress: easedProgress,
+                heightProgress: NotchLayoutMath.liquidOpenHeightProgress(linearProgress: linearProgress)
+            )
+        } else {
+            frame = NotchLayoutMath.interpolatedRect(
                 from: sourceFrame,
                 to: targetFrame,
                 easedProgress: easedProgress
-            ),
-            display: true,
-            animate: false
-        )
+            )
+        }
+        panel.setFrame(frame, display: true, animate: false)
         panel.invalidateShadow()
         onProgress?(easedProgress, linearProgress)
 
@@ -1441,7 +1500,7 @@ private final class NotchFrameAnimator: NSObject {
         case .easeOutCubic: return NotchLayoutMath.easeOutCubic(linearProgress)
         case .easeOutExpo: return NotchLayoutMath.easeOutExpo(linearProgress)
         case .easeInCubic: return NotchLayoutMath.easeInCubic(linearProgress)
-        case .swoosh: return NotchLayoutMath.swooshEase(linearProgress)
+        case .swoosh, .liquidOpen: return NotchLayoutMath.swooshEase(linearProgress)
         }
     }
 }

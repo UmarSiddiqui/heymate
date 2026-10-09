@@ -140,8 +140,8 @@ struct NotchExpandedView: View {
 
             cardBody
                 .frame(width: contentWidth, height: contentHeight, alignment: .top)
+                .modifier(NotchContentRevealModifier(transitionModel: transitionModel))
                 .position(x: viewport.size.width / 2, y: contentHeight / 2)
-                .opacity(transitionModel.morphContentOpacity)
         }
         .modifier(NotchLiquidGlassCardModifier(
             transitionModel: transitionModel,

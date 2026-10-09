@@ -42,7 +42,10 @@ enum NotchLayoutMath {
 
     /// Boring Notch-style relaxed spring cadence. Real panel geometry still
     /// moves on the display-link clock; content and corners settle with it.
-    nonisolated static let expandDuration: TimeInterval = 0.38
+    /// Long enough for the content reveal (blur + scale) to read as a
+    /// morph rather than a pop — the frame itself lands early on the
+    /// fast-attack swoosh curve.
+    nonisolated static let expandDuration: TimeInterval = 0.42
 
     /// Closing is slightly faster than opening, matching pointer intent.
     nonisolated static let collapseDuration: TimeInterval = 0.30
@@ -50,6 +53,14 @@ enum NotchLayoutMath {
     /// Preview settles border radius over 180 ms while width/height continue
     /// their final 30 ms. Expressed separately so silhouette lands cleanly.
     nonisolated static let cornerSettleDuration: TimeInterval = 0.18
+
+    /// How long the collapsed tab's peek slots blur and fade out before the
+    /// card's frame starts growing. Short enough that a click still feels
+    /// immediate, long enough to read as the pill "letting go".
+    nonisolated static let pillYieldDuration: TimeInterval = 0.09
+
+    /// Blur radius the peek slots reach as they yield.
+    nonisolated static let pillYieldBlur: CGFloat = 6
 
     /// Idle ↔ listening width change on the collapsed tab.
     nonisolated static let pillResizeDuration: TimeInterval = 0.22
@@ -477,6 +488,41 @@ enum NotchLayoutMath {
         )
     }
 
+    /// Peak extra height, as a fraction of the full pill → card distance,
+    /// that the card reaches past its final height on open before settling
+    /// back. 0.05 of the swoosh's remaining slope lands at a ~3% overshoot.
+    nonisolated static let expandHeightOvershoot: CGFloat = 0.05
+
+    /// Height progress for the open: the same swoosh as the width, plus a
+    /// half-sine bump over the back 70% of the clock. It starts and ends at
+    /// zero so the frame still lands exactly on the destination.
+    nonisolated static func liquidOpenHeightProgress(linearProgress: CGFloat) -> CGFloat {
+        let clampedProgress = min(max(linearProgress, 0), 1)
+        let bumpTimeline = min(max((clampedProgress - 0.30) / 0.70, 0), 1)
+        return swooshEase(clampedProgress)
+            + expandHeightOvershoot * sin(.pi * bumpTimeline)
+    }
+
+    /// Interpolates two window frames with independent width and height
+    /// progress. The TOP edge follows `widthProgress` and never overshoots:
+    /// the card hangs from the bezel, so extra height can only grow
+    /// downward. `heightProgress` may exceed 1 (the open's overshoot).
+    nonisolated static func interpolatedRect(
+        from source: CGRect,
+        to target: CGRect,
+        widthProgress: CGFloat,
+        heightProgress: CGFloat
+    ) -> CGRect {
+        let top = lerp(source.maxY, target.maxY, widthProgress)
+        let height = max(lerp(source.height, target.height, heightProgress), 0)
+        return CGRect(
+            x: lerp(source.minX, target.minX, widthProgress),
+            y: top - height,
+            width: lerp(source.width, target.width, widthProgress),
+            height: height
+        )
+    }
+
     /// Interpolates two window frames with ease-out cubic. `progress` is
     /// linear 0…1 elapsed time; easing is applied inside.
     nonisolated static func interpolatedRect(
@@ -506,15 +552,33 @@ enum NotchLayoutMath {
     /// rather than eased distance: legibility is a function of how long the
     /// window has been moving, not how far it has travelled.
     ///
-    /// Expand: hold content until the silhouette is established, then reveal
-    /// from 42–85% of the clock. Collapse: remove content in the first 45% so
-    /// text never visibly squashes against the shrinking frame.
+    /// Expand: start the reveal once the silhouette is established, 30–80%
+    /// of the clock, so the blur/scale below overlaps the frame growth
+    /// instead of waiting for it. Collapse: remove content in the first 45%
+    /// so text never visibly squashes against the shrinking frame.
     nonisolated static func morphContentOpacity(linearProgress: CGFloat, isExpanding: Bool) -> CGFloat {
         let clampedProgress = min(max(linearProgress, 0), 1)
         if isExpanding {
-            return min(max((clampedProgress - 0.42) / 0.43, 0), 1)
+            return min(max((clampedProgress - 0.30) / 0.50, 0), 1)
         }
         return 1 - min(clampedProgress / 0.45, 1)
+    }
+
+    /// Blur radius of the content at the start (and end of collapse) of the
+    /// reveal. Content sharpens as its opacity climbs.
+    nonisolated static let contentRevealMaxBlur: CGFloat = 10
+
+    /// Scale the content grows from (anchored top-centre, under the camera).
+    nonisolated static let contentRevealMinScale: CGFloat = 0.7
+
+    /// Blur and scale ride the content's own opacity, so all three settle
+    /// together and every curve stays a function of the same clock.
+    nonisolated static func morphContentBlur(contentOpacity: CGFloat) -> CGFloat {
+        contentRevealMaxBlur * (1 - min(max(contentOpacity, 0), 1))
+    }
+
+    nonisolated static func morphContentScale(contentOpacity: CGFloat) -> CGFloat {
+        lerp(contentRevealMinScale, 1, min(max(contentOpacity, 0), 1))
     }
 
     /// Bezel-black cover fade, locked to the same morph clock. The pill is

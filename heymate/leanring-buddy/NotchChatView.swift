@@ -29,6 +29,10 @@ final class NotchSurfaceTransitionModel: ObservableObject {
     @Published private(set) var morphCardness: CGFloat = 0
     @Published private(set) var morphContentOpacity: CGFloat = 0
     @Published private(set) var morphBezelOpacity: CGFloat = 1
+    /// Content blur radius and scale for the same instant — the content
+    /// sharpens and grows out from the camera as it fades in.
+    @Published private(set) var morphContentBlur: CGFloat = NotchLayoutMath.contentRevealMaxBlur
+    @Published private(set) var morphContentScale: CGFloat = NotchLayoutMath.contentRevealMinScale
 
     /// Expand and collapse share the morph math but not the feel: expand
     /// eases out and fades content in late, collapse eases in and fades
@@ -46,6 +50,8 @@ final class NotchSurfaceTransitionModel: ObservableObject {
             morphCardness = 0
             morphContentOpacity = 0
             morphBezelOpacity = 1
+            morphContentBlur = NotchLayoutMath.contentRevealMaxBlur
+            morphContentScale = NotchLayoutMath.contentRevealMinScale
         }
     }
 
@@ -84,6 +90,8 @@ final class NotchSurfaceTransitionModel: ObservableObject {
             linearProgress: linearProgress,
             isExpanding: isExpandingMorph
         )
+        morphContentBlur = NotchLayoutMath.morphContentBlur(contentOpacity: morphContentOpacity)
+        morphContentScale = NotchLayoutMath.morphContentScale(contentOpacity: morphContentOpacity)
     }
 
     func showWithoutAnimation() {
@@ -94,7 +102,24 @@ final class NotchSurfaceTransitionModel: ObservableObject {
             morphCardness = 1
             morphContentOpacity = 1
             morphBezelOpacity = 0
+            morphContentBlur = 0
+            morphContentScale = 1
         }
+    }
+}
+
+/// Content reveal for every expanded surface: scale up from the camera,
+/// sharpen from a blur, and fade in, all from the transition model so the
+/// text never outruns the growing window. Apply BEFORE `.position` so the
+/// top-anchored scale pivots on the content's own top edge.
+struct NotchContentRevealModifier: ViewModifier {
+    @ObservedObject var transitionModel: NotchSurfaceTransitionModel
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(transitionModel.morphContentScale, anchor: .top)
+            .blur(radius: transitionModel.morphContentBlur)
+            .opacity(transitionModel.morphContentOpacity)
     }
 }
 
@@ -351,8 +376,8 @@ struct NotchConnectorSuggestionCard: View {
                 .background {
                     BrandNebulaSurface.notchCard
                 }
+                .modifier(NotchContentRevealModifier(transitionModel: transitionModel))
                 .position(x: viewport.size.width / 2, y: contentHeight / 2)
-                .opacity(transitionModel.morphContentOpacity)
         }
         .modifier(NotchLiquidGlassCardModifier(
             transitionModel: transitionModel,
@@ -518,8 +543,8 @@ struct NotchCompactChatCard: View {
 
             compactBody
                 .frame(width: contentWidth, height: contentHeight, alignment: .top)
+                .modifier(NotchContentRevealModifier(transitionModel: transitionModel))
                 .position(x: viewport.size.width / 2, y: contentHeight / 2)
-                .opacity(transitionModel.morphContentOpacity)
         }
         .modifier(NotchLiquidGlassCardModifier(
             transitionModel: transitionModel,
