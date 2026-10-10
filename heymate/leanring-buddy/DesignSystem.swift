@@ -213,6 +213,32 @@ enum DS {
         /// `borderSubtle`, which outlines things you can click.
         static var hairline: Color { borderSubtle.opacity(0.6) }
 
+        // ── Controls ─────────────────────────────────────────────────
+        // Matte, not tinted: an "on" switch is ink on paper — black in
+        // light mode, white in dark — so settings read calm and the
+        // buddy's accent stays reserved for the one action that matters.
+
+        /// Switch track when on.
+        static var switchTrackOn: Color { textPrimary }
+
+        /// Switch track when off.
+        static var switchTrackOff: Color { surface4 }
+
+        /// Switch knob sitting on the "on" track.
+        static var switchKnobOn: Color { background }
+
+        /// Switch knob sitting on the "off" track.
+        static let switchKnobOff = Color(light: "#FFFFFF", dark: "#B3B3BA")
+
+        /// The selected item in a rail or a segmented control.
+        static var selectionFill: Color { surface3 }
+
+        /// Keyboard focus ring on custom controls.
+        static var focusRing: Color { textPrimary.opacity(0.55) }
+
+        /// The brief wash on a settings row that search just jumped to.
+        static var revealHighlight: Color { textPrimary.opacity(0.06) }
+
         // ── Status ───────────────────────────────────────────────────
         // One mapping per kind of state. Every dot, pill, and label that
         // reports status reads from here, so "listening" is the same color
@@ -306,6 +332,14 @@ enum DS {
 
         /// Large tabular numbers — the timer face, battery percentage.
         static let numericLarge = Font.system(size: 20, weight: .semibold, design: .rounded).monospacedDigit()
+
+        /// Identifiers a person may need to copy exactly — bundle ids,
+        /// addresses, file paths.
+        static let mono = Font.system(size: 12, design: .monospaced)
+
+        /// Long-form editing — the behavior contract and other text files
+        /// edited in place.
+        static let editor = Font.custom("Avenir Next", size: 14)
     }
 
     // MARK: - Glyphs
@@ -336,6 +370,52 @@ enum DS {
         static let regular: CGFloat = 28
         /// Window-scale buttons and hero composers.
         static let large: CGFloat = 32
+    }
+
+    // MARK: - Settings Metrics
+    //
+    // One rhythm for every settings page: a 16pt row inset, a 44pt row
+    // floor (the HIG's comfortable click target plus breathing room), and
+    // trailing controls that share widths so their edges line up down a
+    // page.
+
+    enum SettingsLayout {
+        /// The section rail beside the settings content.
+        static let railWidth: CGFloat = 216
+        /// Reading measure of the settings column.
+        static let contentMaxWidth: CGFloat = 680
+        /// Page gutters.
+        static let pageHorizontalPadding: CGFloat = 32
+        static let pageVerticalPadding: CGFloat = 26
+        /// Gap between sections on a page.
+        static let sectionSpacing: CGFloat = 26
+        /// Gap between a section's header, card, and footer.
+        static let sectionInnerSpacing: CGFloat = 8
+        /// Row insets inside a section card.
+        static let rowHorizontalPadding: CGFloat = 16
+        static let rowVerticalPadding: CGFloat = 11
+        /// The shortest a row may be.
+        static let rowMinHeight: CGFloat = 44
+        /// Leading icon column, so titles align whether or not a row has one.
+        static let rowIconWidth: CGFloat = 20
+        /// Gap between a row's text and its trailing control.
+        static let rowAccessorySpacing: CGFloat = 16
+        /// Trailing menu pickers.
+        static let pickerWidth: CGFloat = 220
+        /// Trailing segmented controls.
+        static let segmentedWidth: CGFloat = 200
+        /// Text and secure fields in a row.
+        static let fieldMinWidth: CGFloat = 240
+        /// The switch control.
+        static let switchWidth: CGFloat = 32
+        static let switchHeight: CGFloat = 18
+        static let switchKnobInset: CGFloat = 2
+        /// Accent swatches.
+        static let swatchSide: CGFloat = 22
+        /// The radio circle on a pick-one row.
+        static let radioSide: CGFloat = 16
+        /// How long a row stays highlighted after search jumps to it.
+        static let revealHighlightSeconds: Double = 1.6
     }
 
     // MARK: - Spacing (for reference, not enforced)
