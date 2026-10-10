@@ -118,72 +118,133 @@ struct DesktopChatControlLabel: View {
     }
 }
 
+/// The pill used for composer pickers (model, apps): one height, one
+/// shape, a hover fill, and the whole pill clickable.
+struct ComposerChipLabel: View {
+    let symbolName: String
+    let title: String
+    var isHighlighted = false
+
+    @State private var isHovered = false
+
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbolName)
+                .font(DS.Glyph.small)
+            if !title.isEmpty {
+                Text(title)
+                    .font(DS.Fonts.caption)
+                    .lineLimit(1)
+            }
+            Image(systemName: "chevron.down")
+                .font(DS.Glyph.micro)
+                .foregroundColor(DS.Colors.textTertiary)
+        }
+        .foregroundColor(isHovered || isHighlighted ? DS.Colors.textPrimary : DS.Colors.textSecondary)
+        .padding(.horizontal, 10)
+        .frame(height: DS.ControlSize.regular)
+        .background(shape.fill(isHovered ? DS.Colors.surface3 : DS.Colors.surface2))
+        .contentShape(shape)
+        .onHover { isHovered = $0 }
+        .animation(.easeOut(duration: DS.Animation.fast), value: isHovered)
+    }
+}
+
 struct DesktopConnectorScopeMenu: View {
     @ObservedObject var companionManager: CompanionManager
     @ObservedObject private var connectorStore: ConnectorStore
     @ObservedObject private var composioConnections: ComposioConnectionsRuntime
     private let compact: Bool
+    /// Narrow composers (the notch) drop the word and keep icon and count.
+    private let isNarrow: Bool
 
-    init(companionManager: CompanionManager, compact: Bool = false) {
+    init(companionManager: CompanionManager, compact: Bool = false, isNarrow: Bool = false) {
         self.companionManager = companionManager
         self.connectorStore = companionManager.connectorStore
         self.composioConnections = companionManager.composioConnections
         self.compact = compact
+        self.isNarrow = isNarrow
     }
 
+    @State private var isShowingPicker = false
+
     var body: some View {
+        if compact {
+            compactPicker
+        } else {
+            menu
+        }
+    }
+
+    /// A popover rather than a menu: a menu closes after every click, so
+    /// turning three apps off took three trips.
+    private var compactPicker: some View {
+        Button { isShowingPicker.toggle() } label: {
+            ComposerChipLabel(
+                symbolName: "app.connected.to.app.below.fill",
+                title: isNarrow ? (enabledCount > 0 ? "\(enabledCount)" : "") : compactTitle,
+                isHighlighted: isShowingPicker || enabledCount > 0
+            )
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .help("Choose which connected apps this chat can use")
+        .accessibilityLabel("Apps for this chat: \(compactTitle)")
+        .popover(isPresented: $isShowingPicker, arrowEdge: .top) {
+            ConnectorScopePickerPanel(
+                items: connectedItems,
+                isEnabled: { companionManager.isChatConnectorEnabled($0) },
+                setEnabled: { companionManager.setChatConnectorEnabled($1, selectionID: $0) },
+                manage: {
+                    isShowingPicker = false
+                    companionManager.openDesktopWindow(section: .connectors)
+                }
+            )
+        }
+    }
+
+    private var menu: some View {
         Menu {
             if connectedItems.isEmpty {
                 Text("No connected apps")
             } else {
                 Section("Use in this chat") {
+                    // Toggles, so the menu shows a native checkmark for each
+                    // app that's on; Label images don't render in macOS menus.
                     ForEach(connectedItems, id: \.id) { item in
-                        Button {
-                            companionManager.setChatConnectorEnabled(
-                                !companionManager.isChatConnectorEnabled(item.id),
-                                selectionID: item.id
-                            )
-                        } label: {
-                            Label(
-                                item.name,
-                                systemImage: companionManager.isChatConnectorEnabled(item.id)
-                                    ? "checkmark.circle.fill"
-                                    : "circle"
-                            )
-                        }
+                        Toggle(item.name, isOn: Binding(
+                            get: { companionManager.isChatConnectorEnabled(item.id) },
+                            set: { companionManager.setChatConnectorEnabled($0, selectionID: item.id) }
+                        ))
                     }
                 }
             }
 
             Divider()
-            Button("Manage tools…") {
+            Button(connectedItems.isEmpty ? "Connect apps…" : "Manage apps…") {
                 companionManager.openDesktopWindow(section: .connectors)
             }
         } label: {
-            if compact {
-                HStack(spacing: 5) {
-                    Image(systemName: "app.connected.to.app.below.fill")
-                        .font(DS.Glyph.small)
-                    Text(enabledCount == 1 ? "1 connector" : "\(enabledCount) connectors")
-                        .font(DS.Fonts.micro)
-                    Image(systemName: "chevron.down")
-                        .font(DS.Glyph.micro)
-                }
-                .foregroundColor(DS.Colors.textSecondary)
-                .padding(.horizontal, 7)
-                .frame(height: 24)
-                .background(RoundedRectangle(cornerRadius: 5).fill(DS.Colors.surface2.opacity(0.62)))
-            } else {
-                DesktopChatControlLabel(
-                    symbolName: "app.connected.to.app.below.fill",
-                    title: enabledCount == 1 ? "1 app" : "\(enabledCount) apps",
-                    detail: "Connectors"
-                )
-            }
+            DesktopChatControlLabel(
+                symbolName: "app.connected.to.app.below.fill",
+                title: enabledCount == 1 ? "1 app" : "\(enabledCount) apps",
+                detail: "Connectors"
+            )
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .help("Choose connected apps available to this chat")
+        .help("Choose which connected apps this chat can use")
+    }
+
+    /// "Apps · 3" when some are on, "Apps" when none, so the chip always
+    /// says what it is rather than only a count.
+    private var compactTitle: String {
+        if connectedItems.isEmpty { return "Connect apps" }
+        return enabledCount == 0 ? "Apps" : "Apps · \(enabledCount)"
     }
 
     private var connectedItems: [(id: String, name: String)] {
@@ -196,7 +257,7 @@ struct DesktopConnectorScopeMenu: View {
                 )
             }
         let composioItems = composioConnections.connectedSlugs.map { slug in
-            let name = composioConnections.records[slug]?.displayName ?? slug
+            let name = Self.readableName(composioConnections.records[slug]?.displayName ?? slug, slug: slug)
             return (
                 id: CompanionManager.chatConnectorSelectionID(forComposioSlug: slug),
                 name: name
@@ -207,8 +268,91 @@ struct DesktopConnectorScopeMenu: View {
         }
     }
 
+    /// Some connections were saved with their slug as the name
+    /// ("googlecalendar"). Show those the way people write them.
+    static func readableName(_ name: String, slug: String) -> String {
+        guard name.caseInsensitiveCompare(slug) == .orderedSame else { return name }
+        let known: [String: String] = [
+            "github": "GitHub", "gitlab": "GitLab", "gmail": "Gmail",
+            "googlecalendar": "Google Calendar", "googledrive": "Google Drive",
+            "googledocs": "Google Docs", "googlesheets": "Google Sheets",
+            "youtube": "YouTube", "linkedin": "LinkedIn", "hubspot": "HubSpot",
+            "clickup": "ClickUp", "whatsapp": "WhatsApp"
+        ]
+        if let readable = known[slug.lowercased()] { return readable }
+        return name.prefix(1).uppercased() + name.dropFirst()
+    }
+
     private var enabledCount: Int {
         connectedItems.filter { companionManager.isChatConnectorEnabled($0.id) }.count
+    }
+}
+
+/// The list behind the composer's Apps chip: a switch per connected app,
+/// and a way to connect more. Stays open while you flip several.
+private struct ConnectorScopePickerPanel: View {
+    let items: [(id: String, name: String)]
+    let isEnabled: (String) -> Bool
+    let setEnabled: (String, Bool) -> Void
+    let manage: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Apps in this chat")
+                    .font(DS.Fonts.headline)
+                    .foregroundColor(DS.Colors.textPrimary)
+                Spacer(minLength: 12)
+                if items.count > 1 {
+                    let allOn = items.allSatisfy { isEnabled($0.id) }
+                    Button(allOn ? "Turn all off" : "Turn all on") {
+                        for item in items { setEnabled(item.id, !allOn) }
+                    }
+                    .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
+                    .focusEffectDisabled()
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
+
+            if items.isEmpty {
+                Text("No apps connected yet. Connect Gmail, Slack, GitHub and more, then pick which ones each chat can use.")
+                    .font(DS.Fonts.body)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 10)
+            } else {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(items, id: \.id) { item in
+                            Toggle(isOn: Binding(
+                                get: { isEnabled(item.id) },
+                                set: { setEnabled(item.id, $0) }
+                            )) {
+                                Text(item.name)
+                                    .font(DS.Fonts.bodyLarge)
+                                    .foregroundColor(DS.Colors.textPrimary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .toggleStyle(.switch)
+                            .controlSize(.small)
+                            .padding(.horizontal, 14)
+                            .frame(height: 36)
+                        }
+                    }
+                }
+                .frame(maxHeight: 320)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Divider()
+            Button(items.isEmpty ? "Connect apps…" : "Manage apps…", action: manage)
+                .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
+                .padding(10)
+        }
+        .frame(width: 280)
     }
 }
 
@@ -218,19 +362,11 @@ struct DesktopComposerModelButton: View {
 
     var body: some View {
         Button { isShowingModelPicker.toggle() } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "cpu")
-                    .font(DS.Glyph.small)
-                Text(companionManager.notchDockModelLabel)
-                    .font(DS.Fonts.micro)
-                    .lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .font(DS.Glyph.micro)
-            }
-            .foregroundColor(DS.Colors.textSecondary)
-            .padding(.horizontal, 7)
-            .frame(height: 24)
-            .background(RoundedRectangle(cornerRadius: 5).fill(DS.Colors.surface2.opacity(0.62)))
+            ComposerChipLabel(
+                symbolName: "cpu",
+                title: companionManager.notchDockModelLabel,
+                isHighlighted: isShowingModelPicker
+            )
         }
         .buttonStyle(.plain)
         .pointerCursor()

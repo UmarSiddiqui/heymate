@@ -37,4 +37,13 @@ struct ChatMarkdownParserTests {
         let plain = String(rendered.characters)
         #expect(plain == "Save first\n- then push")
     }
+
+    @Test func headingLinesBecomeHeadingBlocks() {
+        let blocks = ChatMarkdownParser.proseBlocks(from: "Step one.\n\n## Findings\n- **Xada:** none\n#hashtag stays")
+        #expect(blocks == [
+            .body("Step one."),
+            .heading("Findings"),
+            .body("- **Xada:** none\n#hashtag stays")
+        ])
+    }
 }

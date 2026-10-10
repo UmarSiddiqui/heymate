@@ -1118,6 +1118,87 @@ struct DSDestructiveButtonStyle: ButtonStyle {
 
 /// Icon-only button — compact circular button for utility actions.
 /// Used for: close button (x), send message, small toolbar actions.
+/// A borderless icon button for toolbars and message actions: no chrome at
+/// rest, a soft fill on hover, and the whole square clickable rather than
+/// just the glyph's pixels. `isActive` keeps the fill on for toggles.
+struct DSToolbarIconButtonStyle: ButtonStyle {
+    var size: CGFloat = DS.ControlSize.regular
+    var isActive = false
+    /// Fill for the active state when it should read as "on" (a mode, a
+    /// live mic) rather than merely selected. Glyph turns `textOnAccent`.
+    var activeFill: Color?
+    var isDestructiveOnHover = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        DSToolbarIconButtonBody(
+            configuration: configuration,
+            size: size,
+            isActive: isActive,
+            activeFill: activeFill,
+            isDestructiveOnHover: isDestructiveOnHover
+        )
+    }
+}
+
+private struct DSToolbarIconButtonBody: View {
+    let configuration: ButtonStyle.Configuration
+    let size: CGFloat
+    let isActive: Bool
+    let activeFill: Color?
+    let isDestructiveOnHover: Bool
+
+    @State private var isHovered = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+    }
+
+    var body: some View {
+        configuration.label
+            .foregroundColor(foreground)
+            .frame(width: size, height: size)
+            .background(shape.fill(fill))
+            .contentShape(shape)
+            .opacity(isEnabled ? 1 : 0.45)
+            .onHover { isHovered = $0 && isEnabled }
+            .pointerCursor(isEnabled: isEnabled)
+            .animation(.easeOut(duration: DS.Animation.fast), value: isHovered)
+    }
+
+    private var fill: Color {
+        if isActive, let activeFill { return activeFill.opacity(configuration.isPressed ? 0.85 : 1) }
+        if configuration.isPressed { return DS.Colors.surface3 }
+        if isActive { return DS.Colors.surface3 }
+        if isHovered { return DS.Colors.surface2 }
+        return .clear
+    }
+
+    private var foreground: Color {
+        if isActive && activeFill != nil { return DS.Colors.textOnAccent }
+        if isHovered && isDestructiveOnHover { return DS.Colors.destructiveText }
+        if isHovered || isActive { return DS.Colors.textPrimary }
+        return DS.Colors.textSecondary
+    }
+}
+
+extension View {
+    /// Borderless icon button with a full-size hit area. See `DSToolbarIconButtonStyle`.
+    func dsToolbarIconButtonStyle(
+        size: CGFloat = DS.ControlSize.regular,
+        isActive: Bool = false,
+        activeFill: Color? = nil,
+        isDestructiveOnHover: Bool = false
+    ) -> some View {
+        buttonStyle(DSToolbarIconButtonStyle(
+            size: size,
+            isActive: isActive,
+            activeFill: activeFill,
+            isDestructiveOnHover: isDestructiveOnHover
+        ))
+    }
+}
+
 struct DSIconButtonStyle: ButtonStyle {
     var size: CGFloat = 28
     var isDestructiveOnHover: Bool = false

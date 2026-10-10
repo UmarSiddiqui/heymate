@@ -26,9 +26,10 @@ struct MateHomeView: View {
     @State private var isShowingImageImporter = false
     @State private var attachmentErrorText: String?
     @State private var isImageDropTargeted = false
-    @State private var isShowingComposerOverflow = false
     @State private var isNearBottom = true
     @State private var viewportHeight: CGFloat = 0
+    @State private var transcriptContentMaxY: CGFloat = 0
+    @State private var isHoveringTalk = false
     @State private var extraRevealed = 0
     @State private var previewedFilePath: String?
     @State private var isHoldingTalk = false
@@ -59,6 +60,9 @@ struct MateHomeView: View {
             }
             conversation
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // The header sits in the titlebar row, level with the
+                // traffic lights, instead of under an empty band.
+                .ignoresSafeArea(.container, edges: isCompactLayout ? [] : .top)
             if columns.contains(.drawer) {
                 Rectangle().fill(DS.Colors.borderSubtle).frame(width: 1)
                 mateDrawer
@@ -240,27 +244,19 @@ struct MateHomeView: View {
             }
 
             Divider().overlay(DS.Colors.borderSubtle)
-            HStack {
-                Menu {
-                    ForEach(MateHomeLayout.workspaceSections) { section in
-                        Button {
-                            onOpenSection(section)
-                        } label: {
-                            Label(section.displayName, systemImage: section.symbolName)
-                        }
+            // Labeled rows, not a lone gear: there are only two places to
+            // go, and a 28pt unlabeled icon was easy to miss.
+            VStack(spacing: 2) {
+                ForEach(MateHomeLayout.workspaceSections) { section in
+                    SettingsSidebarItem(
+                        title: section.displayName,
+                        symbolName: section.symbolName
+                    ) {
+                        onOpenSection(section)
                     }
-                } label: {
-                    Image(systemName: "gearshape")
-                        .font(DS.Glyph.regular)
-                        .foregroundColor(DS.Colors.textSecondary)
-                        .frame(width: 28, height: 28)
                 }
-                .menuStyle(.borderlessButton)
-                .frame(width: 36)
-                .help("Apps and settings")
-                Spacer()
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 8)
             .padding(.vertical, 8)
         }
         .background(DS.Colors.surface1.opacity(0.9))
@@ -306,34 +302,22 @@ struct MateHomeView: View {
             routines: companionManager.routines,
             isWorking: isMateWorking(mate)
         )
-        return HStack(alignment: .center, spacing: 8) {
+        return HStack(alignment: .center, spacing: 4) {
+            // One target for the whole row: clicking anywhere opens the
+            // chat. Editing is the pencil on hover or the context menu, so a
+            // click on the face or name no longer lands in the editor.
+            // A Button, not a tap gesture, so the click that activates an
+            // inactive window still opens the mate.
             Button {
-                beginMateSettings(mate)
+                openMateFromRow(mate)
             } label: {
-                MateFaceView(mate: mate, size: 28)
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .help("Edit picture, details, and soul")
-            VStack(alignment: .leading, spacing: 2) {
-                Button {
-                    beginMateSettings(mate)
-                } label: {
-                    Text(mate.name)
-                        .font(DS.Fonts.headline)
-                        .foregroundColor(DS.Colors.textPrimary)
-                        .lineLimit(1)
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
-                .help("Edit picture, details, and soul")
-                // Buttons, not tap gestures: a tap gesture in an inactive
-                // window ignores the click that activates it, so opening a
-                // mate took two clicks whenever another app was in front.
-                Button {
-                    openMateFromRow(mate)
-                } label: {
+                HStack(alignment: .center, spacing: 8) {
+                    MateFaceView(mate: mate, size: 28)
                     VStack(alignment: .leading, spacing: 2) {
+                        Text(mate.name)
+                            .font(DS.Fonts.headline)
+                            .foregroundColor(DS.Colors.textPrimary)
+                            .lineLimit(1)
                         Text(mate.job)
                             .font(DS.Fonts.body)
                             .foregroundColor(DS.Colors.textSecondary)
@@ -342,22 +326,14 @@ struct MateHomeView: View {
                             .font(DS.Fonts.caption.weight(.medium))
                             .foregroundColor(presence == .working ? DS.Colors.warningText : DS.Colors.textTertiary)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                    Spacer(minLength: 0)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Open \(mate.name)")
-            }
-            .layoutPriority(1)
-            Button {
-                openMateFromRow(mate)
-            } label: {
-                Color.clear
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .contentShape(Rectangle())
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityHidden(true)
+            .pointerCursor()
+            .accessibilityLabel("Open \(mate.name)")
             if mate.archived {
                 Button("Unarchive") {
                     companionManager.unarchiveMate(id: mate.id)
@@ -367,6 +343,9 @@ struct MateHomeView: View {
             // Row tools appear on hover only, so names and jobs get the
             // rail's full width the rest of the time.
             if hoveredRailMateID == mate.id {
+                mateRailControl("Edit", systemImage: "pencil") {
+                    beginMateSettings(mate)
+                }
                 mateRailControl(
                     mate.pinned ? "Unpin" : "Pin",
                     systemImage: mate.pinned ? "pin.fill" : "pin"
@@ -410,7 +389,7 @@ struct MateHomeView: View {
             }
         }
         .contextMenu {
-            Button("Edit") { beginMateSettings(mate) }
+            Button("Edit…") { beginMateSettings(mate) }
             Button(mate.pinned ? "Unpin" : "Pin") {
                 companionManager.toggleMatePinned(id: mate.id)
             }
@@ -433,11 +412,8 @@ struct MateHomeView: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(DS.Glyph.small)
-                .frame(width: 22, height: 22)
         }
-        .buttonStyle(.plain)
-        .foregroundColor(DS.Colors.textTertiary)
-        .pointerCursor()
+        .dsToolbarIconButtonStyle(size: DS.ControlSize.small)
         .help(title)
         .accessibilityLabel(title)
     }
@@ -543,36 +519,29 @@ struct MateHomeView: View {
             } label: {
                 Image(systemName: "clock.arrow.circlepath")
                     .font(DS.Glyph.regular)
-                    .frame(width: 28, height: 28)
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
+            .dsToolbarIconButtonStyle()
             .help("Chat history")
+            .accessibilityLabel("Chat history")
             Button {
                 companionManager.startNewChat()
             } label: {
                 Image(systemName: "square.and.pencil")
                     .font(DS.Glyph.regular)
-                    .frame(width: 28, height: 28)
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
+            .dsToolbarIconButtonStyle()
             .keyboardShortcut("n", modifiers: .command)
-            .help("New chat")
+            .help("New chat (⌘N)")
+            .accessibilityLabel("New chat")
             Button {
                 isDrawerOpen.toggle()
             } label: {
                 Image(systemName: "sidebar.right")
                     .font(DS.Glyph.regular)
-                    .frame(width: 28, height: 28)
-                    .background(
-                        RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
-                            .fill(isDrawerOpen ? DS.Colors.surface3 : Color.clear)
-                    )
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
+            .dsToolbarIconButtonStyle(isActive: isDrawerOpen)
             .help(isDrawerOpen ? "Hide mate details" : "Mate details")
+            .accessibilityLabel(isDrawerOpen ? "Hide mate details" : "Mate details")
             if isCompactLayout {
                 Menu {
                     ForEach(MateHomeLayout.workspaceSections) { section in
@@ -590,11 +559,10 @@ struct MateHomeView: View {
                 Button(action: onClose) {
                     Image(systemName: "chevron.up")
                         .font(DS.Glyph.small)
-                        .frame(width: 28, height: 28)
                 }
-                .buttonStyle(.plain)
-                .pointerCursor()
+                .dsToolbarIconButtonStyle()
                 .help("Collapse")
+                .accessibilityLabel("Collapse")
             }
         }
         .foregroundColor(DS.Colors.textSecondary)
@@ -655,7 +623,7 @@ struct MateHomeView: View {
                 Button {
                     beginMateSettings(mate)
                 } label: {
-                    MateFaceView(mate: mate, size: isCompactLayout ? 28 : 36)
+                    MateFaceView(mate: mate, size: isCompactLayout ? 28 : 32)
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
@@ -665,27 +633,17 @@ struct MateHomeView: View {
                 Button {
                     if let mate = activeMate { beginMateSettings(mate) }
                 } label: {
-                    HStack(spacing: 6) {
-                        Text(activeMate?.name ?? Mate.defaultName)
-                            .font(isCompactLayout ? DS.Fonts.title : DS.Fonts.hero)
-                            .foregroundColor(DS.Colors.textPrimary)
-                            .lineLimit(1)
-                        if activeMate?.conductsOthers == true {
-                            Text("All mates")
-                                .font(DS.Fonts.keycap)
-                                .foregroundColor(DS.Colors.textSecondary)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill(DS.Colors.surface3))
-                        }
-                    }
+                    Text(activeMate?.name ?? Mate.defaultName)
+                        .font(DS.Fonts.title)
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .lineLimit(1)
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
                 .help("Edit picture, details, and soul")
                 Text(activeMate?.job ?? Mate.defaultJob)
-                    .font(DS.Fonts.body.weight(.medium))
-                    .foregroundColor(DS.Colors.textSecondary)
+                    .font(DS.Fonts.body)
+                    .foregroundColor(DS.Colors.textTertiary)
                     .lineLimit(1)
             }
         }
@@ -694,7 +652,9 @@ struct MateHomeView: View {
     private var transcript: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 22) {
+                // The action row under each message reserves its height even
+                // while hidden, so the gap between messages can stay small.
+                VStack(alignment: .leading, spacing: 10) {
                     if companionManager.currentChat.messages.isEmpty
                         && companionManager.streamingAssistantText.isEmpty {
                         emptyMate
@@ -710,7 +670,7 @@ struct MateHomeView: View {
                         .pointerCursor()
                     }
                     ForEach(messageWindow.visible) { message in
-                        messageRow(message)
+                        messageRow(message, isLatest: message.id == messageWindow.visible.last?.id)
                             .id(message.id)
                     }
                     if !companionManager.streamingAssistantText.isEmpty {
@@ -723,25 +683,20 @@ struct MateHomeView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, isCompactLayout ? 16 : 28)
                 .padding(.vertical, 18)
-                .background(
-                    GeometryReader { geo in
-                        Color.clear.preference(
-                            key: MateTranscriptOffsetKey.self,
-                            value: geo.frame(in: .named("mateTranscript")).maxY
-                        )
-                    }
-                )
+                // Geometry reads rather than preferences: a preference set
+                // inside the ScrollView never reached onPreferenceChange, so
+                // "Latest" never showed and following never paused.
+                .onGeometryChange(for: CGFloat.self) { geo in
+                    geo.frame(in: .named("mateTranscript")).maxY
+                } action: { maxY in
+                    transcriptContentMaxY = maxY
+                    updateIsNearBottom()
+                }
             }
             .coordinateSpace(name: "mateTranscript")
-            .background(
-                GeometryReader { geo in
-                    Color.clear.preference(key: MateViewportHeightKey.self, value: geo.size.height)
-                }
-            )
-            .onPreferenceChange(MateViewportHeightKey.self) { viewportHeight = $0 }
-            .onPreferenceChange(MateTranscriptOffsetKey.self) { maxY in
-                let near = maxY - viewportHeight < 72
-                if near != isNearBottom { isNearBottom = near }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                viewportHeight = height
+                updateIsNearBottom()
             }
             .onChange(of: companionManager.currentChat.messages.count) { _, _ in
                 followLatest(proxy)
@@ -752,9 +707,9 @@ struct MateHomeView: View {
             .onChange(of: companionManager.currentChat.id) { _, _ in
                 extraRevealed = 0
                 isNearBottom = true
-                scrollToLatest(proxy)
+                scrollToLatestAfterLayout(proxy)
             }
-            .onAppear { scrollToLatest(proxy) }
+            .onAppear { scrollToLatestAfterLayout(proxy) }
             .overlay(alignment: .bottom) {
                 if !isNearBottom && !companionManager.currentChat.messages.isEmpty {
                     Button {
@@ -778,6 +733,23 @@ struct MateHomeView: View {
     private func followLatest(_ proxy: ScrollViewProxy) {
         guard MateHomeLayout.shouldFollowLatest(isNearBottom: isNearBottom) else { return }
         scrollToLatest(proxy)
+    }
+
+    private func updateIsNearBottom() {
+        guard viewportHeight > 0 else { return }
+        let near = transcriptContentMaxY - viewportHeight < 72
+        if near != isNearBottom { isNearBottom = near }
+    }
+
+    /// Opening a chat scrolls before long replies have measured their
+    /// height, which left the newest reply below the fold. Scroll again
+    /// once layout has settled.
+    private func scrollToLatestAfterLayout(_ proxy: ScrollViewProxy) {
+        scrollToLatest(proxy)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            scrollToLatest(proxy)
+        }
     }
 
     private func scrollToLatest(_ proxy: ScrollViewProxy) {
@@ -827,74 +799,62 @@ struct MateHomeView: View {
         .frame(maxWidth: 520, alignment: .leading)
     }
 
-    private func messageRow(_ message: ChatMessage) -> some View {
+    private func messageRow(_ message: ChatMessage, isLatest: Bool) -> some View {
         let isUser = message.role == .user
         let canRegenerate = companionManager.precedingUserText(for: message.id) != nil
-        return HStack(alignment: .top, spacing: 0) {
-            if isUser { Spacer(minLength: 48) }
-            VStack(alignment: isUser ? .trailing : .leading, spacing: 6) {
-                if !isUser {
-                    editableMateIdentity(
-                        size: 22,
-                        nameFont: DS.Fonts.control,
-                        nameColor: DS.Colors.textSecondary
-                    )
-                }
-                if let names = message.attachmentNames, !names.isEmpty {
-                    ForEach(names, id: \.self) { name in
-                        Label(name, systemImage: "photo")
-                            .font(DS.Fonts.body)
-                            .foregroundColor(DS.Colors.textSecondary)
+        return ChatMessageHoverRow { isHovered in
+            HStack(alignment: .top, spacing: 0) {
+                if isUser { Spacer(minLength: 48) }
+                // No name or face on each reply: the header already says
+                // who this chat is with.
+                VStack(alignment: isUser ? .trailing : .leading, spacing: 6) {
+                    if let names = message.attachmentNames, !names.isEmpty {
+                        ForEach(names, id: \.self) { name in
+                            Label(name, systemImage: "photo")
+                                .font(DS.Fonts.body)
+                                .foregroundColor(DS.Colors.textSecondary)
+                        }
                     }
-                }
-                if isUser {
-                    Text(message.text)
-                        .font(DS.Fonts.reading)
-                        .foregroundColor(DS.Colors.textOnAccent)
-                        .textSelection(.enabled)
-                        .multilineTextAlignment(.trailing)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous)
-                                .fill(DS.Colors.helpChatUserBubble)
-                        )
-                } else {
-                    ChatMarkdownText(text: message.text)
-                }
-                HStack(spacing: 12) {
                     if isUser {
-                        ChatMessageActionButton(title: "Edit", help: "Edit message") {
+                        Text(message.text)
+                            .font(DS.Fonts.reading)
+                            .foregroundColor(DS.Colors.textOnAccent)
+                            .textSelection(.enabled)
+                            .multilineTextAlignment(.trailing)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous)
+                                    .fill(DS.Colors.helpChatUserBubble)
+                            )
+                    } else {
+                        ChatMarkdownText(text: message.text)
+                    }
+                    ChatMessageActionBar(
+                        text: message.text,
+                        isUser: isUser,
+                        isRevealed: isHovered || isLatest,
+                        onEdit: isUser ? {
                             if let text = companionManager.editMessageInComposer(id: message.id) {
                                 typedMessageInput = text
                                 isComposerFocused = true
                             }
-                        }
-                    } else if canRegenerate {
-                        ChatMessageActionButton(title: "Regenerate", help: "Regenerate reply") {
+                        } : nil,
+                        onRegenerate: !isUser && canRegenerate ? {
                             companionManager.regenerateAssistantMessage(id: message.id)
-                        }
-                    }
-                    ChatMessageActionButton(title: "Delete", help: "Delete message") {
-                        companionManager.deleteMessage(id: message.id)
-                    }
+                        } : nil,
+                        onDelete: { companionManager.deleteMessage(id: message.id) }
+                    )
                 }
+                .frame(maxWidth: isCompactLayout ? .infinity : 460, alignment: isUser ? .trailing : .leading)
+                if !isUser { Spacer(minLength: 48) }
             }
-            .frame(maxWidth: isCompactLayout ? .infinity : 460, alignment: isUser ? .trailing : .leading)
-            if !isUser { Spacer(minLength: 48) }
         }
     }
 
     private var streamingRow: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 6) {
-                editableMateIdentity(
-                    size: 22,
-                    nameFont: DS.Fonts.control,
-                    nameColor: DS.Colors.textSecondary
-                )
-                ChatMarkdownText(text: companionManager.streamingAssistantText)
-            }
+            ChatMarkdownText(text: companionManager.streamingAssistantText)
             Spacer(minLength: 48)
         }
     }
@@ -918,34 +878,19 @@ struct MateHomeView: View {
                     Button { isShowingImageImporter = true } label: {
                         Image(systemName: "paperclip")
                             .font(DS.Glyph.regular)
-                            .frame(width: 28, height: 28)
                     }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
+                    .dsToolbarIconButtonStyle()
                     .help("Attach images")
+                    .accessibilityLabel("Attach images")
                     // Silent mode means no mic, so hold-to-talk would only
                     // be a button that contradicts the mode.
                     if !companionManager.isSilentModeEnabled {
                         holdToTalkButton
                     }
-                    silentModeButton
-                    if companionManager.selectedBrain.offersSubscriptionVoiceChat {
-                        subscriptionVoiceChatButton
-                    }
+                    voiceMenu
                     Spacer(minLength: 4)
+                    DesktopConnectorScopeMenu(companionManager: companionManager, compact: true, isNarrow: isCompactLayout)
                     DesktopComposerModelButton(companionManager: companionManager)
-                    Button { isShowingComposerOverflow = true } label: {
-                        Image(systemName: "ellipsis")
-                            .font(DS.Glyph.large)
-                            .frame(width: 28, height: 28)
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                    .help("Connectors")
-                    .popover(isPresented: $isShowingComposerOverflow, arrowEdge: .top) {
-                        DesktopConnectorScopeMenu(companionManager: companionManager, compact: true)
-                            .padding(12)
-                    }
                     Button {
                         if companionManager.isComposerStopVisible {
                             companionManager.cancelInFlightChatTurn()
@@ -954,13 +899,13 @@ struct MateHomeView: View {
                         }
                     } label: {
                         Image(systemName: companionManager.isComposerStopVisible ? "stop.fill" : "arrow.up")
-                            .font(DS.Glyph.regular)
+                            .font(DS.Glyph.large.weight(.semibold))
                             .foregroundColor(
                                 companionManager.isComposerStopVisible || canSend
                                     ? DS.Colors.textOnAccent
                                     : DS.Colors.textTertiary
                             )
-                            .frame(width: 28, height: 28)
+                            .frame(width: DS.ControlSize.large, height: DS.ControlSize.large)
                             .background(
                                 Circle().fill(
                                     companionManager.isComposerStopVisible || canSend
@@ -972,7 +917,7 @@ struct MateHomeView: View {
                     .buttonStyle(.plain)
                     .pointerCursor()
                     .disabled(!companionManager.isComposerStopVisible && !canSend)
-                    .help(companionManager.isComposerStopVisible ? "Stop" : "Send")
+                    .help(companionManager.isComposerStopVisible ? "Stop" : "Send (Return)")
                     .accessibilityLabel(companionManager.isComposerStopVisible ? "Stop" : "Send")
                 }
                 .foregroundColor(DS.Colors.textSecondary)
@@ -1142,11 +1087,21 @@ struct MateHomeView: View {
     private var holdToTalkButton: some View {
         Image(systemName: isHoldingTalk ? "waveform" : "mic")
             .font(DS.Glyph.regular)
-            .foregroundColor(isHoldingTalk ? DS.Colors.textOnAccent : DS.Colors.textSecondary)
-            .frame(width: 28, height: 28)
-            .background(
-                Circle().fill(isHoldingTalk ? companionManager.themeColor : DS.Colors.surface3)
+            .foregroundColor(
+                isHoldingTalk ? DS.Colors.textOnAccent
+                    : isHoveringTalk ? DS.Colors.textPrimary : DS.Colors.textSecondary
             )
+            .frame(width: DS.ControlSize.regular, height: DS.ControlSize.regular)
+            .background(
+                RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                    .fill(
+                        isHoldingTalk ? companionManager.themeColor
+                            : isHoveringTalk ? DS.Colors.surface2 : Color.clear
+                    )
+            )
+            .contentShape(RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous))
+            .onHover { isHoveringTalk = $0 }
+            .pointerCursor()
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { _ in
@@ -1160,23 +1115,41 @@ struct MateHomeView: View {
             .accessibilityLabel("Hold to talk")
     }
 
-    /// Quick switch for silent mode, next to where you type. Tinted while on
-    /// so the mode is visible without opening Settings.
-    private var silentModeButton: some View {
+    /// Everything about hearing HeyMate, in one place: whether replies are
+    /// read aloud, and live voice chat when the plan offers it. Two bare
+    /// speaker and waveform icons beside the mic read as three mic buttons.
+    private var voiceMenu: some View {
         let isSilent = companionManager.isSilentModeEnabled
-        return Button {
-            companionManager.isSilentModeEnabled.toggle()
+        let isVoiceChatActive = companionManager.isSubscriptionVoiceChatActive
+        return Menu {
+            Toggle("Read replies aloud", isOn: Binding(
+                get: { !companionManager.isSilentModeEnabled },
+                set: { companionManager.isSilentModeEnabled = !$0 }
+            ))
+            if companionManager.selectedBrain.offersSubscriptionVoiceChat {
+                Divider()
+                Button(isVoiceChatActive ? "Stop voice chat" : "Start voice chat") {
+                    companionManager.toggleSubscriptionVoiceChat()
+                }
+            }
         } label: {
-            Image(systemName: isSilent ? "speaker.slash.fill" : "speaker.wave.2")
+            Image(systemName: isVoiceChatActive ? "waveform" : isSilent ? "speaker.slash" : "speaker.wave.2")
                 .font(DS.Glyph.regular)
-                .foregroundColor(isSilent ? DS.Colors.textOnAccent : DS.Colors.textSecondary)
-                .frame(width: 28, height: 28)
-                .background(Circle().fill(isSilent ? companionManager.themeColor : DS.Colors.surface3))
+                .foregroundColor(isVoiceChatActive ? DS.Colors.textOnAccent : DS.Colors.textSecondary)
+                .frame(width: DS.ControlSize.regular, height: DS.ControlSize.regular)
+                .background(
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                        .fill(isVoiceChatActive ? companionManager.themeColor : Color.clear)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous))
         }
+        .menuStyle(.button)
         .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
         .pointerCursor()
-        .help(isSilent ? "Silent mode is on — click to hear replies again" : "Silent mode: type instead of talk, read instead of hear")
-        .accessibilityLabel(isSilent ? "Turn off silent mode" : "Turn on silent mode")
+        .help(isVoiceChatActive ? "Voice chat is on" : isSilent ? "Replies are silent" : "Replies are read aloud")
+        .accessibilityLabel("Voice options")
     }
 
     /// Shown once after HeyMate answered out loud through the Mac's own
@@ -1222,23 +1195,6 @@ struct MateHomeView: View {
                     .pointerCursor()
             }
         }
-    }
-
-    private var subscriptionVoiceChatButton: some View {
-        let active = companionManager.isSubscriptionVoiceChatActive
-        return Button {
-            companionManager.toggleSubscriptionVoiceChat()
-        } label: {
-            Image(systemName: active ? "waveform.circle.fill" : "waveform.circle")
-                .font(DS.Glyph.large)
-                .foregroundColor(active ? DS.Colors.textOnAccent : DS.Colors.textSecondary)
-                .frame(width: 28, height: 28)
-                .background(Circle().fill(active ? companionManager.themeColor : DS.Colors.surface3))
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
-        .help(active ? "Stop voice chat" : "Voice chat on your ChatGPT or Claude plan")
-        .accessibilityLabel(active ? "Stop voice chat" : "Start voice chat")
     }
 
     private func openCodeTrainingConfirm(_ notice: OpenCodeTrainingNotice) -> some View {
@@ -1346,12 +1302,9 @@ struct MateHomeView: View {
 
     private var mateDrawer: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                editableMateIdentity(
-                    size: 36,
-                    nameFont: DS.Fonts.hero,
-                    nameColor: DS.Colors.textPrimary
-                )
+            // The header already names the mate; the drawer starts with
+            // what's new about it.
+            VStack(alignment: .leading, spacing: 22) {
                 if let unread = activeMate?.unreadCount, unread > 0 {
                     Text(unread == 1 ? "1 unread routine result" : "\(unread) unread routine results")
                         .font(DS.Fonts.body.weight(.medium))
@@ -1362,13 +1315,11 @@ struct MateHomeView: View {
                 filesSection
                 routinesSection
                 if let mate = activeMate {
-                    Button("Delete mate", role: .destructive) {
+                    Divider()
+                    Button("Delete mate…", role: .destructive) {
                         matePendingDelete = mate
                     }
-                    .buttonStyle(.plain)
-                    .font(DS.Fonts.control)
-                    .foregroundColor(DS.Colors.destructiveText)
-                    .pointerCursor()
+                    .dsCapsuleButtonStyle(.destructive, height: DS.ControlSize.small)
                 }
             }
             .padding(16)
@@ -1404,10 +1355,7 @@ struct MateHomeView: View {
                 }
             }
             Button("All jobs") { onOpenSection(.agents) }
-                .buttonStyle(.plain)
-                .font(DS.Fonts.control)
-                .foregroundColor(DS.Colors.textSecondary)
-                .pointerCursor()
+                .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
         }
     }
 
@@ -1687,20 +1635,6 @@ struct MateHomeView: View {
         } else {
             filesActionError = "Those files could not be moved to the Trash."
         }
-    }
-}
-
-private struct MateTranscriptOffsetKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
-private struct MateViewportHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
     }
 }
 
