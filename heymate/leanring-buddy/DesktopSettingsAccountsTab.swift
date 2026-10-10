@@ -104,6 +104,8 @@ struct DesktopSettingsAccountsTab: View {
 
     /// Posted with `["executor": HeadlessExecutor.rawValue]`. Handled by the
     /// subscription sign-in coordinator.
+    @State private var showsOtherEngines = false
+
     private static let beginSubscriptionSignInNotification = Notification.Name("heyMateBeginSubscriptionSignIn")
 
     var body: some View {
@@ -434,9 +436,17 @@ struct DesktopSettingsAccountsTab: View {
 
     private var otherEnginesSection: some View {
         SettingsSection(
-            SettingsItem.otherEngines.title,
-            footer: "For people who run their own models. To go back to a plan, pick Claude, ChatGPT, or On this Mac above."
+            footer: usesOtherEngine ? "To go back to a plan, pick Claude, ChatGPT, or On this Mac above." : nil
         ) {
+            SettingsDisclosureRow(
+                SettingsItem.otherEngines.title,
+                subtitle: "OpenCode or your own API server.",
+                isExpanded: Binding(
+                    get: { showsOtherEngines || usesOtherEngine },
+                    set: { showsOtherEngines = $0 }
+                )
+            ) {
+            SettingsDivider()
             ForEach(Array(Self.otherBrains.enumerated()), id: \.element) { index, brain in
                 if index > 0 {
                     SettingsDivider()
@@ -452,8 +462,13 @@ struct DesktopSettingsAccountsTab: View {
                     otherEngineSetup(brain)
                 }
             }
+            }
         }
         .settingsAnchor(.otherEngines)
+    }
+
+    private var usesOtherEngine: Bool {
+        Self.otherBrains.contains(companionManager.selectedBrain)
     }
 
     @ViewBuilder
@@ -480,7 +495,7 @@ struct DesktopSettingsAccountsTab: View {
     private var helperAppsSection: some View {
         SettingsSection(
             "Helper apps",
-            footer: "Claude, Codex, and OpenCode each install a small helper app on this Mac. Keeping them current is how new models show up."
+            footer: "Keeps Claude, Codex, and OpenCode current so new models appear."
         ) {
             SettingsToggleRow(
                 SettingsItem.helperApps.title,

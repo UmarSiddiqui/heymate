@@ -22,6 +22,7 @@ struct SettingsAgentsPane: View {
     @ObservedObject private var cuaDriverSetup = CuaDriverSetup.shared
 
     @State private var showsBehaviorContractEditor = false
+    @State private var showsSafetyRules = false
 
     init(companionManager: CompanionManager, navigation: SettingsNavigationModel) {
         self.companionManager = companionManager
@@ -51,11 +52,11 @@ struct SettingsAgentsPane: View {
     private var computerControlSection: some View {
         SettingsSection(
             "Computer control",
-            footer: "Anything that clicks, types, or sends asks for your approval first. No setting removes that step."
+            footer: "Needs Accessibility permission. No setting removes the approval step."
         ) {
             SettingsToggleRow(
                 SettingsItem.computerControl.title,
-                subtitle: "Press buttons by their on-screen name, type into the field you're in, and switch apps. Needs Accessibility permission.",
+                subtitle: "Press buttons, type, and switch apps — only after you approve.",
                 item: .computerControl,
                 isOn: Binding(
                     get: { computerUseCoordinator.isEnabled },
@@ -81,18 +82,16 @@ struct SettingsAgentsPane: View {
 
             SettingsDivider()
 
-            VStack(alignment: .leading, spacing: DS.Spacing.xs + 2) {
-                Text("Always true, whatever you choose")
-                    .font(DS.Fonts.sectionLabel)
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .accessibilityAddTraits(.isHeader)
+            SettingsDisclosureRow("Always true", subtitle: "What HeyMate never does, whatever you choose.", isExpanded: $showsSafetyRules) {
+                VStack(alignment: .leading, spacing: DS.Spacing.xs + 2) {
                 ruleLine("Passwords, API keys, and tokens are refused outright — not asked about, refused.")
                 ruleLine("Shortcuts that quit, close, or delete count as destructive and always ask.")
                 ruleLine("Buttons are pressed by name when possible, so your pointer never moves.")
                 ruleLine("When a real click can't be avoided, the companion cursor flies there first so you see it.")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .settingsRowContentInsets()
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .settingsRowInsets()
         }
     }
 
@@ -129,7 +128,7 @@ struct SettingsAgentsPane: View {
         if cuaDriverSetup.phase == .installing { return "Installing Cua's driver. macOS will ask for permissions for CuaDriver." }
         switch cuaDriverSetup.installation {
         case .missing:
-            return "Lets approved jobs operate other apps in the background without taking your cursor. Uses Cua's open-source driver."
+            return "Approved jobs work in other apps without taking your cursor."
         case .outdated(_, let version):
             return "Cua driver \(version) is too old for HeyMate. Update to keep background app control."
         case .ready(_, let version):
@@ -163,7 +162,7 @@ struct SettingsAgentsPane: View {
 
     private var behaviorContractSection: some View {
         SettingsSection(
-            footer: "Kept as a plain text file you can edit. Reset puts back the rules HeyMate shipped with."
+            footer: "A plain text file you can edit, or reset to the shipped rules."
         ) {
             SettingsRow(
                 SettingsItem.behaviorContract.title,

@@ -80,7 +80,7 @@ struct SettingsShortcutsPane: View {
         let conflicts = SettingsShortcutRole.conflictingRoles(in: assignments)
         return SettingsSection(
             "Hold to talk",
-            footer: "These work from anywhere on your Mac. The notch card shows the ones in use."
+            footer: "Work from anywhere on your Mac."
         ) {
             ForEach(Array(SettingsShortcutRole.allCases.enumerated()), id: \.element) { index, role in
                 if index > 0 {
@@ -121,7 +121,7 @@ struct SettingsShortcutsPane: View {
     private var doubleTapSection: some View {
         SettingsSection(
             "Double-tap",
-            footer: "A tap is a quick press and release with no other key. Holding the same keys still does what it always did."
+            footer: "A quick press and release with no other key. Holding the keys works as before."
         ) {
             SettingsToggleRow(
                 SettingsItem.doubleTapText.title,
@@ -142,7 +142,7 @@ struct SettingsShortcutsPane: View {
 
             SettingsToggleRow(
                 SettingsItem.doubleTapHandsFree.title,
-                subtitle: "Double-tap to start a turn that ends when you stop talking, not when you let go. Double-tap again to end it early.",
+                subtitle: "Talk without holding a key; it ends when you stop speaking.",
                 item: .doubleTapHandsFree,
                 isOn: $isHandsFreeDoubleTapEnabled
             )
@@ -173,7 +173,7 @@ struct SettingsShortcutsPane: View {
                 SettingsItem.restoreShortcuts.title,
                 subtitle: isEverythingDefault
                     ? "You're using the shipped shortcuts."
-                    : "Talk ctrl + option, Chat ctrl + command, Dictate shift + fn, Region select shift + control. Double-taps off.",
+                    : "Back to the shipped keys, with double-taps off.",
                 item: .restoreShortcuts
             ) {
                 Button("Restore defaults…") { isConfirmingRestore = true }

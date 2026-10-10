@@ -20,6 +20,7 @@ struct SettingsPrivacyPane: View {
     @State private var bundleIdentifierError: String?
     @State private var persistErrorMessage: String?
     @State private var localDataEraseNote: String?
+    @State private var showsDataFlowDetails = false
 
     var body: some View {
         SettingsPage(tab: .privacy, navigation: navigation) {
@@ -39,7 +40,7 @@ struct SettingsPrivacyPane: View {
     private var screenCaptureSection: some View {
         SettingsSection(
             "Screen capture",
-            footer: "Apps on the list are never captured for screen context — not for Talk, not for smart dictation, not for demos. Password managers and System Settings are always on it."
+            footer: "Listed apps are never captured, for any feature. Password managers and System Settings are always on the list."
         ) {
             SettingsRow(
                 SettingsItem.excludedApps.title,
@@ -77,7 +78,7 @@ struct SettingsPrivacyPane: View {
 
             SettingsToggleRow(
                 SettingsItem.screenRecordings.title,
-                subtitle: "Off hides the notch, the card, and the cursor companion from screenshots, recordings, and shared screens.",
+                subtitle: "Off hides HeyMate from screenshots, recordings, and shared screens.",
                 item: .screenRecordings,
                 isOn: $presencePreferences.appearsInScreenRecordings
             )
@@ -160,11 +161,11 @@ struct SettingsPrivacyPane: View {
     private var chatsAndMemorySection: some View {
         SettingsSection(
             "Chats & memory",
-            footer: "Text only, stored on this Mac. Screenshots are never kept — the store has no place to put them."
+            footer: "Text only, on this Mac. Screenshots are never kept."
         ) {
             SettingsToggleRow(
                 SettingsItem.saveChats.title,
-                subtitle: "Turning this off stops new saves. Chats already stored stay until you delete them.",
+                subtitle: "Off stops new saves; stored chats stay until you delete them.",
                 item: .saveChats,
                 isOn: $companionManager.rememberConversationsEnabled
             )
@@ -204,10 +205,13 @@ struct SettingsPrivacyPane: View {
     // MARK: What leaves this Mac
 
     private var whatLeavesSection: some View {
-        SettingsSection(
-            SettingsItem.whatLeavesThisMac.title,
-            footer: "Local engines keep everything on this Mac. A cloud engine gets the screenshot and transcript for the turn that needs them, and nothing else."
-        ) {
+        SettingsSection {
+            SettingsDisclosureRow(
+                SettingsItem.whatLeavesThisMac.title,
+                subtitle: "Only the screenshot and words for a turn, and only to the AI you chose.",
+                isExpanded: $showsDataFlowDetails
+            ) {
+            SettingsDivider()
             privacyFact("Screenshots", "Sent for the turn that needs them, never stored.", systemImage: "camera.viewfinder")
             SettingsDivider()
             privacyFact("Transcripts", "On this Mac by default. Cloud speech is opt-in.", systemImage: "text.quote")
@@ -217,12 +221,13 @@ struct SettingsPrivacyPane: View {
             privacyFact("Clipboard history", "In memory only, cleared when HeyMate quits.", systemImage: "doc.on.clipboard")
             SettingsDivider()
             privacyFact("Keys", "A private file on this Mac, readable only by your account.", systemImage: "key")
+            }
         }
         .settingsAnchor(.whatLeavesThisMac)
     }
 
-    private func privacyFact(_ title: String, _ detail: String, systemImage: String) -> some View {
-        SettingsRow(title, subtitle: detail, systemImage: systemImage)
+    private func privacyFact(_ title: String, _ detail: String, systemImage _: String) -> some View {
+        SettingsRow(title, subtitle: detail)
     }
 
     // MARK: Danger zone
@@ -249,7 +254,7 @@ struct SettingsPrivacyPane: View {
 
             SettingsDestructiveRow(
                 title: SettingsItem.eraseData.title,
-                subtitle: "Mates, chats, routines, memories, job history, connections, and saved keys. You'll see the full list before anything is deleted.",
+                subtitle: "Removes everything HeyMate keeps here. You'll see the full list first.",
                 item: .eraseData,
                 buttonTitle: "Erase…",
                 confirmationTitle: "Erase HeyMate data?",

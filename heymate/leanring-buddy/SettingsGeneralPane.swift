@@ -30,7 +30,7 @@ struct SettingsGeneralPane: View {
     private var appearanceSection: some View {
         SettingsSection(
             "Appearance",
-            footer: "The accent tints the cursor companion and the main action buttons. The notch stays black, and Settings follows your Mac's light or dark appearance."
+            footer: "Tints the cursor companion and primary buttons. The notch always stays black."
         ) {
             SettingsRow(
                 SettingsItem.accentColor.title,
@@ -64,14 +64,14 @@ struct SettingsGeneralPane: View {
             SettingsDivider()
             SettingsToggleRow(
                 SettingsItem.showInDock.title,
-                subtitle: "Keep a Dock icon and a menu bar for the whole session, not only while this window is open.",
+                subtitle: "Keep a Dock icon and menu bar all session.",
                 item: .showInDock,
                 isOn: $presencePreferences.showsInDock
             )
             SettingsDivider()
             SettingsRow(
                 SettingsItem.noNotchPlacement.title,
-                subtitle: "On a Mac or display with no notch, draw a stand-in notch at the top of the screen, or live in the menu bar.",
+                subtitle: "On displays without one, draw a stand-in or use the menu bar.",
                 item: .noNotchPlacement
             ) {
                 DSSegmentedControl(
@@ -83,7 +83,7 @@ struct SettingsGeneralPane: View {
             SettingsDivider()
             SettingsToggleRow(
                 SettingsItem.cursorCompanion.title,
-                subtitle: "Keep HeyMate beside your pointer. When off, it comes out only while you use it, then returns to the notch.",
+                subtitle: "Stay beside your pointer, not only while you use it.",
                 item: .cursorCompanion,
                 isOn: Binding(
                     get: { companionManager.isClickyCursorEnabled },
@@ -110,7 +110,7 @@ struct SettingsGeneralPane: View {
             if updateController.isReady {
                 SettingsToggleRow(
                     "Check automatically",
-                    subtitle: "Look for a new version in the background and offer it when it's ready.",
+                    subtitle: "Download new versions in the background.",
                     isOn: $updateController.automaticallyChecksForUpdates
                 )
             } else {
@@ -167,8 +167,7 @@ struct SettingsGeneralPane: View {
         SettingsSection("Help") {
             SettingsRow(
                 SettingsItem.replayIntroduction.title,
-                subtitle: "Watch the introduction again.",
-                systemImage: "play.circle",
+                subtitle: "Watch the welcome tour again.",
                 item: .replayIntroduction
             ) {
                 Button("Replay") { companionManager.replayOnboarding() }
@@ -180,7 +179,6 @@ struct SettingsGeneralPane: View {
                 SettingsRow(
                     destination.title,
                     subtitle: destination.subtitle,
-                    systemImage: destination.symbolName,
                     item: destination.id == SupportLinks.destinations.first?.id ? .helpAndFeedback : nil
                 ) {
                     Button("Open") { SupportLinks.open(destination) }

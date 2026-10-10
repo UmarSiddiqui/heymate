@@ -239,6 +239,16 @@ enum DS {
         /// The brief wash on a settings row that search just jumped to.
         static var revealHighlight: Color { textPrimary.opacity(0.06) }
 
+        /// Under a settings card. Barely there in light mode; dark mode
+        /// relies on the lighter card fill instead.
+        static let cardShadow = Color(light: "#000000", dark: "#000000").opacity(0.045)
+
+        /// Laid over frosted chrome (the settings rail, the condensed title
+        /// bar) so the blur stays matte and on-palette instead of picking up
+        /// the colors behind it.
+        static var chromeTint: Color { surface1.opacity(0.55) }
+        static var condensedBarTint: Color { background.opacity(0.6) }
+
         // ── Status ───────────────────────────────────────────────────
         // One mapping per kind of state. Every dot, pill, and label that
         // reports status reads from here, so "listening" is the same color
@@ -374,34 +384,34 @@ enum DS {
 
     // MARK: - Settings Metrics
     //
-    // One rhythm for every settings page: a 16pt row inset, a 44pt row
-    // floor (the HIG's comfortable click target plus breathing room), and
-    // trailing controls that share widths so their edges line up down a
-    // page.
+    // One unhurried rhythm for every settings page: an 18pt row inset, a
+    // 52pt row floor, 36pt between sections, and a narrow reading column,
+    // so a page reads as a few calm groups rather than a dense form.
+    // Trailing controls share widths so their edges line up down a page.
 
     enum SettingsLayout {
         /// The section rail beside the settings content.
-        static let railWidth: CGFloat = 216
+        static let railWidth: CGFloat = 224
         /// Reading measure of the settings column.
-        static let contentMaxWidth: CGFloat = 680
+        static let contentMaxWidth: CGFloat = 640
         /// Page gutters.
-        static let pageHorizontalPadding: CGFloat = 32
-        static let pageVerticalPadding: CGFloat = 26
+        static let pageHorizontalPadding: CGFloat = 40
+        static let pageVerticalPadding: CGFloat = 40
         /// Gap between sections on a page.
-        static let sectionSpacing: CGFloat = 26
+        static let sectionSpacing: CGFloat = 36
         /// Gap between a section's header, card, and footer.
-        static let sectionInnerSpacing: CGFloat = 8
+        static let sectionInnerSpacing: CGFloat = 10
         /// Row insets inside a section card.
-        static let rowHorizontalPadding: CGFloat = 16
-        static let rowVerticalPadding: CGFloat = 11
+        static let rowHorizontalPadding: CGFloat = 18
+        static let rowVerticalPadding: CGFloat = 14
         /// The shortest a row may be.
-        static let rowMinHeight: CGFloat = 44
+        static let rowMinHeight: CGFloat = 52
         /// Leading icon column, so titles align whether or not a row has one.
         static let rowIconWidth: CGFloat = 20
         /// Gap between a row's text and its trailing control.
-        static let rowAccessorySpacing: CGFloat = 16
+        static let rowAccessorySpacing: CGFloat = 20
         /// Trailing menu pickers.
-        static let pickerWidth: CGFloat = 220
+        static let pickerWidth: CGFloat = 210
         /// Trailing segmented controls.
         static let segmentedWidth: CGFloat = 200
         /// Text and secure fields in a row.
@@ -416,6 +426,17 @@ enum DS {
         static let radioSide: CGFloat = 16
         /// How long a row stays highlighted after search jumps to it.
         static let revealHighlightSeconds: Double = 1.6
+        /// Section cards: pebble corners, a hairline, and a shadow soft
+        /// enough to lift the card without drawing a box around it.
+        static let cardCornerRadius: CGFloat = DS.CornerRadius.extraLarge
+        static let cardShadowRadius: CGFloat = 18
+        static let cardShadowY: CGFloat = 6
+        /// Rail items.
+        static let railItemHeight: CGFloat = 32
+        /// How far a page scrolls before its title condenses into the
+        /// frosted bar at the top.
+        static let condensedTitleThreshold: CGFloat = 56
+        static let condensedTitleBarHeight: CGFloat = 40
     }
 
     // MARK: - Spacing (for reference, not enforced)
@@ -467,6 +488,13 @@ enum DS {
 
         /// Snappier spring for small controls (chips, dots, toggles).
         static let controlSpring = SwiftUI.Animation.spring(response: 0.28, dampingFraction: 0.72)
+
+        /// Moving between settings pages and sliding the rail selection.
+        /// Critically damped, so nothing overshoots in a settings window.
+        static let settingsPage = SwiftUI.Animation.spring(response: 0.36, dampingFraction: 0.9)
+
+        /// Expanding and collapsing a disclosure inside a settings card.
+        static let settingsDisclosure = SwiftUI.Animation.spring(response: 0.32, dampingFraction: 0.88)
     }
 
     // MARK: - State Layer Opacities

@@ -58,9 +58,26 @@ struct SettingsDetailView: View {
         DesktopSettingsTab.resolve(selectedTabRawValue)
     }
 
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+
+    /// Pages cross-fade with a few points of lift, so moving between
+    /// sections feels like turning a page rather than a hard cut.
+    private var pageTransition: AnyTransition {
+        accessibilityReduceMotion
+            ? .opacity
+            : .asymmetric(
+                insertion: .opacity.combined(with: .offset(y: 8)),
+                removal: .opacity
+            )
+    }
+
     var body: some View {
-        page
-            .id(selectedTab)
+        ZStack(alignment: .top) {
+            page
+                .id(selectedTab)
+                .transition(pageTransition)
+        }
+            .animation(accessibilityReduceMotion ? nil : DS.Animation.settingsPage, value: selectedTab)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(DS.Colors.background)
             .task {
@@ -106,6 +123,8 @@ struct SettingsSidebar: View {
 
     @AppStorage(DesktopSettingsTab.storageKey) private var selectedTabRawValue = DesktopSettingsTab.general.rawValue
     @FocusState private var isSearchFieldFocused: Bool
+    @Namespace private var selectionNamespace
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
     private var selectedTab: DesktopSettingsTab {
         DesktopSettingsTab.resolve(selectedTabRawValue)
@@ -132,12 +151,20 @@ struct SettingsSidebar: View {
                         sectionList
                     }
                 }
-                .padding(.horizontal, DS.Spacing.sm)
-                .padding(.bottom, DS.Spacing.md)
+                .padding(.horizontal, DS.Spacing.sm + 2)
+                .padding(.bottom, DS.Spacing.lg)
             }
+            .scrollIndicators(.never)
         }
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(DS.Colors.surface1.ignoresSafeArea())
+        .background(
+            // Frosted, with a matte tint so it stays on-palette.
+            ZStack {
+                DSVisualEffectBackground(material: .sidebar, blendingMode: .behindWindow)
+                DS.Colors.chromeTint
+            }
+            .ignoresSafeArea()
+        )
         .background(
             // Cmd-F from anywhere in Settings.
             Button("Search settings") { isSearchFieldFocused = true }
@@ -232,17 +259,21 @@ struct SettingsSidebar: View {
                 .font(DS.Fonts.sectionLabel)
                 .foregroundColor(DS.Colors.textTertiary)
                 .padding(.horizontal, DS.Spacing.sm)
-                .padding(.top, group == DesktopSettingsTabGroup.allCases.first ? DS.Spacing.xs : DS.Spacing.md)
-                .padding(.bottom, 2)
+                .padding(.top, group == DesktopSettingsTabGroup.allCases.first ? DS.Spacing.sm : DS.Spacing.xl)
+                .padding(.bottom, DS.Spacing.xs)
                 .accessibilityAddTraits(.isHeader)
 
             ForEach(group.tabs) { tab in
                 SettingsSidebarItem(
                     title: tab.title,
                     symbolName: tab.symbolName,
-                    isSelected: tab == selectedTab
+                    isSelected: tab == selectedTab,
+                    selectionNamespace: selectionNamespace
                 ) {
-                    selectedTabRawValue = tab.rawValue
+                    // The selection pill slides and the page turns together.
+                    withAnimation(accessibilityReduceMotion ? nil : DS.Animation.settingsPage) {
+                        selectedTabRawValue = tab.rawValue
+                    }
                 }
             }
         }
@@ -255,9 +286,15 @@ struct SettingsSidebarItem: View {
     let title: String
     let symbolName: String
     var isSelected = false
+    /// When set, the selected fill is one shape that slides between items.
+    var selectionNamespace: Namespace.ID?
     let action: () -> Void
 
     @State private var isHovered = false
+
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+    }
 
     var body: some View {
         Button(action: action) {
@@ -268,18 +305,16 @@ struct SettingsSidebarItem: View {
                     .frame(width: DS.SettingsLayout.rowIconWidth)
                     .accessibilityHidden(true)
                 Text(title)
-                    .font(isSelected ? DS.Fonts.headline : DS.Fonts.bodyLarge)
+                    .font(DS.Fonts.bodyLarge)
+                    .fontWeight(isSelected ? .semibold : .regular)
                     .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textSecondary)
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, DS.Spacing.sm)
-            .frame(minHeight: DS.ControlSize.large - 2)
-            .background(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                    .fill(isSelected ? DS.Colors.selectionFill : (isHovered ? DS.Colors.surface2 : Color.clear))
-            )
-            .contentShape(RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous))
+            .padding(.horizontal, DS.Spacing.sm + 2)
+            .frame(minHeight: DS.SettingsLayout.railItemHeight)
+            .background(selectionBackground)
+            .contentShape(shape)
         }
         .buttonStyle(.plain)
         .pointerCursor()
@@ -287,6 +322,21 @@ struct SettingsSidebarItem: View {
         .accessibilityLabel(title)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .animation(.easeOut(duration: DS.Animation.fast), value: isHovered)
+    }
+
+    @ViewBuilder
+    private var selectionBackground: some View {
+        if isSelected {
+            if let selectionNamespace {
+                shape
+                    .fill(DS.Colors.selectionFill)
+                    .matchedGeometryEffect(id: "settingsRailSelection", in: selectionNamespace)
+            } else {
+                shape.fill(DS.Colors.selectionFill)
+            }
+        } else if isHovered {
+            shape.fill(DS.Colors.surface2.opacity(0.7))
+        }
     }
 }
 

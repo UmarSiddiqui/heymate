@@ -54,14 +54,14 @@ struct SettingsVoicePane: View {
         SettingsSection("Talking") {
             SettingsToggleRow(
                 SettingsItem.silentMode.title,
-                subtitle: "For work or in public. Your Talk shortcut (\(companionManager.talkShortcutOption.displayText)) opens a box to type in instead of the mic, Dictate is off, and replies appear on screen without being spoken. Type /silent anywhere to switch.",
+                subtitle: "Type instead of talking, and read replies instead of hearing them. Type /silent anywhere to switch.",
                 item: .silentMode,
                 isOn: $companionManager.isSilentModeEnabled
             )
             SettingsDivider()
             SettingsRow(
                 SettingsItem.dictationMode.title,
-                subtitle: "Smart drafts from what's on screen into the field you're in. Literal types exactly what you said. Smart stays quiet while HeyMate itself is in front.",
+                subtitle: "Smart drafts from what's on screen. Literal types exactly what you say.",
                 item: .dictationMode
             ) {
                 DSSegmentedControl(
@@ -77,14 +77,14 @@ struct SettingsVoicePane: View {
             SettingsDivider()
             SettingsToggleRow(
                 SettingsItem.focusedWindow.title,
-                subtitle: "Talk looks only at the app in front of you instead of every screen, for sharper, faster answers. Uses every screen when no window is in front.",
+                subtitle: "Sharper, faster answers from the app in front of you.",
                 item: .focusedWindow,
                 isOn: $companionManager.talkUsesFocusedWindowContext
             )
             SettingsDivider()
             SettingsToggleRow(
                 SettingsItem.interactionSounds.title,
-                subtitle: "A blip when the mic opens and a chime when the answer is ready.",
+                subtitle: "A soft blip and chime as HeyMate listens and answers.",
                 item: .interactionSounds,
                 isOn: $companionManager.isUISoundEnabled
             )
@@ -103,7 +103,7 @@ struct SettingsVoicePane: View {
     private var microphoneSection: some View {
         SettingsSection(
             "Microphone",
-            footer: "Applies to the next thing you say. If the device is unplugged, HeyMate uses the system default."
+            footer: "Falls back to the system default if this device is unplugged."
         ) {
             SettingsRow(
                 SettingsItem.microphone.title,
@@ -155,7 +155,7 @@ struct SettingsVoicePane: View {
         let isIdle = companionManager.voiceState == .idle
         return SettingsSection(
             "Listen & speak",
-            footer: "On-device and Mac options keep your voice on this computer. ElevenLabs uses your own ElevenLabs account. If a choice can't run, HeyMate falls back to the Mac so you're never left without a voice."
+            footer: "On-device and Mac keep your voice on this computer. If a choice can't run, HeyMate falls back to the Mac."
         ) {
             SettingsRow(
                 SettingsItem.listenProvider.title,
@@ -222,7 +222,7 @@ struct SettingsVoicePane: View {
         SettingsSection("Voices") {
             SettingsPickerRow(
                 SettingsItem.macVoice.title,
-                subtitle: "Used when Speak with is set to Mac, and whenever another voice can't speak. Premium voices sound far better — download them free in System Settings › Accessibility › Spoken Content.",
+                subtitle: "Also the fallback voice. Premium voices are free in System Settings › Accessibility › Spoken Content.",
                 item: .macVoice,
                 selection: $selectedSystemVoiceID,
                 options: systemVoiceOptions,
@@ -241,7 +241,7 @@ struct SettingsVoicePane: View {
                 title: SettingsItem.elevenLabsKey.title,
                 subtitle: hasElevenLabsKey
                     ? "Pick ElevenLabs under Listen & speak to use it."
-                    : "Optional. Paste a key from elevenlabs.io to use their voices — the free plan works.",
+                    : "Optional. A free elevenlabs.io key works.",
                 item: .elevenLabsKey,
                 placeholder: "ElevenLabs API key",
                 isStored: hasElevenLabsKey,

@@ -21,6 +21,7 @@
 //  confirmed — drawn in HeyMate's own matte style rather than Form chrome.
 //
 
+import AppKit
 import SwiftUI
 
 // MARK: - Reveal highlight plumbing
@@ -71,19 +72,41 @@ extension View {
 
 // MARK: - Page
 
+/// Scroll position of a settings page, read to condense its title.
+private nonisolated struct SettingsScrollOffsetKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 /// One settings section's page: title, subtitle, and the sections below at
-/// the settings reading measure. Scrolls to and highlights the row search
-/// picked.
+/// the settings reading measure. Once the title scrolls away, it condenses
+/// into a frosted bar the content slides under. Scrolls to and highlights
+/// the row search picked.
 struct SettingsPage<Content: View>: View {
     let tab: DesktopSettingsTab
     @ObservedObject var navigation: SettingsNavigationModel
     @ViewBuilder var content: () -> Content
+
+    @State private var isTitleCondensed = false
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+
+    private static var scrollSpace: String { "settingsPageScroll" }
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.SettingsLayout.sectionSpacing) {
                     header
+                        .background(
+                            GeometryReader { geometry in
+                                Color.clear.preference(
+                                    key: SettingsScrollOffsetKey.self,
+                                    value: geometry.frame(in: .named(Self.scrollSpace)).minY
+                                )
+                            }
+                        )
                     content()
                 }
                 .frame(maxWidth: DS.SettingsLayout.contentMaxWidth, alignment: .leading)
@@ -91,27 +114,61 @@ struct SettingsPage<Content: View>: View {
                 .padding(.vertical, DS.SettingsLayout.pageVerticalPadding)
                 .frame(maxWidth: .infinity, alignment: .top)
             }
+            .coordinateSpace(name: Self.scrollSpace)
+            .onPreferenceChange(SettingsScrollOffsetKey.self) { offset in
+                let shouldCondense = offset < -DS.SettingsLayout.condensedTitleThreshold
+                guard shouldCondense != isTitleCondensed else { return }
+                withAnimation(accessibilityReduceMotion ? nil : .easeOut(duration: DS.Animation.fast)) {
+                    isTitleCondensed = shouldCondense
+                }
+            }
             .onAppear { reveal(navigation.revealRequest, with: proxy) }
             .onChange(of: navigation.revealRequest) { _, request in
                 reveal(request, with: proxy)
             }
+        }
+        .overlay(alignment: .top) {
+            condensedTitleBar
         }
         .environment(\.settingsHighlightedItemID, navigation.highlightedItem?.rawValue)
         .background(DS.Colors.background)
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(tab.title)
                 .font(DS.Fonts.pageTitle)
                 .tracking(-0.5)
                 .foregroundColor(DS.Colors.textPrimary)
                 .accessibilityAddTraits(.isHeader)
             Text(tab.subtitle)
-                .font(DS.Fonts.body)
+                .font(DS.Fonts.bodyLarge)
                 .foregroundColor(DS.Colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(.bottom, DS.Spacing.xs)
+    }
+
+    /// The title, small and centered on frosted glass, once the big one has
+    /// scrolled away. Content blurs beneath it rather than being cut off.
+    private var condensedTitleBar: some View {
+        Text(tab.title)
+            .font(DS.Fonts.headline)
+            .foregroundColor(DS.Colors.textPrimary)
+            .frame(maxWidth: .infinity)
+            .frame(height: DS.SettingsLayout.condensedTitleBarHeight)
+            // Tint above the blur, so the bar stays matte.
+            .background(DS.Colors.condensedBarTint)
+            .background(.ultraThinMaterial)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(DS.Colors.hairline)
+                    .frame(height: 1)
+            }
+            .opacity(isTitleCondensed ? 1 : 0)
+            .offset(y: isTitleCondensed || accessibilityReduceMotion ? 0 : -6)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 
     /// Waits one layout pass so a page that just appeared has its rows,
@@ -120,7 +177,7 @@ struct SettingsPage<Content: View>: View {
         guard let request, request.item.tab == tab else { return }
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 80_000_000)
-            withAnimation(.easeInOut(duration: DS.Animation.normal)) {
+            withAnimation(accessibilityReduceMotion ? nil : DS.Animation.settingsPage) {
                 proxy.scrollTo(request.item.rawValue, anchor: .center)
             }
             navigation.didReveal(request)
@@ -158,7 +215,7 @@ struct SettingsSection<Content: View>: View {
                     if let title {
                         Text(title)
                             .font(DS.Fonts.sectionLabel)
-                            .foregroundColor(DS.Colors.textSecondary)
+                            .foregroundColor(DS.Colors.textTertiary)
                             .accessibilityAddTraits(.isHeader)
                     }
                     Spacer(minLength: 0)
@@ -173,14 +230,19 @@ struct SettingsSection<Content: View>: View {
                 content()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: DS.SettingsLayout.cardCornerRadius, style: .continuous))
             .background(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                RoundedRectangle(cornerRadius: DS.SettingsLayout.cardCornerRadius, style: .continuous)
                     .fill(DS.Colors.surface1)
+                    .shadow(
+                        color: DS.Colors.cardShadow,
+                        radius: DS.SettingsLayout.cardShadowRadius,
+                        y: DS.SettingsLayout.cardShadowY
+                    )
             )
             .overlay(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                    .stroke(DS.Colors.borderSubtle, lineWidth: 1)
+                RoundedRectangle(cornerRadius: DS.SettingsLayout.cardCornerRadius, style: .continuous)
+                    .stroke(DS.Colors.hairline, lineWidth: 1)
             )
             .accessibilityElement(children: .contain)
 
@@ -264,7 +326,7 @@ struct SettingsRowLabel: View {
                     .frame(width: DS.SettingsLayout.rowIconWidth)
                     .accessibilityHidden(true)
             }
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(DS.Fonts.bodyLarge)
                     .foregroundColor(DS.Colors.textPrimary)
@@ -601,6 +663,102 @@ struct SettingsSecretKeyRow: View {
         guard !trimmedDraft.isEmpty, !isBusy else { return }
         onSave(trimmedDraft)
         draft = ""
+    }
+}
+
+// MARK: - Disclosure
+
+/// A row that folds secondary detail away until it's wanted: the safety
+/// rules, the full "what leaves this Mac" list, the engines most people
+/// never use. The chevron turns and the content eases open.
+struct SettingsDisclosureRow<Content: View>: View {
+    let title: String
+    var subtitle: String?
+    var item: SettingsItem?
+    @Binding var isExpanded: Bool
+    @ViewBuilder var content: () -> Content
+
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @State private var isHovered = false
+
+    init(
+        _ title: String,
+        subtitle: String? = nil,
+        item: SettingsItem? = nil,
+        isExpanded: Binding<Bool>,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.item = item
+        self._isExpanded = isExpanded
+        self.content = content
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(accessibilityReduceMotion ? nil : DS.Animation.settingsDisclosure) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(alignment: .center, spacing: DS.SettingsLayout.rowAccessorySpacing) {
+                    SettingsRowLabel(title: title, subtitle: subtitle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Image(systemName: "chevron.right")
+                        .font(DS.Glyph.small)
+                        .foregroundColor(isHovered ? DS.Colors.textSecondary : DS.Colors.textTertiary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .accessibilityHidden(true)
+                }
+                .settingsRowInsets()
+                .background(isHovered ? DS.Colors.surface2.opacity(0.6) : Color.clear)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .onHover { isHovered = $0 }
+            .accessibilityLabel(title)
+            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+            .accessibilityHint(isExpanded ? "Hide details" : "Show details")
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 0) {
+                    content()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .transition(
+                    accessibilityReduceMotion
+                        ? .opacity
+                        : .opacity.combined(with: .move(edge: .top))
+                )
+            }
+        }
+        .clipped()
+        .settingsAnchor(item)
+    }
+}
+
+// MARK: - Frosted chrome
+
+/// AppKit's real behind-window blur, for the settings rail: the desktop
+/// shows through, softly, the way a macOS sidebar should. A matte tint on
+/// top (`DS.Colors.chromeTint`) keeps it on-palette.
+struct DSVisualEffectBackground: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .sidebar
+    var blendingMode: NSVisualEffectView.BlendingMode = .behindWindow
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = blendingMode
+        view.state = .followsWindowActiveState
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.material = material
+        view.blendingMode = blendingMode
     }
 }
 

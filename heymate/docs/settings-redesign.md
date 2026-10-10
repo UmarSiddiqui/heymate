@@ -237,3 +237,20 @@ as the AI engine), `SettingsEmptyRow`, `SettingsRefreshButton`.
   UserDefaults.
 - Visual check: each section in light and dark via `screencapture` on a Mac
   (not possible from the Linux container this branch was written in).
+
+## 8. Polish pass: calmer, more premium
+
+- **Blur:** the section rail uses AppKit's behind-window sidebar blur
+  (`DSVisualEffectBackground`) under a matte tint (`DS.Colors.chromeTint`).
+  When a page's title scrolls away it condenses into a frosted bar
+  (`.ultraThinMaterial` + `DS.Colors.condensedBarTint`) that content slides under.
+- **Motion:** pages cross-fade with a slight lift (`DS.Animation.settingsPage`,
+  critically damped); the rail's selection pill slides between items
+  (`matchedGeometryEffect`); expanders ease open (`DS.Animation.settingsDisclosure`).
+  All of it drops to plain fades under Reduce Motion.
+- **Rhythm:** 52pt rows, 18pt insets, 36pt between sections, a 640pt column,
+  16pt card corners with a hairline and a barely-there shadow.
+- **Less clutter:** decorative icons removed from Help and fact rows; most help
+  text cut to one line; secondary detail folds behind `SettingsDisclosureRow`
+  (Always true rules, What leaves this Mac, Other engines — the last opens
+  itself when one of those engines is in use).
