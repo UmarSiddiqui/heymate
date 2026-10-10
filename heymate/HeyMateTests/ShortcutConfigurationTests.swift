@@ -33,15 +33,15 @@ struct ShortcutConfigurationTests {
 
     @Test func dictateOptionRoundTripsThroughDefaults() {
         withSavedDictateOption {
-            BuddyPushToTalkShortcut.currentDictateOption = .controlOptionSpace
-            #expect(BuddyPushToTalkShortcut.currentDictateOption == .controlOptionSpace)
+            PushToTalkShortcut.dictate = .controlOptionSpace
+            #expect(PushToTalkShortcut.dictate == .controlOptionSpace)
         }
     }
 
     @Test func dictateOptionDefaultsToShiftFunctionWhenUnset() {
         withSavedDictateOption {
             UserDefaults.standard.removeObject(forKey: Self.dictateDefaultsKey)
-            #expect(BuddyPushToTalkShortcut.currentDictateOption == .shiftFunction)
+            #expect(PushToTalkShortcut.dictate == .shiftFunction)
         }
     }
 
@@ -50,7 +50,7 @@ struct ShortcutConfigurationTests {
         withSavedDictateOption {
             UserDefaults.standard.removeObject(forKey: Self.dictateDefaultsKey)
             UserDefaults.standard.removeObject(forKey: "talkShortcutOption")
-            #expect(BuddyPushToTalkShortcut.currentShortcutOption != BuddyPushToTalkShortcut.currentDictateOption)
+            #expect(PushToTalkShortcut.talk != PushToTalkShortcut.dictate)
         }
     }
 
@@ -61,42 +61,42 @@ struct ShortcutConfigurationTests {
     }
 
     @Test func controlOptionSpacePressesOnSpaceKeyDown() {
-        let pressed = BuddyPushToTalkShortcut.shortcutTransition(
+        let pressed = PushToTalkShortcut.transition(
             for: .keyDown,
             keyCode: 49,
             modifierFlagsRawValue: flags([.control, .option]),
-            wasShortcutPreviouslyPressed: false,
+            wasHeld: false,
             option: .controlOptionSpace
         )
         #expect(pressed == .pressed)
     }
 
     @Test func controlOptionSpaceReleasesOnKeyUpWithoutModifiers() {
-        let released = BuddyPushToTalkShortcut.shortcutTransition(
+        let released = PushToTalkShortcut.transition(
             for: .keyUp,
             keyCode: 49,
             modifierFlagsRawValue: 0,
-            wasShortcutPreviouslyPressed: true,
+            wasHeld: true,
             option: .controlOptionSpace
         )
         #expect(released == .released)
     }
 
     @Test func shiftFunctionTransitionsViaFlagsChanged() {
-        let pressed = BuddyPushToTalkShortcut.shortcutTransition(
+        let pressed = PushToTalkShortcut.transition(
             for: .flagsChanged,
             keyCode: 0,
             modifierFlagsRawValue: flags([.shift, .function]),
-            wasShortcutPreviouslyPressed: false,
+            wasHeld: false,
             option: .shiftFunction
         )
         #expect(pressed == .pressed)
 
-        let released = BuddyPushToTalkShortcut.shortcutTransition(
+        let released = PushToTalkShortcut.transition(
             for: .flagsChanged,
             keyCode: 0,
             modifierFlagsRawValue: flags([.shift]),
-            wasShortcutPreviouslyPressed: true,
+            wasHeld: true,
             option: .shiftFunction
         )
         #expect(released == .released)
@@ -104,42 +104,42 @@ struct ShortcutConfigurationTests {
 
     @Test func wrongModifiersProduceNoTransition() {
         // Control+Option held while the dictate channel expects Shift+Fn.
-        let none = BuddyPushToTalkShortcut.shortcutTransition(
+        let none = PushToTalkShortcut.transition(
             for: .flagsChanged,
             keyCode: 0,
             modifierFlagsRawValue: flags([.control, .option]),
-            wasShortcutPreviouslyPressed: false,
+            wasHeld: false,
             option: .shiftFunction
         )
         #expect(none == .none)
     }
 
     @Test func controlCommandPressesOnFlagsChanged() {
-        let pressed = BuddyPushToTalkShortcut.shortcutTransition(
+        let pressed = PushToTalkShortcut.transition(
             for: .flagsChanged,
             keyCode: 0,
             modifierFlagsRawValue: flags([.control, .command]),
-            wasShortcutPreviouslyPressed: false,
+            wasHeld: false,
             option: .controlCommand
         )
         #expect(pressed == .pressed)
 
-        let released = BuddyPushToTalkShortcut.shortcutTransition(
+        let released = PushToTalkShortcut.transition(
             for: .flagsChanged,
             keyCode: 0,
             modifierFlagsRawValue: flags([.control]),
-            wasShortcutPreviouslyPressed: true,
+            wasHeld: true,
             option: .controlCommand
         )
         #expect(released == .released)
     }
 
     @Test func controlCommandDoesNotFireForTalkDefault() {
-        let none = BuddyPushToTalkShortcut.shortcutTransition(
+        let none = PushToTalkShortcut.transition(
             for: .flagsChanged,
             keyCode: 0,
             modifierFlagsRawValue: flags([.control, .command]),
-            wasShortcutPreviouslyPressed: false,
+            wasHeld: false,
             option: .controlOption
         )
         #expect(none == .none)
@@ -165,8 +165,8 @@ struct ShortcutConfigurationTests {
         withSavedChatOption {
             UserDefaults.standard.removeObject(forKey: Self.chatDefaultsKey)
             UserDefaults.standard.removeObject(forKey: "talkShortcutOption")
-            #expect(BuddyPushToTalkShortcut.currentChatOption == .controlCommand)
-            #expect(BuddyPushToTalkShortcut.currentChatOption != BuddyPushToTalkShortcut.currentShortcutOption)
+            #expect(PushToTalkShortcut.chat == .controlCommand)
+            #expect(PushToTalkShortcut.chat != PushToTalkShortcut.talk)
         }
     }
 }

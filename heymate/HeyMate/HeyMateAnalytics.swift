@@ -2,8 +2,11 @@
 //  HeyMateAnalytics.swift
 //  HeyMate
 //
-//  Centralized PostHog analytics wrapper. All event names and properties
-//  are defined here so instrumentation is consistent and easy to audit.
+//  Opt-in product analytics. Every event HeyMate can send is a case of
+//  `HeyMateAnalytics.Event`, so the full list of names and properties is
+//  readable in one place and checked by the privacy tests. Nothing here
+//  ever carries user text: transcripts, replies and screen labels are
+//  reduced to counts before they reach an event.
 //
 
 import Foundation
@@ -88,135 +91,73 @@ struct AnalyticsErrorSummary {
 
 enum HeyMateAnalytics {
 
-    // MARK: - Setup
+    enum Event {
+        case appOpened(version: String)
+        case onboardingStarted
+        case onboardingReplayed
+        case onboardingVideoCompleted
+        case onboardingDemoTriggered
+        case permissionGranted(String)
+        case allPermissionsGranted
+        case pushToTalkStarted
+        case pushToTalkReleased
+        case userMessageSent(characterCount: Int)
+        case aiResponseReceived(characterCount: Int)
+        case elementPointed(ScreenPointingTelemetrySummary)
+        case error(AnalyticsErrorSummary)
 
-    /// PostHog is opt-in for HeyMate builds: keys are read from the app
-    /// bundle's Info.plist (POSTHOG_API_KEY / POSTHOG_HOST). When absent —
-    /// the default — every tracking call below is a safe no-op.
+        var name: String {
+            switch self {
+            case .appOpened: return "app_opened"
+            case .onboardingStarted: return "onboarding_started"
+            case .onboardingReplayed: return "onboarding_replayed"
+            case .onboardingVideoCompleted: return "onboarding_video_completed"
+            case .onboardingDemoTriggered: return "onboarding_demo_triggered"
+            case .permissionGranted: return "permission_granted"
+            case .allPermissionsGranted: return "all_permissions_granted"
+            case .pushToTalkStarted: return "push_to_talk_started"
+            case .pushToTalkReleased: return "push_to_talk_released"
+            case .userMessageSent: return "user_message_sent"
+            case .aiResponseReceived: return "ai_response_received"
+            case .elementPointed: return "element_pointed"
+            case .error(let summary): return summary.category.eventName
+            }
+        }
+
+        var properties: [String: Any]? {
+            switch self {
+            case .appOpened(let version): return ["app_version": version]
+            case .permissionGranted(let permission): return ["permission": permission]
+            case .userMessageSent(let count), .aiResponseReceived(let count):
+                return ["character_count": count]
+            case .elementPointed(let summary): return summary.analyticsProperties
+            case .error(let summary): return summary.analyticsProperties
+            case .onboardingStarted, .onboardingReplayed, .onboardingVideoCompleted,
+                 .onboardingDemoTriggered, .allPermissionsGranted,
+                 .pushToTalkStarted, .pushToTalkReleased:
+                return nil
+            }
+        }
+    }
+
+    /// Set once by `configure()`. Builds without a PostHog key in Info.plist
+    /// (the default) never set it, so `track` is a no-op for them.
     private static var isEnabled = false
 
     static func configure() {
-        guard let apiKey = AppBundleConfiguration.stringValue(forKey: "POSTHOG_API_KEY"),
-              !apiKey.isEmpty else {
-            isEnabled = false
-            return
-        }
-
-        let config = PostHogConfig(
-            apiKey: apiKey,
-            host: AppBundleConfiguration.stringValue(forKey: "POSTHOG_HOST") ?? "https://us.i.posthog.com"
-        )
-        PostHogSDK.shared.setup(config)
+        guard let apiKey = AppBundleConfiguration.stringValue(forKey: "POSTHOG_API_KEY") else { return }
+        let host = AppBundleConfiguration.stringValue(forKey: "POSTHOG_HOST") ?? "https://us.i.posthog.com"
+        PostHogSDK.shared.setup(PostHogConfig(apiKey: apiKey, host: host))
         isEnabled = true
     }
 
-    // MARK: - App Lifecycle
+    static func track(_ event: Event) {
+        guard isEnabled else { return }
+        PostHogSDK.shared.capture(event.name, properties: event.properties)
+    }
 
-    /// Fired once on every app launch in applicationDidFinishLaunching.
     static func trackAppOpened() {
-        guard isEnabled else { return }
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
-        PostHogSDK.shared.capture("app_opened", properties: [
-            "app_version": version
-        ])
-    }
-
-    // MARK: - Onboarding
-
-    /// User clicked the Start button to begin onboarding for the first time.
-    static func trackOnboardingStarted() {
-        guard isEnabled else { return }
-        PostHogSDK.shared.capture("onboarding_started")
-    }
-
-    /// User clicked "Watch Onboarding Again" from the panel footer.
-    static func trackOnboardingReplayed() {
-        guard isEnabled else { return }
-        PostHogSDK.shared.capture("onboarding_replayed")
-    }
-
-    /// The onboarding intro finished playing to the end.
-    static func trackOnboardingVideoCompleted() {
-        guard isEnabled else { return }
-        PostHogSDK.shared.capture("onboarding_video_completed")
-    }
-
-    /// The onboarding demo interaction where HeyMate points at something.
-    static func trackOnboardingDemoTriggered() {
-        guard isEnabled else { return }
-        PostHogSDK.shared.capture("onboarding_demo_triggered")
-    }
-
-    // MARK: - Permissions
-
-    /// All required permissions (accessibility, screen recording, mic) are granted.
-    static func trackAllPermissionsGranted() {
-        guard isEnabled else { return }
-        PostHogSDK.shared.capture("all_permissions_granted")
-    }
-
-    /// A single permission was granted. Called when polling detects a change.
-    static func trackPermissionGranted(permission: String) {
-        guard isEnabled else { return }
-        PostHogSDK.shared.capture("permission_granted", properties: [
-            "permission": permission
-        ])
-    }
-
-    // MARK: - Voice Interaction
-
-    /// User pressed the push-to-talk shortcut (control+option) to start talking.
-    static func trackPushToTalkStarted() {
-        guard isEnabled else { return }
-        PostHogSDK.shared.capture("push_to_talk_started")
-    }
-
-    /// User released the shortcut — transcript is being finalized.
-    static func trackPushToTalkReleased() {
-        guard isEnabled else { return }
-        PostHogSDK.shared.capture("push_to_talk_released")
-    }
-
-    /// Transcription completed and the user's message is being sent to the AI.
-    /// Privacy invariant: only the character count is reported — never the
-    /// transcript itself.
-    static func trackUserMessageSent(transcript: String) {
-        guard isEnabled else { return }
-        PostHogSDK.shared.capture("user_message_sent", properties: [
-            "character_count": transcript.count
-        ])
-    }
-
-    /// The AI responded and the response is being spoken via TTS.
-    /// Privacy invariant: only the character count is reported — never the
-    /// response text itself.
-    static func trackAIResponseReceived(response: String) {
-        guard isEnabled else { return }
-        PostHogSDK.shared.capture("ai_response_received", properties: [
-            "character_count": response.count
-        ])
-    }
-
-    /// Claude's response included a [POINT:x,y:label] coordinate tag. Only its
-    /// numeric projection is reported; screen-derived text never leaves the Mac.
-    static func trackElementPointed(_ summary: ScreenPointingTelemetrySummary) {
-        guard isEnabled else { return }
-        PostHogSDK.shared.capture(
-            "element_pointed",
-            properties: summary.analyticsProperties
-        )
-    }
-
-    // MARK: - Errors
-
-    /// An error occurred in a bounded pipeline category. Only category,
-    /// sanitized domain, and numeric code are sent — never descriptions or
-    /// upstream response bodies.
-    static func trackError(_ summary: AnalyticsErrorSummary) {
-        guard isEnabled else { return }
-        PostHogSDK.shared.capture(
-            summary.category.eventName,
-            properties: summary.analyticsProperties
-        )
+        track(.appOpened(version: version))
     }
 }

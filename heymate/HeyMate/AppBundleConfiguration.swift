@@ -2,27 +2,28 @@
 //  AppBundleConfiguration.swift
 //  HeyMate
 //
-//  Shared helper for reading runtime configuration from the built app bundle.
+//  Build-time settings (backend URLs, optional analytics keys) that the build
+//  writes into Info.plist. Blank values count as unset, so a key left empty
+//  in the project behaves exactly like a missing one.
 //
 
 import Foundation
 
 enum AppBundleConfiguration {
     static func stringValue(forKey key: String) -> String? {
-        if let value = Bundle.main.object(forInfoDictionaryKey: key) as? String {
-            let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedValue.isEmpty {
-                return trimmedValue
-            }
-        }
+        nonBlank(Bundle.main.object(forInfoDictionaryKey: key))
+            ?? nonBlank(bundledInfoPlist?[key])
+    }
 
-        guard let resourceInfoPath = Bundle.main.path(forResource: "Info", ofType: "plist"),
-              let resourceInfo = NSDictionary(contentsOfFile: resourceInfoPath),
-              let value = resourceInfo[key] as? String else {
-            return nil
-        }
+    /// Info.plist copied in as a plain resource. Some build setups only
+    /// expose custom keys this way, so it is the fallback, read once.
+    private static let bundledInfoPlist: NSDictionary? = Bundle.main
+        .url(forResource: "Info", withExtension: "plist")
+        .flatMap { NSDictionary(contentsOf: $0) }
 
-        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedValue.isEmpty ? nil : trimmedValue
+    private static func nonBlank(_ value: Any?) -> String? {
+        guard let text = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty else { return nil }
+        return text
     }
 }

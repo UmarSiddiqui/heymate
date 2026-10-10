@@ -5,7 +5,7 @@
 //  Provider-neutral seams for the AI services so backends can be swapped
 //  without touching CompanionManager. These mirror the surfaces of the
 //  shipping implementations (ClaudeAPI, ElevenLabsTTSClient). The STT seam
-//  already exists as BuddyTranscriptionProvider + BuddyStreamingTranscriptionSession
+//  already exists as SpeechToTextProvider + LiveTranscriptionSession
 //  with three interchangeable conformers, so it stays as the canonical
 //  StreamingSTTClient boundary.
 //

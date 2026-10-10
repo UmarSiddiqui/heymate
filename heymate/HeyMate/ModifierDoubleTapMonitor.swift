@@ -4,7 +4,7 @@
 //
 //  Double-tap-a-modifier detection, as its own listen-only CGEvent tap.
 //
-//  Why a separate monitor rather than a flag on GlobalPushToTalkShortcutMonitor:
+//  Why a separate monitor rather than a flag on GlobalShortcutMonitor:
 //  that monitor's whole contract is press/release for hold-to-talk, and the
 //  shortcuts it watches are two-modifier combos. Double-tap modes are the
 //  opposite shape — a single modifier, tapped twice, with nothing held — and

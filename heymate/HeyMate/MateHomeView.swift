@@ -1241,10 +1241,10 @@ struct MateHomeView: View {
         isHoldingTalk = true
         let attachments = imageAttachments
         Task {
-            await companionManager.buddyDictationManager.startHoldToTalk(
-                currentDraftText: typedMessageInput,
-                updateDraftText: { typedMessageInput = $0 },
-                submitDraftText: { finalText in
+            await companionManager.voiceDictation.beginHoldToTalk(
+                existingDraft: typedMessageInput,
+                onDraftChange: { typedMessageInput = $0 },
+                onSubmit: { finalText in
                     let trimmed = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !trimmed.isEmpty || !attachments.isEmpty else { return }
                     if companionManager.sendTypedMessage(trimmed, imageAttachments: attachments) {
@@ -1262,7 +1262,7 @@ struct MateHomeView: View {
     private func endHoldToTalk() {
         guard isHoldingTalk else { return }
         isHoldingTalk = false
-        companionManager.buddyDictationManager.stopPersistentDictationFromMicrophoneButton()
+        companionManager.voiceDictation.finishHoldToTalk()
     }
 
     private func handleImageImport(_ result: Result<[URL], Error>) {

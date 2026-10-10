@@ -106,14 +106,14 @@ struct VoiceProviderTests {
     }
 
     @Test func listenFactoryHonorsPreferredProvider() {
-        let apple = BuddyTranscriptionProviderFactory.makeProvider(preferred: .apple)
+        let apple = SpeechToTextProviders.resolve(.apple)
         #expect(apple.displayName == "Apple Speech")
     }
 
     @Test func listenFactoryFallsBackWhenOnDeviceIsMissing() {
         // Never pretends a missing model is usable: without the download the
         // factory hands back something that can actually run.
-        let provider = BuddyTranscriptionProviderFactory.makeProvider(preferred: .onDevice)
+        let provider = SpeechToTextProviders.resolve(.onDevice)
         #expect(provider.isConfigured)
     }
 }
@@ -140,7 +140,7 @@ struct VoiceProviderPersistenceTests {
         #expect(UserDefaults.standard.string(forKey: CompanionManager.speakPreferenceKey) == "elevenlabs")
         #expect(manager.selectedListenProvider == .apple)
         #expect(manager.selectedSpeakProvider == .elevenLabs)
-        #expect(manager.buddyDictationManager.transcriptionProviderDisplayName == "Apple Speech")
+        #expect(manager.voiceDictation.transcriptionProviderDisplayName == "Apple Speech")
 
         UserDefaults.standard.removeObject(forKey: CompanionManager.listenPreferenceKey)
         UserDefaults.standard.removeObject(forKey: CompanionManager.speakPreferenceKey)

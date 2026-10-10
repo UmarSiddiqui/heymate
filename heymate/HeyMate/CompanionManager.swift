@@ -309,21 +309,21 @@ final class CompanionManager: ObservableObject {
     @Published var onboardingPromptOpacity: Double = 0.0
     @Published var showOnboardingPrompt: Bool = false
 
-    let buddyDictationManager = BuddyDictationManager()
-    let globalPushToTalkShortcutMonitor = GlobalPushToTalkShortcutMonitor(
-        optionProvider: { BuddyPushToTalkShortcut.currentShortcutOption }
+    let voiceDictation = VoiceDictation()
+    let talkShortcutMonitor = GlobalShortcutMonitor(
+        optionProvider: { PushToTalkShortcut.talk }
     )
     /// Second, independent shortcut channel for contextual dictation.
-    private lazy var dictateShortcutMonitor = GlobalPushToTalkShortcutMonitor(
-        optionProvider: { BuddyPushToTalkShortcut.currentDictateOption }
+    private lazy var dictateShortcutMonitor = GlobalShortcutMonitor(
+        optionProvider: { PushToTalkShortcut.dictate }
     )
     /// Third channel: hold + freehand drag to mark a screen region.
-    private lazy var spatialShortcutMonitor = GlobalPushToTalkShortcutMonitor(
-        optionProvider: { BuddyPushToTalkShortcut.currentSpatialOption }
+    private lazy var spatialShortcutMonitor = GlobalShortcutMonitor(
+        optionProvider: { PushToTalkShortcut.spatialSelect }
     )
     /// Fourth channel: press ctrl+command (default) to summon compact notch chat.
-    private lazy var chatShortcutMonitor = GlobalPushToTalkShortcutMonitor(
-        optionProvider: { BuddyPushToTalkShortcut.currentChatOption }
+    private lazy var chatShortcutMonitor = GlobalShortcutMonitor(
+        optionProvider: { PushToTalkShortcut.chat }
     )
     /// Fifth channel: tap ctrl twice to summon the typed ask box. Separate tap
     /// because double-tap is a different state machine from hold-to-talk.
@@ -1275,8 +1275,8 @@ final class CompanionManager: ObservableObject {
     func setSelectedListenProvider(_ provider: VoiceListenProvider) {
         selectedListenProvider = provider
         UserDefaults.standard.set(provider.rawValue, forKey: Self.listenPreferenceKey)
-        buddyDictationManager.useTranscriptionProvider(
-            BuddyTranscriptionProviderFactory.makeProvider(preferred: provider)
+        voiceDictation.useProvider(
+            SpeechToTextProviders.resolve(provider)
         )
     }
 
@@ -1629,7 +1629,7 @@ final class CompanionManager: ObservableObject {
         }
         isSubscriptionVoiceChatActive = true
         commandBarFeedback = nil
-        if handsFreeSilenceCancellable == nil, !buddyDictationManager.isDictationInProgress {
+        if handsFreeSilenceCancellable == nil, !voiceDictation.isDictationInProgress {
             handleHandsFreeDoubleTap()
         }
     }
@@ -1639,7 +1639,7 @@ final class CompanionManager: ObservableObject {
             isSubscriptionVoiceChatActive = false
             return
         }
-        guard handsFreeSilenceCancellable == nil, !buddyDictationManager.isDictationInProgress else { return }
+        guard handsFreeSilenceCancellable == nil, !voiceDictation.isDictationInProgress else { return }
         handleHandsFreeDoubleTap()
     }
 
@@ -1758,35 +1758,35 @@ final class CompanionManager: ObservableObject {
     /// The Claude model used for voice responses. Persisted to UserDefaults.
 
     /// The active Talk (push-to-talk) shortcut. Persisted via
-    /// BuddyPushToTalkShortcut; takes effect immediately because the CGEvent
+    /// PushToTalkShortcut; takes effect immediately because the CGEvent
     /// tap consults the current option on every event.
-    @Published var talkShortcutOption: BuddyPushToTalkShortcut.ShortcutOption = BuddyPushToTalkShortcut.currentShortcutOption {
+    @Published var talkShortcutOption: PushToTalkShortcut.Option = PushToTalkShortcut.talk {
         didSet {
-            BuddyPushToTalkShortcut.currentShortcutOption = talkShortcutOption
+            PushToTalkShortcut.talk = talkShortcutOption
         }
     }
 
     /// The active contextual-dictation shortcut. Separate channel from Talk:
     /// dictation inserts into the focused field instead of asking the
     /// screen-aware assistant.
-    @Published var dictateShortcutOption: BuddyPushToTalkShortcut.ShortcutOption = BuddyPushToTalkShortcut.currentDictateOption {
+    @Published var dictateShortcutOption: PushToTalkShortcut.Option = PushToTalkShortcut.dictate {
         didSet {
-            BuddyPushToTalkShortcut.currentDictateOption = dictateShortcutOption
+            PushToTalkShortcut.dictate = dictateShortcutOption
         }
     }
 
     /// The spatial-selection shortcut: hold, drag a freehand region, and
     /// that region becomes priority context for the next Talk/dictate send.
-    @Published var spatialSelectShortcutOption: BuddyPushToTalkShortcut.ShortcutOption = BuddyPushToTalkShortcut.currentSpatialOption {
+    @Published var spatialSelectShortcutOption: PushToTalkShortcut.Option = PushToTalkShortcut.spatialSelect {
         didSet {
-            BuddyPushToTalkShortcut.currentSpatialOption = spatialSelectShortcutOption
+            PushToTalkShortcut.spatialSelect = spatialSelectShortcutOption
         }
     }
 
     /// Press (not hold) to open the compact notch chat. Defaults to ctrl+command.
-    @Published var chatShortcutOption: BuddyPushToTalkShortcut.ShortcutOption = BuddyPushToTalkShortcut.currentChatOption {
+    @Published var chatShortcutOption: PushToTalkShortcut.Option = PushToTalkShortcut.chat {
         didSet {
-            BuddyPushToTalkShortcut.currentChatOption = chatShortcutOption
+            PushToTalkShortcut.chat = chatShortcutOption
         }
     }
 
@@ -2505,7 +2505,7 @@ final class CompanionManager: ObservableObject {
         // again on future launches — the cursor will auto-show instead
         hasCompletedOnboarding = true
 
-        HeyMateAnalytics.trackOnboardingStarted()
+        HeyMateAnalytics.track(.onboardingStarted)
 
         // Show the overlay for the first time — isFirstAppearance triggers
         // the welcome animation and onboarding prompt
@@ -2518,7 +2518,7 @@ final class CompanionManager: ObservableObject {
     /// is already visible so we just restart the welcome animation and prompt.
     func replayOnboarding() {
         NotificationCenter.default.post(name: .heyMateDismissPanel, object: nil)
-        HeyMateAnalytics.trackOnboardingReplayed()
+        HeyMateAnalytics.track(.onboardingReplayed)
         // Tear down any existing overlays and recreate with isFirstAppearance = true
         overlayWindowManager.hasShownOverlayBefore = false
         overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
@@ -2533,13 +2533,13 @@ final class CompanionManager: ObservableObject {
 
     func stop() {
         stopExternalControlBridge()
-        globalPushToTalkShortcutMonitor.stop()
+        talkShortcutMonitor.stop()
         dictateShortcutMonitor.stop()
         spatialShortcutMonitor.stop()
         chatShortcutMonitor.stop()
         textDoubleTapMonitor.stop()
         handsFreeDoubleTapMonitor.stop()
-        buddyDictationManager.cancelCurrentDictation()
+        voiceDictation.cancel()
         contextualConnectorSuggestionMonitor.stop()
         overlayWindowManager.hideOverlay()
         transientHideTask?.cancel()
@@ -2576,14 +2576,14 @@ final class CompanionManager: ObservableObject {
         }
 
         if currentlyHasAccessibility {
-            globalPushToTalkShortcutMonitor.start()
+            talkShortcutMonitor.start()
             dictateShortcutMonitor.start()
             spatialShortcutMonitor.start()
             chatShortcutMonitor.start()
             textDoubleTapMonitor.start()
             handsFreeDoubleTapMonitor.start()
         } else {
-            globalPushToTalkShortcutMonitor.stop()
+            talkShortcutMonitor.stop()
             dictateShortcutMonitor.stop()
             spatialShortcutMonitor.stop()
             chatShortcutMonitor.stop()
@@ -2610,13 +2610,13 @@ final class CompanionManager: ObservableObject {
 
         // Track individual permission grants as they happen
         if !previouslyHadAccessibility && hasAccessibilityPermission {
-            HeyMateAnalytics.trackPermissionGranted(permission: "accessibility")
+            HeyMateAnalytics.track(.permissionGranted("accessibility"))
         }
         if !previouslyHadScreenRecording && hasScreenRecordingPermission {
-            HeyMateAnalytics.trackPermissionGranted(permission: "screen_recording")
+            HeyMateAnalytics.track(.permissionGranted("screen_recording"))
         }
         if !previouslyHadMicrophone && hasMicrophonePermission {
-            HeyMateAnalytics.trackPermissionGranted(permission: "microphone")
+            HeyMateAnalytics.track(.permissionGranted("microphone"))
         }
         // Screen content permission is persisted — once the user has approved the
         // SCShareableContent picker, we don't need to re-check it.
@@ -2630,7 +2630,7 @@ final class CompanionManager: ObservableObject {
         }
 
         if !previouslyHadAll && allPermissionsGranted {
-            HeyMateAnalytics.trackAllPermissionsGranted()
+            HeyMateAnalytics.track(.allPermissionsGranted)
         }
     }
 
@@ -2664,7 +2664,7 @@ final class CompanionManager: ObservableObject {
                     guard didCapture else { return }
                     hasScreenContentPermission = true
                     UserDefaults.standard.set(true, forKey: "hasScreenContentPermission")
-                    HeyMateAnalytics.trackPermissionGranted(permission: "screen_content")
+                    HeyMateAnalytics.track(.permissionGranted("screen_content"))
 
                     // If onboarding was already completed, show the cursor overlay now
                     if hasCompletedOnboarding && allPermissionsGranted && !isOverlayVisible && isCursorCompanionEnabled {
@@ -2705,7 +2705,7 @@ final class CompanionManager: ObservableObject {
     }
 
     private func bindAudioPowerLevel() {
-        audioPowerCancellable = buddyDictationManager.$currentAudioPowerLevel
+        audioPowerCancellable = voiceDictation.$currentAudioPowerLevel
             .receive(on: DispatchQueue.main)
             .sink { [weak self] powerLevel in
                 self?.currentAudioPowerLevel = powerLevel
@@ -2713,10 +2713,10 @@ final class CompanionManager: ObservableObject {
     }
 
     private func bindVoiceStateObservation() {
-        voiceStateCancellable = buddyDictationManager.$isRecordingFromKeyboardShortcut
+        voiceStateCancellable = voiceDictation.$isRecordingFromKeyboardShortcut
             .combineLatest(
-                buddyDictationManager.$isFinalizingTranscript,
-                buddyDictationManager.$isPreparingToRecord
+                voiceDictation.$isFinalizingTranscript,
+                voiceDictation.$isPreparingToRecord
             )
             .receive(on: DispatchQueue.main)
             .sink { [weak self] isRecording, isFinalizing, isPreparing in
@@ -2745,7 +2745,7 @@ final class CompanionManager: ObservableObject {
     }
 
     private func bindShortcutTransitions() {
-        shortcutTransitionCancellable = globalPushToTalkShortcutMonitor
+        shortcutTransitionCancellable = talkShortcutMonitor
             .shortcutTransitionPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] transition in
@@ -2801,7 +2801,7 @@ final class CompanionManager: ObservableObject {
     /// compact chat surface the chat hold-shortcut opens, so there is one
     /// composer rather than two that can disagree.
     private func handleTextDoubleTap() {
-        guard !buddyDictationManager.isDictationInProgress else { return }
+        guard !voiceDictation.isDictationInProgress else { return }
         notchCompanionController.toggleCompactChat()
     }
 
@@ -2809,7 +2809,7 @@ final class CompanionManager: ObservableObject {
     /// typed composer. Any answer still being spoken is cut off, the same way
     /// pressing Talk interrupts one.
     private func openTypedComposerForSilentMode() {
-        guard !buddyDictationManager.isDictationInProgress else { return }
+        guard !voiceDictation.isDictationInProgress else { return }
         voiceSynthesisClient.stopPlayback()
         notchCompanionController.toggleCompactChat()
     }
@@ -2827,7 +2827,7 @@ final class CompanionManager: ObservableObject {
             return
         }
 
-        guard !buddyDictationManager.isDictationInProgress else { return }
+        guard !voiceDictation.isDictationInProgress else { return }
         handleShortcutTransition(.pressed)
         beginHandsFreeSilenceWatch()
     }
@@ -2845,7 +2845,7 @@ final class CompanionManager: ObservableObject {
         handsFreeHasHeardSpeech = false
         handsFreeSilenceStartedAt = nil
 
-        handsFreeSilenceCancellable = buddyDictationManager
+        handsFreeSilenceCancellable = voiceDictation
             .$currentAudioPowerLevel
             .receive(on: DispatchQueue.main)
             .sink { [weak self] audioPowerLevel in
@@ -2910,7 +2910,7 @@ final class CompanionManager: ObservableObject {
 
     /// Press opens compact notch chat; a second press collapses it. Release
     /// is ignored — chat is not a hold-to-show mode.
-    private func handleChatShortcutTransition(_ transition: BuddyPushToTalkShortcut.ShortcutTransition) {
+    private func handleChatShortcutTransition(_ transition: PushToTalkShortcut.Transition) {
         switch transition {
         case .pressed:
             notchCompanionController.toggleCompactChat()
@@ -2922,10 +2922,10 @@ final class CompanionManager: ObservableObject {
     /// Spatial channel: press starts freehand capture on the cursor's screen
     /// (the overlay temporarily accepts mouse events); release finalizes the
     /// polygon and returns the overlay to click-through.
-    private func handleSpatialTransition(_ transition: BuddyPushToTalkShortcut.ShortcutTransition) {
+    private func handleSpatialTransition(_ transition: PushToTalkShortcut.Transition) {
         switch transition {
         case .pressed:
-            guard !buddyDictationManager.isDictationInProgress else { return }
+            guard !voiceDictation.isDictationInProgress else { return }
             guard case .idle = state else { return }
 
             // A fresh gesture replaces any previous selection.
@@ -3007,13 +3007,13 @@ final class CompanionManager: ObservableObject {
     /// Dictate channel: hold to stream speech; on release the transcript is
     /// (Literal) cleaned or (Smart) rewritten with screen/focused-field
     /// context, then inserted into whatever field has keyboard focus.
-    private func handleDictateTransition(_ transition: BuddyPushToTalkShortcut.ShortcutTransition) {
+    private func handleDictateTransition(_ transition: PushToTalkShortcut.Transition) {
         switch transition {
         case .pressed:
             // Silent mode means no mic at all; dictation has no typed
             // equivalent here, so the shortcut does nothing.
             guard !isSilentModeEnabled else { return }
-            guard !buddyDictationManager.isDictationInProgress else { return }
+            guard !voiceDictation.isDictationInProgress else { return }
             guard hasMicrophonePermission else { return }
 
             // Cancel any in-flight response/TTS — one interaction at a time.
@@ -3028,12 +3028,12 @@ final class CompanionManager: ObservableObject {
 
             pendingDictateStartTask?.cancel()
             pendingDictateStartTask = Task {
-                await buddyDictationManager.startPushToTalkFromKeyboardShortcut(
-                    currentDraftText: "",
-                    updateDraftText: { _ in
+                await voiceDictation.beginShortcutDictation(
+                    existingDraft: "",
+                    onDraftChange: { _ in
                         // Partial transcripts are hidden (waveform-only UI)
                     },
-                    submitDraftText: { [weak self] finalTranscript in
+                    onSubmit: { [weak self] finalTranscript in
                         self?.processDictationTranscript(finalTranscript)
                     }
                 )
@@ -3041,13 +3041,13 @@ final class CompanionManager: ObservableObject {
         case .released:
             // Nothing was started on press. A dictation already recording when
             // silent mode was switched on still finishes normally.
-            if isSilentModeEnabled && !buddyDictationManager.isDictationInProgress
+            if isSilentModeEnabled && !voiceDictation.isDictationInProgress
                 && pendingDictateStartTask == nil {
                 return
             }
             pendingDictateStartTask?.cancel()
             pendingDictateStartTask = nil
-            buddyDictationManager.stopPushToTalkFromKeyboardShortcut()
+            voiceDictation.finishShortcutDictation()
         case .none:
             break
         }
@@ -3211,14 +3211,14 @@ final class CompanionManager: ObservableObject {
         return lines.joined(separator: "\n")
     }
 
-    private func handleShortcutTransition(_ transition: BuddyPushToTalkShortcut.ShortcutTransition) {
+    private func handleShortcutTransition(_ transition: PushToTalkShortcut.Transition) {
         switch transition {
         case .pressed:
             if isSilentModeEnabled {
                 openTypedComposerForSilentMode()
                 return
             }
-            guard !buddyDictationManager.isDictationInProgress else { return }
+            guard !voiceDictation.isDictationInProgress else { return }
 
             // A new interaction wins over a recall already in flight. Overlay
             // view sees deployed phase and resumes normal pointer following.
@@ -3263,19 +3263,19 @@ final class CompanionManager: ObservableObject {
             }
     
 
-            HeyMateAnalytics.trackPushToTalkStarted()
+            HeyMateAnalytics.track(.pushToTalkStarted)
 
             pendingKeyboardShortcutStartTask?.cancel()
             pendingKeyboardShortcutStartTask = Task {
-                await buddyDictationManager.startPushToTalkFromKeyboardShortcut(
-                    currentDraftText: "",
-                    updateDraftText: { _ in
+                await voiceDictation.beginShortcutDictation(
+                    existingDraft: "",
+                    onDraftChange: { _ in
                         // Partial transcripts are hidden (waveform-only UI)
                     },
-                    submitDraftText: { [weak self] finalTranscript in
+                    onSubmit: { [weak self] finalTranscript in
                         self?.lastTranscript = finalTranscript
                         HeyMateLog.log("🗣️ Companion received transcript (\(finalTranscript.count) characters)")
-                        HeyMateAnalytics.trackUserMessageSent(transcript: finalTranscript)
+                        HeyMateAnalytics.track(.userMessageSent(characterCount: finalTranscript.count))
                         self?.handleTalkTranscript(finalTranscript)
                     }
                 )
@@ -3284,7 +3284,7 @@ final class CompanionManager: ObservableObject {
             // Silent mode opened the composer on press; there is no recording
             // to stop. A turn already recording when silent mode was switched
             // on still finishes normally.
-            if isSilentModeEnabled && !buddyDictationManager.isDictationInProgress
+            if isSilentModeEnabled && !voiceDictation.isDictationInProgress
                 && pendingKeyboardShortcutStartTask == nil {
                 return
             }
@@ -3292,10 +3292,10 @@ final class CompanionManager: ObservableObject {
             // before the async startPushToTalk had a chance to begin recording.
             // Without this, a quick press-and-release drops the release event and
             // leaves the waveform overlay stuck on screen indefinitely.
-            HeyMateAnalytics.trackPushToTalkReleased()
+            HeyMateAnalytics.track(.pushToTalkReleased)
             pendingKeyboardShortcutStartTask?.cancel()
             pendingKeyboardShortcutStartTask = nil
-            buddyDictationManager.stopPushToTalkFromKeyboardShortcut()
+            voiceDictation.finishShortcutDictation()
         case .none:
             break
         }
@@ -3442,7 +3442,7 @@ final class CompanionManager: ObservableObject {
             commandBarFeedback = nil
             let messageWithContext = messageText.appending(contextPreamble(for: contextTokens))
             lastTranscript = messageText
-            HeyMateAnalytics.trackUserMessageSent(transcript: messageText)
+            HeyMateAnalytics.track(.userMessageSent(characterCount: messageText.count))
             // Not `requiresIdle`: a busy Talk pipeline is something a second
             // question deliberately interrupts, and the states where typing
             // genuinely cannot be served were refused above by name.
@@ -3921,7 +3921,7 @@ final class CompanionManager: ObservableObject {
                 HeyMateLog.log("🧠 Conversation history: \(conversationHistory.count) exchanges")
                 updateRollingSessionSummary()
 
-                HeyMateAnalytics.trackAIResponseReceived(response: spokenText)
+                HeyMateAnalytics.track(.aiResponseReceived(characterCount: spokenText.count))
 
                 if AgentEscalation.shouldEscalate(responseText: spokenText, transcript: transcript) {
                     completion.didComplete = true
@@ -4026,7 +4026,7 @@ final class CompanionManager: ObservableObject {
         category: AnalyticsErrorCategory
     ) {
         let summary = AnalyticsErrorSummary(category: category, error: error)
-        HeyMateAnalytics.trackError(summary)
+        HeyMateAnalytics.track(.error(summary))
         pipelineErrorLogger.error(
             "Pipeline failure category=\(summary.category.rawValue, privacy: .public) domain=\(summary.domain, privacy: .public) code=\(summary.code, privacy: .public)"
         )
@@ -4365,7 +4365,7 @@ final class CompanionManager: ObservableObject {
                 coordinate: pointCoordinate,
                 elementLabel: parseResult.elementLabel
             )
-            HeyMateAnalytics.trackElementPointed(telemetry)
+            HeyMateAnalytics.track(.elementPointed(telemetry))
             Self.screenPointingLogger.info(
                 "Element pointing x=\(telemetry.x, privacy: .public) y=\(telemetry.y, privacy: .public) labelCharacters=\(telemetry.labelCharacterCount, privacy: .public)"
             )
@@ -4390,14 +4390,14 @@ final class CompanionManager: ObservableObject {
         // Give the welcome animation a moment to land before the demo fires.
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
             guard let self else { return }
-            HeyMateAnalytics.trackOnboardingDemoTriggered()
+            HeyMateAnalytics.track(.onboardingDemoTriggered)
             self.performOnboardingDemoInteraction()
         }
 
         // Stream the try-talking prompt after the demo has had time to play.
         DispatchQueue.main.asyncAfter(deadline: .now() + 9.0) { [weak self] in
             guard let self else { return }
-            HeyMateAnalytics.trackOnboardingVideoCompleted()
+            HeyMateAnalytics.track(.onboardingVideoCompleted)
             self.startOnboardingPromptStream()
         }
     }

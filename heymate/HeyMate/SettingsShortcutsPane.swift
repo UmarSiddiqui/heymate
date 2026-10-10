@@ -44,7 +44,7 @@ struct SettingsShortcutsPane: View {
 
     // MARK: Hold to talk
 
-    private var assignments: [SettingsShortcutRole: BuddyPushToTalkShortcut.ShortcutOption] {
+    private var assignments: [SettingsShortcutRole: PushToTalkShortcut.Option] {
         [
             .talk: companionManager.talkShortcutOption,
             .chat: companionManager.chatShortcutOption,
@@ -53,7 +53,7 @@ struct SettingsShortcutsPane: View {
         ]
     }
 
-    private func binding(for role: SettingsShortcutRole) -> Binding<BuddyPushToTalkShortcut.ShortcutOption> {
+    private func binding(for role: SettingsShortcutRole) -> Binding<PushToTalkShortcut.Option> {
         switch role {
         case .talk: return $companionManager.talkShortcutOption
         case .chat: return $companionManager.chatShortcutOption
@@ -71,8 +71,8 @@ struct SettingsShortcutsPane: View {
         }
     }
 
-    private static let shortcutOptions: [DSMenuOption<BuddyPushToTalkShortcut.ShortcutOption>] =
-        BuddyPushToTalkShortcut.ShortcutOption.allOptions.map {
+    private static let shortcutOptions: [DSMenuOption<PushToTalkShortcut.Option>] =
+        PushToTalkShortcut.Option.allOptions.map {
             DSMenuOption(value: $0, title: $0.displayText)
         }
 

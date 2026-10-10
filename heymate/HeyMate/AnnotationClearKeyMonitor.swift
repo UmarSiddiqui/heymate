@@ -4,7 +4,7 @@
 //
 //  Global listen-only Escape watcher. Escape clears on-screen annotations
 //  immediately (master spec: "Escape clears"), independent of model state.
-//  Mirrors the CGEvent tap pattern of GlobalPushToTalkShortcutMonitor.
+//  Mirrors the CGEvent tap pattern of GlobalShortcutMonitor.
 //
 
 import AppKit

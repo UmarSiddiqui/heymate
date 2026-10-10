@@ -2,146 +2,110 @@
 //  AppleSpeechTranscriptionProvider.swift
 //  HeyMate
 //
-//  Local fallback transcription provider backed by Apple's Speech framework.
+//  Apple's Speech framework: always installed, works offline when the Mac
+//  has an on-device model for the language, and needs the Speech
+//  Recognition permission. The last-resort engine when others can't start.
 //
 
 import AVFoundation
 import Foundation
 import Speech
 
-struct AppleSpeechTranscriptionProviderError: LocalizedError {
-    let message: String
-
-    var errorDescription: String? {
-        message
-    }
-}
-
-final class AppleSpeechTranscriptionProvider: BuddyTranscriptionProvider {
+struct AppleSpeechTranscriptionProvider: SpeechToTextProvider {
     let displayName = "Apple Speech"
-    let requiresSpeechRecognitionPermission = true
+    let needsSpeechRecognitionPermission = true
     let isConfigured = true
     let unavailableExplanation: String? = nil
 
-    func startStreamingSession(
+    func openSession(
         keyterms: [String],
-        onTranscriptUpdate: @escaping (String) -> Void,
-        onFinalTranscriptReady: @escaping (String) -> Void,
-        onError: @escaping (Error) -> Void
-    ) async throws -> any BuddyStreamingTranscriptionSession {
-        guard let speechRecognizer = Self.makeBestAvailableSpeechRecognizer() else {
-            throw AppleSpeechTranscriptionProviderError(message: "dictation is not available on this mac.")
+        handlers: TranscriptionHandlers
+    ) async throws -> any LiveTranscriptionSession {
+        let recognizer = SFSpeechRecognizer(locale: .autoupdatingCurrent)
+            ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+            ?? SFSpeechRecognizer()
+        guard let recognizer else {
+            throw SpeechToTextError(message: "dictation is not available on this mac.")
         }
-
-        return try AppleSpeechTranscriptionSession(
-            speechRecognizer: speechRecognizer,
-            onTranscriptUpdate: onTranscriptUpdate,
-            onFinalTranscriptReady: onFinalTranscriptReady,
-            onError: onError
-        )
-    }
-
-    private static func makeBestAvailableSpeechRecognizer() -> SFSpeechRecognizer? {
-        let preferredLocales = [
-            Locale.autoupdatingCurrent,
-            Locale(identifier: "en-US")
-        ]
-
-        for preferredLocale in preferredLocales {
-            if let speechRecognizer = SFSpeechRecognizer(locale: preferredLocale) {
-                return speechRecognizer
-            }
-        }
-
-        return SFSpeechRecognizer()
+        return AppleSpeechSession(recognizer: recognizer, keyterms: keyterms, handlers: handlers)
     }
 }
 
-private final class AppleSpeechTranscriptionSession: NSObject, BuddyStreamingTranscriptionSession {
-    let finalTranscriptFallbackDelaySeconds: TimeInterval = 1.8
+private nonisolated final class AppleSpeechSession: LiveTranscriptionSession, @unchecked Sendable {
+    let finalTranscriptTimeout: TimeInterval = 1.8
 
-    private let recognitionRequest: SFSpeechAudioBufferRecognitionRequest
-    private var recognitionTask: SFSpeechRecognitionTask?
-    private let onTranscriptUpdate: (String) -> Void
-    private let onFinalTranscriptReady: (String) -> Void
-    private let onError: (Error) -> Void
+    private let request = SFSpeechAudioBufferRecognitionRequest()
+    private let handlers: TranscriptionHandlers
+    private var task: SFSpeechRecognitionTask?
 
-    private var latestRecognizedText = ""
-    private var hasRequestedFinalTranscript = false
-    private var hasDeliveredFinalTranscript = false
+    /// Guards the three fields below; the audio thread and Speech's callback
+    /// queue both touch them.
+    private let lock = NSLock()
+    private var latestText = ""
+    private var isFinishing = false
+    private var hasDeliveredFinal = false
 
-    init(
-        speechRecognizer: SFSpeechRecognizer,
-        onTranscriptUpdate: @escaping (String) -> Void,
-        onFinalTranscriptReady: @escaping (String) -> Void,
-        onError: @escaping (Error) -> Void
-    ) throws {
-        self.recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
-        self.onTranscriptUpdate = onTranscriptUpdate
-        self.onFinalTranscriptReady = onFinalTranscriptReady
-        self.onError = onError
-
-        super.init()
-
-        recognitionRequest.shouldReportPartialResults = true
-        recognitionRequest.taskHint = .dictation
-        recognitionRequest.addsPunctuation = true
-
-        if speechRecognizer.supportsOnDeviceRecognition {
-            recognitionRequest.requiresOnDeviceRecognition = true
-        }
-
-        recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
-            self?.handleRecognitionEvent(result: result, error: error)
+    init(recognizer: SFSpeechRecognizer, keyterms: [String], handlers: TranscriptionHandlers) {
+        self.handlers = handlers
+        request.shouldReportPartialResults = true
+        request.taskHint = .dictation
+        request.addsPunctuation = true
+        // Names the user is likely to say (mates, apps, products) are much
+        // more often heard right when Speech is told about them up front.
+        request.contextualStrings = keyterms
+        request.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
+        task = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            self?.handle(result: result, error: error)
         }
     }
 
-    func appendAudioBuffer(_ audioBuffer: AVAudioPCMBuffer) {
-        guard !hasRequestedFinalTranscript else { return }
-        recognitionRequest.append(audioBuffer)
+    deinit { task?.cancel() }
+
+    func append(_ buffer: AVAudioPCMBuffer) {
+        guard !lock.withLock({ isFinishing }) else { return }
+        request.append(buffer)
     }
 
-    func requestFinalTranscript() {
-        guard !hasRequestedFinalTranscript else { return }
-        hasRequestedFinalTranscript = true
-        recognitionRequest.endAudio()
+    func finish() {
+        let shouldEnd = lock.withLock { () -> Bool in
+            defer { isFinishing = true }
+            return !isFinishing
+        }
+        if shouldEnd { request.endAudio() }
     }
 
     func cancel() {
-        recognitionTask?.cancel()
-        recognitionTask = nil
+        task?.cancel()
+        task = nil
     }
 
-    private func handleRecognitionEvent(
-        result: SFSpeechRecognitionResult?,
-        error: Error?
-    ) {
+    private func handle(result: SFSpeechRecognitionResult?, error: Error?) {
         if let result {
-            latestRecognizedText = result.bestTranscription.formattedString
-            onTranscriptUpdate(latestRecognizedText)
-
+            let text = result.bestTranscription.formattedString
+            lock.withLock { latestText = text }
+            handlers.onPartial(text)
             if result.isFinal {
-                deliverFinalTranscriptIfNeeded(latestRecognizedText)
+                deliverFinal(text)
                 return
             }
         }
-
         guard let error else { return }
 
-        if hasRequestedFinalTranscript && !latestRecognizedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            deliverFinalTranscriptIfNeeded(latestRecognizedText)
+        // Speech often reports an error after endAudio() even though it
+        // already heard everything; what it heard is still the answer.
+        let (finishing, text) = lock.withLock { (isFinishing, latestText) }
+        if finishing && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            deliverFinal(text)
         } else {
-            onError(error)
+            handlers.onError(error)
         }
     }
 
-    private func deliverFinalTranscriptIfNeeded(_ transcriptText: String) {
-        guard !hasDeliveredFinalTranscript else { return }
-        hasDeliveredFinalTranscript = true
-        onFinalTranscriptReady(transcriptText)
-    }
-
-    deinit {
-        cancel()
+    private func deliverFinal(_ text: String) {
+        let isFirst = lock.withLock { () -> Bool in
+            defer { hasDeliveredFinal = true }
+            return !hasDeliveredFinal
+        }
+        if isFirst { handlers.onFinal(text) }
     }
 }

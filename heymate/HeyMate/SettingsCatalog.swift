@@ -443,8 +443,8 @@ enum SettingsShortcutRole: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    /// Must match the fallbacks in `BuddyPushToTalkShortcut`.
-    var defaultOption: BuddyPushToTalkShortcut.ShortcutOption {
+    /// Must match the fallbacks in `PushToTalkShortcut`.
+    var defaultOption: PushToTalkShortcut.Option {
         switch self {
         case .talk: return .controlOption
         case .chat: return .controlCommand
@@ -465,9 +465,9 @@ enum SettingsShortcutRole: String, CaseIterable, Identifiable {
     /// Roles whose combo is also assigned to another role. Two roles on one
     /// combo means whichever press started first wins, so the UI warns.
     static func conflictingRoles(
-        in assignments: [SettingsShortcutRole: BuddyPushToTalkShortcut.ShortcutOption]
+        in assignments: [SettingsShortcutRole: PushToTalkShortcut.Option]
     ) -> Set<SettingsShortcutRole> {
-        var rolesByOption: [BuddyPushToTalkShortcut.ShortcutOption: [SettingsShortcutRole]] = [:]
+        var rolesByOption: [PushToTalkShortcut.Option: [SettingsShortcutRole]] = [:]
         for role in allCases {
             guard let option = assignments[role] else { continue }
             rolesByOption[option, default: []].append(role)

@@ -87,7 +87,7 @@ struct SettingsCatalogTests {
     }
 
     @Test func sharedComboFlagsBothRoles() {
-        let assignments: [SettingsShortcutRole: BuddyPushToTalkShortcut.ShortcutOption] = [
+        let assignments: [SettingsShortcutRole: PushToTalkShortcut.Option] = [
             .talk: .controlOption,
             .chat: .controlCommand,
             .dictate: .controlOption,
@@ -97,7 +97,7 @@ struct SettingsCatalogTests {
     }
 
     @Test func threeWayConflictFlagsAllThree() {
-        let assignments: [SettingsShortcutRole: BuddyPushToTalkShortcut.ShortcutOption] = [
+        let assignments: [SettingsShortcutRole: PushToTalkShortcut.Option] = [
             .talk: .shiftControl,
             .chat: .shiftControl,
             .dictate: .shiftFunction,

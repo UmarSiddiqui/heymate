@@ -13,133 +13,105 @@ import AVFoundation
 import FluidAudio
 import Foundation
 
-final class ParakeetTranscriptionProvider: BuddyTranscriptionProvider {
+struct ParakeetTranscriptionProvider: SpeechToTextProvider {
     let displayName = "On-device"
-    let requiresSpeechRecognitionPermission = false
+    let needsSpeechRecognitionPermission = false
 
     var isConfigured: Bool { ParakeetEngine.modelsAreInstalled() }
 
     var unavailableExplanation: String? {
         if let reason = ParakeetEngine.unsupportedReason { return reason }
-        guard !isConfigured else { return nil }
-        return "Download the on-device voice in Settings to use it."
+        return isConfigured ? nil : "Download the on-device voice in Settings to use it."
     }
 
-    func startStreamingSession(
+    func openSession(
         keyterms: [String],
-        onTranscriptUpdate: @escaping (String) -> Void,
-        onFinalTranscriptReady: @escaping (String) -> Void,
-        onError: @escaping (Error) -> Void
-    ) async throws -> any BuddyStreamingTranscriptionSession {
-        // Loading takes a moment the first time after launch; doing it here
-        // means a missing model fails the start (and falls back) instead of
-        // failing after the user has finished talking.
+        handlers: TranscriptionHandlers
+    ) async throws -> any LiveTranscriptionSession {
+        // The first load after launch takes a moment. Doing it here makes a
+        // missing model fail the start, where the press can still fall back,
+        // rather than after the user has finished talking.
         _ = try await ParakeetEngine.shared.loadIfNeeded()
-
-        return ParakeetTranscriptionSession(
-            onTranscriptUpdate: onTranscriptUpdate,
-            onFinalTranscriptReady: onFinalTranscriptReady,
-            onError: onError
-        )
+        return ParakeetSession(handlers: handlers)
     }
 }
 
-private final class ParakeetTranscriptionSession: BuddyStreamingTranscriptionSession {
-    private static let partialTranscriptIntervalSeconds: TimeInterval = 0.9
-    /// Parakeet needs about a second of audio before a decode says anything.
+private nonisolated final class ParakeetSession: LiveTranscriptionSession, @unchecked Sendable {
+    private static let partialInterval: TimeInterval = 0.9
+    /// Parakeet needs about a second of 16 kHz audio before it says anything.
     private static let minimumSamplesForPartial = 16_000
 
-    let finalTranscriptFallbackDelaySeconds: TimeInterval = 6.0
+    let finalTranscriptTimeout: TimeInterval = 6.0
 
-    private let onTranscriptUpdate: (String) -> Void
-    private let onFinalTranscriptReady: (String) -> Void
-    private let onError: (Error) -> Void
+    private let handlers: TranscriptionHandlers
+    private let resampler = AudioConverter()
+    private let queue = DispatchQueue(label: "com.heymate.parakeet")
 
-    private let audioConverter = AudioConverter()
-    private let stateQueue = DispatchQueue(label: "com.heymate.parakeet.state")
-
-    private var bufferedSamples: [Float] = []
+    // Owned by `queue`.
+    private var samples: [Float] = []
     private var isDecodingPartial = false
-    private var lastPartialStartedAt = Date.distantPast
-    private var hasRequestedFinalTranscript = false
+    private var lastPartialStart = Date.distantPast
+    private var isFinishing = false
     private var isCancelled = false
 
-    init(
-        onTranscriptUpdate: @escaping (String) -> Void,
-        onFinalTranscriptReady: @escaping (String) -> Void,
-        onError: @escaping (Error) -> Void
-    ) {
-        self.onTranscriptUpdate = onTranscriptUpdate
-        self.onFinalTranscriptReady = onFinalTranscriptReady
-        self.onError = onError
+    init(handlers: TranscriptionHandlers) {
+        self.handlers = handlers
+        samples.reserveCapacity(16_000 * 20)
     }
 
-    func appendAudioBuffer(_ audioBuffer: AVAudioPCMBuffer) {
-        // Resampling is stateless, so it is safe on the audio thread.
-        guard let samples = try? audioConverter.resampleBuffer(audioBuffer), !samples.isEmpty else { return }
-
-        stateQueue.async {
-            guard !self.hasRequestedFinalTranscript, !self.isCancelled else { return }
-            self.bufferedSamples.append(contentsOf: samples)
-            self.startPartialDecodeIfDue()
+    func append(_ buffer: AVAudioPCMBuffer) {
+        // Resampling is stateless, so it runs right here on the audio thread.
+        guard let resampled = try? resampler.resampleBuffer(buffer), !resampled.isEmpty else { return }
+        queue.async {
+            guard !self.isFinishing, !self.isCancelled else { return }
+            self.samples.append(contentsOf: resampled)
+            self.decodePartialIfDue()
         }
     }
 
-    func requestFinalTranscript() {
-        stateQueue.async {
-            guard !self.hasRequestedFinalTranscript, !self.isCancelled else { return }
-            self.hasRequestedFinalTranscript = true
-            let utteranceSamples = self.bufferedSamples
-
-            guard !utteranceSamples.isEmpty else {
-                self.onFinalTranscriptReady("")
+    func finish() {
+        queue.async {
+            guard !self.isFinishing, !self.isCancelled else { return }
+            self.isFinishing = true
+            let utterance = self.samples
+            guard !utterance.isEmpty else {
+                self.handlers.onFinal("")
                 return
             }
-
             Task {
                 do {
-                    let finalText = try await ParakeetEngine.shared.transcribe(utteranceSamples)
-                    self.stateQueue.async {
-                        guard !self.isCancelled else { return }
-                        self.onFinalTranscriptReady(finalText)
-                    }
+                    let text = try await ParakeetEngine.shared.transcribe(utterance)
+                    self.queue.async { if !self.isCancelled { self.handlers.onFinal(text) } }
                 } catch {
-                    self.stateQueue.async {
-                        guard !self.isCancelled else { return }
-                        self.onError(error)
-                    }
+                    self.queue.async { if !self.isCancelled { self.handlers.onError(error) } }
                 }
             }
         }
     }
 
     func cancel() {
-        stateQueue.async {
+        queue.async {
             self.isCancelled = true
-            self.bufferedSamples.removeAll()
+            self.samples.removeAll()
         }
     }
 
-    /// Runs on `stateQueue`. One partial decode at a time; the final decode
-    /// does not wait for it because the actor serializes them anyway.
-    private func startPartialDecodeIfDue() {
+    /// One partial decode at a time. The final decode doesn't wait for it:
+    /// the engine actor serializes them anyway.
+    private func decodePartialIfDue() {
         guard !isDecodingPartial,
-              bufferedSamples.count >= Self.minimumSamplesForPartial,
-              Date().timeIntervalSince(lastPartialStartedAt) >= Self.partialTranscriptIntervalSeconds else {
-            return
-        }
+              samples.count >= Self.minimumSamplesForPartial,
+              Date().timeIntervalSince(lastPartialStart) >= Self.partialInterval else { return }
 
         isDecodingPartial = true
-        lastPartialStartedAt = Date()
-        let snapshotSamples = bufferedSamples
-
+        lastPartialStart = Date()
+        let snapshot = samples
         Task {
-            let partialText = try? await ParakeetEngine.shared.transcribe(snapshotSamples)
-            self.stateQueue.async {
+            let text = try? await ParakeetEngine.shared.transcribe(snapshot)
+            self.queue.async {
                 self.isDecodingPartial = false
-                guard !self.hasRequestedFinalTranscript, !self.isCancelled,
-                      let partialText, !partialText.isEmpty else { return }
-                self.onTranscriptUpdate(partialText)
+                guard !self.isFinishing, !self.isCancelled, let text, !text.isEmpty else { return }
+                self.handlers.onPartial(text)
             }
         }
     }
