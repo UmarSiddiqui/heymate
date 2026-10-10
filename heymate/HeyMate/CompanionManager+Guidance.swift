@@ -221,7 +221,7 @@ extension CompanionManager {
                 // Drawings last as long as their step, not a fixed TTL.
                 extendAnnotations(withIDs: stepAnnotationIDs, by: 120)
                 if pointing.coordinate != nil {
-                    lastPointedLocation = detectedElementScreenLocation
+                    lastPointedLocation = pointingTarget?.location
                     // Listen from the moment the buddy points: people click
                     // as soon as they see the target, not after the voice.
                     armWalkthroughClickMonitor(target: lastPointedLocation)

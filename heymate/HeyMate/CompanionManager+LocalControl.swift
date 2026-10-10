@@ -49,7 +49,7 @@ extension CompanionManager {
         case .speak(let text):
             return speak(text)
         case .clear:
-            clearDetectedElementLocation()
+            clearPointingTarget()
             return .ok(["cleared": true])
         case .listConnectorTools:
             // A job can start before any chat has opened a connector session.
@@ -70,16 +70,14 @@ extension CompanionManager {
             overlayWindowManager.hasShownOverlayBefore = true
             overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
         }
-        detectedElementScreenLocation = target
-        detectedElementDisplayFrame = display
         let label = label?.trimmingCharacters(in: .whitespacesAndNewlines)
-        detectedElementBubbleText = label?.isEmpty == false ? label : nil
+        pointingTarget = CursorPointingTarget(location: target, displayFrame: display, caption: label?.isEmpty == false ? label : nil)
         return ["displayed": kind, "x": target.x, "y": target.y, "durationMs": Int(duration * 1000)]
     }
 
     /// The point moved onto the screen that contains it, or else the screen
     /// nearest to it, kept one point inside that screen's edges.
-    private static func nearestOnScreenPoint(to point: CGPoint) -> (point: CGPoint, display: CGRect) {
+    static func nearestOnScreenPoint(to point: CGPoint) -> (point: CGPoint, display: CGRect) {
         func clamp(_ point: CGPoint, into rect: CGRect) -> CGPoint {
             CGPoint(x: min(max(point.x, rect.minX), rect.maxX), y: min(max(point.y, rect.minY), rect.maxY))
         }

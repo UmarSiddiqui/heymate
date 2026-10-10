@@ -14,6 +14,15 @@ import OSLog
 import ScreenCaptureKit
 import SwiftUI
 
+/// A spot for the floating cursor to fly to, in global AppKit coordinates.
+struct CursorPointingTarget: Equatable {
+    var location: CGPoint
+    /// The display the spot is on; only that screen's overlay flies.
+    var displayFrame: CGRect
+    /// Said beside the cursor on arrival. Nil picks a stock phrase.
+    var caption: String?
+}
+
 enum CompanionVoiceState {
     case idle
     case listening
@@ -270,16 +279,10 @@ final class CompanionManager: ObservableObject {
     @Published private(set) var hasMicrophonePermission = false
     @Published private(set) var hasScreenContentPermission = false
 
-    /// Screen location (global AppKit coords) of a detected UI element the
-    /// buddy should fly to and point at. Parsed from Claude's response;
-    /// observed by CompanionCursorView to trigger the flight animation.
-    @Published var detectedElementScreenLocation: CGPoint?
-    /// The display frame (global AppKit coords) of the screen the detected
-    /// element is on, so CompanionCursorView knows which screen overlay should animate.
-    @Published var detectedElementDisplayFrame: CGRect?
-    /// Custom speech bubble text for the pointing animation. When set,
-    /// CompanionCursorView uses this instead of a random pointer phrase.
-    @Published var detectedElementBubbleText: String?
+    /// Where the cursor should fly and point next, set from a [POINT:] tag,
+    /// the onboarding demo, computer use or the local control API. Each
+    /// screen's CompanionCursorView flies when the target is on its display.
+    @Published var pointingTarget: CursorPointingTarget?
 
     // MARK: - Structured Drawing Annotations
 
@@ -633,7 +636,14 @@ final class CompanionManager: ObservableObject {
     private func startComputerUseCursorBridge() {
         computerUseCoordinator.onWillSynthesizeInput = { [weak self] targetPoint in
             guard let self else { return }
-            self.detectedElementScreenLocation = targetPoint
+            // Synthesized input is in Quartz coordinates (origin top-left
+            // of the main display); the overlay works in AppKit's.
+            let mainHeight = NSScreen.screens.first?.frame.height ?? 0
+            let location = CGPoint(x: targetPoint.x, y: mainHeight - targetPoint.y)
+            self.pointingTarget = CursorPointingTarget(
+                location: location,
+                displayFrame: Self.nearestOnScreenPoint(to: location).display
+            )
         }
     }
 
@@ -1690,7 +1700,7 @@ final class CompanionManager: ObservableObject {
     /// single-purpose cancellables above so the activity center can be torn
     /// down independently of the voice pipeline.
     private var notchActivityCancellables: Set<AnyCancellable> = []
-    private var accessibilityCheckTimer: Timer?
+    private var permissionPollTask: Task<Void, Never>?
     private var pendingKeyboardShortcutStartTask: Task<Void, Never>?
     /// Pending start task for the dictation channel — cancelled if the user
     /// releases the dictate shortcut before recording could begin.
@@ -2499,10 +2509,8 @@ final class CompanionManager: ObservableObject {
         isOverlayVisible = true
     }
 
-    func clearDetectedElementLocation() {
-        detectedElementScreenLocation = nil
-        detectedElementDisplayFrame = nil
-        detectedElementBubbleText = nil
+    func clearPointingTarget() {
+        pointingTarget = nil
     }
 
     func stop() {
@@ -2529,8 +2537,8 @@ final class CompanionManager: ObservableObject {
         shortcutTransitionCancellable?.cancel()
         voiceStateCancellable?.cancel()
         audioPowerCancellable?.cancel()
-        accessibilityCheckTimer?.invalidate()
-        accessibilityCheckTimer = nil
+        permissionPollTask?.cancel()
+        permissionPollTask = nil
     }
 
     /// Re-reads every permission. Runs at launch and on a poll, so granting
@@ -2640,23 +2648,13 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Private
 
-    /// Triggers the system microphone prompt if the user has never been asked.
-    /// Once granted/denied the status sticks and polling picks it up.
-    private func promptForMicrophoneIfNotDetermined() {
-        guard AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined else { return }
-        AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
-            Task { @MainActor [weak self] in
-                self?.hasMicrophonePermission = granted
-            }
-        }
-    }
-
-    /// Polls all permissions frequently so the UI updates live after the
-    /// user grants them in System Settings. Screen Recording is the exception —
-    /// macOS requires an app restart for that one to take effect.
+    /// Re-checks permissions every second and a half while HeyMate runs,
+    /// so a grant in System Settings shows up without a relaunch.
     private func startPermissionPolling() {
-        accessibilityCheckTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
+        permissionPollTask?.cancel()
+        permissionPollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(1500))
                 self?.refreshAllPermissions()
             }
         }
@@ -2665,9 +2663,7 @@ final class CompanionManager: ObservableObject {
     private func bindAudioPowerLevel() {
         audioPowerCancellable = voiceDictation.$currentAudioPowerLevel
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] powerLevel in
-                self?.currentAudioPowerLevel = powerLevel
-            }
+            .sink { [weak self] in self?.currentAudioPowerLevel = $0 }
     }
 
     private func bindVoiceStateObservation() {
@@ -2976,7 +2972,7 @@ final class CompanionManager: ObservableObject {
             // Cancel any in-flight response/TTS — one interaction at a time.
             currentResponseTask?.cancel()
             voiceSynthesisClient.stopPlayback()
-            clearDetectedElementLocation()
+            clearPointingTarget()
             clearAnnotations()
 
             inputModeOfActiveSession = .dictate
@@ -3199,7 +3195,7 @@ final class CompanionManager: ObservableObject {
             // Cancel any in-progress response and TTS from a previous utterance
             currentResponseTask?.cancel()
             voiceSynthesisClient.stopPlayback()
-            clearDetectedElementLocation()
+            clearPointingTarget()
 
             // Interrupting whatever was happening (speaking/thinking/guiding)
             // and start listening again — Talk always interrupts.
@@ -4092,7 +4088,7 @@ final class CompanionManager: ObservableObject {
                 guard !Task.isCancelled else { return }
             }
 
-            while detectedElementScreenLocation != nil {
+            while pointingTarget != nil {
                 try? await Task.sleep(nanoseconds: 200_000_000)
                 guard !Task.isCancelled else { return }
             }
@@ -4210,8 +4206,10 @@ final class CompanionManager: ObservableObject {
 
         if let pointCoordinate = parseResult.coordinate,
            let targetScreenCapture {
-            detectedElementScreenLocation = globalPoint(forScreenshotPixel: pointCoordinate, in: targetScreenCapture)
-            detectedElementDisplayFrame = targetScreenCapture.displayFrame
+            pointingTarget = CursorPointingTarget(
+                location: globalPoint(forScreenshotPixel: pointCoordinate, in: targetScreenCapture),
+                displayFrame: targetScreenCapture.displayFrame
+            )
             let telemetry = ScreenPointingTelemetrySummary(
                 coordinate: pointCoordinate,
                 elementLabel: parseResult.elementLabel

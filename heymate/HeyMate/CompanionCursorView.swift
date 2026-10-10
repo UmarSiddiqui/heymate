@@ -152,11 +152,11 @@ struct CompanionCursorView: View {
         .ignoresSafeArea()
         .onAppear(perform: appear)
         .onDisappear(perform: disappear)
-        .onChange(of: companionManager.detectedElementScreenLocation) { _, target in
-            guard let target, let display = companionManager.detectedElementDisplayFrame,
-                  display == screenFrame || screenFrame.contains(CGPoint(x: display.midX, y: display.midY))
-            else { return }
-            flyToTarget(target)
+        .onChange(of: companionManager.pointingTarget) { _, target in
+            guard let target else { return }
+            let display = target.displayFrame
+            guard display == screenFrame || screenFrame.contains(CGPoint(x: display.midX, y: display.midY)) else { return }
+            flyToTarget(target.location)
         }
         .onChange(of: companionManager.cursorDockPhase) { _, phase in
             if phase == .returning && runsDockFlightOnThisScreen {
@@ -221,7 +221,7 @@ struct CompanionCursorView: View {
         if companionManager.cursorDockPhase.isTransitioning && isDockFlightActive { return true }
         switch mode {
         case .following:
-            return companionManager.detectedElementScreenLocation == nil && isPointerOnThisScreen
+            return companionManager.pointingTarget == nil && isPointerOnThisScreen
         case .flying, .pointing:
             return true
         }
@@ -359,7 +359,7 @@ struct CompanionCursorView: View {
         pointingLabelOpacity = 1
         pointingLabelScale = 0.5
 
-        let phrase = companionManager.detectedElementBubbleText
+        let phrase = companionManager.pointingTarget?.caption
             ?? Self.pointingPhrases.randomElement()
             ?? "right here!"
         pointingTask?.cancel()
@@ -410,7 +410,7 @@ struct CompanionCursorView: View {
         pointingLabel = ""
         pointingLabelOpacity = 0
         pointingLabelScale = 1
-        companionManager.clearDetectedElementLocation()
+        companionManager.clearPointingTarget()
     }
 
     // MARK: - Notch dock

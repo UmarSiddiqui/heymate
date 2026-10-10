@@ -10,6 +10,7 @@
 //
 
 import AppKit
+import OSLog
 import SwiftUI
 
 extension CompanionManager {
@@ -133,9 +134,11 @@ extension CompanionManager {
                 }
                 // The remark rides along as the cursor's label instead of a
                 // stock pointing phrase.
-                detectedElementBubbleText = parsed.spokenText
-                detectedElementScreenLocation = globalPoint(forScreenshotPixel: pixel, in: screen)
-                detectedElementDisplayFrame = screen.displayFrame
+                pointingTarget = CursorPointingTarget(
+                    location: globalPoint(forScreenshotPixel: pixel, in: screen),
+                    displayFrame: screen.displayFrame,
+                    caption: parsed.spokenText
+                )
 
                 let telemetry = ScreenPointingTelemetrySummary(
                     coordinate: pixel,
