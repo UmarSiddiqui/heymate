@@ -1,0 +1,85 @@
+# Builds HeyMate and runs its unit tests on every pull request, so a change is
+# known to compile before it reaches main (where merging publishes a release).
+# Signs ad hoc: no secrets are needed, and nothing here is distributed.
+
+name: PR build
+
+on:
+  pull_request:
+    paths:
+      - "heymate/**"
+      - ".github/workflows/pr-build.yml"
+      - "!heymate/worker/**"
+      - "!heymate/design/**"
+      - "!**/*.md"
+  workflow_dispatch:
+
+concurrency:
+  group: pr-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      PROJECT: heymate/HeyMate.xcodeproj
+      SCHEME: HeyMate
+      DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Select the newest Xcode 26
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE" ]; then
+            echo "::error::No Xcode 26 installation found on this runner." && exit 1
+          fi
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.DERIVED_DATA }}/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('heymate/HeyMate.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Build app and tests
+        run: |
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$DERIVED_DATA" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY=- \
+            DEVELOPMENT_TEAM= \
+            PROVISIONING_PROFILE_SPECIFIER= \
+            build-for-testing > build.log 2>&1 || {
+              grep -E "error:" build.log | sort -u | head -80
+              tail -40 build.log
+              exit 1
+            }
+          grep -E "\*\* TEST BUILD" build.log
+
+      - name: Run unit tests
+        run: |
+          # The step shell stops at the first failure, so capture the status
+          # instead; otherwise the failing tests below would never print.
+          STATUS=0
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$DERIVED_DATA" \
+            -only-testing:HeyMateTests \
+            test-without-building > test.log 2>&1 || STATUS=$?
+          grep -E "✘|failed|error:|XCTAssert" test.log | head -120 || true
+          tail -25 test.log
+          exit $STATUS

@@ -7,7 +7,7 @@ the code, plus the information architecture (IA) the code follows.
 
 | Surface | File | Reached from |
 | --- | --- | --- |
-| Settings, five tabs (General, Accounts, Notch, Privacy, Advanced) | `DesktopSettingsView.swift`, `DesktopSettingsAccountsTab.swift` | Desktop window sidebar › Settings; the notch gear; Cmd-, (`Settings` scene in `leanring_buddyApp.swift`) |
+| Settings, five tabs (General, Accounts, Notch, Privacy, Advanced) | `DesktopSettingsView.swift`, `DesktopSettingsAccountsTab.swift` | Desktop window sidebar › Settings; the notch gear; Cmd-, (`Settings` scene in `HeyMateApp.swift`) |
 | Notch tab content | `DesktopSupportingViews.swift` › `DesktopNotchView` | Settings › Notch, and `heymate://open/notch` |
 | Privacy tab content | `DesktopSupportingViews.swift` › `DesktopPrivacyView` (+ erase card injected via `AnyView`) | Settings › Privacy, and `heymate://open/privacy` |
 | Brain, model, voice, sign-in controls | `AISettingsComponents.swift` | Embedded by Accounts and Advanced |
@@ -33,7 +33,7 @@ which stays unchanged.
 | Silent mode | switch | `CompanionManager.isSilentModeEnabled` |
 | Interaction sounds | switch | `CompanionManager.isUISoundEnabled` |
 | Focused window context | switch | `CompanionManager.talkUsesFocusedWindowContext` |
-| Cursor companion | switch | `CompanionManager.setClickyCursorEnabled` |
+| Cursor companion | switch | `CompanionManager.setCursorCompanionEnabled` |
 | Replay onboarding | button | `replayOnboarding()` |
 | Microphone input device | menu | `AudioInputDeviceCatalog.selectedDeviceUID` |
 | Mac voice | menu | `SpeechVoiceCatalog.selectedSystemVoiceID` |

@@ -64,8 +64,8 @@ heymate_stop_ui_app_processes "$APP_NAME" "$APP_BINARY"
 
 run_xcodebuild() {
   xcodebuild \
-    -project "$ROOT_DIR/leanring-buddy.xcodeproj" \
-    -scheme leanring-buddy \
+    -project "$ROOT_DIR/HeyMate.xcodeproj" \
+    -scheme HeyMate \
     -configuration Debug \
     -destination 'platform=macOS,arch=arm64' \
     -derivedDataPath "$DERIVED_DATA" \

@@ -51,8 +51,8 @@ fi
 echo "▸ ${ACTION} (scratch DerivedData at $TYPECHECK_DERIVED_DATA)"
 
 OUTPUT=$(xcodebuild \
-  -project leanring-buddy.xcodeproj \
-  -scheme leanring-buddy \
+  -project HeyMate.xcodeproj \
+  -scheme HeyMate \
   -destination 'platform=macOS' \
   -derivedDataPath "$TYPECHECK_DERIVED_DATA" \
   CODE_SIGNING_ALLOWED=NO \

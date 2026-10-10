@@ -1,0 +1,899 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000012F90000100000001 /* HeyMateAgentRunner in Embed Agent Runner */ = {isa = PBXBuildFile; fileRef = A10003012F90030100000301 /* HeyMateAgentRunner */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003112F90031100000311 /* HeyMateAgentRunnerMain.swift */; };
+		A10001022F90010200000102 /* HeyMate/AgentRuntimeTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003122F90031200000312 /* HeyMate/AgentRuntimeTypes.swift */; };
+		A10001032F90010300000103 /* HeyMate/AgentPlanBrief.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003132F90031300000313 /* HeyMate/AgentPlanBrief.swift */; };
+		A10001042F90010400000104 /* HeyMate/AgentProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003142F90031400000314 /* HeyMate/AgentProcessIdentity.swift */; };
+		A10001052F90010500000105 /* HeyMate/ClaudeStreamJSONParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003152F90031500000315 /* HeyMate/ClaudeStreamJSONParser.swift */; };
+		A10001062F90010600000106 /* HeyMate/CodexJSONLParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003162F90031600000316 /* HeyMate/CodexJSONLParser.swift */; };
+		A10001072F90010700000107 /* HeyMate/OpenCodeRunParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003172F90031700000317 /* HeyMate/OpenCodeRunParser.swift */; };
+		A10001082F90010800000108 /* HeyMate/OpenCodeTemporaryDirectoryCleaner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003182F90031800000318 /* HeyMate/OpenCodeTemporaryDirectoryCleaner.swift */; };
+		A10001092F90010900000109 /* HeyMate/LoginShellExecutableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003192F90031900000319 /* HeyMate/LoginShellExecutableResolver.swift */; };
+		A100010A2F90010A0000010A /* HeyMate/HeadlessCLIAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100031A2F90031A0000031A /* HeyMate/HeadlessCLIAdapter.swift */; };
+		A100010B2F90010B0000010B /* HeyMate/HeadlessCLIProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100031B2F90031B0000031B /* HeyMate/HeadlessCLIProcess.swift */; };
+		A100010C2F90010C0000010C /* HeyMate/DetachedAgentCommandMailbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100031C2F90031C0000031C /* HeyMate/DetachedAgentCommandMailbox.swift */; };
+		A100010D2F90010D0000010D /* HeyMate/DetachedAgentLaunchRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100031D2F90031D0000031D /* HeyMate/DetachedAgentLaunchRequest.swift */; };
+		A100010E2F90010E0000010E /* HeyMate/DetachedAgentRuntimePaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100031E2F90031E0000031E /* HeyMate/DetachedAgentRuntimePaths.swift */; };
+		A10001F02F9001F0000001F0 /* HeyMate/HeyMateDataDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003F02F9003F0000003F0 /* HeyMate/HeyMateDataDirectory.swift */; };
+		A100010F2F90010F0000010F /* HeyMate/DetachedAgentRuntimePersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100031F2F90031F0000031F /* HeyMate/DetachedAgentRuntimePersistence.swift */; };
+		A10001102F90011000000110 /* HeyMate/DetachedAgentRuntimeProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003202F90032000000320 /* HeyMate/DetachedAgentRuntimeProtocol.swift */; };
+		A10001112F90011100000111 /* HeyMate/DetachedAgentRunnerInvocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003212F90032100000321 /* HeyMate/DetachedAgentRunnerInvocation.swift */; };
+		A10001122F90011200000112 /* HeyMate/DetachedAgentRunnerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003222F90032200000322 /* HeyMate/DetachedAgentRunnerEngine.swift */; };
+		A10001132F90011300000113 /* HeyMate/DetachedAgentRunnerExecutable.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003232F90032300000323 /* HeyMate/DetachedAgentRunnerExecutable.swift */; };
+		AA00BB032F6500030039DA55 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB022F6500020039DA55 /* Sparkle */; };
+		AA00BB062F6500060039DA55 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB052F6500050039DA55 /* PostHog */; };
+		AA00BB092F6500090039DA55 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB082F6500080039DA55 /* FluidAudio */; };
+		AA00BB0C2F65000C0039DA55 /* HeyMateComputerUse in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB0B2F65000B0039DA55 /* HeyMateComputerUse */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		28F22CCD2F56440300A0FC59 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 28F22CB72F56440300A0FC59 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 28F22CBE2F56440300A0FC59;
+			remoteInfo = "HeyMate";
+		};
+		28F22CD72F56440300A0FC59 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 28F22CB72F56440300A0FC59 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 28F22CBE2F56440300A0FC59;
+			remoteInfo = "HeyMate";
+		};
+		A10002012F90020100000201 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 28F22CB72F56440300A0FC59 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A10006012F90060100000601;
+			remoteInfo = HeyMateAgentRunner;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A10004012F90040100000401 /* Embed Agent Runner */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Contents/Helpers;
+			dstSubfolderSpec = 1;
+			files = (
+				A10000012F90000100000001 /* HeyMateAgentRunner in Embed Agent Runner */,
+			);
+			name = "Embed Agent Runner";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		28F22CBF2F56440300A0FC59 /* Clicky.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = Clicky.app; path = HeyMate.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		28F22CCC2F56440300A0FC59 /* HeyMateTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "HeyMateTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		28F22CD62F56440300A0FC59 /* HeyMateUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "HeyMateUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10003012F90030100000301 /* HeyMateAgentRunner */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = HeyMateAgentRunner; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10003112F90031100000311 /* HeyMateAgentRunnerMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeyMateAgentRunnerMain.swift; sourceTree = "<group>"; };
+		A10003122F90031200000312 /* HeyMate/AgentRuntimeTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/AgentRuntimeTypes.swift"; sourceTree = SOURCE_ROOT; };
+		A10003132F90031300000313 /* HeyMate/AgentPlanBrief.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/AgentPlanBrief.swift"; sourceTree = SOURCE_ROOT; };
+		A10003142F90031400000314 /* HeyMate/AgentProcessIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/AgentProcessIdentity.swift"; sourceTree = SOURCE_ROOT; };
+		A10003152F90031500000315 /* HeyMate/ClaudeStreamJSONParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/ClaudeStreamJSONParser.swift"; sourceTree = SOURCE_ROOT; };
+		A10003162F90031600000316 /* HeyMate/CodexJSONLParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/CodexJSONLParser.swift"; sourceTree = SOURCE_ROOT; };
+		A10003172F90031700000317 /* HeyMate/OpenCodeRunParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/OpenCodeRunParser.swift"; sourceTree = SOURCE_ROOT; };
+		A10003182F90031800000318 /* HeyMate/OpenCodeTemporaryDirectoryCleaner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/OpenCodeTemporaryDirectoryCleaner.swift"; sourceTree = SOURCE_ROOT; };
+		A10003192F90031900000319 /* HeyMate/LoginShellExecutableResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/LoginShellExecutableResolver.swift"; sourceTree = SOURCE_ROOT; };
+		A100031A2F90031A0000031A /* HeyMate/HeadlessCLIAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/HeadlessCLIAdapter.swift"; sourceTree = SOURCE_ROOT; };
+		A100031B2F90031B0000031B /* HeyMate/HeadlessCLIProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/HeadlessCLIProcess.swift"; sourceTree = SOURCE_ROOT; };
+		A100031C2F90031C0000031C /* HeyMate/DetachedAgentCommandMailbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/DetachedAgentCommandMailbox.swift"; sourceTree = SOURCE_ROOT; };
+		A100031D2F90031D0000031D /* HeyMate/DetachedAgentLaunchRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/DetachedAgentLaunchRequest.swift"; sourceTree = SOURCE_ROOT; };
+		A100031E2F90031E0000031E /* HeyMate/DetachedAgentRuntimePaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/DetachedAgentRuntimePaths.swift"; sourceTree = SOURCE_ROOT; };
+		A10003F02F9003F0000003F0 /* HeyMate/HeyMateDataDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/HeyMateDataDirectory.swift"; sourceTree = SOURCE_ROOT; };
+		A100031F2F90031F0000031F /* HeyMate/DetachedAgentRuntimePersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/DetachedAgentRuntimePersistence.swift"; sourceTree = SOURCE_ROOT; };
+		A10003202F90032000000320 /* HeyMate/DetachedAgentRuntimeProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/DetachedAgentRuntimeProtocol.swift"; sourceTree = SOURCE_ROOT; };
+		A10003212F90032100000321 /* HeyMate/DetachedAgentRunnerInvocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/DetachedAgentRunnerInvocation.swift"; sourceTree = SOURCE_ROOT; };
+		A10003222F90032200000322 /* HeyMate/DetachedAgentRunnerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/DetachedAgentRunnerEngine.swift"; sourceTree = SOURCE_ROOT; };
+		A10003232F90032300000323 /* HeyMate/DetachedAgentRunnerExecutable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/DetachedAgentRunnerExecutable.swift"; sourceTree = SOURCE_ROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		AA20EX010000000000000001 /* Exceptions for "HeyMate" folder in "HeyMate" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 28F22CBE2F56440300A0FC59 /* HeyMate */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		28F22CC12F56440300A0FC59 /* HeyMate */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				AA20EX010000000000000001 /* Exceptions for "HeyMate" folder in "HeyMate" target */,
+			);
+			path = "HeyMate";
+			sourceTree = "<group>";
+		};
+		28F22CCF2F56440300A0FC59 /* HeyMateTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "HeyMateTests";
+			sourceTree = "<group>";
+		};
+		28F22CD92F56440300A0FC59 /* HeyMateUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "HeyMateUITests";
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		28F22CBC2F56440300A0FC59 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA00BB032F6500030039DA55 /* Sparkle in Frameworks */,
+				AA00BB062F6500060039DA55 /* PostHog in Frameworks */,
+				AA00BB092F6500090039DA55 /* FluidAudio in Frameworks */,
+				AA00BB0C2F65000C0039DA55 /* HeyMateComputerUse in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		28F22CC92F56440300A0FC59 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		28F22CD32F56440300A0FC59 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10004022F90040200000402 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		28F22CB62F56440300A0FC59 = {
+			isa = PBXGroup;
+			children = (
+				A10005012F90050100000501 /* HeyMateAgentRunner */,
+				28F22CC12F56440300A0FC59 /* HeyMate */,
+				28F22CCF2F56440300A0FC59 /* HeyMateTests */,
+				28F22CD92F56440300A0FC59 /* HeyMateUITests */,
+				28F22CC02F56440300A0FC59 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		28F22CC02F56440300A0FC59 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				28F22CBF2F56440300A0FC59 /* Clicky.app */,
+				A10003012F90030100000301 /* HeyMateAgentRunner */,
+				28F22CCC2F56440300A0FC59 /* HeyMateTests.xctest */,
+				28F22CD62F56440300A0FC59 /* HeyMateUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A10005012F90050100000501 /* HeyMateAgentRunner */ = {
+			isa = PBXGroup;
+			children = (
+				A10003112F90031100000311 /* HeyMateAgentRunnerMain.swift */,
+				A10003122F90031200000312 /* HeyMate/AgentRuntimeTypes.swift */,
+				A10003132F90031300000313 /* HeyMate/AgentPlanBrief.swift */,
+				A10003142F90031400000314 /* HeyMate/AgentProcessIdentity.swift */,
+				A10003152F90031500000315 /* HeyMate/ClaudeStreamJSONParser.swift */,
+				A10003162F90031600000316 /* HeyMate/CodexJSONLParser.swift */,
+				A10003172F90031700000317 /* HeyMate/OpenCodeRunParser.swift */,
+				A10003182F90031800000318 /* HeyMate/OpenCodeTemporaryDirectoryCleaner.swift */,
+				A10003192F90031900000319 /* HeyMate/LoginShellExecutableResolver.swift */,
+				A100031A2F90031A0000031A /* HeyMate/HeadlessCLIAdapter.swift */,
+				A100031B2F90031B0000031B /* HeyMate/HeadlessCLIProcess.swift */,
+				A100031C2F90031C0000031C /* HeyMate/DetachedAgentCommandMailbox.swift */,
+				A100031D2F90031D0000031D /* HeyMate/DetachedAgentLaunchRequest.swift */,
+				A100031E2F90031E0000031E /* HeyMate/DetachedAgentRuntimePaths.swift */,
+				A10003F02F9003F0000003F0 /* HeyMate/HeyMateDataDirectory.swift */,
+				A100031F2F90031F0000031F /* HeyMate/DetachedAgentRuntimePersistence.swift */,
+				A10003202F90032000000320 /* HeyMate/DetachedAgentRuntimeProtocol.swift */,
+				A10003212F90032100000321 /* HeyMate/DetachedAgentRunnerInvocation.swift */,
+				A10003222F90032200000322 /* HeyMate/DetachedAgentRunnerEngine.swift */,
+				A10003232F90032300000323 /* HeyMate/DetachedAgentRunnerExecutable.swift */,
+			);
+			path = HeyMateAgentRunner;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		28F22CBE2F56440300A0FC59 /* HeyMate */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 28F22CE02F56440300A0FC59 /* Build configuration list for PBXNativeTarget "HeyMate" */;
+			buildPhases = (
+				28F22CBB2F56440300A0FC59 /* Sources */,
+				28F22CBC2F56440300A0FC59 /* Frameworks */,
+				28F22CBD2F56440300A0FC59 /* Resources */,
+				A10004012F90040100000401 /* Embed Agent Runner */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A10007012F90070100000701 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				28F22CC12F56440300A0FC59 /* HeyMate */,
+			);
+			name = "HeyMate";
+			packageProductDependencies = (
+				AA00BB022F6500020039DA55 /* Sparkle */,
+				AA00BB052F6500050039DA55 /* PostHog */,
+				AA00BB082F6500080039DA55 /* FluidAudio */,
+				AA00BB0B2F65000B0039DA55 /* HeyMateComputerUse */,
+			);
+			productName = "HeyMate";
+			productReference = 28F22CBF2F56440300A0FC59 /* Clicky.app */;
+			productType = "com.apple.product-type.application";
+		};
+		28F22CCB2F56440300A0FC59 /* HeyMateTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 28F22CE32F56440300A0FC59 /* Build configuration list for PBXNativeTarget "HeyMateTests" */;
+			buildPhases = (
+				28F22CC82F56440300A0FC59 /* Sources */,
+				28F22CC92F56440300A0FC59 /* Frameworks */,
+				28F22CCA2F56440300A0FC59 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				28F22CCE2F56440300A0FC59 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				28F22CCF2F56440300A0FC59 /* HeyMateTests */,
+			);
+			name = "HeyMateTests";
+			packageProductDependencies = (
+			);
+			productName = "HeyMateTests";
+			productReference = 28F22CCC2F56440300A0FC59 /* HeyMateTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		28F22CD52F56440300A0FC59 /* HeyMateUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 28F22CE62F56440300A0FC59 /* Build configuration list for PBXNativeTarget "HeyMateUITests" */;
+			buildPhases = (
+				28F22CD22F56440300A0FC59 /* Sources */,
+				28F22CD32F56440300A0FC59 /* Frameworks */,
+				28F22CD42F56440300A0FC59 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				28F22CD82F56440300A0FC59 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				28F22CD92F56440300A0FC59 /* HeyMateUITests */,
+			);
+			name = "HeyMateUITests";
+			packageProductDependencies = (
+			);
+			productName = "HeyMateUITests";
+			productReference = 28F22CD62F56440300A0FC59 /* HeyMateUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		A10006012F90060100000601 /* HeyMateAgentRunner */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10008032F90080300000803 /* Build configuration list for PBXNativeTarget "HeyMateAgentRunner" */;
+			buildPhases = (
+				A10004032F90040300000403 /* Sources */,
+				A10004022F90040200000402 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = HeyMateAgentRunner;
+			packageProductDependencies = (
+			);
+			productName = HeyMateAgentRunner;
+			productReference = A10003012F90030100000301 /* HeyMateAgentRunner */;
+			productType = "com.apple.product-type.tool";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		28F22CB72F56440300A0FC59 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2620;
+				LastUpgradeCheck = 2620;
+				TargetAttributes = {
+					28F22CBE2F56440300A0FC59 = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					28F22CCB2F56440300A0FC59 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = 28F22CBE2F56440300A0FC59;
+					};
+					28F22CD52F56440300A0FC59 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = 28F22CBE2F56440300A0FC59;
+					};
+					A10006012F90060100000601 = {
+						CreatedOnToolsVersion = 26.2;
+					};
+				};
+			};
+			buildConfigurationList = 28F22CBA2F56440300A0FC59 /* Build configuration list for PBXProject "HeyMate" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 28F22CB62F56440300A0FC59;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				AA00BB012F6500010039DA55 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				AA00BB042F6500040039DA55 /* XCRemoteSwiftPackageReference "posthog-ios" */,
+				AA00BB072F6500070039DA55 /* XCRemoteSwiftPackageReference "FluidAudio" */,
+				AA00BB0A2F65000A0039DA55 /* XCLocalSwiftPackageReference "Packages/HeyMateComputerUse" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 28F22CC02F56440300A0FC59 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A10006012F90060100000601 /* HeyMateAgentRunner */,
+				28F22CBE2F56440300A0FC59 /* HeyMate */,
+				28F22CCB2F56440300A0FC59 /* HeyMateTests */,
+				28F22CD52F56440300A0FC59 /* HeyMateUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		28F22CBD2F56440300A0FC59 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		28F22CCA2F56440300A0FC59 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		28F22CD42F56440300A0FC59 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		28F22CBB2F56440300A0FC59 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		28F22CC82F56440300A0FC59 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		28F22CD22F56440300A0FC59 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10004032F90040300000403 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */,
+				A10001022F90010200000102 /* HeyMate/AgentRuntimeTypes.swift in Sources */,
+				A10001032F90010300000103 /* HeyMate/AgentPlanBrief.swift in Sources */,
+				A10001042F90010400000104 /* HeyMate/AgentProcessIdentity.swift in Sources */,
+				A10001052F90010500000105 /* HeyMate/ClaudeStreamJSONParser.swift in Sources */,
+				A10001062F90010600000106 /* HeyMate/CodexJSONLParser.swift in Sources */,
+				A10001072F90010700000107 /* HeyMate/OpenCodeRunParser.swift in Sources */,
+				A10001082F90010800000108 /* HeyMate/OpenCodeTemporaryDirectoryCleaner.swift in Sources */,
+				A10001092F90010900000109 /* HeyMate/LoginShellExecutableResolver.swift in Sources */,
+				A100010A2F90010A0000010A /* HeyMate/HeadlessCLIAdapter.swift in Sources */,
+				A100010B2F90010B0000010B /* HeyMate/HeadlessCLIProcess.swift in Sources */,
+				A100010C2F90010C0000010C /* HeyMate/DetachedAgentCommandMailbox.swift in Sources */,
+				A100010D2F90010D0000010D /* HeyMate/DetachedAgentLaunchRequest.swift in Sources */,
+				A100010E2F90010E0000010E /* HeyMate/DetachedAgentRuntimePaths.swift in Sources */,
+				A10001F02F9001F0000001F0 /* HeyMate/HeyMateDataDirectory.swift in Sources */,
+				A100010F2F90010F0000010F /* HeyMate/DetachedAgentRuntimePersistence.swift in Sources */,
+				A10001102F90011000000110 /* HeyMate/DetachedAgentRuntimeProtocol.swift in Sources */,
+				A10001112F90011100000111 /* HeyMate/DetachedAgentRunnerInvocation.swift in Sources */,
+				A10001122F90011200000112 /* HeyMate/DetachedAgentRunnerEngine.swift in Sources */,
+				A10001132F90011300000113 /* HeyMate/DetachedAgentRunnerExecutable.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		28F22CCE2F56440300A0FC59 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 28F22CBE2F56440300A0FC59 /* HeyMate */;
+			targetProxy = 28F22CCD2F56440300A0FC59 /* PBXContainerItemProxy */;
+		};
+		28F22CD82F56440300A0FC59 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 28F22CBE2F56440300A0FC59 /* HeyMate */;
+			targetProxy = 28F22CD72F56440300A0FC59 /* PBXContainerItemProxy */;
+		};
+		A10007012F90070100000701 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A10006012F90060100000601 /* HeyMateAgentRunner */;
+			targetProxy = A10002012F90020100000201 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		28F22CDE2F56440300A0FC59 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 7YQZYBU8Y7;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.2;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		28F22CDF2F56440300A0FC59 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 7YQZYBU8Y7;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.2;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		28F22CE12F56440300A0FC59 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "HeyMate/HeyMate.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "HeyMate/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = HeyMate;
+				INFOPLIST_KEY_CFBundleName = HeyMate;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSScreenCaptureUsageDescription = "HeyMate needs screen recording access to see your screen and help you.";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-weak_framework",
+					FoundationModels,
+					"-weak_framework",
+					ImagePlayground,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.heymate.app;
+				PRODUCT_NAME = HeyMate;
+				REGISTER_APP_GROUPS = YES;
+				SPARKLE_FEED_URL = "";
+				SPARKLE_PUBLIC_ED_KEY = "";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		28F22CE22F56440300A0FC59 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "HeyMate/HeyMate.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "HeyMate/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = HeyMate;
+				INFOPLIST_KEY_CFBundleName = HeyMate;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSScreenCaptureUsageDescription = "HeyMate needs screen recording access to see your screen and help you.";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-weak_framework",
+					FoundationModels,
+					"-weak_framework",
+					ImagePlayground,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.heymate.app;
+				PRODUCT_NAME = HeyMate;
+				REGISTER_APP_GROUPS = YES;
+				SPARKLE_FEED_URL = "";
+				SPARKLE_PUBLIC_ED_KEY = "";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		28F22CE42F56440300A0FC59 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.heymate.appTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/HeyMate.app/Contents/MacOS/HeyMate";
+			};
+			name = Debug;
+		};
+		28F22CE52F56440300A0FC59 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.heymate.appTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/HeyMate.app/Contents/MacOS/HeyMate";
+			};
+			name = Release;
+		};
+		28F22CE72F56440300A0FC59 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.heymate.appUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = "HeyMate";
+			};
+			name = Debug;
+		};
+		28F22CE82F56440300A0FC59 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.heymate.appUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = "HeyMate";
+			};
+			name = Release;
+		};
+		A10008012F90080100000801 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.2;
+				MARKETING_VERSION = 1.0;
+				OTHER_CODE_SIGN_FLAGS = "$(inherited) -i $(PRODUCT_BUNDLE_IDENTIFIER)";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.heymate.app.agent-runner";
+				PRODUCT_NAME = HeyMateAgentRunner;
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A10008022F90080200000802 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.2;
+				MARKETING_VERSION = 1.0;
+				OTHER_CODE_SIGN_FLAGS = "$(inherited) -i $(PRODUCT_BUNDLE_IDENTIFIER)";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.heymate.app.agent-runner";
+				PRODUCT_NAME = HeyMateAgentRunner;
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		28F22CBA2F56440300A0FC59 /* Build configuration list for PBXProject "HeyMate" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				28F22CDE2F56440300A0FC59 /* Debug */,
+				28F22CDF2F56440300A0FC59 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		28F22CE02F56440300A0FC59 /* Build configuration list for PBXNativeTarget "HeyMate" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				28F22CE12F56440300A0FC59 /* Debug */,
+				28F22CE22F56440300A0FC59 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		28F22CE32F56440300A0FC59 /* Build configuration list for PBXNativeTarget "HeyMateTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				28F22CE42F56440300A0FC59 /* Debug */,
+				28F22CE52F56440300A0FC59 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		28F22CE62F56440300A0FC59 /* Build configuration list for PBXNativeTarget "HeyMateUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				28F22CE72F56440300A0FC59 /* Debug */,
+				28F22CE82F56440300A0FC59 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A10008032F90080300000803 /* Build configuration list for PBXNativeTarget "HeyMateAgentRunner" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10008012F90080100000801 /* Debug */,
+				A10008022F90080200000802 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		AA00BB0A2F65000A0039DA55 /* XCLocalSwiftPackageReference "Packages/HeyMateComputerUse" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/HeyMateComputerUse;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		AA00BB012F6500010039DA55 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.9.0;
+			};
+		};
+		AA00BB042F6500040039DA55 /* XCRemoteSwiftPackageReference "posthog-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/PostHog/posthog-ios.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.0.0;
+			};
+		};
+		AA00BB072F6500070039DA55 /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.17.7;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AA00BB022F6500020039DA55 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA00BB012F6500010039DA55 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+		AA00BB052F6500050039DA55 /* PostHog */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA00BB042F6500040039DA55 /* XCRemoteSwiftPackageReference "posthog-ios" */;
+			productName = PostHog;
+		};
+		AA00BB082F6500080039DA55 /* FluidAudio */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA00BB072F6500070039DA55 /* XCRemoteSwiftPackageReference "FluidAudio" */;
+			productName = FluidAudio;
+		};
+		AA00BB0B2F65000B0039DA55 /* HeyMateComputerUse */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA00BB0A2F65000A0039DA55 /* XCLocalSwiftPackageReference "Packages/HeyMateComputerUse" */;
+			productName = HeyMateComputerUse;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 28F22CB72F56440300A0FC59 /* Project object */;
+}

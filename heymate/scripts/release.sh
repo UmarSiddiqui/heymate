@@ -1,448 +1,329 @@
 #!/bin/bash
+#
+# release.sh: cut a HeyMate release by hand, from this Mac.
+#
+#   ./scripts/release.sh <marketing-version> <build-number>
+#   ./scripts/release.sh 2.0 10
+#
+# Merging to main already publishes a release through
+# .github/workflows/release.yml. This script is the manual path for when that
+# is unavailable. It refuses to start until every input is proven good, then:
+#
+#   archive → verify → export (Developer ID) → DMG → sign, notarize, staple
+#   → Sparkle signature → appcast.xml → GitHub release → verify the tag
+#
+# One-time setup on this Mac:
+#   - A Developer ID Application certificate in the login keychain
+#   - brew install create-dmg gh, then gh auth login
+#   - The Sparkle EdDSA key in the keychain (its public half is pinned in
+#     ReleaseChannel.plist)
+#   - xcrun notarytool store-credentials "AC_PASSWORD"
+#   - One Xcode build of the project, so SwiftPM has fetched Sparkle's tools
+#
+# Optional environment:
+#   HEYMATE_DEVELOPMENT_TEAM          pick a team when several certificates exist
+#   HEYMATE_RELEASE_SIGNING_IDENTITY  a certificate name or SHA-1 hash
+#   HEYMATE_SPARKLE_KEY_ACCOUNT       keychain account of the Sparkle key
+
 set -euo pipefail
 
-# Add Homebrew to PATH so create-dmg and gh are available in non-interactive shells
+# Non-interactive shells miss Homebrew's PATH, and with it create-dmg and gh.
 export PATH="/opt/homebrew/bin:$PATH"
 
-# =============================================================================
-# release.sh — Automates the full release pipeline for HeyMate
-#
-# What it does (in order):
-#   1. Validates explicit version + monotonic build metadata
-#   2. Archives the app via xcodebuild
-#   3. Exports a Developer ID-signed .app
-#   4. Wraps it in a DMG with the drag-to-Applications background
-#   5. Developer-ID-signs, notarizes, staples, and Gatekeeper-checks the DMG
-#   6. Signs the DMG with your Sparkle EdDSA key
-#   7. Generates/updates appcast.xml automatically
-#   8. Creates a GitHub Release with the DMG and appcast attached
-#
-# Usage:
-#   ./scripts/release.sh 2.0 10       Explicit marketing version + monotonic build
-#
-# Prerequisites (one-time setup):
-#   - Xcode with your Developer ID signing certificate
-#   - `brew install create-dmg gh`
-#   - `gh auth login` (GitHub CLI authenticated)
-#   - Sparkle EdDSA key in your Keychain (already generated)
-#   - `xcrun notarytool store-credentials "AC_PASSWORD"` (Apple notarization credentials)
-#   - Permanent public repository + Sparkle public key committed in ReleaseChannel.plist
-# =============================================================================
-
-# ── Configuration ────────────────────────────────────────────────────────────
-
-SCHEME="leanring-buddy"
-APP_NAME="HeyMate"
+readonly APP_NAME="HeyMate"
+readonly SCHEME="HeyMate"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-BUILD_DIR="${PROJECT_DIR}/build"
-ARCHIVE_PATH="${BUILD_DIR}/${APP_NAME}.xcarchive"
-EXPORT_DIR="${BUILD_DIR}/export"
-DMG_OUTPUT_DIR="${BUILD_DIR}/dmg"
-RELEASES_DIR="${PROJECT_DIR}/releases"  # where generate_appcast reads DMGs from
-DMG_BACKGROUND="${PROJECT_DIR}/dmg-background.png"
-RELEASE_CHANNEL_CONFIG="${PROJECT_DIR}/ReleaseChannel.plist"
+readonly PROJECT_DIR
+readonly BUILD_DIR="${PROJECT_DIR}/build"
+readonly ARCHIVE_PATH="${BUILD_DIR}/${APP_NAME}.xcarchive"
+readonly ARCHIVED_APP="${ARCHIVE_PATH}/Products/Applications/${APP_NAME}.app"
+readonly EXPORT_DIR="${BUILD_DIR}/export"
+readonly EXPORTED_APP="${EXPORT_DIR}/${APP_NAME}.app"
+# generate_appcast reads every DMG in this folder.
+readonly RELEASES_DIR="${PROJECT_DIR}/releases"
+readonly DMG_FILENAME="${APP_NAME}.dmg"
+readonly DMG_PATH="${RELEASES_DIR}/${DMG_FILENAME}"
+readonly DMG_BACKGROUND="${PROJECT_DIR}/dmg-background.png"
+readonly RELEASE_CHANNEL_CONFIG="${PROJECT_DIR}/ReleaseChannel.plist"
+readonly NOTARY_PROFILE="AC_PASSWORD"
+readonly SPARKLE_KEY_ACCOUNT="${HEYMATE_SPARKLE_KEY_ACCOUNT:-ed25519}"
+
 # shellcheck source=../script/code_signature_checks.sh
 source "${PROJECT_DIR}/script/code_signature_checks.sh"
 
-# Release counts are not build numbers: API pagination, drafts, or deletion can
-# make them repeat. Require both values; later we also compare the build against
-# metadata written into every release this script creates.
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+die() {
+    local line
+    for line in "$@"; do echo "❌ ${line}" >&2; done
+    exit 1
+}
+
+step() {
+    echo ""
+    echo "$1"
+}
+
+strip_whitespace() {
+    printf '%s' "$1" | tr -d '[:space:]'
+}
+
+# Prints one key of a plist, or fails when the key is missing.
+plist_value() {
+    /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null
+}
+
+# True when the argument is base64 for exactly 32 bytes: an Ed25519 public key.
+is_ed25519_public_key() {
+    local byte_count
+    byte_count=$(printf '%s' "$1" | /usr/bin/base64 -D 2>/dev/null | wc -c | tr -d '[:space:]') || return 1
+    [ "${byte_count}" = "32" ]
+}
+
+# "v2.1" → "2.1.0", with leading zeros dropped so versions compare as numbers.
+normalized_version() {
+    local major minor patch
+    IFS='.' read -r major minor patch <<< "${1#v}"
+    printf '%d.%d.%d\n' "$((10#${major}))" "$((10#${minor}))" "$((10#${patch:-0}))"
+}
+
+# True when normalized version $1 is strictly newer than $2.
+is_newer_version() {
+    local candidate previous index
+    IFS='.' read -r -a candidate <<< "$1"
+    IFS='.' read -r -a previous <<< "$2"
+    for index in 0 1 2; do
+        (( candidate[index] > previous[index] )) && return 0
+        (( candidate[index] < previous[index] )) && return 1
+    done
+    return 1
+}
+
+# ── Arguments ────────────────────────────────────────────────────────────────
+
+# Both numbers are required. Counting past releases is not safe: drafts,
+# deletions and pagination can make a count repeat, and Sparkle orders
+# updates by build number.
 if [ "$#" -ne 2 ]; then
-    echo "Usage: ./scripts/release.sh <marketing-version> <monotonic-build-number>" >&2
+    echo "Usage: ./scripts/release.sh <marketing-version> <build-number>" >&2
     echo "Example: ./scripts/release.sh 2.0 10" >&2
     exit 1
 fi
+readonly MARKETING_VERSION="$1"
+readonly BUILD_NUMBER="$2"
+readonly TAG="v${MARKETING_VERSION}"
+[[ "${MARKETING_VERSION}" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || die "Marketing version must look like 2.0 or 2.0.1."
+[[ "${BUILD_NUMBER}" =~ ^[1-9][0-9]*$ ]] || die "Build number must be a positive integer."
 
-MARKETING_VERSION="$1"
-BUILD_NUMBER="$2"
-if [[ ! "${MARKETING_VERSION}" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
-    echo "Marketing version must look like 2.0 or 2.0.1." >&2
-    exit 1
-fi
-if [[ ! "${BUILD_NUMBER}" =~ ^[1-9][0-9]*$ ]]; then
-    echo "Build number must be a positive integer." >&2
-    exit 1
-fi
+# ── Release channel ──────────────────────────────────────────────────────────
 
-normalize_marketing_version() {
-    local version="${1#v}"
-    local major minor patch
-    IFS='.' read -r major minor patch <<< "${version}"
-    printf '%d.%d.%d\n' \
-        "$((10#${major}))" \
-        "$((10#${minor}))" \
-        "$((10#${patch:-0}))"
-}
+[ -f "${RELEASE_CHANNEL_CONFIG}" ] || die "ReleaseChannel.plist is missing."
+GITHUB_REPO=$(strip_whitespace "$(plist_value "${RELEASE_CHANNEL_CONFIG}" Repository)")
+PINNED_SPARKLE_KEY=$(strip_whitespace "$(plist_value "${RELEASE_CHANNEL_CONFIG}" PublicEDKey)")
+[[ "${GITHUB_REPO}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] \
+    || die "Pin the permanent public owner/repository in ReleaseChannel.plist."
+is_ed25519_public_key "${PINNED_SPARKLE_KEY}" \
+    || die "Pin a valid 32-byte Sparkle Ed25519 public key in ReleaseChannel.plist."
 
-marketing_version_is_greater() {
-    awk -v candidate="$1" -v previous="$2" 'BEGIN {
-        split(candidate, candidate_parts, ".")
-        split(previous, previous_parts, ".")
-        for (index = 1; index <= 3; index++) {
-            if (candidate_parts[index] > previous_parts[index]) exit 0
-            if (candidate_parts[index] < previous_parts[index]) exit 1
-        }
-        exit 1
-    }'
-}
+# Sparkle downloads anonymously, so a private repository would strand users.
+VISIBILITY=$(gh api "repos/${GITHUB_REPO}" --jq '.visibility') \
+    || die "Could not verify the configured release repository."
+[ "${VISIBILITY}" = "public" ] \
+    || die "Sparkle updates need anonymous downloads from a public repository." \
+           "${GITHUB_REPO} is not public; stopping before any build or upload."
 
-if [ ! -f "${RELEASE_CHANNEL_CONFIG}" ]; then
-    echo "ReleaseChannel.plist is missing." >&2
-    exit 1
-fi
-GITHUB_REPO=$(/usr/libexec/PlistBuddy -c 'Print :Repository' "${RELEASE_CHANNEL_CONFIG}")
-PINNED_SPARKLE_PUBLIC_ED_KEY=$(/usr/libexec/PlistBuddy -c 'Print :PublicEDKey' "${RELEASE_CHANNEL_CONFIG}")
-GITHUB_REPO=$(printf '%s' "${GITHUB_REPO}" | tr -d '[:space:]')
-PINNED_SPARKLE_PUBLIC_ED_KEY=$(printf '%s' "${PINNED_SPARKLE_PUBLIC_ED_KEY}" | tr -d '[:space:]')
+# Every archived app keeps this URL forever. The `latest` redirect means it
+# never names a tag, branch or hosting account.
+readonly SPARKLE_FEED_URL="https://github.com/${GITHUB_REPO}/releases/latest/download/appcast.xml"
 
-if [[ ! "${GITHUB_REPO}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
-    echo "Pin the permanent public owner/repository in ReleaseChannel.plist." >&2
-    exit 1
-fi
-if ! PINNED_PUBLIC_KEY_BYTE_COUNT=$(printf '%s' "${PINNED_SPARKLE_PUBLIC_ED_KEY}" \
-    | /usr/bin/base64 -D 2>/dev/null \
-    | wc -c \
-    | tr -d '[:space:]'); then
-    PINNED_PUBLIC_KEY_BYTE_COUNT=0
-fi
-if [ "${PINNED_PUBLIC_KEY_BYTE_COUNT}" != "32" ]; then
-    echo "Pin a valid 32-byte Sparkle Ed25519 public key in ReleaseChannel.plist." >&2
-    exit 1
-fi
+# ── Source ───────────────────────────────────────────────────────────────────
 
-if ! RELEASE_REPOSITORY_VISIBILITY=$(gh api \
-    "repos/${GITHUB_REPO}" \
-    --jq '.visibility'); then
-    echo "Could not verify the configured release repository." >&2
-    exit 1
-fi
-if [ "${RELEASE_REPOSITORY_VISIBILITY}" != "public" ]; then
-    echo "Sparkle updates require anonymous release assets from an approved public repository." >&2
-    echo "The configured release repository is not public; stopping before any build or upload." >&2
-    exit 1
-fi
+# Only a clean tree that GitHub already has can be released, so every DMG
+# traces back to reviewed, public source.
+SOURCE_ROOT=$(git -C "${PROJECT_DIR}" rev-parse --show-toplevel 2>/dev/null) \
+    || die "The release source is not inside a Git repository."
+[ -z "$(git -C "${SOURCE_ROOT}" status --porcelain --untracked-files=normal)" ] \
+    || die "The source tree has tracked or untracked changes. Commit a reviewed clean tree first."
+SOURCE_SHA=$(git -C "${SOURCE_ROOT}" rev-parse HEAD)
+REMOTE_SHA=$(gh api "repos/${GITHUB_REPO}/commits/${SOURCE_SHA}" --jq '.sha') \
+    || die "Commit ${SOURCE_SHA} is not in ${GITHUB_REPO}." "Push the reviewed commit before releasing it."
+[ "${REMOTE_SHA}" = "${SOURCE_SHA}" ] || die "GitHub returned a different commit for ${SOURCE_SHA}; refusing to release."
 
-if ! SOURCE_REPO_ROOT=$(git -C "${PROJECT_DIR}" rev-parse --show-toplevel 2>/dev/null); then
-    echo "Release source is not inside a Git repository." >&2
-    exit 1
-fi
-if [ -n "$(git -C "${SOURCE_REPO_ROOT}" status --porcelain --untracked-files=normal)" ]; then
-    echo "Release source has tracked or untracked changes. Commit a reviewed clean tree first." >&2
-    exit 1
-fi
-SOURCE_SHA=$(git -C "${SOURCE_REPO_ROOT}" rev-parse HEAD)
-if ! REMOTE_SOURCE_SHA=$(gh api \
-    "repos/${GITHUB_REPO}/commits/${SOURCE_SHA}" \
-    --jq '.sha'); then
-    echo "Current source commit is not present in the approved release repository." >&2
-    echo "Push the reviewed commit before creating its release artifacts." >&2
-    exit 1
-fi
-if [ "${REMOTE_SOURCE_SHA}" != "${SOURCE_SHA}" ]; then
-    echo "GitHub returned a different source commit; refusing release." >&2
-    exit 1
-fi
+# ── Signing identity ─────────────────────────────────────────────────────────
 
-# Each GitHub release carries both the DMG and its appcast. The stable `latest`
-# URL avoids hard-coding an owner, repository, branch, or hosting account in
-# the project while still giving every archived app a durable feed endpoint.
-SPARKLE_FEED_URL="https://github.com/${GITHUB_REPO}/releases/latest/download/appcast.xml"
-SPARKLE_KEY_ACCOUNT="${HEYMATE_SPARKLE_KEY_ACCOUNT:-ed25519}"
-
-# Public archives require a Developer ID Application certificate. Keep team
-# and certificate local: detect them from Keychain or accept explicit values,
-# but never check personal signing identifiers into the project.
+# Team and certificate stay on this Mac: detected from the keychain or given
+# through the environment, never committed.
 DEVELOPMENT_TEAM="${HEYMATE_DEVELOPMENT_TEAM:-}"
-RELEASE_SIGNING_IDENTITY="${HEYMATE_RELEASE_SIGNING_IDENTITY:-}"
-IDENTITY_LISTING=$(security find-identity -v -p codesigning 2>/dev/null || true)
-MATCHING_IDENTITIES=$(printf '%s\n' "$IDENTITY_LISTING" \
-    | grep '"Developer ID Application:' || true)
-if [ -n "$DEVELOPMENT_TEAM" ]; then
-    MATCHING_IDENTITIES=$(printf '%s\n' "$MATCHING_IDENTITIES" \
-        | grep -F "(${DEVELOPMENT_TEAM})\"" || true)
+SIGNING_IDENTITY="${HEYMATE_RELEASE_SIGNING_IDENTITY:-}"
+CANDIDATES=$(security find-identity -v -p codesigning 2>/dev/null | grep '"Developer ID Application:' || true)
+if [ -n "${DEVELOPMENT_TEAM}" ]; then
+    CANDIDATES=$(printf '%s\n' "${CANDIDATES}" | grep -F "(${DEVELOPMENT_TEAM})\"" || true)
 fi
-if [ -n "$RELEASE_SIGNING_IDENTITY" ]; then
-    if [[ "$RELEASE_SIGNING_IDENTITY" =~ ^[A-Fa-f0-9]{40}$ ]]; then
-        MATCHING_IDENTITIES=$(printf '%s\n' "$MATCHING_IDENTITIES" \
-            | grep -i " ${RELEASE_SIGNING_IDENTITY} " || true)
-    else
-        MATCHING_IDENTITIES=$(printf '%s\n' "$MATCHING_IDENTITIES" \
-            | grep -F "\"${RELEASE_SIGNING_IDENTITY}\"" || true)
-    fi
+if [[ "${SIGNING_IDENTITY}" =~ ^[A-Fa-f0-9]{40}$ ]]; then
+    CANDIDATES=$(printf '%s\n' "${CANDIDATES}" | grep -i " ${SIGNING_IDENTITY} " || true)
+elif [ -n "${SIGNING_IDENTITY}" ]; then
+    CANDIDATES=$(printf '%s\n' "${CANDIDATES}" | grep -F "\"${SIGNING_IDENTITY}\"" || true)
 fi
-DEVELOPER_ID_LINE=$(printf '%s\n' "$MATCHING_IDENTITIES" | sed -n '1p')
+CHOSEN=$(printf '%s\n' "${CANDIDATES}" | sed -n '1p')
+[ -n "${CHOSEN}" ] || die "No installed Developer ID Application certificate matches the requested team or identity."
 
-if [ -z "$DEVELOPER_ID_LINE" ]; then
-    echo "No installed Developer ID Application certificate matches the requested team/identity." >&2
-    exit 1
-fi
+# A find-identity line reads: `  1) <SHA-1> "Developer ID Application: Name (TEAMID)"`.
+DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-$(printf '%s\n' "${CHOSEN}" | sed -n 's/.*(\([A-Z0-9]\{10\}\))".*/\1/p')}"
+SIGNING_IDENTITY="${SIGNING_IDENTITY:-$(printf '%s\n' "${CHOSEN}" | sed -n 's/^[[:space:]]*[0-9]*) \([A-F0-9]\{40\}\) .*/\1/p')}"
+[ -n "${DEVELOPMENT_TEAM}" ] && [ -n "${SIGNING_IDENTITY}" ] \
+    || die "Could not settle on one release team and signing identity."
 
-MATCHED_DEVELOPMENT_TEAM=$(printf '%s\n' "$DEVELOPER_ID_LINE" \
-    | sed -n 's/.*(\([A-Z0-9]\{10\}\))".*/\1/p')
-MATCHED_SIGNING_HASH=$(printf '%s\n' "$DEVELOPER_ID_LINE" \
-    | sed -n 's/^[[:space:]]*[0-9]*) \([A-F0-9]\{40\}\) .*/\1/p')
-DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-$MATCHED_DEVELOPMENT_TEAM}"
-RELEASE_SIGNING_IDENTITY="${RELEASE_SIGNING_IDENTITY:-$MATCHED_SIGNING_HASH}"
+# ── Sparkle key ──────────────────────────────────────────────────────────────
 
-if [ -z "$DEVELOPMENT_TEAM" ] || [ -z "$RELEASE_SIGNING_IDENTITY" ]; then
-    echo "Could not derive one matching release team and signing identity." >&2
-    exit 1
-fi
+SPARKLE_BIN=$(find ~/Library/Developer/Xcode/DerivedData/HeyMate*/SourcePackages/artifacts/sparkle/Sparkle/bin \
+    -maxdepth 0 2>/dev/null | head -1)
+[ -n "${SPARKLE_BIN}" ] || die "Sparkle's tools are missing. Build the project in Xcode once so SwiftPM fetches them."
 
-# Sparkle tools (auto-discovered from Xcode's SPM cache)
-SPARKLE_BIN=$(find ~/Library/Developer/Xcode/DerivedData/leanring-buddy*/SourcePackages/artifacts/sparkle/Sparkle/bin -maxdepth 0 2>/dev/null | head -1)
+# Only the public half leaves the keychain; sign_update and generate_appcast
+# use the private half in place.
+SPARKLE_PUBLIC_KEY=$("${SPARKLE_BIN}/generate_keys" --account "${SPARKLE_KEY_ACCOUNT}" -p) \
+    || die "Could not read the Sparkle EdDSA key from the keychain."
+SPARKLE_PUBLIC_KEY=$(strip_whitespace "${SPARKLE_PUBLIC_KEY}")
+is_ed25519_public_key "${SPARKLE_PUBLIC_KEY}" || die "The keychain's Sparkle public key is not a 32-byte Ed25519 key."
+# Installed copies only trust the pinned key; signing with another would
+# leave them unable to update, with no way to fix it from here.
+[ "${SPARKLE_PUBLIC_KEY}" = "${PINNED_SPARKLE_KEY}" ] \
+    || die "The keychain's Sparkle key does not match ReleaseChannel.plist." \
+           "Refusing to strand installed copies on a different signing key."
 
-if [ -z "$SPARKLE_BIN" ]; then
-    echo "❌ Sparkle tools not found. Build the project in Xcode first so SPM downloads Sparkle."
-    exit 1
-fi
+# ── Version ordering ─────────────────────────────────────────────────────────
 
-# Read only the public half of the same Keychain key that sign_update and
-# generate_appcast use below. Never export the private key into the repository
-# or build directory.
-if ! SPARKLE_PUBLIC_ED_KEY=$("${SPARKLE_BIN}/generate_keys" \
-    --account "${SPARKLE_KEY_ACCOUNT}" \
-    -p); then
-    echo "❌ Could not read the existing Sparkle EdDSA key from Keychain." >&2
-    exit 1
-fi
-SPARKLE_PUBLIC_ED_KEY=$(printf '%s' "${SPARKLE_PUBLIC_ED_KEY}" | tr -d '[:space:]')
-if ! SPARKLE_PUBLIC_KEY_BYTE_COUNT=$(printf '%s' "${SPARKLE_PUBLIC_ED_KEY}" \
-    | /usr/bin/base64 -D 2>/dev/null \
-    | wc -c \
-    | tr -d '[:space:]'); then
-    SPARKLE_PUBLIC_KEY_BYTE_COUNT=0
-fi
-if [ "${SPARKLE_PUBLIC_KEY_BYTE_COUNT}" != "32" ]; then
-    echo "❌ Existing Sparkle public key is not a 32-byte Ed25519 key." >&2
-    exit 1
-fi
-if [ "${SPARKLE_PUBLIC_ED_KEY}" != "${PINNED_SPARKLE_PUBLIC_ED_KEY}" ]; then
-    echo "The selected Keychain Sparkle key does not match ReleaseChannel.plist." >&2
-    echo "Refusing to strand installed builds on a different update-signing key." >&2
-    exit 1
-fi
-
-echo "🔍 Checking latest release on GitHub..."
-
-if ! PUBLISHED_RELEASE_TAGS=$(gh api --paginate \
-    "repos/${GITHUB_REPO}/releases?per_page=100" \
-    --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name'); then
-    echo "Could not list existing GitHub releases; refusing to assume an empty release channel." >&2
-    exit 1
-fi
+echo "🔍 Checking earlier releases on GitHub..."
+PUBLISHED_TAGS=$(gh api --paginate "repos/${GITHUB_REPO}/releases?per_page=100" \
+    --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name') \
+    || die "Could not list GitHub releases; refusing to assume there are none."
 LATEST_TAG=""
-if [ -n "${PUBLISHED_RELEASE_TAGS}" ]; then
-    if ! LATEST_TAG=$(gh api \
-        "repos/${GITHUB_REPO}/releases/latest" \
-        --jq '.tag_name'); then
-        echo "Published releases exist, but GitHub latest could not be resolved." >&2
-        exit 1
-    fi
+if [ -n "${PUBLISHED_TAGS}" ]; then
+    LATEST_TAG=$(gh api "repos/${GITHUB_REPO}/releases/latest" --jq '.tag_name') \
+        || die "Releases exist, but GitHub's latest release could not be read."
     echo "   Latest release: ${LATEST_TAG}"
-    if [[ ! "${LATEST_TAG}" =~ ^v?[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
-        echo "Latest release tag ${LATEST_TAG} is not a supported numeric marketing version." >&2
-        echo "Resolve release ordering manually before publishing another latest release." >&2
-        exit 1
-    fi
-    NORMALIZED_MARKETING_VERSION=$(normalize_marketing_version "${MARKETING_VERSION}")
-    NORMALIZED_LATEST_VERSION=$(normalize_marketing_version "${LATEST_TAG}")
-    if ! marketing_version_is_greater \
-        "${NORMALIZED_MARKETING_VERSION}" \
-        "${NORMALIZED_LATEST_VERSION}"; then
-        echo "Marketing version ${MARKETING_VERSION} must exceed latest release ${LATEST_TAG}." >&2
-        exit 1
-    fi
+    [[ "${LATEST_TAG}" =~ ^v?[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] \
+        || die "The latest tag ${LATEST_TAG} is not a numeric version." \
+               "Sort out release ordering by hand before publishing another."
+    is_newer_version "$(normalized_version "${MARKETING_VERSION}")" "$(normalized_version "${LATEST_TAG}")" \
+        || die "Version ${MARKETING_VERSION} must be newer than the latest release, ${LATEST_TAG}."
 else
-    echo "   No previous releases found — starting from scratch"
+    echo "   No earlier releases; this is the first."
 fi
 
-if ! RELEASE_BODIES=$(gh api --paginate \
-    "repos/${GITHUB_REPO}/releases?per_page=100" \
-    --jq '.[] | .body // ""'); then
-    echo "Could not inspect existing release build metadata." >&2
-    exit 1
-fi
-MAX_RECORDED_BUILD=$(printf '%s\n' "${RELEASE_BODIES}" \
+# Every release this script makes records its build as `HeyMate-Build: N`.
+RELEASE_BODIES=$(gh api --paginate "repos/${GITHUB_REPO}/releases?per_page=100" --jq '.[] | .body // ""') \
+    || die "Could not read the build numbers of earlier releases."
+HIGHEST_BUILD=$(printf '%s\n' "${RELEASE_BODIES}" \
     | awk '/^HeyMate-Build: [0-9]+$/ { if ($2 > max) max = $2 } END { if (max > 0) print max }')
-if [ -n "${MAX_RECORDED_BUILD}" ] && [ "${BUILD_NUMBER}" -le "${MAX_RECORDED_BUILD}" ]; then
-    echo "Build number must exceed recorded build ${MAX_RECORDED_BUILD}." >&2
-    exit 1
+if [ -n "${HIGHEST_BUILD}" ] && [ "${BUILD_NUMBER}" -le "${HIGHEST_BUILD}" ]; then
+    die "Build number must be higher than ${HIGHEST_BUILD}, the highest released so far."
 fi
 
-DMG_FILENAME="${APP_NAME}.dmg"
-TAG="v${MARKETING_VERSION}"
+# matching-refs answers an empty list when the tag is free and fails on an
+# outage, so an API error can never pass for a free tag.
+EXISTING_TAG=$(gh api "repos/${GITHUB_REPO}/git/matching-refs/tags/${TAG}" \
+    --jq ".[] | select(.ref == \"refs/tags/${TAG}\") | .ref") \
+    || die "Could not check whether ${TAG} already exists."
+[ -z "${EXISTING_TAG}" ] \
+    || die "${TAG} already exists: https://github.com/${GITHUB_REPO}/releases/tag/${TAG}" \
+           "Pick a higher version and build: ./scripts/release.sh <version> <build>"
 
-# ── Safety checks ────────────────────────────────────────────────────────────
+# ── Confirm ──────────────────────────────────────────────────────────────────
 
-# A matching-refs list returns an empty array for absence but fails on API or
-# authentication errors, so a transient outage can never masquerade as a free
-# tag name.
-if ! MATCHING_TAG_REF=$(gh api \
-    "repos/${GITHUB_REPO}/git/matching-refs/tags/${TAG}" \
-    --jq ".[] | select(.ref == \"refs/tags/${TAG}\") | .ref"); then
-    echo "Could not verify whether tag ${TAG} already exists." >&2
-    exit 1
-fi
-if [ -n "${MATCHING_TAG_REF}" ]; then
-    echo ""
-    echo "❌ Tag or release ${TAG} already exists on GitHub!"
-    echo "   https://github.com/${GITHUB_REPO}/releases/tag/${TAG}"
-    echo ""
-    echo "   Choose a higher version and build number:"
-    echo "     ./scripts/release.sh <higher-version> <higher-build>"
-    exit 1
-fi
+KEY_FINGERPRINT=$(printf '%s' "${SPARKLE_PUBLIC_KEY}" | shasum -a 256 | cut -c1-12)
+cat <<SUMMARY
 
-echo ""
-echo "🚀 Releasing ${APP_NAME} v${MARKETING_VERSION} (build ${BUILD_NUMBER})"
-echo "   Previous: ${LATEST_TAG:-none}"
-echo "   Repository: ${GITHUB_REPO}"
-echo "   Feed: ${SPARKLE_FEED_URL}"
-echo "   Source commit: ${SOURCE_SHA}"
-SPARKLE_KEY_FINGERPRINT=$(printf '%s' "${SPARKLE_PUBLIC_ED_KEY}" \
-    | shasum -a 256 \
-    | awk '{print substr($1, 1, 12)}')
-echo "   Sparkle key fingerprint: ${SPARKLE_KEY_FINGERPRINT}"
-echo ""
+🚀 ${APP_NAME} ${MARKETING_VERSION} (build ${BUILD_NUMBER})
+   Previous release:        ${LATEST_TAG:-none}
+   Repository:              ${GITHUB_REPO}
+   Update feed:             ${SPARKLE_FEED_URL}
+   Source commit:           ${SOURCE_SHA}
+   Sparkle key fingerprint: ${KEY_FINGERPRINT}
 
-# Confirm with the user before proceeding
+SUMMARY
 read -p "   Proceed? (y/N) " -n 1 -r
 echo ""
-if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+if [[ ! ${REPLY} =~ ^[Yy]$ ]]; then
     echo "   Aborted."
     exit 0
 fi
-echo ""
 
-# ── Step 1: Clean build directory ────────────────────────────────────────────
+# ── 1. Clean ─────────────────────────────────────────────────────────────────
 
-echo "🧹 Cleaning build directory and stale DMGs..."
+step "🧹 Clearing the build folder and stale DMGs..."
 rm -rf "${BUILD_DIR}"
-# Remove any leftover temp DMGs from create-dmg (rw.*.dmg) and the previous
-# same-named DMG so create-dmg and generate_appcast don't choke on duplicates.
-rm -f "${RELEASES_DIR}"/rw.*.dmg "${RELEASES_DIR}/${DMG_FILENAME}"
-mkdir -p "${BUILD_DIR}" "${EXPORT_DIR}" "${DMG_OUTPUT_DIR}" "${RELEASES_DIR}"
+# create-dmg leaves rw.*.dmg scratch files behind on failure, and an old DMG
+# of the same name would confuse both it and generate_appcast.
+rm -f "${RELEASES_DIR}"/rw.*.dmg "${DMG_PATH}"
+mkdir -p "${BUILD_DIR}" "${EXPORT_DIR}" "${RELEASES_DIR}"
 
-# ── Step 2: Archive ──────────────────────────────────────────────────────────
+# ── 2. Archive ───────────────────────────────────────────────────────────────
 
-echo "📦 Archiving..."
+step "📦 Archiving..."
 xcodebuild archive \
-    -project "${PROJECT_DIR}/leanring-buddy.xcodeproj" \
+    -project "${PROJECT_DIR}/HeyMate.xcodeproj" \
     -scheme "${SCHEME}" \
     -archivePath "${ARCHIVE_PATH}" \
     DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM}" \
-    CODE_SIGN_IDENTITY="${RELEASE_SIGNING_IDENTITY}" \
+    CODE_SIGN_IDENTITY="${SIGNING_IDENTITY}" \
     SPARKLE_FEED_URL="${SPARKLE_FEED_URL}" \
-    SPARKLE_PUBLIC_ED_KEY="${SPARKLE_PUBLIC_ED_KEY}" \
+    SPARKLE_PUBLIC_ED_KEY="${SPARKLE_PUBLIC_KEY}" \
     MARKETING_VERSION="${MARKETING_VERSION}" \
     CURRENT_PROJECT_VERSION="${BUILD_NUMBER}" \
     2>&1 | tail -5
 
-echo "✅ Archive created"
+# Check what Xcode actually baked in before anything leaves this Mac. An app
+# shipped with the wrong feed or key can never be corrected from outside it.
+ARCHIVED_INFO="${ARCHIVED_APP}/Contents/Info.plist"
+[ -f "${ARCHIVED_INFO}" ] || die "The archive has no Info.plist at ${ARCHIVED_INFO}."
+expect_archived() {
+    local key="$1" expected="$2" actual
+    actual=$(plist_value "${ARCHIVED_INFO}" "${key}") || die "The archive is missing ${key}."
+    [ "${actual}" = "${expected}" ] || die "The archive's ${key} is ${actual}, expected ${expected}."
+}
+expect_archived SUFeedURL "${SPARKLE_FEED_URL}"
+expect_archived SUPublicEDKey "${SPARKLE_PUBLIC_KEY}"
+expect_archived CFBundleShortVersionString "${MARKETING_VERSION}"
+expect_archived CFBundleVersion "${BUILD_NUMBER}"
+echo "✅ Archive has the expected version, build, update feed and key"
 
-# Fail before export, notarization, or upload if Xcode dropped or transformed
-# either Sparkle value. A feed signed by a different key is unrecoverable from
-# inside an already distributed app.
-ARCHIVED_INFO_PLIST="${ARCHIVE_PATH}/Products/Applications/${APP_NAME}.app/Contents/Info.plist"
-if [ ! -f "${ARCHIVED_INFO_PLIST}" ]; then
-    echo "❌ Archived Info.plist not found at ${ARCHIVED_INFO_PLIST}." >&2
-    exit 1
-fi
-if ! ARCHIVED_SPARKLE_FEED_URL=$(/usr/libexec/PlistBuddy \
-    -c 'Print :SUFeedURL' \
-    "${ARCHIVED_INFO_PLIST}" 2>/dev/null); then
-    echo "❌ Archive is missing SUFeedURL." >&2
-    exit 1
-fi
-if ! ARCHIVED_SPARKLE_PUBLIC_ED_KEY=$(/usr/libexec/PlistBuddy \
-    -c 'Print :SUPublicEDKey' \
-    "${ARCHIVED_INFO_PLIST}" 2>/dev/null); then
-    echo "❌ Archive is missing SUPublicEDKey." >&2
-    exit 1
-fi
-if ! ARCHIVED_MARKETING_VERSION=$(/usr/libexec/PlistBuddy \
-    -c 'Print :CFBundleShortVersionString' \
-    "${ARCHIVED_INFO_PLIST}" 2>/dev/null); then
-    echo "❌ Archive is missing CFBundleShortVersionString." >&2
-    exit 1
-fi
-if ! ARCHIVED_BUILD_NUMBER=$(/usr/libexec/PlistBuddy \
-    -c 'Print :CFBundleVersion' \
-    "${ARCHIVED_INFO_PLIST}" 2>/dev/null); then
-    echo "❌ Archive is missing CFBundleVersion." >&2
-    exit 1
-fi
-if [ "${ARCHIVED_SPARKLE_FEED_URL}" != "${SPARKLE_FEED_URL}" ]; then
-    echo "❌ Archived SUFeedURL does not match the configured release repository." >&2
-    exit 1
-fi
-if [ "${ARCHIVED_SPARKLE_PUBLIC_ED_KEY}" != "${SPARKLE_PUBLIC_ED_KEY}" ]; then
-    echo "❌ Archived SUPublicEDKey does not match the Sparkle signing key." >&2
-    exit 1
-fi
-if [ "${ARCHIVED_MARKETING_VERSION}" != "${MARKETING_VERSION}" ]; then
-    echo "❌ Archived marketing version ${ARCHIVED_MARKETING_VERSION} does not match ${MARKETING_VERSION}." >&2
-    exit 1
-fi
-if [ "${ARCHIVED_BUILD_NUMBER}" != "${BUILD_NUMBER}" ]; then
-    echo "❌ Archived build ${ARCHIVED_BUILD_NUMBER} does not match ${BUILD_NUMBER}." >&2
-    exit 1
-fi
-echo "✅ Archive contains verified version, build, Sparkle feed, and public key"
-
-ARCHIVED_APP="${ARCHIVE_PATH}/Products/Applications/${APP_NAME}.app"
-echo "🔎 Verifying archived agent runner signature..."
 codesign --verify --deep --strict --verbose=2 "${ARCHIVED_APP}"
 heymate_require_hardened_runtime "${ARCHIVED_APP}"
 heymate_verify_embedded_agent_runner "${ARCHIVED_APP}" release
-echo "✅ Archive contains distinct hardened agent runner"
+echo "✅ Archive is signed, hardened, and carries its own agent runner"
 
-# ── Step 3: Export signed app ────────────────────────────────────────────────
+# ── 3. Export ────────────────────────────────────────────────────────────────
 
-# Create an export options plist for Developer ID distribution.
-# This tells xcodebuild to export with the matching Developer ID certificate.
-# The containing DMG is submitted for notarization in step 5.
+step "📤 Exporting the Developer ID-signed app..."
 EXPORT_OPTIONS="${BUILD_DIR}/ExportOptions.plist"
-cat > "${EXPORT_OPTIONS}" << 'PLIST'
+cat > "${EXPORT_OPTIONS}" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>method</key>
-    <string>developer-id</string>
-    <key>destination</key>
-    <string>export</string>
-</dict>
-</plist>
+<plist version="1.0"><dict/></plist>
 PLIST
-/usr/libexec/PlistBuddy -c "Add :teamID string ${DEVELOPMENT_TEAM}" "${EXPORT_OPTIONS}"
-/usr/libexec/PlistBuddy -c "Add :signingStyle string manual" "${EXPORT_OPTIONS}"
-/usr/libexec/PlistBuddy -c "Add :signingCertificate string ${RELEASE_SIGNING_IDENTITY}" "${EXPORT_OPTIONS}"
-
-echo "📤 Exporting Developer ID-signed app..."
+/usr/libexec/PlistBuddy \
+    -c "Add :method string developer-id" \
+    -c "Add :destination string export" \
+    -c "Add :teamID string ${DEVELOPMENT_TEAM}" \
+    -c "Add :signingStyle string manual" \
+    -c "Add :signingCertificate string ${SIGNING_IDENTITY}" \
+    "${EXPORT_OPTIONS}"
 xcodebuild -exportArchive \
     -archivePath "${ARCHIVE_PATH}" \
     -exportPath "${EXPORT_DIR}" \
     -exportOptionsPlist "${EXPORT_OPTIONS}" \
     2>&1 | tail -5
 
-echo "✅ Signed app export complete"
-
-echo "🔎 Verifying exported app signature..."
-codesign --verify --deep --strict --verbose=2 \
-    "${EXPORT_DIR}/${APP_NAME}.app"
-heymate_require_hardened_runtime "${EXPORT_DIR}/${APP_NAME}.app"
-heymate_verify_embedded_agent_runner \
-    "${EXPORT_DIR}/${APP_NAME}.app" \
-    release
+codesign --verify --deep --strict --verbose=2 "${EXPORTED_APP}"
+heymate_require_hardened_runtime "${EXPORTED_APP}"
+heymate_verify_embedded_agent_runner "${EXPORTED_APP}" release
 echo "✅ Exported app signature verified"
 
-# ── Step 4: Create DMG ──────────────────────────────────────────────────────
+# ── 4. DMG ───────────────────────────────────────────────────────────────────
 
-DMG_PATH="${RELEASES_DIR}/${DMG_FILENAME}"
-
-echo "💿 Creating DMG..."
+# Icon positions line up with the arrow drawn on dmg-background.png (660×400).
+step "💿 Building ${DMG_FILENAME}..."
 create-dmg \
     --volname "${APP_NAME}" \
     --window-pos 200 120 \
@@ -452,123 +333,75 @@ create-dmg \
     --app-drop-link 500 195 \
     --background "${DMG_BACKGROUND}" \
     "${DMG_PATH}" \
-    "${EXPORT_DIR}/${APP_NAME}.app" \
+    "${EXPORTED_APP}" \
     2>&1 | tail -3
 
-echo "✅ DMG created: ${DMG_PATH}"
+# ── 5. Sign, notarize, staple ────────────────────────────────────────────────
 
-# ── Step 5: Sign, notarize, and verify the DMG ───────────────────────────────
-# The .app inside the DMG is already signed with Developer ID, but the DMG
-# itself also receives a Developer ID signature before Apple notarization.
-# Requires stored credentials: xcrun notarytool store-credentials "AC_PASSWORD"
-
-echo "✍️  Developer-ID-signing DMG..."
-codesign --force \
-    --sign "${RELEASE_SIGNING_IDENTITY}" \
-    --timestamp \
-    "${DMG_PATH}"
+# The app inside is already signed; the DMG gets its own Developer ID
+# signature so Gatekeeper accepts the download itself.
+step "✍️  Signing the DMG..."
+codesign --force --sign "${SIGNING_IDENTITY}" --timestamp "${DMG_PATH}"
 codesign --verify --strict --verbose=2 "${DMG_PATH}"
 
-echo "🔏 Notarizing DMG with Apple (this may take a few minutes)..."
-NOTARY_RESULT_PATH="${BUILD_DIR}/notary-result.json"
-NOTARY_LOG_PATH="${BUILD_DIR}/notary-log.json"
-if ! xcrun notarytool submit "${DMG_PATH}" \
-    --keychain-profile "AC_PASSWORD" \
-    --wait \
-    --output-format json > "${NOTARY_RESULT_PATH}"; then
-    echo "❌ Apple notarization submission failed. Result retained at ${NOTARY_RESULT_PATH}." >&2
-    exit 1
-fi
-if ! NOTARY_STATUS=$(/usr/bin/plutil -extract status raw "${NOTARY_RESULT_PATH}" 2>/dev/null); then
-    echo "❌ Apple notarization result has no status. Result retained at ${NOTARY_RESULT_PATH}." >&2
-    exit 1
-fi
-if ! NOTARY_SUBMISSION_ID=$(/usr/bin/plutil -extract id raw "${NOTARY_RESULT_PATH}" 2>/dev/null); then
-    echo "❌ Apple notarization result has no submission ID." >&2
-    exit 1
-fi
-if ! xcrun notarytool log "${NOTARY_SUBMISSION_ID}" \
-    --keychain-profile "AC_PASSWORD" \
-    "${NOTARY_LOG_PATH}"; then
-    echo "❌ Could not retain Apple notarization log for ${NOTARY_SUBMISSION_ID}." >&2
-    exit 1
-fi
-if [ "${NOTARY_STATUS}" != "Accepted" ]; then
-    echo "❌ Apple notarization status is ${NOTARY_STATUS}." >&2
-    echo "   Inspect ${NOTARY_LOG_PATH}." >&2
-    exit 1
-fi
+step "🔏 Notarizing with Apple (usually a few minutes)..."
+NOTARY_RESULT="${BUILD_DIR}/notary-result.json"
+NOTARY_LOG="${BUILD_DIR}/notary-log.json"
+xcrun notarytool submit "${DMG_PATH}" --keychain-profile "${NOTARY_PROFILE}" --wait --output-format json \
+    > "${NOTARY_RESULT}" \
+    || die "Notarization submission failed. The result is in ${NOTARY_RESULT}."
+NOTARY_STATUS=$(/usr/bin/plutil -extract status raw "${NOTARY_RESULT}" 2>/dev/null) \
+    || die "Apple's notarization result has no status. It is in ${NOTARY_RESULT}."
+NOTARY_ID=$(/usr/bin/plutil -extract id raw "${NOTARY_RESULT}" 2>/dev/null) \
+    || die "Apple's notarization result has no submission ID."
+# Kept whatever the outcome, so a rejection can be diagnosed.
+xcrun notarytool log "${NOTARY_ID}" --keychain-profile "${NOTARY_PROFILE}" "${NOTARY_LOG}" \
+    || die "Could not save the notarization log for ${NOTARY_ID}."
+[ "${NOTARY_STATUS}" = "Accepted" ] || die "Notarization status is ${NOTARY_STATUS}. See ${NOTARY_LOG}."
 
-echo "📎 Stapling notarization ticket to DMG..."
 xcrun stapler staple "${DMG_PATH}"
 xcrun stapler validate "${DMG_PATH}"
 codesign --verify --strict --verbose=2 "${DMG_PATH}"
-spctl --assess \
-    --type open \
-    --context context:primary-signature \
-    --verbose=2 \
-    "${DMG_PATH}"
-
+spctl --assess --type open --context context:primary-signature --verbose=2 "${DMG_PATH}"
 echo "✅ DMG notarized, stapled, and accepted by Gatekeeper"
 
-# ── Step 6: Sign DMG with Sparkle EdDSA key ─────────────────────────────────
+# ── 6. Sparkle ───────────────────────────────────────────────────────────────
 
-echo "🔐 Signing DMG with Sparkle EdDSA key..."
-"${SPARKLE_BIN}/sign_update" \
-    --account "${SPARKLE_KEY_ACCOUNT}" \
-    "${DMG_PATH}"
+step "🔐 Signing the update with the Sparkle key..."
+"${SPARKLE_BIN}/sign_update" --account "${SPARKLE_KEY_ACCOUNT}" "${DMG_PATH}"
 
-# ── Step 7: Generate / update appcast.xml ────────────────────────────────────
-# generate_appcast reads all DMGs in the releases/ directory, extracts version
-# info from the app bundle inside each DMG, signs with your EdDSA key, and
-# produces appcast.xml. The --download-url-prefix tells it where users will
-# actually download the DMG from (GitHub Releases).
-
-echo "📡 Generating appcast.xml..."
+# generate_appcast reads the app inside each DMG in releases/, signs the
+# entry and points its download at this release's asset.
+step "📡 Writing appcast.xml..."
 "${SPARKLE_BIN}/generate_appcast" \
     --account "${SPARKLE_KEY_ACCOUNT}" \
     --download-url-prefix "https://github.com/${GITHUB_REPO}/releases/download/${TAG}/" \
     -o "${PROJECT_DIR}/appcast.xml" \
     "${RELEASES_DIR}"
 
-echo "✅ appcast.xml updated"
+# ── 7. Publish ───────────────────────────────────────────────────────────────
 
-# ── Step 8: Create GitHub Release ────────────────────────────────────────────
-# Create the release first so the DMG download URL is live before we push the
-# appcast that references it.
-
-echo "🏷️  Creating GitHub Release ${TAG}..."
-printf -v RELEASE_NOTES 'HeyMate v%s\n\nHeyMate-Build: %s\n' \
-    "${MARKETING_VERSION}" \
-    "${BUILD_NUMBER}"
+# The DMG and the appcast that points at it go up together, so the feed is
+# never live before its download is.
+step "🏷️  Publishing ${TAG} on GitHub..."
+printf -v RELEASE_NOTES '%s %s\n\nHeyMate-Build: %s\n' "${APP_NAME}" "${TAG}" "${BUILD_NUMBER}"
 gh release create "${TAG}" "${DMG_PATH}" "${PROJECT_DIR}/appcast.xml" \
     --repo "${GITHUB_REPO}" \
     --target "${SOURCE_SHA}" \
-    --title "v${MARKETING_VERSION}" \
+    --title "${TAG}" \
     --notes "${RELEASE_NOTES}" \
     --latest
 
-if ! RELEASED_SOURCE_SHA=$(gh api \
-    "repos/${GITHUB_REPO}/commits/${TAG}" \
-    --jq '.sha'); then
-    echo "❌ Release was created, but its source tag could not be verified." >&2
-    echo "   Stop distribution and inspect ${TAG} manually." >&2
-    exit 1
-fi
-if [ "${RELEASED_SOURCE_SHA}" != "${SOURCE_SHA}" ]; then
-    echo "❌ Release tag ${TAG} does not resolve to approved source ${SOURCE_SHA}." >&2
-    echo "   Stop distribution and inspect the release manually." >&2
-    exit 1
-fi
+RELEASED_SHA=$(gh api "repos/${GITHUB_REPO}/commits/${TAG}" --jq '.sha') \
+    || die "${TAG} was published, but its tag could not be checked." "Hold distribution and inspect ${TAG} by hand."
+[ "${RELEASED_SHA}" = "${SOURCE_SHA}" ] \
+    || die "${TAG} points at ${RELEASED_SHA}, not the approved ${SOURCE_SHA}." "Hold distribution and inspect the release by hand."
 
-echo ""
-echo "═══════════════════════════════════════════════════════════════"
-echo "✅ Release v${MARKETING_VERSION} (build ${BUILD_NUMBER}) complete!"
-echo ""
-echo "   DMG:      ${DMG_PATH}"
-echo "   Appcast:  ${PROJECT_DIR}/appcast.xml"
-echo "   Release:  https://github.com/${GITHUB_REPO}/releases/tag/${TAG}"
-echo ""
-echo "   Download URL (always latest):"
-echo "   https://github.com/${GITHUB_REPO}/releases/latest/download/${DMG_FILENAME}"
-echo "═══════════════════════════════════════════════════════════════"
+cat <<DONE
+
+✅ ${APP_NAME} ${MARKETING_VERSION} (build ${BUILD_NUMBER}) is out.
+   DMG:      ${DMG_PATH}
+   Appcast:  ${PROJECT_DIR}/appcast.xml
+   Release:  https://github.com/${GITHUB_REPO}/releases/tag/${TAG}
+   Download: https://github.com/${GITHUB_REPO}/releases/latest/download/${DMG_FILENAME}
+DONE

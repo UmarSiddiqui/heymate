@@ -16,7 +16,7 @@ Hold a key, ask about anything on your screen, and it answers out loud. It can a
 
 [**Download for Mac**](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg) · [Website](https://getheymate.vercel.app) · [Watch the demo](https://getheymate.vercel.app/#demo) · [Changelog](https://github.com/UmarSiddiqui/heymate/releases)
 
-<sub>Inspired by <a href="https://github.com/farzaa/clicky">Clicky</a> and <a href="https://github.com/TheBoredTeam/boring.notch">Boring Notch</a>.</sub>
+<sub>Inspired by <a href="https://github.com/TheBoredTeam/boring.notch">Boring Notch</a>.</sub>
 
 <br>
 
@@ -198,10 +198,10 @@ Requires Xcode 26 and an internet connection on the first build (Swift Package M
 ```bash
 git clone https://github.com/UmarSiddiqui/heymate.git
 cd heymate/heymate
-open leanring-buddy.xcodeproj
+open HeyMate.xcodeproj
 ```
 
-Select the `leanring-buddy` scheme and **My Mac**, check **Signing & Capabilities** (pick your Personal Team), and press Run. A stable signing identity matters because macOS ties Accessibility and Screen Recording grants to it.
+Select the `HeyMate` scheme and **My Mac**, check **Signing & Capabilities** (pick your Personal Team), and press Run. A stable signing identity matters because macOS ties Accessibility and Screen Recording grants to it.
 
 ```bash
 ./scripts/typecheck.sh           # build the app without touching the signed app bundle
@@ -234,8 +234,8 @@ If ElevenLabs or on-device can't run, HeyMate falls back to the Mac voice for th
 
 | Path | What's there |
 | --- | --- |
-| [`heymate/leanring-buddy`](heymate/leanring-buddy) | The SwiftUI app |
-| [`heymate/leanring-buddyTests`](heymate/leanring-buddyTests) · [`UITests`](heymate/leanring-buddyUITests) | Unit and UI tests |
+| [`heymate/HeyMate`](heymate/HeyMate) | The SwiftUI app |
+| [`heymate/HeyMateTests`](heymate/HeyMateTests) · [`UITests`](heymate/HeyMateUITests) | Unit and UI tests |
 | [`heymate/worker`](heymate/worker) | Optional Cloudflare Worker that holds an ElevenLabs key for developers |
 | [`website`](website) | The landing page |
 | [`marketing/demo-video`](marketing/demo-video) | The Remotion project that renders the demo video |
@@ -249,6 +249,6 @@ If ElevenLabs or on-device can't run, HeyMate falls back to the Mac voice for th
 
 ## License
 
-MIT. See [`heymate/LICENSE`](heymate/LICENSE). HeyMate grew out of the MIT-licensed [Clicky](https://github.com/farzaa/clicky) project, and that copyright notice is kept in the license file.
+MIT. See [`heymate/LICENSE`](heymate/LICENSE). Notices for third-party code are in [`heymate/THIRD_PARTY_NOTICES.md`](heymate/THIRD_PARTY_NOTICES.md).
 
 <sub>Not affiliated with Apple, Anthropic, or OpenAI. Claude, ChatGPT, and macOS are trademarks of their respective owners.</sub>
