@@ -1,9 +1,10 @@
 # Third-Party Notices
 
-HeyMate started from two MIT-licensed projects, and parts of their code are
-still in this repository while they are being replaced. Their notices are
-reproduced below as the MIT License requires. Files that no longer contain
-their code are not covered by these notices.
+HeyMate began in 2026 from two MIT-licensed projects, Clicky and OpenClicky.
+That code has since been rewritten; what overlaps today is small and mostly
+shared idiom (SwiftUI modifier chains, API signatures). Their notices stay
+here, as the MIT License asks of copies that include their work, and because
+earlier versions in this repository's history did include it.
 
 ## Clicky
 
