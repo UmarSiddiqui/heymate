@@ -92,19 +92,76 @@ extension CompanionManager {
     }
 }
 
+/// One icon action under a transcript message. The whole square is the
+/// target, and the label doubles as the tooltip and the VoiceOver name.
 struct ChatMessageActionButton: View {
-    let title: String
-    let help: String
+    let systemImage: String
+    let label: String
+    var isDestructive = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Text(title)
-                .font(DS.Fonts.caption.weight(.medium))
-                .foregroundColor(DS.Colors.textTertiary)
+            Image(systemName: systemImage)
+                .font(DS.Glyph.small)
         }
-        .buttonStyle(.plain)
-        .pointerCursor()
-        .help(help)
+        .dsToolbarIconButtonStyle(size: DS.ControlSize.small, isDestructiveOnHover: isDestructive)
+        .help(label)
+        .accessibilityLabel(label)
+    }
+}
+
+/// Copy, edit or regenerate, and delete for one message. Quiet until the
+/// row is hovered so a long transcript doesn't read as a wall of links;
+/// the latest message keeps them showing so they're easy to find.
+struct ChatMessageActionBar: View {
+    let text: String
+    let isUser: Bool
+    let isRevealed: Bool
+    var onEdit: (() -> Void)?
+    var onRegenerate: (() -> Void)?
+    let onDelete: () -> Void
+
+    @State private var didCopy = false
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ChatMessageActionButton(
+                systemImage: didCopy ? "checkmark" : "doc.on.doc",
+                label: didCopy ? "Copied" : "Copy"
+            ) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+                didCopy = true
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 1_400_000_000)
+                    didCopy = false
+                }
+            }
+            if let onEdit {
+                ChatMessageActionButton(systemImage: "pencil", label: "Edit message", action: onEdit)
+            }
+            if let onRegenerate {
+                ChatMessageActionButton(systemImage: "arrow.clockwise", label: "Regenerate reply", action: onRegenerate)
+            }
+            ChatMessageActionButton(systemImage: "trash", label: "Delete message", isDestructive: true, action: onDelete)
+        }
+        // Nudge the first glyph onto the text's edge on the side it sits.
+        .padding(isUser ? .trailing : .leading, -4)
+        .opacity(isRevealed ? 1 : 0)
+        .allowsHitTesting(isRevealed)
+        .animation(.easeOut(duration: DS.Animation.fast), value: isRevealed)
+    }
+}
+
+/// Tracks the pointer over one transcript row so its actions can appear.
+struct ChatMessageHoverRow<Content: View>: View {
+    @ViewBuilder var content: (_ isHovered: Bool) -> Content
+    @State private var isHovered = false
+
+    var body: some View {
+        content(isHovered)
+            .contentShape(Rectangle())
+            .onHover { isHovered = $0 }
     }
 }
