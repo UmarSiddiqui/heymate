@@ -30,6 +30,26 @@ struct GuidedReplyParserTests {
         #expect(reply.spokenText == "that's play and this scrubs and the gear sets quality")
     }
 
+    @Test func bunchedTagsShareTheSentenceClauseByClause() {
+        // Seen live: one sentence, then every tag at the end.
+        let reply = GuidedReplyParser.parse(
+            "the back button returns to the previous page, reload loads the current page again, and the star saves the page as a bookmark. [POINT:10,60:back button] [POINT:80,60:reload button] [POINT:1170,60:bookmark star]"
+        )
+        #expect(reply.steps.map(\.displayText) == [
+            "the back button returns to the previous page",
+            "reload loads the current page again",
+            "and the star saves the page as a bookmark."
+        ])
+        #expect(reply.steps.map { $0.pointing?.elementLabel } == ["back button", "reload button", "bookmark star"])
+    }
+
+    @Test func bunchedTagsStayTogetherWhenPartsDoNotMatch() {
+        let reply = GuidedReplyParser.parse("these two do the same thing. [POINT:1,1:a] [POINT:2,2:b]")
+        #expect(reply.steps.count == 2)
+        #expect(reply.steps[0].displayText == "these two do the same thing.")
+        #expect(reply.steps[1].displayText.isEmpty)
+    }
+
     @Test func textAfterLastPointIsItsOwnUnpointedStep() {
         let reply = GuidedReplyParser.parse("open file [POINT:10,10:file] and you're set.")
         #expect(reply.steps.count == 2)

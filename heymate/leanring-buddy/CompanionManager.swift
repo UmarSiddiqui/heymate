@@ -4344,7 +4344,7 @@ final class CompanionManager: ObservableObject {
             }
         }
 
-        if parseResult.coordinate != nil {
+        if parseResult.coordinate != nil, state == .thinking {
             dispatch(.beginGuidance)
         }
 

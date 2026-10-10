@@ -146,7 +146,55 @@ nonisolated enum GuidedReplyParser {
         if !trailing.isEmpty {
             steps.append(GuidanceStep(text: trailing, pointing: nil))
         }
-        return steps
+        return distributingBunchedTags(steps)
+    }
+
+    /// Models often write "back goes back, reload reloads, and the star
+    /// bookmarks. [POINT:back] [POINT:reload] [POINT:star]". When a step's
+    /// words split into exactly as many sentences or clauses as the tags
+    /// bunched after it, give each tag its own part so the caption and
+    /// voice follow the buddy.
+    private static func distributingBunchedTags(_ steps: [GuidanceStep]) -> [GuidanceStep] {
+        var result: [GuidanceStep] = []
+        var index = 0
+        while index < steps.count {
+            let head = steps[index]
+            var runEnd = index + 1
+            while runEnd < steps.count,
+                  steps[runEnd].pointsSomewhere,
+                  steps[runEnd].displayText.isEmpty,
+                  !steps[runEnd].text.contains("[") {
+                runEnd += 1
+            }
+            let partCount = runEnd - index
+            guard partCount > 1, head.pointsSomewhere,
+                  let parts = splitInto(partCount, head.text) else {
+                result.append(head)
+                index += 1
+                continue
+            }
+            for (offset, part) in parts.enumerated() {
+                result.append(GuidanceStep(text: part, pointing: steps[index + offset].pointing))
+            }
+            index = runEnd
+        }
+        return result
+    }
+
+    private static func splitInto(_ count: Int, _ text: String) -> [String]? {
+        // Directives inside the text make a split ambiguous; leave it whole.
+        guard !text.contains("[") else { return nil }
+        let separators = [#"(?<=[.!?])\s+"#, #"(?:,|;)\s+"#]
+        for separator in separators {
+            let parts = text.replacingOccurrences(of: separator, with: "\u{1F}", options: .regularExpression)
+                .split(separator: "\u{1F}")
+                .map { collapsingWhitespace(String($0)) }
+                .filter { !$0.isEmpty }
+            if parts.count == count {
+                return parts
+            }
+        }
+        return nil
     }
 
     /// "[POINT:…:send] [ACT:click:Send] now type…" — an [ACT] written right
