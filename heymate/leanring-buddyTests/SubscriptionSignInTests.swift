@@ -402,7 +402,7 @@ struct SubscriptionSignInTests {
                 #expect(!remedy.contains("`"))
             }
         }
-        #expect(SubscriptionSignInCopy.signInRemedy(for: .claudeCode) == "Sign in to Claude from Settings → Accounts.")
+        #expect(SubscriptionSignInCopy.signInRemedy(for: .claudeCode) == "Sign in to Claude from Settings → AI & Accounts.")
     }
 
     @Test func notInstalledTalkErrorStillOffersTheSignIn() {
@@ -413,7 +413,7 @@ struct SubscriptionSignInTests {
     @Test func codexSignedOutRemedyPointsAtAccounts() {
         let readiness = HeadlessExecutorReadinessProbe.codexReadiness(from: "Not logged in", exitStatus: 1)
         #expect(readiness.state == .notSignedIn)
-        #expect(readiness.remedy.contains("Settings → Accounts"))
+        #expect(readiness.remedy.contains("Settings → AI & Accounts"))
         #expect(!readiness.remedy.contains("codex login"))
     }
 

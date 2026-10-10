@@ -95,6 +95,6 @@ extension CompanionManager {
         if let executor = selectedBrain.executor {
             return SubscriptionSignInCopy.signInNeededMessage(for: executor)
         }
-        return "\(selectedBrain.displayName) needs you to sign in again. Open Settings → Accounts to sign in."
+        return "\(selectedBrain.displayName) needs you to sign in again. Open Settings → AI & Accounts to sign in."
     }
 }
