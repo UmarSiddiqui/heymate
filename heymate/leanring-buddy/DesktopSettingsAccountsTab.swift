@@ -181,6 +181,7 @@ struct DesktopSettingsAccountsTab: View {
                 .accessibilityLabel("\(actionTitle), \(accountTitle(brain))")
             }
         }
+        .brandMark(brain)
     }
 
     private func accountTitle(_ brain: AgentBrain) -> String {
@@ -458,6 +459,7 @@ struct DesktopSettingsAccountsTab: View {
                     isSelected: companionManager.selectedBrain == brain,
                     select: { companionManager.setSelectedBrain(brain) }
                 )
+                .brandMark(brain)
                 if companionManager.selectedBrain == brain {
                     otherEngineSetup(brain)
                 }

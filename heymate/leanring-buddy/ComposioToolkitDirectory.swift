@@ -41,6 +41,21 @@ struct ComposioToolkit: Identifiable, Equatable, Sendable {
 
     var id: String { slug }
 
+    /// Enough of a toolkit to draw its logo, for places that only know the
+    /// slug and name of a connection (the composer's Apps picker).
+    static func logoOnly(slug: String, name: String) -> ComposioToolkit {
+        ComposioToolkit(
+            slug: slug,
+            name: name,
+            description: "",
+            logoURL: nil,
+            toolCount: 0,
+            categories: [],
+            usesComposioManagedAuth: false,
+            requiresNoAuthentication: false
+        )
+    }
+
     /// Composio's catalog logos are served as SVGs from this endpoint. Keep
     /// the URL returned by the toolkit payload as a fallback because custom
     /// toolkits can provide their own artwork.

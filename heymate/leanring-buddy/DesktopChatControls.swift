@@ -124,6 +124,8 @@ struct ComposerChipLabel: View {
     let symbolName: String
     let title: String
     var isHighlighted = false
+    /// An engine whose logo replaces `symbolName`.
+    var brand: AgentBrain?
 
     @State private var isHovered = false
 
@@ -133,8 +135,12 @@ struct ComposerChipLabel: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: symbolName)
-                .font(DS.Glyph.small)
+            if let brand {
+                AgentBrandMark(brain: brand, size: 14)
+            } else {
+                Image(systemName: symbolName)
+                    .font(DS.Glyph.small)
+            }
             if !title.isEmpty {
                 Text(title)
                     .font(DS.Fonts.caption)
@@ -247,20 +253,22 @@ struct DesktopConnectorScopeMenu: View {
         return enabledCount == 0 ? "Apps" : "Apps · \(enabledCount)"
     }
 
-    private var connectedItems: [(id: String, name: String)] {
+    private var connectedItems: [(id: String, name: String, logoSlug: String)] {
         let catalogItems = connectorStore.activeConnectors
             .filter { $0.id != ComposioSessionStore.connectorID }
             .map {
                 (
                     id: CompanionManager.chatConnectorSelectionID(forConnectorID: $0.id),
-                    name: $0.displayName
+                    name: $0.displayName,
+                    logoSlug: $0.id.lowercased()
                 )
             }
         let composioItems = composioConnections.connectedSlugs.map { slug in
             let name = Self.readableName(composioConnections.records[slug]?.displayName ?? slug, slug: slug)
             return (
                 id: CompanionManager.chatConnectorSelectionID(forComposioSlug: slug),
-                name: name
+                name: name,
+                logoSlug: slug
             )
         }
         return (catalogItems + composioItems).sorted {
@@ -291,7 +299,7 @@ struct DesktopConnectorScopeMenu: View {
 /// The list behind the composer's Apps chip: a switch per connected app,
 /// and a way to connect more. Stays open while you flip several.
 private struct ConnectorScopePickerPanel: View {
-    let items: [(id: String, name: String)]
+    let items: [(id: String, name: String, logoSlug: String)]
     let isEnabled: (String) -> Bool
     let setEnabled: (String, Bool) -> Void
     let manage: () -> Void
@@ -331,10 +339,16 @@ private struct ConnectorScopePickerPanel: View {
                                 get: { isEnabled(item.id) },
                                 set: { setEnabled(item.id, $0) }
                             )) {
-                                Text(item.name)
-                                    .font(DS.Fonts.bodyLarge)
-                                    .foregroundColor(DS.Colors.textPrimary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                HStack(spacing: 10) {
+                                    ComposioToolkitLogoView(
+                                        toolkit: .logoOnly(slug: item.logoSlug, name: item.name),
+                                        compactSize: 22
+                                    )
+                                    Text(item.name)
+                                        .font(DS.Fonts.bodyLarge)
+                                        .foregroundColor(DS.Colors.textPrimary)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             .toggleStyle(.switch)
                             .controlSize(.small)
@@ -365,7 +379,8 @@ struct DesktopComposerModelButton: View {
             ComposerChipLabel(
                 symbolName: "cpu",
                 title: companionManager.notchDockModelLabel,
-                isHighlighted: isShowingModelPicker
+                isHighlighted: isShowingModelPicker,
+                brand: companionManager.selectedBrain
             )
         }
         .buttonStyle(.plain)
