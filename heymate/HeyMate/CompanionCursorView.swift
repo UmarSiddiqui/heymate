@@ -517,7 +517,7 @@ struct CompanionCursorView: View {
                 welcomeOpacity = 0
                 try await Task.sleep(for: .milliseconds(500))
                 showsWelcome = false
-                companionManager.setupOnboardingVideo()
+                companionManager.continueOnboardingAfterWelcome()
             } catch {
                 // The overlay went away mid-welcome; nothing left to do.
             }

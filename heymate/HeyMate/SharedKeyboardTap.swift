@@ -21,6 +21,13 @@ protocol SharedKeyboardTapListener: AnyObject {
     func keyboardTapResumed()
 }
 
+/// A global shortcut that HeyMate switches on and off with Accessibility.
+protocol KeyboardShortcutChannel: AnyObject {
+    /// Safe to call repeatedly.
+    func start()
+    func stop()
+}
+
 /// Lives on the main run loop, so callbacks arrive on the main thread. The
 /// tap is created when the first listener joins (retried on later joins
 /// until Accessibility is granted) and torn down when the last one leaves.

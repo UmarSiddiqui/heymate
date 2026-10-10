@@ -111,7 +111,7 @@ nonisolated struct DoubleTapDetector {
 
 /// Publishes each double tap of one configurable modifier set, listening on
 /// `SharedKeyboardTap` alongside the hold-to-talk shortcuts.
-final class ModifierDoubleTapMonitor: SharedKeyboardTapListener {
+final class ModifierDoubleTapMonitor: SharedKeyboardTapListener, KeyboardShortcutChannel {
     /// Fires once per completed double tap.
     let doubleTapPublisher = PassthroughSubject<Void, Never>()
 

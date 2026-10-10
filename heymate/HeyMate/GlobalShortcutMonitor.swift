@@ -15,7 +15,7 @@ import AppKit
 import Combine
 import CoreGraphics
 
-final class GlobalShortcutMonitor: SharedKeyboardTapListener {
+final class GlobalShortcutMonitor: SharedKeyboardTapListener, KeyboardShortcutChannel {
     let shortcutTransitionPublisher = PassthroughSubject<PushToTalkShortcut.Transition, Never>()
 
     private let currentOption: () -> PushToTalkShortcut.Option

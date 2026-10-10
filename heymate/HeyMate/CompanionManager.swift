@@ -24,7 +24,7 @@ enum CompanionVoiceState {
 @MainActor
 final class CompanionManager: ObservableObject {
 
-    private static let screenPointingLogger = Logger(
+    static let screenPointingLogger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "com.heymate.app",
         category: "ScreenPointing"
     )
@@ -308,6 +308,8 @@ final class CompanionManager: ObservableObject {
     @Published var onboardingPromptText: String = ""
     @Published var onboardingPromptOpacity: Double = 0.0
     @Published var showOnboardingPrompt: Bool = false
+    /// The first-run demo and talk prompt; see CompanionManager+Onboarding.
+    var onboardingIntroTask: Task<Void, Never>?
 
     let voiceDictation = VoiceDictation()
     let talkShortcutMonitor = GlobalShortcutMonitor(
@@ -2284,7 +2286,7 @@ final class CompanionManager: ObservableObject {
 
     /// True when the frontmost app's screen must not be captured — the
     /// pipelines degrade to voice-only / literal-dictation in that case.
-    private var isFrontmostAppScreenExcluded: Bool {
+    var isFrontmostAppScreenExcluded: Bool {
         let bundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         return ExcludedApps.isCurrentlyExcluded(bundleId: bundleId)
     }
@@ -2370,9 +2372,7 @@ final class CompanionManager: ObservableObject {
         )
 
         if enabled {
-            overlayWindowManager.hasShownOverlayBefore = true
-            overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
-            isOverlayVisible = true
+            showCursorOverlay()
         } else if cursorDockPhase == .docked {
             overlayWindowManager.hideOverlay()
             isOverlayVisible = false
@@ -2486,41 +2486,15 @@ final class CompanionManager: ObservableObject {
         // were revoked (e.g. signing change), don't show the cursor — the
         // notch card will show the permissions UI instead.
         if hasCompletedOnboarding && allPermissionsGranted && isCursorCompanionEnabled {
-            overlayWindowManager.hasShownOverlayBefore = true
-            overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
-            isOverlayVisible = true
+            showCursorOverlay()
         }
         startExternalControlBridgeIfNeeded()
     }
 
-    /// Called by CompanionCursorView after the buddy finishes its pointing
-    /// animation and returns to cursor-following mode.
-    /// Triggers the onboarding sequence — dismisses the panel and restarts
-    /// the overlay so the welcome animation and intro prompt play.
-    func triggerOnboarding() {
-        // Post notification so the notch card collapses and the overlay is visible
-        NotificationCenter.default.post(name: .heyMateDismissPanel, object: nil)
-
-        // Mark onboarding as completed so the Start button won't appear
-        // again on future launches — the cursor will auto-show instead
-        hasCompletedOnboarding = true
-
-        HeyMateAnalytics.track(.onboardingStarted)
-
-        // Show the overlay for the first time — isFirstAppearance triggers
-        // the welcome animation and onboarding prompt
-        overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
-        isOverlayVisible = true
-    }
-
-    /// Replays the onboarding experience from the "Watch Onboarding Again"
-    /// footer link. Same flow as triggerOnboarding but the cursor overlay
-    /// is already visible so we just restart the welcome animation and prompt.
-    func replayOnboarding() {
-        NotificationCenter.default.post(name: .heyMateDismissPanel, object: nil)
-        HeyMateAnalytics.track(.onboardingReplayed)
-        // Tear down any existing overlays and recreate with isFirstAppearance = true
-        overlayWindowManager.hasShownOverlayBefore = false
+    /// Puts the cursor overlay up on every screen. `playingWelcome` replays
+    /// the first-run welcome instead of appearing quietly.
+    func showCursorOverlay(playingWelcome: Bool = false) {
+        overlayWindowManager.hasShownOverlayBefore = !playingWelcome
         overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
         isOverlayVisible = true
     }
@@ -2533,12 +2507,7 @@ final class CompanionManager: ObservableObject {
 
     func stop() {
         stopExternalControlBridge()
-        talkShortcutMonitor.stop()
-        dictateShortcutMonitor.stop()
-        spatialShortcutMonitor.stop()
-        chatShortcutMonitor.stop()
-        textDoubleTapMonitor.stop()
-        handsFreeDoubleTapMonitor.stop()
+        setKeyboardShortcutsListening(false)
         voiceDictation.cancel()
         contextualConnectorSuggestionMonitor.stop()
         overlayWindowManager.hideOverlay()
@@ -2564,118 +2533,107 @@ final class CompanionManager: ObservableObject {
         accessibilityCheckTimer = nil
     }
 
+    /// Re-reads every permission. Runs at launch and on a poll, so granting
+    /// one in System Settings shows up in HeyMate without a restart (Screen
+    /// Recording aside, which macOS only applies to a relaunched app).
     func refreshAllPermissions() {
-        let previouslyHadAccessibility = hasAccessibilityPermission
-        let previouslyHadScreenRecording = hasScreenRecordingPermission
-        let previouslyHadMicrophone = hasMicrophonePermission
-        let previouslyHadAll = allPermissionsGranted
+        let before = (
+            accessibility: hasAccessibilityPermission,
+            screen: hasScreenRecordingPermission,
+            microphone: hasMicrophonePermission,
+            all: allPermissionsGranted
+        )
 
-        let currentlyHasAccessibility = MacPermissions.hasAccessibilityPermission()
-        if hasAccessibilityPermission != currentlyHasAccessibility {
-            hasAccessibilityPermission = currentlyHasAccessibility
+        // Assign only on change, so the poll doesn't republish every tick.
+        func update(_ keyPath: ReferenceWritableKeyPath<CompanionManager, Bool>, to value: Bool) {
+            if self[keyPath: keyPath] != value { self[keyPath: keyPath] = value }
+        }
+        update(\.hasAccessibilityPermission, to: MacPermissions.hasAccessibilityPermission())
+        update(\.hasScreenRecordingPermission, to: MacPermissions.screenRecordingLooksGranted())
+        update(\.hasMicrophonePermission, to: AVCaptureDevice.authorizationStatus(for: .audio) == .authorized)
+        // The screen content grant can't be queried; once the picker has
+        // been approved it is remembered.
+        if !hasScreenContentPermission && UserDefaults.standard.bool(forKey: Self.screenContentGrantKey) {
+            hasScreenContentPermission = true
         }
 
-        if currentlyHasAccessibility {
-            talkShortcutMonitor.start()
-            dictateShortcutMonitor.start()
-            spatialShortcutMonitor.start()
-            chatShortcutMonitor.start()
-            textDoubleTapMonitor.start()
-            handsFreeDoubleTapMonitor.start()
-        } else {
-            talkShortcutMonitor.stop()
-            dictateShortcutMonitor.stop()
-            spatialShortcutMonitor.stop()
-            chatShortcutMonitor.stop()
-            textDoubleTapMonitor.stop()
-            handsFreeDoubleTapMonitor.stop()
-        }
+        // Global shortcuts need Accessibility. Starting is idempotent, so a
+        // chord held across a poll is not dropped.
+        setKeyboardShortcutsListening(hasAccessibilityPermission)
 
-        let currentlyHasScreenRecording = MacPermissions.screenRecordingLooksGranted()
-        if hasScreenRecordingPermission != currentlyHasScreenRecording {
-            hasScreenRecordingPermission = currentlyHasScreenRecording
-        }
-
-        let currentlyHasMicrophone = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-        if hasMicrophonePermission != currentlyHasMicrophone {
-            hasMicrophonePermission = currentlyHasMicrophone
-        }
-
-        // Debug: log permission state on changes
-        if previouslyHadAccessibility != hasAccessibilityPermission
-            || previouslyHadScreenRecording != hasScreenRecordingPermission
-            || previouslyHadMicrophone != hasMicrophonePermission {
+        let changed = before.accessibility != hasAccessibilityPermission
+            || before.screen != hasScreenRecordingPermission
+            || before.microphone != hasMicrophonePermission
+        if changed {
             HeyMateLog.log("🔑 Permissions — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission)")
         }
-
-        // Track individual permission grants as they happen
-        if !previouslyHadAccessibility && hasAccessibilityPermission {
-            HeyMateAnalytics.track(.permissionGranted("accessibility"))
-        }
-        if !previouslyHadScreenRecording && hasScreenRecordingPermission {
-            HeyMateAnalytics.track(.permissionGranted("screen_recording"))
-        }
-        if !previouslyHadMicrophone && hasMicrophonePermission {
-            HeyMateAnalytics.track(.permissionGranted("microphone"))
-        }
-        // Screen content permission is persisted — once the user has approved the
-        // SCShareableContent picker, we don't need to re-check it.
-        if !hasScreenContentPermission {
-            hasScreenContentPermission = UserDefaults.standard.bool(forKey: "hasScreenContentPermission")
+        for (name, was, now) in [
+            ("accessibility", before.accessibility, hasAccessibilityPermission),
+            ("screen_recording", before.screen, hasScreenRecordingPermission),
+            ("microphone", before.microphone, hasMicrophonePermission),
+        ] where !was && now {
+            HeyMateAnalytics.track(.permissionGranted(name))
         }
 
+        // Screen Recording alone still leaves the content picker; ask for it
+        // once per launch, as soon as it can succeed.
         if hasScreenRecordingPermission && !hasScreenContentPermission && !hasAttemptedScreenContentAutoRequest {
             hasAttemptedScreenContentAutoRequest = true
             requestScreenContentPermission()
         }
-
-        if !previouslyHadAll && allPermissionsGranted {
+        if !before.all && allPermissionsGranted {
             HeyMateAnalytics.track(.allPermissionsGranted)
         }
     }
 
-    /// Triggers the macOS screen content picker by performing a dummy
-    /// screenshot capture. Once the user approves, we persist the grant
-    /// so they're never asked again during onboarding.
+    /// Every global keyboard shortcut channel at once.
+    private func setKeyboardShortcutsListening(_ listening: Bool) {
+        let shortcuts: [any KeyboardShortcutChannel] = [
+            talkShortcutMonitor, dictateShortcutMonitor, spatialShortcutMonitor, chatShortcutMonitor,
+            textDoubleTapMonitor, handsFreeDoubleTapMonitor,
+        ]
+        for shortcut in shortcuts {
+            if listening { shortcut.start() } else { shortcut.stop() }
+        }
+    }
+
+    private static let screenContentGrantKey = "hasScreenContentPermission"
+
     @Published private(set) var isRequestingScreenContent = false
     private var hasAttemptedScreenContentAutoRequest = false
 
+    /// Brings up macOS's screen content picker by taking one small capture.
+    /// A real image back means the user approved; that is remembered so
+    /// onboarding never asks again.
     func requestScreenContentPermission() {
         guard !isRequestingScreenContent else { return }
         isRequestingScreenContent = true
         Task {
+            defer { isRequestingScreenContent = false }
             do {
                 let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-                guard let display = content.displays.first else {
-                    await MainActor.run { isRequestingScreenContent = false }
-                    return
-                }
-                let filter = SCContentFilter(display: display, excludingWindows: [])
-                let config = SCStreamConfiguration()
-                config.width = 320
-                config.height = 240
-                let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
-                // Verify the capture actually returned real content — a 0x0 or
-                // fully-empty image means the user denied the prompt.
-                let didCapture = image.width > 0 && image.height > 0
-                HeyMateLog.log("🔑 Screen content capture result — width: \(image.width), height: \(image.height), didCapture: \(didCapture)")
-                await MainActor.run {
-                    isRequestingScreenContent = false
-                    guard didCapture else { return }
-                    hasScreenContentPermission = true
-                    UserDefaults.standard.set(true, forKey: "hasScreenContentPermission")
-                    HeyMateAnalytics.track(.permissionGranted("screen_content"))
-
-                    // If onboarding was already completed, show the cursor overlay now
-                    if hasCompletedOnboarding && allPermissionsGranted && !isOverlayVisible && isCursorCompanionEnabled {
-                        overlayWindowManager.hasShownOverlayBefore = true
-                        overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
-                        isOverlayVisible = true
-                    }
+                guard let display = content.displays.first else { return }
+                let configuration = SCStreamConfiguration()
+                configuration.width = 320
+                configuration.height = 240
+                let image = try await SCScreenshotManager.captureImage(
+                    contentFilter: SCContentFilter(display: display, excludingWindows: []),
+                    configuration: configuration
+                )
+                // A denied picker comes back as an empty image, not an error.
+                let granted = image.width > 0 && image.height > 0
+                HeyMateLog.log("🔑 Screen content capture result — width: \(image.width), height: \(image.height), didCapture: \(granted)")
+                guard granted else { return }
+                hasScreenContentPermission = true
+                UserDefaults.standard.set(true, forKey: Self.screenContentGrantKey)
+                HeyMateAnalytics.track(.permissionGranted("screen_content"))
+                // The last missing permission for an onboarded user: the
+                // cursor can come up now.
+                if hasCompletedOnboarding && allPermissionsGranted && !isOverlayVisible && isCursorCompanionEnabled {
+                    showCursorOverlay()
                 }
             } catch {
                 HeyMateLog.log("⚠️ Screen content permission request failed: \(error)")
-                await MainActor.run { isRequestingScreenContent = false }
             }
         }
     }
@@ -2939,8 +2897,7 @@ final class CompanionManager: ObservableObject {
             // gesture, then undock it again afterward if it wasn't already up.
             let overlayWasAlreadyVisible = isOverlayVisible
             if !overlayWasAlreadyVisible {
-                overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
-                isOverlayVisible = true
+                showCursorOverlay()
             }
 
             overlayWindowManager.beginSpatialCapture { [weak self] draftPoints in
@@ -3233,9 +3190,7 @@ final class CompanionManager: ObservableObject {
             // If the cursor is hidden, bring it back transiently for this interaction
             if !isCursorCompanionEnabled && !isOverlayVisible {
                 cursorDockPhase = .launching
-                overlayWindowManager.hasShownOverlayBefore = true
-                overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
-                isOverlayVisible = true
+                showCursorOverlay()
             }
 
             // Dismiss the notch card so it doesn't cover the screen
@@ -3251,17 +3206,8 @@ final class CompanionManager: ObservableObject {
             inputModeOfActiveSession = .talk
             dispatch(.startListening(.talk))
 
-            // Dismiss the onboarding prompt if it's showing
-            if showOnboardingPrompt {
-                withAnimation(.easeOut(duration: 0.3)) {
-                    onboardingPromptOpacity = 0.0
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                    self.showOnboardingPrompt = false
-                    self.onboardingPromptText = ""
-                }
-            }
-    
+            // They're doing what the onboarding prompt asks; put it away.
+            dismissOnboardingPrompt()
 
             HeyMateAnalytics.track(.pushToTalkStarted)
 
@@ -4216,6 +4162,21 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Point Tag Parsing
 
+    /// Where a pixel of a screenshot is on the desktop, in global AppKit
+    /// coordinates.
+    func globalPoint(forScreenshotPixel pixel: CGPoint, in snapshot: ScreenSnapshot) -> CGPoint {
+        ScreenCoordinateMath.globalAppKitPoint(
+            fromScreenshotPixelPoint: pixel,
+            geometry: DisplayGeometry(
+                screenshotPixelWidth: snapshot.screenshotWidthInPixels,
+                screenshotPixelHeight: snapshot.screenshotHeightInPixels,
+                displayWidthInPoints: snapshot.displayWidthInPoints,
+                displayHeightInPoints: snapshot.displayHeightInPoints,
+                displayFrame: snapshot.displayFrame
+            )
+        )
+    }
+
     static func parsePointingCoordinates(from responseText: String) -> PointingParseResult {
         PointingTagParser.parse(responseText)
     }
@@ -4249,19 +4210,7 @@ final class CompanionManager: ObservableObject {
 
         if let pointCoordinate = parseResult.coordinate,
            let targetScreenCapture {
-            let geometry = DisplayGeometry(
-                screenshotPixelWidth: targetScreenCapture.screenshotWidthInPixels,
-                screenshotPixelHeight: targetScreenCapture.screenshotHeightInPixels,
-                displayWidthInPoints: targetScreenCapture.displayWidthInPoints,
-                displayHeightInPoints: targetScreenCapture.displayHeightInPoints,
-                displayFrame: targetScreenCapture.displayFrame
-            )
-            let globalLocation = ScreenCoordinateMath.globalAppKitPoint(
-                fromScreenshotPixelPoint: pointCoordinate,
-                geometry: geometry
-            )
-
-            detectedElementScreenLocation = globalLocation
+            detectedElementScreenLocation = globalPoint(forScreenshotPixel: pointCoordinate, in: targetScreenCapture)
             detectedElementDisplayFrame = targetScreenCapture.displayFrame
             let telemetry = ScreenPointingTelemetrySummary(
                 coordinate: pointCoordinate,
@@ -4279,138 +4228,6 @@ final class CompanionManager: ObservableObject {
             Self.screenPointingLogger.info(
                 "Element pointing x=\(telemetry.x, privacy: .public) y=\(telemetry.y, privacy: .public) labelCharacters=\(telemetry.labelCharacterCount, privacy: .public)"
             )
-        }
-    }
-
-    // MARK: - Onboarding Intro
-
-    /// Runs the onboarding intro without any remote video dependency:
-    /// lets the local welcome animation play, triggers the live pointing
-    /// demo (the "it sees my screen" moment), then streams in the prompt
-    /// to try talking. Called by CompanionCursorView when onboarding starts.
-    func setupOnboardingVideo() {
-        // Give the welcome animation a moment to land before the demo fires.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-            guard let self else { return }
-            HeyMateAnalytics.track(.onboardingDemoTriggered)
-            self.performOnboardingDemoInteraction()
-        }
-
-        // Stream the try-talking prompt after the demo has had time to play.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 9.0) { [weak self] in
-            guard let self else { return }
-            HeyMateAnalytics.track(.onboardingVideoCompleted)
-            self.startOnboardingPromptStream()
-        }
-    }
-
-    private func startOnboardingPromptStream() {
-        let message = "press control + option and introduce yourself"
-        onboardingPromptText = ""
-        showOnboardingPrompt = true
-        onboardingPromptOpacity = 0.0
-
-        withAnimation(.easeIn(duration: 0.4)) {
-            onboardingPromptOpacity = 1.0
-        }
-
-        var currentIndex = 0
-        Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { timer in
-            guard currentIndex < message.count else {
-                timer.invalidate()
-                // Auto-dismiss after 10 seconds
-                DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) {
-                    guard self.showOnboardingPrompt else { return }
-                    withAnimation(.easeOut(duration: 0.3)) {
-                        self.onboardingPromptOpacity = 0.0
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                        self.showOnboardingPrompt = false
-                        self.onboardingPromptText = ""
-                    }
-                }
-                return
-            }
-            let index = message.index(message.startIndex, offsetBy: currentIndex)
-            self.onboardingPromptText.append(message[index])
-            currentIndex += 1
-        }
-    }
-
-    // MARK: - Onboarding Demo Interaction
-
-    /// Captures a screenshot and asks Claude to find something interesting to
-    /// point at, then triggers the buddy's flight animation. Used during
-    /// onboarding to demo the pointing feature while the intro video plays.
-    func performOnboardingDemoInteraction() {
-        // Don't interrupt an active voice response
-        guard voiceState == .idle || voiceState == .responding else { return }
-
-        Task {
-            // Privacy gate: never demo pointing by screenshotting an
-            // excluded app's screen.
-            guard !isFrontmostAppScreenExcluded else {
-                HeyMateLog.log("🛡️ Onboarding demo: frontmost app excluded — skipping capture")
-                return
-            }
-
-            do {
-                CaptureAudit.shared.recordCaptureAttempt(context: CaptureAudit.Context.onboardingDemoInteraction)
-                let screenCaptures = try await ScreenCapture.allScreens()
-
-                // Only send the cursor screen so Claude can't pick something
-                // on a different monitor that we can't point at.
-                guard let cursorScreenCapture = screenCaptures.first(where: { $0.isCursorScreen }) else {
-                    HeyMateLog.log("🎯 Onboarding demo: no cursor screen found")
-                    return
-                }
-
-                let dimensionInfo = " (image dimensions: \(cursorScreenCapture.screenshotWidthInPixels)x\(cursorScreenCapture.screenshotHeightInPixels) pixels)"
-                let labeledImages = [(data: cursorScreenCapture.imageData, label: cursorScreenCapture.label + dimensionInfo)]
-
-                let (fullResponseText, _) = try await activeConversationClient.analyzeImageStreaming(
-                    images: labeledImages,
-                    systemPrompt: CompanionPrompts.onboardingDemo,
-                    conversationHistory: [],
-                    userPrompt: CompanionPrompts.onboardingDemoRequest,
-                    onTextChunk: { _ in }
-                )
-
-                let parseResult = Self.parsePointingCoordinates(from: fullResponseText)
-
-                guard let pointCoordinate = parseResult.coordinate else {
-                    HeyMateLog.log("🎯 Onboarding demo: no element to point at")
-                    return
-                }
-
-                let geometry = DisplayGeometry(
-                    screenshotPixelWidth: cursorScreenCapture.screenshotWidthInPixels,
-                    screenshotPixelHeight: cursorScreenCapture.screenshotHeightInPixels,
-                    displayWidthInPoints: cursorScreenCapture.displayWidthInPoints,
-                    displayHeightInPoints: cursorScreenCapture.displayHeightInPoints,
-                    displayFrame: cursorScreenCapture.displayFrame
-                )
-                let globalLocation = ScreenCoordinateMath.globalAppKitPoint(
-                    fromScreenshotPixelPoint: pointCoordinate,
-                    geometry: geometry
-                )
-
-                // Set custom bubble text so the pointing animation uses Claude's
-                // comment instead of a random phrase
-                detectedElementBubbleText = parseResult.spokenText
-                detectedElementScreenLocation = globalLocation
-                detectedElementDisplayFrame = cursorScreenCapture.displayFrame
-                let telemetry = ScreenPointingTelemetrySummary(
-                    coordinate: pointCoordinate,
-                    elementLabel: parseResult.elementLabel,
-                    commentary: parseResult.spokenText
-                )
-                Self.screenPointingLogger.info(
-                    "Onboarding pointing x=\(telemetry.x, privacy: .public) y=\(telemetry.y, privacy: .public) labelCharacters=\(telemetry.labelCharacterCount, privacy: .public) commentaryCharacters=\(telemetry.commentaryCharacterCount, privacy: .public)"
-                )
-            } catch {
-                HeyMateLog.log("⚠️ Onboarding demo error: \(error)")
-            }
         }
     }
 
