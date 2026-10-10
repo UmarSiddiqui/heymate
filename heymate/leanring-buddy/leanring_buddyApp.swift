@@ -36,8 +36,8 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         guard !isHostingUnitTests else { return }
         guard !surrenderToRunningInstance() else { return }
 
-        print("🎯 HeyMate: Starting...")
-        print("🎯 HeyMate: Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
+        HeyMateLog.log("🎯 HeyMate: Starting...")
+        HeyMateLog.log("🎯 HeyMate: Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
 
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 0])
 
@@ -76,7 +76,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
 
         guard let incumbent else { return false }
 
-        print("🎯 HeyMate: Already running as pid \(incumbent.processIdentifier) from \(incumbent.bundleURL?.path ?? "an unknown path") — this copy is quitting.")
+        HeyMateLog.log("🎯 HeyMate: Already running as pid \(incumbent.processIdentifier) from \(incumbent.bundleURL?.path ?? "an unknown path") — this copy is quitting.")
         incumbent.activate()
         // Nothing has been started yet, so leave immediately rather than going
         // through NSApp.terminate and the teardown path for a live session.

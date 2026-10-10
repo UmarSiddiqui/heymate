@@ -357,11 +357,11 @@ private final class ElevenLabsScribeStreamingSession: NSObject, BuddyStreamingTr
             let latestTranscriptText = self.composeFullTranscript()
 
             if self.isAwaitingExplicitFinalTranscript && !latestTranscriptText.isEmpty {
-                print("[ElevenLabs Scribe] ⚠️ Session error while finishing, delivering partial transcript: \(error.localizedDescription)")
+                HeyMateLog.log("[ElevenLabs Scribe] ⚠️ Session error while finishing, delivering partial transcript: \(error.localizedDescription)")
                 self.deliverFinalTranscriptIfNeeded(latestTranscriptText)
                 return
             }
-            print("[ElevenLabs Scribe] ❌ Session failed: \(error.localizedDescription)")
+            HeyMateLog.log("[ElevenLabs Scribe] ❌ Session failed: \(error.localizedDescription)")
 
             self.onError(error)
         }

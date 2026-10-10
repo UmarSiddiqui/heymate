@@ -228,7 +228,7 @@ nonisolated enum SubscriptionCLIInstaller {
         watchdog.cancel()
 
         let output = String(data: outputData, encoding: .utf8) ?? ""
-        print("📦 \(toolName) install exited \(process.terminationStatus): \(output.suffix(600))")
+        HeyMateLog.log("📦 \(toolName) install exited \(process.terminationStatus): \(output.suffix(600))")
 
         guard process.terminationReason == .exit, process.terminationStatus == 0 else {
             return .failed(

@@ -123,7 +123,7 @@ final class ModifierDoubleTapMonitor: ObservableObject {
             callback: eventTapCallback,
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
-            print("⚠️ Modifier double tap: couldn't create CGEvent tap")
+            HeyMateLog.log("⚠️ Modifier double tap: couldn't create CGEvent tap")
             return
         }
 
@@ -133,7 +133,7 @@ final class ModifierDoubleTapMonitor: ObservableObject {
             0
         ) else {
             CFMachPortInvalidate(globalEventTap)
-            print("⚠️ Modifier double tap: couldn't create event tap run loop source")
+            HeyMateLog.log("⚠️ Modifier double tap: couldn't create event tap run loop source")
             return
         }
 

@@ -310,10 +310,10 @@ final class OpenCodeClient: VisionConversationClient {
         request.httpBody = nil
         session.dataTask(with: request) { _, response, error in
             if let error {
-                print("⚠️ OpenCode: scratch session cleanup failed: \(error.localizedDescription)")
+                HeyMateLog.log("⚠️ OpenCode: scratch session cleanup failed: \(error.localizedDescription)")
             } else if let httpResponse = response as? HTTPURLResponse,
                       !(200...299).contains(httpResponse.statusCode) {
-                print("⚠️ OpenCode: scratch session cleanup returned \(httpResponse.statusCode)")
+                HeyMateLog.log("⚠️ OpenCode: scratch session cleanup returned \(httpResponse.statusCode)")
             }
         }.resume()
     }
@@ -352,7 +352,7 @@ final class OpenCodeClient: VisionConversationClient {
         let bodyData = try JSONSerialization.data(withJSONObject: body)
         request.httpBody = bodyData
         let payloadMB = Double(bodyData.count) / 1_048_576.0
-        print("🌐 OpenCode request to \(providerID)/\(modelID): \(String(format: "%.1f", payloadMB))MB, \(images.count) image(s)")
+        HeyMateLog.log("🌐 OpenCode request to \(providerID)/\(modelID): \(String(format: "%.1f", payloadMB))MB, \(images.count) image(s)")
 
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse,

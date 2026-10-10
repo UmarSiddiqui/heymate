@@ -108,7 +108,7 @@ class OpenAIAPI {
         let bodyData = try JSONSerialization.data(withJSONObject: body)
         request.httpBody = bodyData
         let payloadMB = Double(bodyData.count) / 1_048_576.0
-        print("🌐 OpenAI request: \(String(format: "%.1f", payloadMB))MB, \(images.count) image(s)")
+        HeyMateLog.log("🌐 OpenAI request: \(String(format: "%.1f", payloadMB))MB, \(images.count) image(s)")
 
         // Send request
         let (data, response) = try await session.data(for: request)

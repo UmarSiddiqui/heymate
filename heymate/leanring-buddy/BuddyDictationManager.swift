@@ -409,7 +409,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         guard !isDictationInProgress else { return }
         transcriptionProvider = provider
         transcriptionProviderDisplayName = provider.displayName
-        print("🎙️ Transcription: switched to \(provider.displayName)")
+        HeyMateLog.log("🎙️ Transcription: switched to \(provider.displayName)")
     }
 
     func updateContextualKeyterms(_ contextualKeyterms: [String]) {
@@ -524,10 +524,10 @@ final class BuddyDictationManager: NSObject, ObservableObject {
     ) async {
         guard !isDictationInProgress else { return }
 
-        print("🎙️ BuddyDictationManager: start requested (\(startSource))")
+        HeyMateLog.log("🎙️ BuddyDictationManager: start requested (\(startSource))")
 
         if needsInitialPermissionPrompt {
-            print("🎙️ BuddyDictationManager: requesting initial permissions")
+            HeyMateLog.log("🎙️ BuddyDictationManager: requesting initial permissions")
             NSApplication.shared.activate(ignoringOtherApps: true)
 
             do {
@@ -546,17 +546,17 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         isPreparingToRecord = true
 
         guard await requestMicrophoneAndSpeechPermissionsWithoutDuplicatePrompts() else {
-            print("🎙️ BuddyDictationManager: permissions missing or denied")
+            HeyMateLog.log("🎙️ BuddyDictationManager: permissions missing or denied")
             isPreparingToRecord = false
             return
         }
         guard !Task.isCancelled else {
-            print("🎙️ BuddyDictationManager: start cancelled (shortcut released during permission check)")
+            HeyMateLog.log("🎙️ BuddyDictationManager: start cancelled (shortcut released during permission check)")
             isPreparingToRecord = false
             return
         }
         guard pendingStartRequestIdentifier == startRequestIdentifier else {
-            print("🎙️ BuddyDictationManager: start request superseded")
+            HeyMateLog.log("🎙️ BuddyDictationManager: start request superseded")
             isPreparingToRecord = false
             return
         }
@@ -583,7 +583,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         lastRecordedAudioPowerSampleDate = .distantPast
 
         guard !Task.isCancelled else {
-            print("🎙️ BuddyDictationManager: start cancelled (shortcut released before recording began)")
+            HeyMateLog.log("🎙️ BuddyDictationManager: start cancelled (shortcut released before recording began)")
             resetSessionState()
             return
         }
@@ -591,7 +591,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         do {
             try await startRecognitionSession()
             guard !Task.isCancelled else {
-                print("🎙️ BuddyDictationManager: start cancelled (shortcut released during session start)")
+                HeyMateLog.log("🎙️ BuddyDictationManager: start cancelled (shortcut released during session start)")
                 audioEngine.stop()
                 audioEngine.inputNode.removeTap(onBus: 0)
                 activeTranscriptionSession?.cancel()
@@ -602,14 +602,14 @@ final class BuddyDictationManager: NSObject, ObservableObject {
                 microphoneButtonRecordingStartedAt = Date()
             }
             isPreparingToRecord = false
-            print("🎙️ BuddyDictationManager: recognition session started")
+            HeyMateLog.log("🎙️ BuddyDictationManager: recognition session started")
         } catch {
             isPreparingToRecord = false
             lastErrorMessage = userFacingErrorMessage(
                 from: error,
                 fallback: "couldn't start voice input. try again."
             )
-            print("❌ BuddyDictationManager: failed to start recognition session (\(transcriptionProvider.displayName)): \(error)")
+            HeyMateLog.log("❌ BuddyDictationManager: failed to start recognition session (\(transcriptionProvider.displayName)): \(error)")
             resetSessionState()
         }
     }
@@ -623,7 +623,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         }
         guard !isFinalizingTranscript else { return }
 
-        print("🎙️ BuddyDictationManager: stop requested (\(expectedStartSource))")
+        HeyMateLog.log("🎙️ BuddyDictationManager: stop requested (\(expectedStartSource))")
 
         // Finalizing first: observers see "recording stopped" and
         // "finalizing" as one step instead of a moment where neither is true,
@@ -682,7 +682,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
                     fallbackProvider = AppleSpeechTranscriptionProvider()
                 }
                 guard fallbackProvider.displayName != transcriptionProvider.displayName else { throw error }
-                print("⚠️ BuddyDictationManager: \(transcriptionProvider.displayName) failed to start (\(error.localizedDescription)), using \(fallbackProvider.displayName)")
+                HeyMateLog.log("⚠️ BuddyDictationManager: \(transcriptionProvider.displayName) failed to start (\(error.localizedDescription)), using \(fallbackProvider.displayName)")
                 if fallbackProvider.requiresSpeechRecognitionPermission {
                     guard await requestSpeechRecognitionPermissionIfNeeded() else { throw error }
                 }
@@ -696,7 +696,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
 
         self.activeTranscriptionSession = activeTranscriptionSession
         audioRouter.attach(activeTranscriptionSession)
-        print("🎙️ BuddyDictationManager: provider ready, queued audio handed over")
+        HeyMateLog.log("🎙️ BuddyDictationManager: provider ready, queued audio handed over")
     }
 
     private func startAudioEngine(routingTo audioRouter: PendingTranscriptionAudioRouter) throws {
@@ -723,7 +723,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
     private func openTranscriptionSession(
         with provider: any BuddyTranscriptionProvider
     ) async throws -> any BuddyStreamingTranscriptionSession {
-        print("🎙️ BuddyDictationManager: opening transcription provider \(provider.displayName)")
+        HeyMateLog.log("🎙️ BuddyDictationManager: opening transcription provider \(provider.displayName)")
 
         return try await provider.startStreamingSession(
             keyterms: buildTranscriptionKeyterms(),
@@ -771,7 +771,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         )
 
         if status != noErr {
-            print("⚠️ BuddyDictationManager: could not select input device \(selectedAudioDeviceID), status \(status) — falling back to system default")
+            HeyMateLog.log("⚠️ BuddyDictationManager: could not select input device \(selectedAudioDeviceID), status \(status) — falling back to system default")
         }
     }
 
@@ -785,7 +785,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
                 shouldSubmitFinalDraft: shouldAutomaticallySubmitFinalDraft
             )
         } else {
-            print("❌ Buddy dictation error (\(transcriptionProvider.displayName)): \(error)")
+            HeyMateLog.log("❌ Buddy dictation error (\(transcriptionProvider.displayName)): \(error)")
             lastErrorMessage = userFacingErrorMessage(
                 from: error,
                 fallback: "couldn't transcribe that. try again."

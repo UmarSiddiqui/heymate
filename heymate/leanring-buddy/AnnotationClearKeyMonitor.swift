@@ -57,13 +57,13 @@ final class AnnotationClearKeyMonitor {
             callback: tapCallback,
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
-            print("⚠️ Annotation clear monitor: couldn't create CGEvent tap (needs Accessibility)")
+            HeyMateLog.log("⚠️ Annotation clear monitor: couldn't create CGEvent tap (needs Accessibility)")
             return
         }
 
         guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
             CFMachPortInvalidate(tap)
-            print("⚠️ Annotation clear monitor: couldn't create run loop source")
+            HeyMateLog.log("⚠️ Annotation clear monitor: couldn't create run loop source")
             return
         }
 

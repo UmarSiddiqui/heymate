@@ -28,7 +28,7 @@ final class FallbackTTSClient: TTSClient {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            print("⚠️ Speak: primary voice failed (\(error.localizedDescription)), using the Mac voice")
+            HeyMateLog.log("⚠️ Speak: primary voice failed (\(error.localizedDescription)), using the Mac voice")
             isUsingFallback = true
             try await fallbackClient.speakText(text)
         }

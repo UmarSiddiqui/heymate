@@ -73,7 +73,7 @@ class ElementLocationDetector {
             displayHeight: displayHeightInPoints
         )
 
-        print("🎯 ElementLocationDetector: display is \(displayWidthInPoints)x\(displayHeightInPoints) " +
+        HeyMateLog.log("🎯 ElementLocationDetector: display is \(displayWidthInPoints)x\(displayHeightInPoints) " +
               "(ratio \(String(format: "%.3f", Double(displayWidthInPoints) / Double(displayHeightInPoints)))), " +
               "using Computer Use resolution \(computerUseResolution.width)x\(computerUseResolution.height)")
 
@@ -83,7 +83,7 @@ class ElementLocationDetector {
             targetWidth: computerUseResolution.width,
             targetHeight: computerUseResolution.height
         ) else {
-            print("⚠️ ElementLocationDetector: failed to resize screenshot")
+            HeyMateLog.log("⚠️ ElementLocationDetector: failed to resize screenshot")
             return nil
         }
 
@@ -110,7 +110,7 @@ class ElementLocationDetector {
         // Convert from top-left origin (Computer Use / CoreGraphics) to bottom-left origin (AppKit)
         let scaledYBottomLeftOrigin = CGFloat(displayHeightInPoints) - scaledYTopLeftOrigin
 
-        print("🎯 ElementLocationDetector: mapped (\(Int(clampedX)), \(Int(clampedY))) in " +
+        HeyMateLog.log("🎯 ElementLocationDetector: mapped (\(Int(clampedX)), \(Int(clampedY))) in " +
               "\(computerUseResolution.width)x\(computerUseResolution.height) → " +
               "(\(Int(scaledX)), \(Int(scaledYBottomLeftOrigin))) in " +
               "\(displayWidthInPoints)x\(displayHeightInPoints) display-local AppKit coords")
@@ -211,7 +211,7 @@ class ElementLocationDetector {
             request.httpBody = bodyData
 
             let payloadMB = Double(bodyData.count) / 1_048_576.0
-            print("🎯 ElementLocationDetector: sending \(String(format: "%.1f", payloadMB))MB request " +
+            HeyMateLog.log("🎯 ElementLocationDetector: sending \(String(format: "%.1f", payloadMB))MB request " +
                   "(declared \(declaredDisplayWidth)x\(declaredDisplayHeight))")
 
             let (data, response) = try await session.data(for: request)
@@ -219,7 +219,7 @@ class ElementLocationDetector {
             guard let httpResponse = response as? HTTPURLResponse,
                   (200...299).contains(httpResponse.statusCode) else {
                 let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                print(
+                HeyMateLog.log(
                     "⚠️ ElementLocationDetector: API error \(statusCode), " +
                     "response bytes \(data.count)"
                 )
@@ -230,7 +230,7 @@ class ElementLocationDetector {
 
         } catch {
             let errorCode = (error as NSError).code
-            print("⚠️ ElementLocationDetector: request failed with code \(errorCode)")
+            HeyMateLog.log("⚠️ ElementLocationDetector: request failed with code \(errorCode)")
             return nil
         }
     }
@@ -241,7 +241,7 @@ class ElementLocationDetector {
     private func parseCoordinateFromResponse(data: Data) -> CGPoint? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let contentBlocks = json["content"] as? [[String: Any]] else {
-            print("⚠️ ElementLocationDetector: could not parse response JSON")
+            HeyMateLog.log("⚠️ ElementLocationDetector: could not parse response JSON")
             return nil
         }
 
@@ -257,12 +257,12 @@ class ElementLocationDetector {
 
             let x = CGFloat(coordinate[0].doubleValue)
             let y = CGFloat(coordinate[1].doubleValue)
-            print("🎯 ElementLocationDetector: raw coordinate (\(Int(x)), \(Int(y)))")
+            HeyMateLog.log("🎯 ElementLocationDetector: raw coordinate (\(Int(x)), \(Int(y)))")
             return CGPoint(x: x, y: y)
         }
 
         // No tool_use block found — Claude responded with text (no element to point at)
-        print("🎯 ElementLocationDetector: no specific element detected (conceptual question)")
+        HeyMateLog.log("🎯 ElementLocationDetector: no specific element detected (conceptual question)")
         return nil
     }
 

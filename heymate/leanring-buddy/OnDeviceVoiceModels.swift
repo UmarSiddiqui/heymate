@@ -142,7 +142,7 @@ final class OnDeviceVoiceModelStore: ObservableObject {
             listenState = .installed
             onModelInstalled?(.listen)
         } catch {
-            print("❌ On-device listen model download failed: \(error)")
+            HeyMateLog.log("❌ On-device listen model download failed: \(error)")
             listenState = .failed("Couldn't download the listening model. Check your connection and try again.")
         }
     }
@@ -160,7 +160,7 @@ final class OnDeviceVoiceModelStore: ObservableObject {
             speakState = .installed
             onModelInstalled?(.speak)
         } catch {
-            print("❌ On-device speak model download failed: \(error)")
+            HeyMateLog.log("❌ On-device speak model download failed: \(error)")
             speakState = .failed("Couldn't download the speaking model. Check your connection and try again.")
         }
     }

@@ -149,7 +149,7 @@ final class AppPresencePreferences: ObservableObject {
                 try loginItemService.unregister()
             }
         } catch {
-            print("⚠️ HeyMate: Failed to update login item registration: \(error)")
+            HeyMateLog.log("⚠️ HeyMate: Failed to update login item registration: \(error)")
         }
     }
 

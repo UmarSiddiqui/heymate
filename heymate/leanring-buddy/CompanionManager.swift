@@ -149,7 +149,7 @@ final class CompanionManager: ObservableObject {
             for: speakProvider,
             workerBaseURL: Self.workerBaseURL
         )
-        print("🔊 Speak: using \(speakProvider.displayName)")
+        HeyMateLog.log("🔊 Speak: using \(speakProvider.displayName)")
         bindOnDeviceVoiceModels()
         AppTheme.currentHex = themeColorHex
 
@@ -237,11 +237,11 @@ final class CompanionManager: ObservableObject {
     /// while the response pipeline owns the state.
     private func dispatch(_ event: CompanionEvent) {
         guard let nextState = CompanionStateMachine.transition(from: state, on: event) else {
-            print("🚫 CompanionState: ignoring illegal transition — \(state) + \(event)")
+            HeyMateLog.log("🚫 CompanionState: ignoring illegal transition — \(state) + \(event)")
             return
         }
         if nextState != state {
-            print("🎛️ CompanionState: \(state) → \(nextState)")
+            HeyMateLog.log("🎛️ CompanionState: \(state) → \(nextState)")
         }
 
         playUISoundForTransition(event)
@@ -1287,11 +1287,12 @@ final class CompanionManager: ObservableObject {
             for: provider,
             workerBaseURL: Self.workerBaseURL
         )
+        if provider == .onDevice { Self.warmKokoro() }
     }
 
     /// A finished on-device download switches Listen or Speak over to it —
-    /// the user downloaded it to use it. Also warms Parakeet when it is
-    /// already the Listen choice, so the first press after launch is quick.
+    /// the user downloaded it to use it. Also warms Parakeet and Kokoro when
+    /// they are already the choice, so the first press after launch is quick.
     private func bindOnDeviceVoiceModels() {
         OnDeviceVoiceModelStore.shared.onModelInstalled = { [weak self] kind in
             guard let self, self.voiceState == .idle else { return }
@@ -1307,6 +1308,21 @@ final class CompanionManager: ObservableObject {
             Task.detached(priority: .utility) {
                 _ = try? await ParakeetEngine.shared.loadIfNeeded()
             }
+        }
+        if selectedSpeakProvider == .onDevice {
+            Self.warmKokoro()
+        }
+    }
+
+    /// Loading Kokoro and compiling it for the Neural Engine took 13 s on
+    /// the first reply after launch. One throwaway synthesis moves that
+    /// cost to launch, off the user's first question.
+    private static func warmKokoro() {
+        guard KokoroEngine.modelsAreInstalled() else { return }
+        Task.detached(priority: .utility) {
+            let startedAt = ContinuousClock.now
+            guard (try? await KokoroEngine.shared.synthesize("Hi.")) != nil else { return }
+            HeyMateLog.log("🔊 Kokoro: warmed in \(HeyMateLog.milliseconds(since: startedAt))ms", category: "KokoroTTSClient")
         }
     }
 
@@ -1456,7 +1472,7 @@ final class CompanionManager: ObservableObject {
             }
             if !currentSelectionIsValid, let firstAvailableModel = availableModels.first {
                 selectOpenCodeModel(firstAvailableModel)
-                print("🤖 OpenCode: auto-selected \(firstAvailableModel.id)")
+                HeyMateLog.log("🤖 OpenCode: auto-selected \(firstAvailableModel.id)")
             }
         } catch {
             isOpenCodeServerReachable = false
@@ -1895,7 +1911,7 @@ final class CompanionManager: ObservableObject {
         memoryRepository.deleteAll()
         rollingSummaryItemId = nil
         memoryItems = []
-        print("🧹 All durable memory cleared")
+        HeyMateLog.log("🧹 All durable memory cleared")
     }
 
     /// Compact label for the notch dock model chip.
@@ -2235,7 +2251,7 @@ final class CompanionManager: ObservableObject {
     func addUserAppExclusion(_ bundleId: String) {
         ExcludedApps.addUserExclusion(bundleId)
         excludedAppBundleIds = ExcludedApps.currentList()
-        print("🛡️ Screen context excluded for: \(bundleId)")
+        HeyMateLog.log("🛡️ Screen context excluded for: \(bundleId)")
     }
 
     func removeUserAppExclusion(_ bundleId: String) {
@@ -2410,7 +2426,7 @@ final class CompanionManager: ObservableObject {
 
     func start() {
         refreshAllPermissions()
-        print("🔑 HeyMate start — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
+        HeyMateLog.log("🔑 HeyMate start — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
         startPermissionPolling()
         bindVoiceStateObservation()
         bindAudioPowerLevel()
@@ -2570,7 +2586,7 @@ final class CompanionManager: ObservableObject {
         if previouslyHadAccessibility != hasAccessibilityPermission
             || previouslyHadScreenRecording != hasScreenRecordingPermission
             || previouslyHadMicrophone != hasMicrophonePermission {
-            print("🔑 Permissions — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission)")
+            HeyMateLog.log("🔑 Permissions — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission)")
         }
 
         // Track individual permission grants as they happen
@@ -2623,7 +2639,7 @@ final class CompanionManager: ObservableObject {
                 // Verify the capture actually returned real content — a 0x0 or
                 // fully-empty image means the user denied the prompt.
                 let didCapture = image.width > 0 && image.height > 0
-                print("🔑 Screen content capture result — width: \(image.width), height: \(image.height), didCapture: \(didCapture)")
+                HeyMateLog.log("🔑 Screen content capture result — width: \(image.width), height: \(image.height), didCapture: \(didCapture)")
                 await MainActor.run {
                     isRequestingScreenContent = false
                     guard didCapture else { return }
@@ -2639,7 +2655,7 @@ final class CompanionManager: ObservableObject {
                     }
                 }
             } catch {
-                print("⚠️ Screen content permission request failed: \(error)")
+                HeyMateLog.log("⚠️ Screen content permission request failed: \(error)")
                 await MainActor.run { isRequestingScreenContent = false }
             }
         }
@@ -2915,7 +2931,7 @@ final class CompanionManager: ObservableObject {
                 if let screenFrame, let normalizedSelection {
                     self.spatialSelectionScreenFrame = screenFrame
                     self.activeSpatialSelection = normalizedSelection
-                    print("🔲 Spatial selection captured on \(screenFrame): \(normalizedSelection.bounds)")
+                    HeyMateLog.log("🔲 Spatial selection captured on \(screenFrame): \(normalizedSelection.bounds)")
                 }
                 self.spatialDraftPoints = []
                 self.overlayWindowManager.endSpatialCapture()
@@ -3052,7 +3068,7 @@ final class CompanionManager: ObservableObject {
                     && !isFrontmostAppScreenExcluded
                     && !frontmostIsHeyMate
                 if usesSmartMode && !smartModePermitted {
-                    print("🛡️ Dictation: frontmost app excluded or HeyMate is in front — literal insert")
+                    HeyMateLog.log("🛡️ Dictation: frontmost app excluded or HeyMate is in front — literal insert")
                 }
 
                 if smartModePermitted {
@@ -3103,7 +3119,7 @@ final class CompanionManager: ObservableObject {
 
                 if !textToInsert.isEmpty {
                     let outcome = await DictationInserter.insert(textToInsert)
-                    print("✍️ Dictation insert (\(insertionContextSummary)): \(outcome)")
+                    HeyMateLog.log("✍️ Dictation insert (\(insertionContextSummary)): \(outcome)")
                 }
 
                 dispatch(.interactionFinished)
@@ -3112,7 +3128,7 @@ final class CompanionManager: ObservableObject {
                 // User started another interaction mid-rewrite.
             } catch {
                 dispatch(.fail(error.localizedDescription))
-                print("⚠️ Dictation pipeline error: \(error)")
+                HeyMateLog.log("⚠️ Dictation pipeline error: \(error)")
                 dispatch(.interactionFinished)
                 scheduleTransientHideIfNeeded()
             }
@@ -3239,7 +3255,7 @@ final class CompanionManager: ObservableObject {
                     },
                     submitDraftText: { [weak self] finalTranscript in
                         self?.lastTranscript = finalTranscript
-                        print("🗣️ Companion received transcript (\(finalTranscript.count) characters)")
+                        HeyMateLog.log("🗣️ Companion received transcript (\(finalTranscript.count) characters)")
                         ClickyAnalytics.trackUserMessageSent(transcript: finalTranscript)
                         self?.handleTalkTranscript(finalTranscript)
                     }
@@ -3699,10 +3715,10 @@ final class CompanionManager: ObservableObject {
                 let screenCaptures: [CompanionScreenCapture]
                 var contextUnavailableNote = ""
                 if !shouldCaptureScreen {
-                    print("⚡️ Talk: text-only fast path")
+                    HeyMateLog.log("⚡️ Talk: text-only fast path")
                     screenCaptures = []
                 } else if isFrontmostAppScreenExcluded {
-                    print("🛡️ Talk: frontmost app excluded — voice-only response")
+                    HeyMateLog.log("🛡️ Talk: frontmost app excluded — voice-only response")
                     contextUnavailableNote = "(the user's screen context is unavailable right now; answer from the words alone and never claim to see anything on screen)"
                     screenCaptures = []
                 } else {
@@ -3861,7 +3877,7 @@ final class CompanionManager: ObservableObject {
                 startMateWork(work.tasks, mate: speakingMateForTurn())
 
                 appendAssistantMessage(spokenText)
-                print("🧠 Conversation history: \(conversationHistory.count) exchanges")
+                HeyMateLog.log("🧠 Conversation history: \(conversationHistory.count) exchanges")
                 updateRollingSessionSummary()
 
                 ClickyAnalytics.trackAIResponseReceived(response: spokenText)
@@ -4397,7 +4413,7 @@ final class CompanionManager: ObservableObject {
             // Privacy gate: never demo pointing by screenshotting an
             // excluded app's screen.
             guard !isFrontmostAppScreenExcluded else {
-                print("🛡️ Onboarding demo: frontmost app excluded — skipping capture")
+                HeyMateLog.log("🛡️ Onboarding demo: frontmost app excluded — skipping capture")
                 return
             }
 
@@ -4408,7 +4424,7 @@ final class CompanionManager: ObservableObject {
                 // Only send the cursor screen so Claude can't pick something
                 // on a different monitor that we can't point at.
                 guard let cursorScreenCapture = screenCaptures.first(where: { $0.isCursorScreen }) else {
-                    print("🎯 Onboarding demo: no cursor screen found")
+                    HeyMateLog.log("🎯 Onboarding demo: no cursor screen found")
                     return
                 }
 
@@ -4426,7 +4442,7 @@ final class CompanionManager: ObservableObject {
                 let parseResult = Self.parsePointingCoordinates(from: fullResponseText)
 
                 guard let pointCoordinate = parseResult.coordinate else {
-                    print("🎯 Onboarding demo: no element to point at")
+                    HeyMateLog.log("🎯 Onboarding demo: no element to point at")
                     return
                 }
 
@@ -4456,7 +4472,7 @@ final class CompanionManager: ObservableObject {
                     "Onboarding pointing x=\(telemetry.x, privacy: .public) y=\(telemetry.y, privacy: .public) labelCharacters=\(telemetry.labelCharacterCount, privacy: .public) commentaryCharacters=\(telemetry.commentaryCharacterCount, privacy: .public)"
                 )
             } catch {
-                print("⚠️ Onboarding demo error: \(error)")
+                HeyMateLog.log("⚠️ Onboarding demo error: \(error)")
             }
         }
     }
@@ -4567,7 +4583,7 @@ final class CompanionManager: ObservableObject {
             ?? explicitlyRequestedExecutor
             ?? selectedBrain.executor
             ?? defaultHeadlessExecutor
-        print("🤖 Agent: starting sandbox (\(resolvedExecutor.displayName))")
+        HeyMateLog.log("🤖 Agent: starting sandbox (\(resolvedExecutor.displayName))")
         let runID = agentLauncher.startSandbox(
             prompt: prompt,
             executor: resolvedExecutor,
@@ -4594,7 +4610,7 @@ final class CompanionManager: ObservableObject {
             do {
                 try await self.voiceSynthesisClient.speakText(utterance)
             } catch {
-                print("⚠️ Agent TTS failed: \(error.localizedDescription)")
+                HeyMateLog.log("⚠️ Agent TTS failed: \(error.localizedDescription)")
             }
         }
     }

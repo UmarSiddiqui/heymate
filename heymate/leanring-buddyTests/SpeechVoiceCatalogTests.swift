@@ -79,4 +79,17 @@ struct KokoroSentenceSplitTests {
         #expect(KokoroTTSClient.splitIntoSentences("  open the settings  ") == ["open the settings"])
         #expect(KokoroTTSClient.splitIntoSentences("   ").isEmpty)
     }
+
+    @Test func edgeSilenceIsTrimmedToANaturalPause() {
+        // 1 kHz sample rate: one sample per millisecond.
+        let samples = [Float](repeating: 0, count: 400) + [Float](repeating: 0.5, count: 100) + [Float](repeating: 0, count: 500)
+        let trimmed = KokoroTTSClient.trimmingEdgeSilence((samples, 1000))
+        #expect(trimmed.samples.count == 30 + 100 + 170)
+        #expect(KokoroTTSClient.edgeSilenceMilliseconds(trimmed) == (30, 170))
+    }
+
+    @Test func silentAudioIsLeftAlone() {
+        let silence = [Float](repeating: 0, count: 200)
+        #expect(KokoroTTSClient.trimmingEdgeSilence((silence, 1000)).samples.count == 200)
+    }
 }

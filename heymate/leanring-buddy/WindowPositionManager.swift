@@ -293,7 +293,7 @@ class WindowPositionManager {
             try fileManager.copyItem(at: standardizedSource, to: standardizedDestination)
             return true
         } catch {
-            print("⚠️ Could not copy HeyMate.app to \(standardizedDestination.path): \(error)")
+            HeyMateLog.log("⚠️ Could not copy HeyMate.app to \(standardizedDestination.path): \(error)")
             return false
         }
     }

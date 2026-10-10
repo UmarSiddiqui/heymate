@@ -110,7 +110,7 @@ final class AppUpdateController: ObservableObject {
             try updaterController.updater.start()
         } catch {
             let errorCode = (error as NSError).code
-            print("⚠️ HeyMate: Sparkle updater failed to start with code \(errorCode)")
+            HeyMateLog.log("⚠️ HeyMate: Sparkle updater failed to start with code \(errorCode)")
             self.updaterController = nil
             availability = .failed
             return

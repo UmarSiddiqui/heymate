@@ -530,9 +530,9 @@ nonisolated final class HeyMateExternalControlBridgeServer: @unchecked Sendable 
                 guard let self else { return }
                 switch state {
                 case .ready:
-                    print("HeyMate external control bridge listening on http://127.0.0.1:\(self.port)")
+                    HeyMateLog.log("HeyMate external control bridge listening on http://127.0.0.1:\(self.port)")
                 case .failed(let error):
-                    print("HeyMate external control bridge failed: \(error)")
+                    HeyMateLog.log("HeyMate external control bridge failed: \(error)")
                 default:
                     break
                 }
@@ -540,7 +540,7 @@ nonisolated final class HeyMateExternalControlBridgeServer: @unchecked Sendable 
             listener.start(queue: queue)
             self.listener = listener
         } catch {
-            print("HeyMate external control bridge could not start: \(error)")
+            HeyMateLog.log("HeyMate external control bridge could not start: \(error)")
         }
     }
 

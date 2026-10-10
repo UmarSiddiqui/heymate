@@ -91,13 +91,13 @@ enum DictationInserter {
         // secure-field gate, and blindly synthesizing a paste toward an unknown
         // target could leak dictation into a password box.
         guard let focus = resolveFocusedElement() else {
-            print("⚠️ DictationInserter: no resolvable focused element (Accessibility permission or focus missing)")
+            HeyMateLog.log("⚠️ DictationInserter: no resolvable focused element (Accessibility permission or focus missing)")
             return .failed("no resolvable focused field")
         }
 
         // Security gate — ALWAYS before any mutation.
         if DictationFieldSecurity.isLikelySecure(role: focus.info.role, subrole: focus.info.subrole) {
-            print("⚠️ DictationInserter: blocked insertion into likely-secure field in \(focus.info.appName ?? "unknown app")")
+            HeyMateLog.log("⚠️ DictationInserter: blocked insertion into likely-secure field in \(focus.info.appName ?? "unknown app")")
             return .blockedSecureField
         }
 
@@ -204,7 +204,7 @@ enum DictationInserter {
         guard let commandVKeyDown = CGEvent(keyboardEventSource: nil, virtualKey: virtualKeyCodeForLetterV, keyDown: true),
               let commandVKeyUp = CGEvent(keyboardEventSource: nil, virtualKey: virtualKeyCodeForLetterV, keyDown: false)
         else {
-            print("⚠️ DictationInserter: could not synthesize Cmd+V events for pasteboard insertion")
+            HeyMateLog.log("⚠️ DictationInserter: could not synthesize Cmd+V events for pasteboard insertion")
             ClipboardSnapshot.restore(snapshotOfOriginalClipboard)
             return false
         }
@@ -243,7 +243,7 @@ enum DictationInserter {
             guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: virtualKeyCodeForUnicodeTyping, keyDown: true),
                   let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: virtualKeyCodeForUnicodeTyping, keyDown: false)
             else {
-                print("⚠️ DictationInserter: could not synthesize keystroke events for typed insertion")
+                HeyMateLog.log("⚠️ DictationInserter: could not synthesize keystroke events for typed insertion")
                 return false
             }
 

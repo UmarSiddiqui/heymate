@@ -123,7 +123,7 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
                 // only say it again, slower. Anything else — a protocol change
                 // in a newer CLI, a child that died — gets the proven path.
                 if error is CancellationError || SpokenFailure.classify(error) == .signedOut { throw error }
-                print("⚠️ Talk: warm turn failed (\(error.localizedDescription)); retrying one-shot")
+                HeyMateLog.log("⚠️ Talk: warm turn failed (\(error.localizedDescription)); retrying one-shot")
             }
         }
         let workDirectory = FileManager.default.temporaryDirectory

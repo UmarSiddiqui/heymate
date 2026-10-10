@@ -161,7 +161,7 @@ class ClaudeAPI: VisionConversationClient, ToolCallingConversationClient {
         let bodyData = try JSONSerialization.data(withJSONObject: body)
         request.httpBody = bodyData
         let payloadMB = Double(bodyData.count) / 1_048_576.0
-        print("🌐 Claude streaming request: \(String(format: "%.1f", payloadMB))MB, \(images.count) image(s)")
+        HeyMateLog.log("🌐 Claude streaming request: \(String(format: "%.1f", payloadMB))MB, \(images.count) image(s)")
 
         // Use bytes streaming for SSE (Server-Sent Events)
         let (byteStream, response) = try await session.bytes(for: request)
@@ -474,7 +474,7 @@ class ClaudeAPI: VisionConversationClient, ToolCallingConversationClient {
         let bodyData = try JSONSerialization.data(withJSONObject: body)
         request.httpBody = bodyData
         let payloadMB = Double(bodyData.count) / 1_048_576.0
-        print("🌐 Claude request: \(String(format: "%.1f", payloadMB))MB, \(images.count) image(s)")
+        HeyMateLog.log("🌐 Claude request: \(String(format: "%.1f", payloadMB))MB, \(images.count) image(s)")
 
         let (data, response) = try await session.data(for: request)
 

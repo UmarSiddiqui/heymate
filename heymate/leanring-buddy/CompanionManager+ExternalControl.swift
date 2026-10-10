@@ -295,7 +295,7 @@ extension CompanionManager {
             do {
                 try await client.speakText(text)
             } catch {
-                print("⚠️ HeyMate bridge speak failed: \(error.localizedDescription)")
+                HeyMateLog.log("⚠️ HeyMate bridge speak failed: \(error.localizedDescription)")
             }
         }
         return .accepted(["speaking": true, "textLength": text.count])

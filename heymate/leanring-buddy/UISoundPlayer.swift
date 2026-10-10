@@ -35,7 +35,7 @@ final class UISoundPlayer {
 
         guard let asset = NSDataAsset(name: sound.rawValue),
               let player = try? AVAudioPlayer(data: asset.data) else {
-            print("🔇 UISoundPlayer: missing or unplayable sound asset \(sound.rawValue)")
+            HeyMateLog.log("🔇 UISoundPlayer: missing or unplayable sound asset \(sound.rawValue)")
             return
         }
         player.volume = 0.5

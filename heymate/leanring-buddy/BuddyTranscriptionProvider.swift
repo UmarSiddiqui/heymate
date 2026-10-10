@@ -32,7 +32,7 @@ protocol BuddyTranscriptionProvider {
 enum BuddyTranscriptionProviderFactory {
     static func makeDefaultProvider() -> any BuddyTranscriptionProvider {
         let provider = makeProvider(preferred: VoiceListenProvider.fromUserDefaults())
-        print("🎙️ Transcription: using \(provider.displayName)")
+        HeyMateLog.log("🎙️ Transcription: using \(provider.displayName)")
         return provider
     }
 
@@ -42,7 +42,7 @@ enum BuddyTranscriptionProviderFactory {
         if preferredProvider.isConfigured {
             return preferredProvider
         }
-        print("⚠️ Transcription: \(preferredProvider.displayName) preferred but not set up, falling back")
+        HeyMateLog.log("⚠️ Transcription: \(preferredProvider.displayName) preferred but not set up, falling back")
         return offlineFallbackProvider()
     }
 
