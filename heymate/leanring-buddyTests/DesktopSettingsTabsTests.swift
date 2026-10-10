@@ -2,25 +2,60 @@
 //  DesktopSettingsTabsTests.swift
 //  leanring-buddyTests
 //
-//  Settings tabs are deep-linked by writing a raw value into UserDefaults,
-//  so the raw values and key are a contract. The Accounts tab turns CLI
-//  readiness into account language; these lock that wording to the state.
+//  Settings sections are deep-linked by writing a raw value into
+//  UserDefaults, so the raw values and key are a contract. The AI &
+//  Accounts section turns CLI readiness into account language; these lock
+//  that wording to the state.
+//
+//  Nothing here writes UserDefaults: the host app shares the user's real
+//  preferences.
 //
 
 import Testing
 @testable import HeyMate
 
+@MainActor
 struct DesktopSettingsTabsTests {
 
-    @Test func tabRawValuesAndStorageKeyAreTheDeepLinkContract() {
+    @Test func storageKeyIsTheDeepLinkContract() {
         #expect(DesktopSettingsTab.storageKey == "desktopSettingsSelectedTab")
+        #expect(DesktopSection.settingsTabDefaultsKey == DesktopSettingsTab.storageKey)
+    }
+
+    @Test func sectionsAreInRailOrder() {
         #expect(DesktopSettingsTab.allCases.map(\.rawValue) == [
-            "general", "accounts", "notch", "privacy", "advanced"
+            "general", "shortcuts", "voice", "notch", "accounts", "agents", "connections", "privacy"
         ])
+    }
+
+    @Test func rawValuesFromEarlierVersionsStillResolve() {
+        // Written by older builds and by deep links; must keep landing.
+        #expect(DesktopSettingsTab.resolve("general") == .general)
+        #expect(DesktopSettingsTab.resolve("accounts") == .accounts)
+        #expect(DesktopSettingsTab.resolve("notch") == .notch)
+        #expect(DesktopSettingsTab.resolve("privacy") == .privacy)
+        // The old catch-all tab lands where its only in-app link pointed.
+        #expect(DesktopSettingsTab.resolve("advanced") == .connections)
+        #expect(DesktopSettingsTab.resolve("not-a-section") == .general)
+    }
+
+    @Test func sidebarDeepLinksLandOnTheirSections() {
+        #expect(DesktopSection.notch.settingsTab.map(DesktopSettingsTab.resolve) == .notch)
+        #expect(DesktopSection.privacy.settingsTab.map(DesktopSettingsTab.resolve) == .privacy)
+        #expect(DesktopSection.notch.landingSection == .settings)
+        #expect(DesktopSection.privacy.landingSection == .settings)
+    }
+
+    @Test func everySectionHasAGroupAndAppearsOnce() {
+        let railed = DesktopSettingsTabGroup.allCases.flatMap(\.tabs)
+        #expect(railed == DesktopSettingsTab.allCases)
     }
 
     @Test func accountsOffersTheThreePlansInOrder() {
         #expect(DesktopSettingsAccountsTab.everydayBrains == [.claudeCode, .codex, .onDevice])
+        #expect(DesktopSettingsAccountsTab.otherBrains == [.openCode, .customAPI])
+        let everyBrain = Set(DesktopSettingsAccountsTab.everydayBrains + DesktopSettingsAccountsTab.otherBrains)
+        #expect(everyBrain == Set(AgentBrain.allCases))
     }
 
     @Test func signedInClaudeShowsPlanAndEmail() {

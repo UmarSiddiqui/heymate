@@ -650,7 +650,7 @@ struct HeadlessAgentLauncherTests {
         #expect(run?.status == .failed)
         // Plain language pointing at the one-click sign-in, not at PATH.
         #expect(run?.error.contains("Claude") == true)
-        #expect(run?.error.contains("Settings → Accounts") == true)
+        #expect(run?.error.contains("Settings → AI & Accounts") == true)
         #expect(run?.error.contains("PATH") == false)
         #expect(run?.prompt == "make a landing page")
 

@@ -117,9 +117,9 @@ nonisolated enum SubscriptionSignInCopy {
     static func signInRemedy(for executor: HeadlessExecutor) -> String {
         switch executor {
         case .claudeCode, .codex:
-            return "\(signInActionTitle(for: executor)) from Settings → Accounts."
+            return "\(signInActionTitle(for: executor)) from Settings → AI & Accounts."
         case .openCode:
-            return "Sign in to OpenCode from Settings → Accounts."
+            return "Sign in to OpenCode from Settings → AI & Accounts."
         }
     }
 
@@ -127,7 +127,7 @@ nonisolated enum SubscriptionSignInCopy {
         switch executor {
         case .claudeCode, .codex:
             return "\(productName(for: executor)) isn't set up on this Mac yet. "
-                + "\(signInActionTitle(for: executor)) from Settings → Accounts and HeyMate sets it up for you."
+                + "\(signInActionTitle(for: executor)) from Settings → AI & Accounts and HeyMate sets it up for you."
         case .openCode:
             return "OpenCode isn't installed on this Mac. Get it from opencode.ai, then try again."
         }
@@ -138,12 +138,12 @@ nonisolated enum SubscriptionSignInCopy {
     static func signInNeededMessage(for executor: HeadlessExecutor) -> String {
         let product = productName(for: executor)
         return "\(product) isn't signed in on this Mac. Use “\(signInActionTitle(for: executor))” in the notch, "
-            + "or open Settings → Accounts. You can also switch this mate to another engine "
+            + "or open Settings → AI & Accounts. You can also switch this mate to another engine "
             + "from the menu under the message box."
     }
 
     static let neitherExplanation =
-        "Chat works on this Mac. Questions about your screen need Claude or ChatGPT, which you can add later in Settings → Accounts."
+        "Chat works on this Mac. Questions about your screen need Claude or ChatGPT, which you can add later in Settings → AI & Accounts."
 }
 
 // MARK: - Install

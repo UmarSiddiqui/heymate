@@ -122,7 +122,7 @@ nonisolated enum HeadlessExecutorReadinessProbe {
             return HeadlessExecutorReadiness(
                 state: .usingAPIKey,
                 detail: "API key (\(authenticationMethod.isEmpty ? "not claude.ai" : authenticationMethod))",
-                remedy: "This Claude sign-in may bill an API account instead of your plan. Sign out, then sign in to Claude again from Settings → Accounts."
+                remedy: "This Claude sign-in may bill an API account instead of your plan. Sign out, then sign in to Claude again from Settings → AI & Accounts."
             )
         }
 
@@ -148,7 +148,7 @@ nonisolated enum HeadlessExecutorReadinessProbe {
             return HeadlessExecutorReadiness(
                 state: .ready,
                 detail: "No providers connected",
-                remedy: "Add a provider from Settings → Accounts. Free models still work without one."
+                remedy: "Add a provider from Settings → AI & Accounts. Free models still work without one."
             )
         }
 
@@ -210,7 +210,7 @@ nonisolated enum HeadlessExecutorReadinessProbe {
             return HeadlessExecutorReadiness(
                 state: .usingAPIKey,
                 detail: "Codex · non-ChatGPT credential",
-                remedy: "This Codex sign-in may bill an API or provider account instead of your plan. Sign out, then sign in to ChatGPT again from Settings → Accounts."
+                remedy: "This Codex sign-in may bill an API or provider account instead of your plan. Sign out, then sign in to ChatGPT again from Settings → AI & Accounts."
             )
         }
         if exitStatus != 0 {

@@ -174,14 +174,14 @@ struct DesktopConnectorsView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Want Gmail, Slack, Notion, and more?")
                         .font(DS.Fonts.headline)
-                    Text("For now these need a free key from Composio, a service that handles signing in to web apps. Paste it once in Settings → Advanced. Your app logins stay with Composio, not HeyMate.")
+                    Text("For now these need a free key from Composio, a service that handles signing in to web apps. Paste it once in Settings › Connections. Your app logins stay with Composio, not HeyMate.")
                         .font(DS.Fonts.caption)
                         .foregroundColor(DS.Colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 12)
-                Button("Set up in Advanced") {
-                    DesktopSection.openSettings(tab: "advanced")
+                Button("Set up in Settings") {
+                    DesktopSection.openSettings(tab: DesktopSettingsTab.connections.rawValue)
                 }
                 .buttonStyle(DSSecondaryButtonStyle())
             }

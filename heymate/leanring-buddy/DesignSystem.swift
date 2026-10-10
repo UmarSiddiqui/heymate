@@ -213,6 +213,42 @@ enum DS {
         /// `borderSubtle`, which outlines things you can click.
         static var hairline: Color { borderSubtle.opacity(0.6) }
 
+        // ── Controls ─────────────────────────────────────────────────
+        // Matte, not tinted: an "on" switch is ink on paper — black in
+        // light mode, white in dark — so settings read calm and the
+        // buddy's accent stays reserved for the one action that matters.
+
+        /// Switch track when on.
+        static var switchTrackOn: Color { textPrimary }
+
+        /// Switch track when off.
+        static var switchTrackOff: Color { surface4 }
+
+        /// Switch knob sitting on the "on" track.
+        static var switchKnobOn: Color { background }
+
+        /// Switch knob sitting on the "off" track.
+        static let switchKnobOff = Color(light: "#FFFFFF", dark: "#B3B3BA")
+
+        /// The selected item in a rail or a segmented control.
+        static var selectionFill: Color { surface3 }
+
+        /// Keyboard focus ring on custom controls.
+        static var focusRing: Color { textPrimary.opacity(0.55) }
+
+        /// The brief wash on a settings row that search just jumped to.
+        static var revealHighlight: Color { textPrimary.opacity(0.06) }
+
+        /// Under a settings card. Barely there in light mode; dark mode
+        /// relies on the lighter card fill instead.
+        static let cardShadow = Color(light: "#000000", dark: "#000000").opacity(0.045)
+
+        /// Laid over frosted chrome (the settings rail, the condensed title
+        /// bar) so the blur stays matte and on-palette instead of picking up
+        /// the colors behind it.
+        static var chromeTint: Color { surface1.opacity(0.55) }
+        static var condensedBarTint: Color { background.opacity(0.6) }
+
         // ── Status ───────────────────────────────────────────────────
         // One mapping per kind of state. Every dot, pill, and label that
         // reports status reads from here, so "listening" is the same color
@@ -306,6 +342,14 @@ enum DS {
 
         /// Large tabular numbers — the timer face, battery percentage.
         static let numericLarge = Font.system(size: 20, weight: .semibold, design: .rounded).monospacedDigit()
+
+        /// Identifiers a person may need to copy exactly — bundle ids,
+        /// addresses, file paths.
+        static let mono = Font.system(size: 12, design: .monospaced)
+
+        /// Long-form editing — the behavior contract and other text files
+        /// edited in place.
+        static let editor = Font.custom("Avenir Next", size: 14)
     }
 
     // MARK: - Glyphs
@@ -336,6 +380,63 @@ enum DS {
         static let regular: CGFloat = 28
         /// Window-scale buttons and hero composers.
         static let large: CGFloat = 32
+    }
+
+    // MARK: - Settings Metrics
+    //
+    // One unhurried rhythm for every settings page: an 18pt row inset, a
+    // 52pt row floor, 36pt between sections, and a narrow reading column,
+    // so a page reads as a few calm groups rather than a dense form.
+    // Trailing controls share widths so their edges line up down a page.
+
+    enum SettingsLayout {
+        /// The section rail beside the settings content.
+        static let railWidth: CGFloat = 224
+        /// Reading measure of the settings column.
+        static let contentMaxWidth: CGFloat = 640
+        /// Page gutters.
+        static let pageHorizontalPadding: CGFloat = 40
+        static let pageVerticalPadding: CGFloat = 40
+        /// Gap between sections on a page.
+        static let sectionSpacing: CGFloat = 36
+        /// Gap between a section's header, card, and footer.
+        static let sectionInnerSpacing: CGFloat = 10
+        /// Row insets inside a section card.
+        static let rowHorizontalPadding: CGFloat = 18
+        static let rowVerticalPadding: CGFloat = 14
+        /// The shortest a row may be.
+        static let rowMinHeight: CGFloat = 52
+        /// Leading icon column, so titles align whether or not a row has one.
+        static let rowIconWidth: CGFloat = 20
+        /// Gap between a row's text and its trailing control.
+        static let rowAccessorySpacing: CGFloat = 20
+        /// Trailing menu pickers.
+        static let pickerWidth: CGFloat = 210
+        /// Trailing segmented controls.
+        static let segmentedWidth: CGFloat = 200
+        /// Text and secure fields in a row.
+        static let fieldMinWidth: CGFloat = 240
+        /// The switch control.
+        static let switchWidth: CGFloat = 32
+        static let switchHeight: CGFloat = 18
+        static let switchKnobInset: CGFloat = 2
+        /// Accent swatches.
+        static let swatchSide: CGFloat = 22
+        /// The radio circle on a pick-one row.
+        static let radioSide: CGFloat = 16
+        /// How long a row stays highlighted after search jumps to it.
+        static let revealHighlightSeconds: Double = 1.6
+        /// Section cards: pebble corners, a hairline, and a shadow soft
+        /// enough to lift the card without drawing a box around it.
+        static let cardCornerRadius: CGFloat = DS.CornerRadius.extraLarge
+        static let cardShadowRadius: CGFloat = 18
+        static let cardShadowY: CGFloat = 6
+        /// Rail items.
+        static let railItemHeight: CGFloat = 32
+        /// How far a page scrolls before its title condenses into the
+        /// frosted bar at the top.
+        static let condensedTitleThreshold: CGFloat = 56
+        static let condensedTitleBarHeight: CGFloat = 40
     }
 
     // MARK: - Spacing (for reference, not enforced)
@@ -387,6 +488,13 @@ enum DS {
 
         /// Snappier spring for small controls (chips, dots, toggles).
         static let controlSpring = SwiftUI.Animation.spring(response: 0.28, dampingFraction: 0.72)
+
+        /// Moving between settings pages and sliding the rail selection.
+        /// Critically damped, so nothing overshoots in a settings window.
+        static let settingsPage = SwiftUI.Animation.spring(response: 0.36, dampingFraction: 0.9)
+
+        /// Expanding and collapsing a disclosure inside a settings card.
+        static let settingsDisclosure = SwiftUI.Animation.spring(response: 0.32, dampingFraction: 0.88)
     }
 
     // MARK: - State Layer Opacities

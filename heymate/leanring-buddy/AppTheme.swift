@@ -67,28 +67,7 @@ struct ThemeColorPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                ForEach(AppTheme.swatches) { swatch in
-                    let isSelected = companionManager.themeColorHex.uppercased() == swatch.hex.uppercased()
-                    Button(action: { companionManager.setThemeColorHex(swatch.hex) }) {
-                        Circle()
-                            .fill(swatch.color)
-                            .frame(width: 22, height: 22)
-                            .overlay(
-                                Circle()
-                                    .stroke(
-                                        isSelected ? DS.Colors.textPrimary : DS.Colors.borderStrong,
-                                        lineWidth: isSelected ? 2 : 0.8
-                                    )
-                            )
-                            .shadow(color: swatch.color.opacity(isSelected ? 0.7 : 0), radius: 5)
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                    .help(swatch.name)
-                    .accessibilityLabel(swatch.name)
-                }
-            }
+            SettingsAccentSwatches(companionManager: companionManager)
 
             Text("Same color on the cursor and buttons.")
                 .font(DS.Fonts.micro)
