@@ -26,7 +26,6 @@ struct MateHomeView: View {
     @State private var isShowingImageImporter = false
     @State private var attachmentErrorText: String?
     @State private var isImageDropTargeted = false
-    @State private var isShowingComposerOverflow = false
     @State private var isNearBottom = true
     @State private var viewportHeight: CGFloat = 0
     @State private var transcriptContentMaxY: CGFloat = 0
@@ -938,18 +937,8 @@ struct MateHomeView: View {
                         subscriptionVoiceChatButton
                     }
                     Spacer(minLength: 4)
+                    DesktopConnectorScopeMenu(companionManager: companionManager, compact: true, isNarrow: isCompactLayout)
                     DesktopComposerModelButton(companionManager: companionManager)
-                    Button { isShowingComposerOverflow = true } label: {
-                        Image(systemName: "ellipsis")
-                            .font(DS.Glyph.large)
-                    }
-                    .dsToolbarIconButtonStyle(isActive: isShowingComposerOverflow)
-                    .help("Connectors")
-                    .accessibilityLabel("Connectors")
-                    .popover(isPresented: $isShowingComposerOverflow, arrowEdge: .top) {
-                        DesktopConnectorScopeMenu(companionManager: companionManager, compact: true)
-                            .padding(12)
-                    }
                     Button {
                         if companionManager.isComposerStopVisible {
                             companionManager.cancelInFlightChatTurn()
