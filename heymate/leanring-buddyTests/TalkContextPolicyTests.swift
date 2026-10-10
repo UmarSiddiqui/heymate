@@ -28,6 +28,12 @@ struct TalkContextPolicyTests {
         ))
     }
 
+    @Test func guidanceRequestsKeepScreenContext() {
+        for phrase in ["how do i export a video", "show me how to add a filter", "walk me through signing a pdf", "where is the share button"] {
+            #expect(TalkContextPolicy.shouldCaptureScreen(for: phrase, hasSpatialSelection: false), "\(phrase)")
+        }
+    }
+
     @Test func perceptionQuestionsWithoutDemonstrativesKeepScreenContext() {
         for phrase in ["what am i looking at", "what do you see", "what's on my screen"] {
             #expect(TalkContextPolicy.shouldCaptureScreen(for: phrase, hasSpatialSelection: false), "\(phrase)")

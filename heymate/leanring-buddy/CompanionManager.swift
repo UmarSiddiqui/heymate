@@ -235,7 +235,7 @@ final class CompanionManager: ObservableObject {
     /// Applies an event to the canonical state machine. Illegal transitions
     /// are logged and ignored — e.g. a stale dictation-flag callback firing
     /// while the response pipeline owns the state.
-    private func dispatch(_ event: CompanionEvent) {
+    func dispatch(_ event: CompanionEvent) {
         guard let nextState = CompanionStateMachine.transition(from: state, on: event) else {
             HeyMateLog.log("🚫 CompanionState: ignoring illegal transition — \(state) + \(event)")
             return
@@ -286,10 +286,11 @@ final class CompanionManager: ObservableObject {
     /// Resolved drawing annotations currently on screen (from the model's
     /// visualActions JSON). Each overlay renders only those matching its
     /// display frame; entries self-expire via their TTL.
-    @Published private(set) var activeAnnotations: [ResolvedAnnotation] = []
+    @Published var activeAnnotations: [ResolvedAnnotation] = []
     private var annotationExpiryTask: Task<Void, Never>?
     // lazy so the closure can capture self (stored-property initializers cannot).
     private lazy var annotationClearKeyMonitor = AnnotationClearKeyMonitor { [weak self] in
+        self?.cancelGuidance()
         self?.cancelSpatialContextAndAnnotations()
     }
 
@@ -886,7 +887,7 @@ final class CompanionManager: ObservableObject {
         apiKey: CustomAPIConfiguration.apiKey()
     )
 
-    private var voiceSynthesisClient: any TTSClient = MacOSSpeechSynthesizerClient()
+    var voiceSynthesisClient: any TTSClient = MacOSSpeechSynthesizerClient()
 
     /// Last-resort speaker when the selected TTS client throws. Retained so
     /// the utterance is not deallocated mid-sentence.
@@ -1558,7 +1559,27 @@ final class CompanionManager: ObservableObject {
     @Published var savedChats: [ChatSession] = []
 
     /// Assistant text currently streaming into the Chat tab (and cursor overlay).
-    @Published var streamingAssistantText: String = ""
+    @Published var streamingAssistantText: String = "" {
+        didSet { mirrorStreamingTextIntoCursorCaption() }
+    }
+
+    /// Reply caption beside the buddy cursor. Follows the streamed text, then
+    /// lingers after the reply finishes until it has been spoken and read.
+    @Published var cursorCaptionText: String = ""
+    var cursorCaptionTask: Task<Void, Never>?
+    /// Small "2 of 4" / "step 2 of 5" line above the caption during guidance.
+    @Published var cursorCaptionProgress: String?
+
+    /// True while a guided reply is pointing and speaking step by step; the
+    /// overlay keeps the buddy at its target until this clears.
+    @Published var isGuidancePointerHeld = false
+
+    /// The multi-turn plan being walked through, if any.
+    @Published var activeWalkthrough: GuidedWalkthrough?
+    var walkthroughClickMonitor: Any?
+    var isCursorCaptionSpeechPlaying: Bool {
+        voiceSynthesisClient.isPlaying || state == .speaking
+    }
 
     /// Completed user/assistant turns from the open chat, for the vision API.
     private func speakingMateForTurn() -> Mate? {
@@ -1651,7 +1672,7 @@ final class CompanionManager: ObservableObject {
     /// first reply it is never nil again, and a press that ended with no
     /// transcript (released too fast, nothing heard, speech permission
     /// missing) then left HeyMate showing Listening forever.
-    private var isResponseInFlight: Bool {
+    var isResponseInFlight: Bool {
         guard currentResponseTask != nil, let completion = currentResponseCompletion else { return false }
         return !completion.didComplete
     }
@@ -2110,7 +2131,9 @@ final class CompanionManager: ObservableObject {
         ))
         session.updatedAt = Date()
         currentChat = session
+        let captionText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         streamingAssistantText = ""
+        lingerCursorCaption(captionText)
         persistCurrentChatIfNeeded()
         if isRecordingMeeting, backgroundRoutineSession == nil {
             meetingNotes.append(speaker: "HeyMate", text: trimmed)
@@ -3328,11 +3351,16 @@ final class CompanionManager: ObservableObject {
 
     don't point at things when it would be pointless — like if the user asks a general knowledge question, or the conversation has nothing to do with what's on screen, or you'd just be pointing at something obvious they're already looking at. but if there's a specific UI element, menu, button, or area on screen that's relevant to what you're helping with, point at it.
 
-    when you point, append a coordinate tag at the very end of your response, AFTER your spoken text. the screenshot images are labeled with their pixel dimensions. use those dimensions as the coordinate space. the origin (0,0) is the top-left corner of the image. x increases rightward, y increases downward.
+    when you point, put a coordinate tag right AFTER the sentence it belongs to. the screenshot images are labeled with their pixel dimensions. use those dimensions as the coordinate space. the origin (0,0) is the top-left corner of the image. x increases rightward, y increases downward.
 
     format: [POINT:x,y:label] where x,y are integer pixel coordinates in the screenshot's coordinate space, and label is a short 1-3 word description of the element (like "search bar" or "save button"). if the element is on the cursor's screen you can omit the screen number. if the element is on a DIFFERENT screen, append :screenN where N is the screen number from the image label (e.g. :screen2). this is important — without the screen number, the cursor will point at the wrong place.
 
+    pointing at several things: you may use several [POINT:] tags in one reply, each right after its own sentence, in the order the user should look. the cursor flies to each one while that sentence is spoken and shows it as a caption, one at a time. use this when everything you mention is visible on screen right now, for example "the play button is here [POINT:..:play] and the volume slider is next to it [POINT:..:volume]". keep it to five points or fewer.
+
     if pointing wouldn't help, append [POINT:none].
+
+    walkthroughs:
+    when the user wants to be shown how to do a multi-step task in an app ("how do i…", "show me how", "walk me through", "teach me") and later steps will only appear after earlier ones are done (a menu that opens, a dialog, a new page), plan it instead of guessing coordinates you cannot see yet. write [PLAN:first step|second step|third step] with short imperative steps (no more than ten), then guide ONLY the first step: say it in one or two sentences, point at it, and write [STEP:1]. heymate remembers the plan, waits for the user to click what you pointed at (or say "next"), takes a fresh screenshot, and asks you for the next step. never write a plan for a single-step answer. the plan and step tags are silent, never mention them aloud.
 
     structured drawing:
     when one point isn't enough — arrows, circles, boxes, freehand paths, or highlights explain it better — you may instead end your response with ONE json code block describing visual actions. coordinates are NORMALIZED 0…1 relative to that screen's width and height, origin at the top-left. use "screenId":"screenN" matching the image labels (screen1 = first labeled screen); omit screenId for the cursor's screen.
@@ -3349,11 +3377,15 @@ final class CompanionManager: ObservableObject {
 
     rules for json drawing: never mix the json block and a [POINT:] tag in one response; never mention the json, keys, or coordinates aloud — they are silent visuals only; prefer a single clear shape over many overlapping ones.
 
+    per-step drawing: inside a pointed sequence you may use [RECT:x,y,w,h:label] (screenshot pixels) in place of a [POINT:] tag to box an area for that step instead of pointing at one spot. it stays drawn while that step is spoken.
+
     examples:
     - user asks how to color grade in final cut: "you'll want to open the color inspector — it's right up in the top right area of the toolbar. click that and you'll get all the color wheels and curves. [POINT:1100,42:color inspector]"
     - user asks what html is: "html stands for hypertext markup language, it's basically the skeleton of every web page. curious how it connects to the css you're looking at? [POINT:none]"
     - user asks how to commit in xcode: "see that source control menu up top? click that and hit commit, or you can use command option c as a shortcut. [POINT:285,11:source control]"
     - element is on screen 2 (not where cursor is): "that's over on your other monitor — see the terminal window? [POINT:400,300:terminal:screen2]"
+    - user asks what the controls in their video player do: "that's play and pause [POINT:640,980:play button] and the slider beside it scrubs through the video [POINT:900,980:timeline] and the gear on the right sets quality [POINT:1500,980:settings]"
+    - user asks how to export a video in final cut: "[PLAN:open the file menu|choose share|pick export file|choose a format and save] first, click the file menu up in the top left. [POINT:80,11:file menu] [STEP:1]"
     """
 
     static func companionResponseSystemPrompt(isSilentModeEnabled: Bool) -> String {
@@ -3656,7 +3688,9 @@ final class CompanionManager: ObservableObject {
     ) {
         if requiresIdle, voiceState != .idle { return }
         activateConnectorsIfNeeded()
-        let wantsScreen = TalkContextPolicy.shouldCaptureScreen(
+        // A walkthrough always needs a fresh look: "next" names nothing on
+        // screen, but the next step can only be found there.
+        let wantsScreen = activeWalkthrough != nil || TalkContextPolicy.shouldCaptureScreen(
             for: transcript,
             hasSpatialSelection: activeSpatialSelection != nil
         )
@@ -3684,7 +3718,7 @@ final class CompanionManager: ObservableObject {
     /// active engine, and plays the response aloud via the selected TTS
     /// (Mac system voice by default). The cursor stays in the spinner until
     /// audio begins. A [POINT:] tag or visualActions JSON can fly the buddy.
-    private func sendTranscriptToClaudeWithScreenshot(
+    func sendTranscriptToClaudeWithScreenshot(
         transcript: String,
         shouldCaptureScreen: Bool,
         imageAttachments: [ChatImageAttachment] = []
@@ -3763,6 +3797,9 @@ final class CompanionManager: ObservableObject {
                 if let memoryBlock = Self.memoryPromptBlock(items: memoryItems) {
                     promptParts.append(memoryBlock)
                 }
+                if !screenCaptures.isEmpty, let walkthroughBlock = walkthroughPromptBlock() {
+                    promptParts.append(walkthroughBlock)
+                }
                 if Self.shouldAnchorToPriorTopic(transcript: transcript),
                    let topicAnchor = Self.topicAnchorPromptFragment(mostRecentExchange: historyForAPI.last) {
                     promptParts.append(topicAnchor)
@@ -3826,7 +3863,7 @@ final class CompanionManager: ObservableObject {
                         userPrompt: promptParts.joined(separator: "\n\n"),
                         availableTools: availableTalkTools.map(\.toolDefinition),
                         onTextChunk: { [weak self] chunk in
-                            self?.publishStreamingAssistantText(PointingTagParser.stripTrailingFragment(
+                            self?.publishStreamingAssistantText(GuidedReplyParser.streamingDisplayText(
                                 VisualActionParser.extract(from: chunk).spokenText
                             ))
                         },
@@ -3842,7 +3879,7 @@ final class CompanionManager: ObservableObject {
                         conversationHistory: historyForAPI,
                         userPrompt: promptParts.joined(separator: "\n\n"),
                         onTextChunk: { [weak self] chunk in
-                            self?.publishStreamingAssistantText(PointingTagParser.stripTrailingFragment(
+                            self?.publishStreamingAssistantText(GuidedReplyParser.streamingDisplayText(
                                 VisualActionParser.extract(from: chunk).spokenText
                             ))
                         }
@@ -3856,12 +3893,19 @@ final class CompanionManager: ObservableObject {
                     applyVisualActions(extracted.actions, screenCaptures: screenCaptures)
                 }
 
-                let parseResult = PointingTagParser.parse(extracted.spokenText)
-                applyPointingParseResult(parseResult, screenCaptures: screenCaptures)
+                // Every [POINT:] tag becomes its own step, so a reply can walk
+                // the user through several things in order.
+                let guidedReply = GuidedReplyParser.parse(extracted.spokenText)
+                let isGuidedPlayback = activeRoutineTurn == nil && backgroundRoutineSession == nil
+                if isGuidedPlayback {
+                    applyWalkthroughDirectives(guidedReply.walkthroughDirectives, goal: transcript)
+                } else if let firstPointing = guidedReply.firstPointing {
+                    applyPointingParseResult(firstPointing, screenCaptures: screenCaptures)
+                }
                 // Strip any [ACT:…] directives before the text is spoken —
                 // the user should hear "I'll click Send", not the markup.
                 let withoutActions = ComputerUseTagParser.strippingActionTags(
-                    from: parseResult.spokenText
+                    from: guidedReply.spokenText
                 )
                 let handoff = MateHandoffParser.extract(
                     from: withoutActions,
@@ -3906,19 +3950,22 @@ final class CompanionManager: ObservableObject {
                     if shouldSpeak, !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         offerSilentModeIfAnsweringThroughSpeakers()
                         do {
-                            try await voiceSynthesisClient.speakText(spokenText)
-                            dispatch(.beginSpeaking)
+                            try await playGuidedTurn(guidedReply, screenCaptures: screenCaptures)
+                        } catch is CancellationError {
+                            throw CancellationError()
                         } catch {
                             Self.recordPipelineError(error, category: .textToSpeech)
                             speakPipelineFailure(error)
                         }
                     }
-                } else if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                } else if !spokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || guidedReply.pointingStepCount > 0 {
                     offerSilentModeIfAnsweringThroughSpeakers()
                     recordAnsweredQuestionForStarNudge()
                     do {
-                        try await voiceSynthesisClient.speakText(spokenText)
-                        dispatch(.beginSpeaking)
+                        try await playGuidedTurn(guidedReply, screenCaptures: screenCaptures)
+                    } catch is CancellationError {
+                        throw CancellationError()
                     } catch {
                         Self.recordPipelineError(error, category: .textToSpeech)
                         speakPipelineFailure(error)
@@ -3926,10 +3973,10 @@ final class CompanionManager: ObservableObject {
                     }
                 }
 
-                // Act last, after the user has heard what is about to
-                // happen. Each directive above read-only opens an approval
-                // card and waits for an answer.
-                if let actionOutcome = await performComputerUseDirectives(in: extracted.spokenText) {
+                // A routine or background turn is not played step by step,
+                // so its directives still run here, after the reply.
+                if !isGuidedPlayback,
+                   let actionOutcome = await performComputerUseDirectives(in: extracted.spokenText) {
                     appendAssistantMessage(actionOutcome)
                 }
             } catch is CancellationError {
@@ -4189,6 +4236,11 @@ final class CompanionManager: ObservableObject {
                 guard !Task.isCancelled else { return }
             }
 
+            while !cursorCaptionText.isEmpty {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                guard !Task.isCancelled else { return }
+            }
+
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             guard !Task.isCancelled else { return }
 
@@ -4269,7 +4321,7 @@ final class CompanionManager: ObservableObject {
         PointingTagParser.parse(responseText)
     }
 
-    private func applyPointingParseResult(
+    func applyPointingParseResult(
         _ parseResult: PointingParseResult,
         screenCaptures: [CompanionScreenCapture]
     ) {

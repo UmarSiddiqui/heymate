@@ -23,6 +23,11 @@ nonisolated enum TalkContextPolicy {
 
         if VoiceRouter.isPerceptionQuestion(normalized) { return true }
 
+        // "how do i export this" and "walk me through it" are asking to be
+        // shown, and showing needs the screen the buddy will point at.
+        let guidanceCue = #"^(?:how\s+(?:do|can|would|should)\s+i|where\s+(?:is|are|do\s+i|can\s+i)|wheres|show\s+me|walk\s+me\s+through|guide\s+me|teach\s+me|help\s+me\s+(?:find|get\s+to|set\s+up|use))\b"#
+        if normalized.range(of: guidanceCue, options: .regularExpression) != nil { return true }
+
         let explicitVisualCue = #"\b(?:screen|display|window|page|button|menu|icon|field|selected|highlighted|visible|cursor|point|click|press|scroll)\b"#
         return normalized.range(of: explicitVisualCue, options: .regularExpression) != nil
     }

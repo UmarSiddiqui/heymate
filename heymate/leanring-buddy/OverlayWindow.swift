@@ -180,6 +180,9 @@ struct BlueCursorView: View {
     /// Scale factor for the navigation speech bubble's pop-in entrance.
     /// Starts at 0.5 and springs to 1.0 when the first character appears.
     @State private var navigationBubbleScale: CGFloat = 1.0
+    /// Bumped each time the buddy lands on a new target, so timers left over
+    /// from the previous step of a guided sequence do nothing.
+    @State private var pointingGeneration = 0
 
     /// True when the buddy is flying BACK to the cursor after pointing.
     /// Only during the return flight can cursor movement cancel the animation.
@@ -278,12 +281,19 @@ struct BlueCursorView: View {
             // Live answer beside the buddy. Clicky's separate response panel
             // was never wired into its manager; this uses HeyMate's existing
             // streaming source and stays inside the click-through overlay.
-            if buddyIsVisibleOnThisScreen && !companionManager.streamingAssistantText.isEmpty {
-                Text(companionManager.streamingAssistantText)
-                    .font(DS.Fonts.body)
-                    .foregroundColor(DS.Colors.textPrimary)
-                    .lineSpacing(2)
-                    .lineLimit(8)
+            if buddyIsVisibleOnThisScreen && !companionManager.cursorCaptionText.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let progress = companionManager.cursorCaptionProgress {
+                        Text(progress)
+                            .font(DS.Fonts.caption.weight(.medium))
+                            .foregroundColor(DS.Colors.textSecondary)
+                    }
+                    Text(companionManager.cursorCaptionText)
+                        .font(DS.Fonts.body)
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .lineSpacing(2)
+                        .lineLimit(8)
+                }
                     .frame(maxWidth: 300, alignment: .leading)
                     .padding(.horizontal, 13)
                     .padding(.vertical, 9)
@@ -307,7 +317,7 @@ struct BlueCursorView: View {
                     )
                     .position(responseBubblePosition)
                     .transition(.scale(scale: 0.92, anchor: .topLeading).combined(with: .opacity))
-                    .animation(.easeOut(duration: 0.16), value: companionManager.streamingAssistantText.isEmpty)
+                    .animation(.easeOut(duration: 0.16), value: companionManager.cursorCaptionText.isEmpty)
                     .onPreferenceChange(ResponseBubbleSizePreferenceKey.self) { newSize in
                         responseBubbleSize = newSize
                     }
@@ -317,7 +327,8 @@ struct BlueCursorView: View {
             // Navigation pointer bubble — shown when buddy arrives at a detected element.
             // Pops in with a scale-bounce (0.5x → 1.0x spring) and a bright initial
             // glow that settles, creating a "materializing" effect.
-            if buddyNavigationMode == .pointingAtTarget && !navigationBubbleText.isEmpty {
+            if buddyNavigationMode == .pointingAtTarget && !navigationBubbleText.isEmpty
+                && companionManager.cursorCaptionText.isEmpty {
                 Text(navigationBubbleText)
                     .font(DS.Fonts.caption.weight(.medium))
                     .foregroundColor(.white)
@@ -776,6 +787,8 @@ struct BlueCursorView: View {
     /// scale-in entrance and variable-speed character streaming.
     private func startPointingAtElement() {
         buddyNavigationMode = .pointingAtTarget
+        pointingGeneration += 1
+        let generation = pointingGeneration
 
         // Lean ends with damped settle instead of abrupt stop.
         triangleRotationDegrees = -35.0
@@ -792,16 +805,31 @@ struct BlueCursorView: View {
             ?? navigationPointerPhrases.randomElement()
             ?? "right here!"
 
-        streamNavigationBubbleCharacter(phrase: pointerPhrase, characterIndex: 0) {
-            // All characters streamed — hold for 3 seconds, then fly back
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-                guard self.buddyNavigationMode == .pointingAtTarget else { return }
-                self.navigationBubbleOpacity = 0.0
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    guard self.buddyNavigationMode == .pointingAtTarget else { return }
-                    self.startFlyingBackToCursor()
-                }
+        streamNavigationBubbleCharacter(
+            phrase: pointerPhrase,
+            characterIndex: 0,
+            generation: generation
+        ) {
+            // All characters streamed — hold at least 3 seconds, and for as
+            // long as a guided step is still being spoken, then fly back.
+            self.holdPointerThenReturn(generation: generation, minimumUntil: Date().addingTimeInterval(3.0))
+        }
+    }
+
+    private func holdPointerThenReturn(generation: Int, minimumUntil: Date) {
+        guard generation == pointingGeneration,
+              buddyNavigationMode == .pointingAtTarget else { return }
+        if Date() < minimumUntil || companionManager.isGuidancePointerHeld {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                self.holdPointerThenReturn(generation: generation, minimumUntil: minimumUntil)
             }
+            return
+        }
+        navigationBubbleOpacity = 0.0
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            guard generation == self.pointingGeneration,
+                  self.buddyNavigationMode == .pointingAtTarget else { return }
+            self.startFlyingBackToCursor()
         }
     }
 
@@ -810,9 +838,11 @@ struct BlueCursorView: View {
     private func streamNavigationBubbleCharacter(
         phrase: String,
         characterIndex: Int,
+        generation: Int,
         onComplete: @escaping () -> Void
     ) {
-        guard buddyNavigationMode == .pointingAtTarget else { return }
+        guard generation == pointingGeneration,
+              buddyNavigationMode == .pointingAtTarget else { return }
         guard characterIndex < phrase.count else {
             onComplete()
             return
@@ -831,6 +861,7 @@ struct BlueCursorView: View {
             self.streamNavigationBubbleCharacter(
                 phrase: phrase,
                 characterIndex: characterIndex + 1,
+                generation: generation,
                 onComplete: onComplete
             )
         }
