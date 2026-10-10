@@ -183,18 +183,14 @@ nonisolated enum DetachedAgentRunnerBootstrap {
         return processID
     }
 
-    /// `~/Library/Logs/HeyMate/agent-runner-<attempt>.log`, or nil when the
-    /// folder cannot be made (the runner then falls back to /dev/null).
+    /// `~/Library/Logs/HeyMate/agent-runner-<attempt>.log` (the scratch Logs
+    /// folder under tests), or nil when the folder cannot be made (the runner
+    /// then falls back to /dev/null).
     static func diagnosticLogURL(
         attemptID: UUID,
         fileManager: FileManager = .default
     ) -> URL? {
-        guard let libraryURL = fileManager.urls(for: .libraryDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        let logsURL = libraryURL
-            .appendingPathComponent("Logs", isDirectory: true)
-            .appendingPathComponent("HeyMate", isDirectory: true)
+        let logsURL = DetachedAgentRunnerDiagnosticLogs.directoryURL
         do {
             try fileManager.createDirectory(
                 at: logsURL,
@@ -204,10 +200,7 @@ nonisolated enum DetachedAgentRunnerBootstrap {
         } catch {
             return nil
         }
-        return logsURL.appendingPathComponent(
-            "agent-runner-\(attemptID.uuidString.lowercased()).log",
-            isDirectory: false
-        )
+        return DetachedAgentRunnerDiagnosticLogs.fileURL(attemptID: attemptID, directoryURL: logsURL)
     }
 
     private static func requireFileActionSuccess(_ result: Int32) throws {
