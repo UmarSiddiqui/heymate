@@ -72,14 +72,6 @@ extension View {
 
 // MARK: - Page
 
-/// Scroll position of a settings page, read to condense its title.
-private nonisolated struct SettingsScrollOffsetKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
 /// One settings section's page: title, subtitle, and the sections below at
 /// the settings reading measure. Once the title scrolls away, it condenses
 /// into a frosted bar the content slides under. Scrolls to and highlights
@@ -99,14 +91,17 @@ struct SettingsPage<Content: View>: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: DS.SettingsLayout.sectionSpacing) {
                     header
-                        .background(
-                            GeometryReader { geometry in
-                                Color.clear.preference(
-                                    key: SettingsScrollOffsetKey.self,
-                                    value: geometry.frame(in: .named(Self.scrollSpace)).minY
-                                )
+                        // A preference read from inside the ScrollView never reached
+                        // onPreferenceChange here, so the bar never showed.
+                        .onGeometryChange(for: Bool.self) { geometry in
+                            geometry.frame(in: .named(Self.scrollSpace)).minY
+                                < -DS.SettingsLayout.condensedTitleThreshold
+                        } action: { shouldCondense in
+                            guard shouldCondense != isTitleCondensed else { return }
+                            withAnimation(accessibilityReduceMotion ? nil : .easeOut(duration: DS.Animation.fast)) {
+                                isTitleCondensed = shouldCondense
                             }
-                        )
+                        }
                     content()
                 }
                 .frame(maxWidth: DS.SettingsLayout.contentMaxWidth, alignment: .leading)
@@ -115,13 +110,6 @@ struct SettingsPage<Content: View>: View {
                 .frame(maxWidth: .infinity, alignment: .top)
             }
             .coordinateSpace(name: Self.scrollSpace)
-            .onPreferenceChange(SettingsScrollOffsetKey.self) { offset in
-                let shouldCondense = offset < -DS.SettingsLayout.condensedTitleThreshold
-                guard shouldCondense != isTitleCondensed else { return }
-                withAnimation(accessibilityReduceMotion ? nil : .easeOut(duration: DS.Animation.fast)) {
-                    isTitleCondensed = shouldCondense
-                }
-            }
             .onAppear { reveal(navigation.revealRequest, with: proxy) }
             .onChange(of: navigation.revealRequest) { _, request in
                 reveal(request, with: proxy)
