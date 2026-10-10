@@ -20,52 +20,70 @@ struct DoubleTapDetectorTests {
 
     @Test func twoQuickTapsFireOnce() {
         var detector = DoubleTapDetector()
-        #expect(!tap(&detector, at: 0))
-        #expect(tap(&detector, at: 0.3))
+        let fired1 = tap(&detector, at: 0)
+        #expect(!fired1)
+        let fired2 = tap(&detector, at: 0.3)
+        #expect(fired2)
     }
 
     @Test func threeTapsAreOneDoubleTapPlusAStray() {
         var detector = DoubleTapDetector()
-        #expect(!tap(&detector, at: 0))
-        #expect(tap(&detector, at: 0.3))
-        #expect(!tap(&detector, at: 0.6))
+        let fired3 = tap(&detector, at: 0)
+        #expect(!fired3)
+        let fired4 = tap(&detector, at: 0.3)
+        #expect(fired4)
+        let fired5 = tap(&detector, at: 0.6)
+        #expect(!fired5)
     }
 
     @Test func slowSecondTapStartsAFreshPair() {
         var detector = DoubleTapDetector()
-        #expect(!tap(&detector, at: 0))
-        #expect(!tap(&detector, at: 1.0))
-        #expect(tap(&detector, at: 1.3))
+        let fired6 = tap(&detector, at: 0)
+        #expect(!fired6)
+        let fired7 = tap(&detector, at: 1.0)
+        #expect(!fired7)
+        let fired8 = tap(&detector, at: 1.3)
+        #expect(fired8)
     }
 
     @Test func aHoldIsNotATap() {
         var detector = DoubleTapDetector()
-        #expect(!tap(&detector, at: 0, holding: 0.8))
-        #expect(!tap(&detector, at: 1.0))
+        let fired9 = tap(&detector, at: 0, holding: 0.8)
+        #expect(!fired9)
+        let fired10 = tap(&detector, at: 1.0)
+        #expect(!fired10)
     }
 
     @Test func aChordInBetweenCancelsThePair() {
         var detector = DoubleTapDetector()
-        #expect(!tap(&detector, at: 0))
+        let fired11 = tap(&detector, at: 0)
+        #expect(!fired11)
         _ = detector.modifiersChanged(requiredSetHeld: true, at: 0.2)
         detector.keyPressed()  // ctrl+C
-        #expect(!detector.modifiersChanged(requiredSetHeld: false, at: 0.25))
-        #expect(!tap(&detector, at: 0.4))
-        #expect(tap(&detector, at: 0.6))
+        let fired12 = detector.modifiersChanged(requiredSetHeld: false, at: 0.25)
+        #expect(!fired12)
+        let fired13 = tap(&detector, at: 0.4)
+        #expect(!fired13)
+        let fired14 = tap(&detector, at: 0.6)
+        #expect(fired14)
     }
 
     @Test func repeatedHeldReportsAreIgnored() {
         var detector = DoubleTapDetector()
         _ = detector.modifiersChanged(requiredSetHeld: true, at: 0)
         _ = detector.modifiersChanged(requiredSetHeld: true, at: 0.05)
-        #expect(!detector.modifiersChanged(requiredSetHeld: false, at: 0.1))
-        #expect(tap(&detector, at: 0.3))
+        let fired15 = detector.modifiersChanged(requiredSetHeld: false, at: 0.1)
+        #expect(!fired15)
+        let fired16 = tap(&detector, at: 0.3)
+        #expect(fired16)
     }
 
     @Test func resetForgetsTheFirstTap() {
         var detector = DoubleTapDetector()
-        #expect(!tap(&detector, at: 0))
+        let fired17 = tap(&detector, at: 0)
+        #expect(!fired17)
         detector.reset()
-        #expect(!tap(&detector, at: 0.3))
+        let fired18 = tap(&detector, at: 0.3)
+        #expect(!fired18)
     }
 }
