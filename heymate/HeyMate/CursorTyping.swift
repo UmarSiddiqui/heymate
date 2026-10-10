@@ -1,5 +1,5 @@
 //
-//  BuddyCursorTyping.swift
+//  CursorTyping.swift
 //  HeyMate
 //
 //  The floating cursor hides while a key is typed and comes back when the
@@ -10,7 +10,7 @@ import AppKit
 import CoreGraphics
 import Foundation
 
-enum BuddyCursorTypingPolicy {
+enum CursorTypingPolicy {
     /// Pointer travel, in screen points, that shows the cursor again.
     static let revealDistance: CGFloat = 6
 
@@ -24,7 +24,7 @@ enum BuddyCursorTypingPolicy {
     }
 }
 
-enum BuddyCursorTypingMonitor {
+enum CursorTypingMonitor {
     private static var monitors: [Any] = []
     private static var retainCount = 0
 

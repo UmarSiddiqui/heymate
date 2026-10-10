@@ -175,11 +175,7 @@ private struct RocketLaunchBayGlyph: View {
                 .stroke(DS.Colors.borderStrong.opacity(phase == .docked ? 0 : 0.6), lineWidth: 0.8)
                 .frame(width: 14, height: 14)
 
-            BuddyCursorShape()
-                .fill(DS.Colors.overlayCursorBlue)
-                .frame(width: 16, height: 16)
-                .rotationEffect(.degrees(-35))
-                .shadow(color: DS.Colors.overlayCursorBlue, radius: 8)
+            CompanionCursorGlyph()
                 .opacity(phase == .docked ? 1 : 0)
         }
     }

@@ -272,13 +272,13 @@ final class CompanionManager: ObservableObject {
 
     /// Screen location (global AppKit coords) of a detected UI element the
     /// buddy should fly to and point at. Parsed from Claude's response;
-    /// observed by BlueCursorView to trigger the flight animation.
+    /// observed by CompanionCursorView to trigger the flight animation.
     @Published var detectedElementScreenLocation: CGPoint?
     /// The display frame (global AppKit coords) of the screen the detected
-    /// element is on, so BlueCursorView knows which screen overlay should animate.
+    /// element is on, so CompanionCursorView knows which screen overlay should animate.
     @Published var detectedElementDisplayFrame: CGRect?
     /// Custom speech bubble text for the pointing animation. When set,
-    /// BlueCursorView uses this instead of a random pointer phrase.
+    /// CompanionCursorView uses this instead of a random pointer phrase.
     @Published var detectedElementBubbleText: String?
 
     // MARK: - Structured Drawing Annotations
@@ -2344,7 +2344,7 @@ final class CompanionManager: ObservableObject {
 
     func revealCursorIfPointerMoved(to point: CGPoint) {
         guard hidesCursorForTyping else { return }
-        guard BuddyCursorTypingPolicy.shouldReveal(from: typingHideAnchor, to: point) else { return }
+        guard CursorTypingPolicy.shouldReveal(from: typingHideAnchor, to: point) else { return }
         hidesCursorForTyping = false
     }
 
@@ -2493,7 +2493,7 @@ final class CompanionManager: ObservableObject {
         startExternalControlBridgeIfNeeded()
     }
 
-    /// Called by BlueCursorView after the buddy finishes its pointing
+    /// Called by CompanionCursorView after the buddy finishes its pointing
     /// animation and returns to cursor-following mode.
     /// Triggers the onboarding sequence — dismisses the panel and restarts
     /// the overlay so the welcome animation and intro prompt play.
@@ -4385,7 +4385,7 @@ final class CompanionManager: ObservableObject {
     /// Runs the onboarding intro without any remote video dependency:
     /// lets the local welcome animation play, triggers the live pointing
     /// demo (the "it sees my screen" moment), then streams in the prompt
-    /// to try talking. Called by BlueCursorView when onboarding starts.
+    /// to try talking. Called by CompanionCursorView when onboarding starts.
     func setupOnboardingVideo() {
         // Give the welcome animation a moment to land before the demo fires.
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in

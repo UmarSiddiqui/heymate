@@ -7,7 +7,7 @@
 //  (or alongside) the legacy [POINT:x,y:label:screenN] tag. The parser pulls
 //  the JSON out of the response text so it is never spoken aloud; the
 //  resolver converts normalized geometry into per-display overlay-local
-//  points (top-left origin, y down — same convention as BlueCursorView).
+//  points (top-left origin, y down — same convention as CompanionCursorView).
 //
 
 import CoreGraphics
@@ -180,7 +180,7 @@ enum VisualActionParser {
 }
 
 /// A validated visual action resolved into concrete overlay-local geometry
-/// (points, y down, same coordinate space BlueCursorView positions in).
+/// (points, y down, same coordinate space CompanionCursorView positions in).
 struct ResolvedAnnotation: Equatable, Identifiable {
     let id: UUID
     let kind: VisualAction.Kind
