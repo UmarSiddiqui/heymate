@@ -70,14 +70,16 @@ jobs:
 
       - name: Run unit tests
         run: |
+          # The step shell stops at the first failure, so capture the status
+          # instead; otherwise the failing tests below would never print.
+          STATUS=0
           xcodebuild \
             -project "$PROJECT" \
             -scheme "$SCHEME" \
             -destination 'platform=macOS' \
             -derivedDataPath "$DERIVED_DATA" \
             -only-testing:HeyMateTests \
-            test-without-building > test.log 2>&1
-          STATUS=$?
-          grep -E "✘|failed|error:" test.log | head -80
+            test-without-building > test.log 2>&1 || STATUS=$?
+          grep -E "✘|failed|error:|XCTAssert" test.log | head -120 || true
           tail -25 test.log
           exit $STATUS
