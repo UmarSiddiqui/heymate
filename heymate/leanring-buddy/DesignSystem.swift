@@ -495,6 +495,10 @@ enum DS {
 
         /// Expanding and collapsing a disclosure inside a settings card.
         static let settingsDisclosure = SwiftUI.Animation.spring(response: 0.32, dampingFraction: 0.88)
+
+        /// What settings motion becomes under Reduce Motion: a plain fade,
+        /// with nothing sliding or lifting.
+        static let reducedMotionFade = SwiftUI.Animation.easeInOut(duration: fast)
     }
 
     // MARK: - State Layer Opacities

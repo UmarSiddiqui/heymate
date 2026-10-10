@@ -77,7 +77,7 @@ struct SettingsDetailView: View {
                 .id(selectedTab)
                 .transition(pageTransition)
         }
-            .animation(accessibilityReduceMotion ? nil : DS.Animation.settingsPage, value: selectedTab)
+            .animation(accessibilityReduceMotion ? DS.Animation.reducedMotionFade : DS.Animation.settingsPage, value: selectedTab)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(DS.Colors.background)
             .task {
@@ -268,10 +268,11 @@ struct SettingsSidebar: View {
                     title: tab.title,
                     symbolName: tab.symbolName,
                     isSelected: tab == selectedTab,
-                    selectionNamespace: selectionNamespace
+                    // Under Reduce Motion the pill fades between items instead.
+                    selectionNamespace: accessibilityReduceMotion ? nil : selectionNamespace
                 ) {
                     // The selection pill slides and the page turns together.
-                    withAnimation(accessibilityReduceMotion ? nil : DS.Animation.settingsPage) {
+                    withAnimation(accessibilityReduceMotion ? DS.Animation.reducedMotionFade : DS.Animation.settingsPage) {
                         selectedTabRawValue = tab.rawValue
                     }
                 }

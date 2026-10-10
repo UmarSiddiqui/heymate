@@ -98,7 +98,7 @@ struct SettingsPage<Content: View>: View {
                                 < -DS.SettingsLayout.condensedTitleThreshold
                         } action: { shouldCondense in
                             guard shouldCondense != isTitleCondensed else { return }
-                            withAnimation(accessibilityReduceMotion ? nil : .easeOut(duration: DS.Animation.fast)) {
+                            withAnimation(accessibilityReduceMotion ? DS.Animation.reducedMotionFade : .easeOut(duration: DS.Animation.fast)) {
                                 isTitleCondensed = shouldCondense
                             }
                         }
@@ -686,7 +686,7 @@ struct SettingsDisclosureRow<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                withAnimation(accessibilityReduceMotion ? nil : DS.Animation.settingsDisclosure) {
+                withAnimation(accessibilityReduceMotion ? DS.Animation.reducedMotionFade : DS.Animation.settingsDisclosure) {
                     isExpanded.toggle()
                 }
             } label: {
