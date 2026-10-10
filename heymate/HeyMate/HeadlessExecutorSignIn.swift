@@ -85,7 +85,7 @@ nonisolated enum HeadlessExecutorSignIn {
     /// AppleScript that opens Terminal and runs one command. Pure so the
     /// escaping can be tested without launching anything.
     static func terminalAppleScript(runningCommand command: String) -> String {
-        let quotedCommand = HeyMateLocalAutomation.appleScriptStringLiteral(command)
+        let quotedCommand = AppleScript.literal(command)
         return """
         tell application "Terminal"
             activate
@@ -128,7 +128,7 @@ nonisolated enum HeadlessExecutorSignIn {
     @discardableResult
     private static func beginTerminalCommand(_ command: String?) -> Bool {
         guard let command else { return false }
-        let result = HeyMateLocalAutomation.runAppleScript(
+        let result = AppleScript.run(
             terminalAppleScript(runningCommand: command)
         )
         return result.succeeded

@@ -10,12 +10,12 @@ import Testing
 struct LocalKernelTests {
 
     @Test func appleScriptStringLiteralEscapesQuotesAndBackslashes() {
-        #expect(HeyMateLocalAutomation.appleScriptStringLiteral(#"say "hi""#) == #""say \"hi\"""#)
-        #expect(HeyMateLocalAutomation.appleScriptStringLiteral(#"a\b"#) == #""a\\b""#)
+        #expect(AppleScript.literal(#"say "hi""#) == #""say \"hi\"""#)
+        #expect(AppleScript.literal(#"a\b"#) == #""a\\b""#)
     }
 
     @Test func osascriptRunnerReturnsExpressionResult() {
-        let result = HeyMateLocalAutomation.runAppleScript("1 + 1")
+        let result = AppleScript.run("1 + 1")
         #expect(result.succeeded)
         #expect(result.output == "2")
     }

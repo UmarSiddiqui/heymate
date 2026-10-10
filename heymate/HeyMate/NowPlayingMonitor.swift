@@ -136,13 +136,13 @@ final class NowPlayingMonitor: ObservableObject {
     func skipToNextTrack() { sendTransportCommand("next track") }
     func skipToPreviousTrack() { sendTransportCommand("previous track") }
 
-    /// `HeyMateLocalAutomation.runAppleScript` spawns osascript and blocks
+    /// `AppleScript.run` spawns osascript and blocks
     /// until it exits, so it must never run on the main actor — a slow
     /// Apple Event would freeze the notch mid-animation.
     private func sendTransportCommand(_ command: String) {
         guard let appName = nowPlaying?.appName else { return }
         Task.detached(priority: .userInitiated) { [weak self] in
-            _ = HeyMateLocalAutomation.runAppleScript(
+            _ = AppleScript.run(
                 "tell application \"\(appName)\" to \(command)"
             )
             // The command may have just granted Automation; try for art now
@@ -226,7 +226,7 @@ final class NowPlayingMonitor: ObservableObject {
     nonisolated static func artworkData(fromPlayerNamed playerName: String) async -> Data? {
         switch playerName {
         case "Spotify":
-            let result = HeyMateLocalAutomation.runAppleScript(
+            let result = AppleScript.run(
                 "tell application \"Spotify\" to artwork url of current track"
             )
             guard result.succeeded, let url = spotifyArtworkURL(fromScriptOutput: result.output) else { return nil }
@@ -247,7 +247,7 @@ final class NowPlayingMonitor: ObservableObject {
             close access artworkFile
             return "ok"
             """
-            let result = HeyMateLocalAutomation.runAppleScript(script)
+            let result = AppleScript.run(script)
             guard result.succeeded, result.output.contains("ok") else { return nil }
             return try? Data(contentsOf: fileURL)
 

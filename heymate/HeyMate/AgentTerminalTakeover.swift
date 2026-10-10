@@ -122,7 +122,7 @@ nonisolated enum AgentTerminalTakeover {
     @MainActor
     @discardableResult
     static func openInTerminal(command: String) -> Bool {
-        let result = HeyMateLocalAutomation.runAppleScript(
+        let result = AppleScript.run(
             HeadlessExecutorSignIn.terminalAppleScript(runningCommand: command)
         )
         return result.succeeded
