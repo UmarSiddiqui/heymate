@@ -16,7 +16,7 @@ import ImageIO
 import ScreenCaptureKit
 import UniformTypeIdentifiers
 
-struct ScreenSnapshot {
+nonisolated struct ScreenSnapshot: Sendable {
     let imageData: Data
     /// How the model is told which image this is.
     let label: String

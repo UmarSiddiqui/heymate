@@ -1,5 +1,5 @@
 //
-//  HeyMateExternalControlBridgeTests.swift
+//  LocalControlTests.swift
 //  HeyMateTests
 //
 //  Parser/router tests for the loopback control bridge. No live listener
@@ -12,11 +12,11 @@ import Testing
 @testable import HeyMate
 
 @MainActor
-struct HeyMateExternalControlBridgeTests {
+struct LocalControlTests {
 
     @Test func healthPathParsesAndRoutes() {
         let raw = "GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
-        let parsed = HeyMateExternalControlHTTPRequest.parse(Data(raw.utf8))
+        let parsed = LocalControlHTTPRequest.parse(Data(raw.utf8))
 
         guard case .request(let request) = parsed else {
             Issue.record("Expected a parsed health request")
@@ -26,7 +26,7 @@ struct HeyMateExternalControlBridgeTests {
         #expect(request.path == "/health")
         #expect(request.body.isEmpty)
 
-        let route = HeyMateExternalControlRouter.route(
+        let route = LocalControlRouter.route(
             method: request.method,
             path: request.path,
             json: request.jsonBody
@@ -44,7 +44,7 @@ struct HeyMateExternalControlBridgeTests {
         \r
         \(body)
         """
-        let parsed = HeyMateExternalControlHTTPRequest.parse(Data(raw.utf8))
+        let parsed = LocalControlHTTPRequest.parse(Data(raw.utf8))
 
         guard case .request(let request) = parsed else {
             Issue.record("Expected a parsed cursor request")
@@ -53,7 +53,7 @@ struct HeyMateExternalControlBridgeTests {
         #expect(request.method == "POST")
         #expect(request.path == "/cursor")
 
-        let route = HeyMateExternalControlRouter.route(
+        let route = LocalControlRouter.route(
             method: request.method,
             path: request.path,
             json: request.jsonBody
@@ -68,7 +68,7 @@ struct HeyMateExternalControlBridgeTests {
     }
 
     @Test func cursorRejectsMissingCoordinates() {
-        let route = HeyMateExternalControlRouter.route(
+        let route = LocalControlRouter.route(
             method: "POST",
             path: "/cursor",
             json: ["caption": "no point"]
@@ -77,7 +77,7 @@ struct HeyMateExternalControlBridgeTests {
     }
 
     @Test func cursorRejectsNonFiniteCoordinates() {
-        let route = HeyMateExternalControlRouter.route(
+        let route = LocalControlRouter.route(
             method: "POST",
             path: "/cursor",
             json: ["x": "NaN", "y": "Infinity"]
@@ -86,7 +86,7 @@ struct HeyMateExternalControlBridgeTests {
     }
 
     @Test func clickPathIsNotAFeature() {
-        let route = HeyMateExternalControlRouter.route(
+        let route = LocalControlRouter.route(
             method: "POST",
             path: "/click",
             json: ["x": 10, "y": 20]
@@ -95,7 +95,7 @@ struct HeyMateExternalControlBridgeTests {
     }
 
     @Test func clickShapedCursorPayloadIsRejected() {
-        let route = HeyMateExternalControlRouter.route(
+        let route = LocalControlRouter.route(
             method: "POST",
             path: "/cursor",
             json: ["x": 10, "y": 20, "click": true]
@@ -105,7 +105,7 @@ struct HeyMateExternalControlBridgeTests {
 
     @Test func captionAndSpeakAndClearRoute() {
         #expect(
-            HeyMateExternalControlRouter.route(
+            LocalControlRouter.route(
                 method: "POST",
                 path: "/caption",
                 json: ["text": "look here", "x": 8, "y": 16]
@@ -116,14 +116,14 @@ struct HeyMateExternalControlBridgeTests {
             ))
         )
         #expect(
-            HeyMateExternalControlRouter.route(
+            LocalControlRouter.route(
                 method: "POST",
                 path: "/speak",
                 json: ["text": "hello"]
             ) == .accepted(.speak(text: "hello"))
         )
         #expect(
-            HeyMateExternalControlRouter.route(
+            LocalControlRouter.route(
                 method: "POST",
                 path: "/clear",
                 json: [:]
@@ -132,7 +132,7 @@ struct HeyMateExternalControlBridgeTests {
     }
 
     @Test func connectorRoutesCarryTheToolAndItsRawArguments() {
-        let route = HeyMateExternalControlRouter.route(
+        let route = LocalControlRouter.route(
             method: "POST",
             path: "/connector/call",
             json: ["tool": "composio__COMPOSIO_SEARCH_TOOLS", "arguments": #"{"query":"youtube"}"#]
@@ -142,7 +142,7 @@ struct HeyMateExternalControlBridgeTests {
             argumentsJSON: #"{"query":"youtube"}"#
         )))
 
-        #expect(HeyMateExternalControlRouter.route(
+        #expect(LocalControlRouter.route(
             method: "POST",
             path: "/connector/tools",
             json: [:]
@@ -150,7 +150,7 @@ struct HeyMateExternalControlBridgeTests {
 
         // A call with no tool named is a bad request, never a call against
         // whatever happens to be first in the list.
-        #expect(HeyMateExternalControlRouter.route(
+        #expect(LocalControlRouter.route(
             method: "POST",
             path: "/connector/call",
             json: ["arguments": "{}"]
@@ -160,25 +160,25 @@ struct HeyMateExternalControlBridgeTests {
     /// A job cannot edit HeyMate's configuration from its sandbox, so this
     /// route is how an approved plan actually adds a mate.
     @Test func mateCreateRoutesWithOptionalNameAndRequiresAToken() {
-        #expect(HeyMateExternalControlRouter.route(
+        #expect(LocalControlRouter.route(
             method: "POST",
             path: "/mate/create",
             json: ["name": " Ledger ", "job": " Keeps my monthly budget "]
         ) == .accepted(.createMate(name: "Ledger", job: "Keeps my monthly budget")))
 
-        #expect(HeyMateExternalControlRouter.route(
+        #expect(LocalControlRouter.route(
             method: "POST",
             path: "/mate/create",
             json: ["name": "  ", "job": "Tracks my running"]
         ) == .accepted(.createMate(name: nil, job: "Tracks my running")))
 
-        #expect(HeyMateExternalControlRouter.route(
+        #expect(LocalControlRouter.route(
             method: "POST",
             path: "/mate/create",
             json: ["name": "Ledger"]
         ) == .rejected(statusCode: 400, message: "Missing job"))
 
-        #expect(HeyMateExternalControlCommand.createMate(name: nil, job: "x").touchesConnectedAccounts)
+        #expect(LocalControlCommand.createMate(name: nil, job: "x").touchesConnectedAccounts)
         #expect(HeyMateMCPServer.toolNames.contains("heymate_create_mate"))
         #expect(HeyMateMCPServer.serverSource.contains("name: \"heymate_create_mate\""))
     }
@@ -196,66 +196,66 @@ struct HeyMateExternalControlBridgeTests {
     /// it; reading the user's mail is not. So the connector routes cannot
     /// inherit the "no token configured means everyone is welcome" rule.
     @Test func connectorRoutesRefuseWhenNoTokenIsResolved() {
-        #expect(HeyMateExternalControlCommand.listConnectorTools.touchesConnectedAccounts)
-        #expect(HeyMateExternalControlCommand.callConnectorTool(
+        #expect(LocalControlCommand.listConnectorTools.touchesConnectedAccounts)
+        #expect(LocalControlCommand.callConnectorTool(
             namespacedID: "composio__X",
             argumentsJSON: "{}"
         ).touchesConnectedAccounts)
-        #expect(HeyMateExternalControlCommand.clear.touchesConnectedAccounts == false)
+        #expect(LocalControlCommand.clear.touchesConnectedAccounts == false)
 
-        #expect(HeyMateExternalControlAuth.isAuthorizedForConnectedAccounts(
+        #expect(LocalControlAuth.isAuthorizedForConnectedAccounts(
             headers: [:],
             expectedToken: nil
         ) == false)
-        #expect(HeyMateExternalControlAuth.isAuthorizedForConnectedAccounts(
+        #expect(LocalControlAuth.isAuthorizedForConnectedAccounts(
             headers: [:],
             expectedToken: "tok"
         ) == false)
-        #expect(HeyMateExternalControlAuth.isAuthorizedForConnectedAccounts(
+        #expect(LocalControlAuth.isAuthorizedForConnectedAccounts(
             headers: ["authorization": "Bearer tok"],
             expectedToken: "tok"
         ))
-        #expect(HeyMateExternalControlAuth.isAuthorizedForConnectedAccounts(
+        #expect(LocalControlAuth.isAuthorizedForConnectedAccounts(
             headers: ["x-heymate-token": "wrong"],
             expectedToken: "tok"
         ) == false)
     }
 
     @Test func defaultPortIsHeyMatesOwn() {
-        #expect(HeyMateExternalControlBridge.defaultPort == 18732)
+        #expect(LocalControlPort.defaultPort == 18732)
         #expect(
-            HeyMateExternalControlBridge.resolvedPort(environment: [:]) == 18732
+            LocalControlPort.configured(environment: [:]) == 18732
         )
         #expect(
-            HeyMateExternalControlBridge.resolvedPort(
+            LocalControlPort.configured(
                 environment: ["HEYMATE_BRIDGE_PORT": "19001"]
             ) == 19001
         )
-        #expect(HeyMateExternalControlLoopback.isAllowed(host: "127.0.0.1"))
-        #expect(!HeyMateExternalControlLoopback.isAllowed(host: "8.8.8.8"))
+        #expect(LocalControlLoopback.isAllowed(host: "127.0.0.1"))
+        #expect(!LocalControlLoopback.isAllowed(host: "8.8.8.8"))
     }
 
     @Test func occupiedDefaultGetsAProcessLocalFallback() {
-        let selected = HeyMateExternalControlBridge.selectAvailablePort(
-            preferredPort: 18732,
-            isAvailable: { _ in false },
-            fallbackPort: { 49152 }
+        let selected = LocalControlPort.choose(
+            preferred: 18732,
+            isFree: { _ in false },
+            fallback: { 49152 }
         )
         #expect(selected == 49152)
     }
 
     @Test func availableDefaultStaysStableForExternalClients() {
-        let selected = HeyMateExternalControlBridge.selectAvailablePort(
-            preferredPort: 18732,
-            isAvailable: { $0 == 18732 },
-            fallbackPort: { 49152 }
+        let selected = LocalControlPort.choose(
+            preferred: 18732,
+            isFree: { $0 == 18732 },
+            fallback: { 49152 }
         )
         #expect(selected == 18732)
     }
 
     @Test func missingBridgeTokenIsAuthorizedWhenNoneIsConfigured() {
         #expect(
-            HeyMateExternalControlAuth.isAuthorized(
+            LocalControlAuth.isAuthorized(
                 headers: [:],
                 configuredToken: nil
             )
@@ -264,28 +264,54 @@ struct HeyMateExternalControlBridgeTests {
 
     @Test func configuredBridgeTokenRequiresBearerOrHeader() {
         #expect(
-            !HeyMateExternalControlAuth.isAuthorized(
+            !LocalControlAuth.isAuthorized(
                 headers: [:],
                 configuredToken: "secret-token"
             )
         )
         #expect(
-            HeyMateExternalControlAuth.isAuthorized(
+            LocalControlAuth.isAuthorized(
                 headers: ["authorization": "Bearer secret-token"],
                 configuredToken: "secret-token"
             )
         )
         #expect(
-            HeyMateExternalControlAuth.isAuthorized(
+            LocalControlAuth.isAuthorized(
                 headers: ["x-heymate-token": "secret-token"],
                 configuredToken: "secret-token"
             )
         )
         #expect(
-            !HeyMateExternalControlAuth.isAuthorized(
+            !LocalControlAuth.isAuthorized(
                 headers: ["authorization": "Bearer other"],
                 configuredToken: "secret-token"
             )
         )
+    }
+
+    @Test func tokenComparisonMatchesOnlyIdenticalTokens() {
+        #expect(LocalControlAuth.constantTimeEqual("secret-token", "secret-token"))
+        #expect(!LocalControlAuth.constantTimeEqual("secret-token", "secret-tokem"))
+        #expect(!LocalControlAuth.constantTimeEqual("secret", "secret-token"))
+        #expect(!LocalControlAuth.constantTimeEqual("", "x"))
+        #expect(LocalControlAuth.constantTimeEqual("", ""))
+    }
+
+    @Test func requestsSmugglingASecondLengthOrChunkedBodyAreRefused() {
+        let doubleLength = "POST /clear HTTP/1.1\r\nContent-Length: 2\r\nContent-Length: 3\r\n\r\n{}"
+        guard case .malformed = LocalControlHTTPRequest.parse(Data(doubleLength.utf8)) else {
+            Issue.record("Two Content-Length headers must be refused")
+            return
+        }
+        let chunked = "POST /clear HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n"
+        guard case .malformed = LocalControlHTTPRequest.parse(Data(chunked.utf8)) else {
+            Issue.record("Chunked bodies must be refused")
+            return
+        }
+        let partial = "POST /clear HTTP/1.1\r\nContent-Length: 10\r\n\r\n{}"
+        guard case .incomplete = LocalControlHTTPRequest.parse(Data(partial.utf8)) else {
+            Issue.record("A short body means wait for more")
+            return
+        }
     }
 }

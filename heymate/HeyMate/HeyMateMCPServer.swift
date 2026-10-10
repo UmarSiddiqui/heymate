@@ -9,7 +9,7 @@
 //  loud, or look at what the user is looking at — and those are the things
 //  that make an agent feel like it lives in the app rather than in a folder.
 //
-//  `HeyMateExternalControlBridge` already exposes exactly that surface, on
+//  `LocalControlServer` already exposes exactly that surface, on
 //  loopback, behind an optional token, with click/drag/type refused by
 //  design. This type wraps it as a stdio MCP server so any CLI that speaks
 //  MCP can call it.
@@ -113,14 +113,14 @@ nonisolated enum HeyMateMCPServer {
     /// token embedded in `--mcp-config` or `-c` is visible to every process
     /// that can inspect the child command line.
     static func childEnvironment(
-        bridgePort: UInt16 = HeyMateExternalControlBridge.processPort,
-        bridgeToken: String? = HeyMateExternalControlAuth.resolvedToken()
+        bridgePort: UInt16 = LocalControlPort.current,
+        bridgeToken: String? = LocalControlAuth.resolvedToken()
     ) -> [String: String] {
         var environment = [
             "HEYMATE_BRIDGE_URL": "http://127.0.0.1:\(bridgePort)"
         ]
         if let bridgeToken, !bridgeToken.isEmpty {
-            environment[HeyMateExternalControlAuth.secretsKey] = bridgeToken
+            environment[LocalControlAuth.secretsKey] = bridgeToken
         }
         return environment
     }

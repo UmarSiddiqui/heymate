@@ -96,7 +96,7 @@ enum LocalDataErase {
     /// Keychain accounts that are not connector credentials and must survive erase.
     private static var preservedKeychainAccounts: Set<String> {
         [
-            HeyMateExternalControlAuth.mintedTokenConnectorID,
+            LocalControlAuth.mintedTokenConnectorID,
             CompanionManager.openCodeBasicAuthPasswordKeychainIdentifier
         ]
     }
