@@ -247,10 +247,17 @@ as the AI engine), `SettingsEmptyRow`, `SettingsRefreshButton`.
 - **Motion:** pages cross-fade with a slight lift (`DS.Animation.settingsPage`,
   critically damped); the rail's selection pill slides between items
   (`matchedGeometryEffect`); expanders ease open (`DS.Animation.settingsDisclosure`).
-  All of it drops to plain fades under Reduce Motion.
+  All of it drops to plain fades under Reduce Motion
+  (`DS.Animation.reducedMotionFade`; the rail pill fades rather than slides).
 - **Rhythm:** 52pt rows, 18pt insets, 36pt between sections, a 640pt column,
   16pt card corners with a hairline and a barely-there shadow.
 - **Less clutter:** decorative icons removed from Help and fact rows; most help
   text cut to one line; secondary detail folds behind `SettingsDisclosureRow`
   (Always true rules, What leaves this Mac, Other engines — the last opens
   itself when one of those engines is in use).
+
+## Verified build
+
+Screenshots of the running app (light and dark, every section, plus the
+condensed title, search, a shortcut conflict, and the erase confirmation)
+are in `settings-verified/`.
