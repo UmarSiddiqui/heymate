@@ -2,7 +2,7 @@
 //  ModifierDoubleTapMonitor.swift
 //  HeyMate
 //
-//  Double-tap-a-modifier detection, as its own listen-only CGEvent tap.
+//  Double-tap-a-modifier detection.
 //
 //  Why a separate monitor rather than a flag on GlobalShortcutMonitor:
 //  that monitor's whole contract is press/release for hold-to-talk, and the
@@ -18,8 +18,6 @@
 
 import AppKit
 import Combine
-import CoreGraphics
-import Foundation
 
 /// The single-modifier chords that can be double-tapped.
 enum ModifierDoubleTapShortcut: String, Hashable, CaseIterable {
@@ -58,36 +56,69 @@ enum ModifierDoubleTapShortcut: String, Hashable, CaseIterable {
     }
 }
 
-final class ModifierDoubleTapMonitor: ObservableObject {
+/// The double-tap rule as a pure state machine, fed modifier changes and
+/// key presses with their times. Kept apart from the event tap so the
+/// timing rules are tested directly.
+nonisolated struct DoubleTapDetector {
+    /// Longest a tap may be held and still count as a tap, not a hold.
+    var maximumHold: TimeInterval = 0.35
+    /// Longest gap between the end of the first tap and the end of the second.
+    var maximumGap: TimeInterval = 0.45
 
+    private var heldSince: TimeInterval?
+    private var keyPressedDuringHold = false
+    private var firstTapEndedAt: TimeInterval?
+
+    /// The required modifier set became exactly held (`true`) or stopped
+    /// being held (`false`). Returns true when this release completes a
+    /// double tap.
+    mutating func modifiersChanged(requiredSetHeld: Bool, at now: TimeInterval) -> Bool {
+        if requiredSetHeld {
+            guard heldSince == nil else { return false }
+            heldSince = now
+            keyPressedDuringHold = false
+            return false
+        }
+        guard let pressedAt = heldSince else { return false }
+        heldSince = nil
+        let isCleanTap = !keyPressedDuringHold && now - pressedAt <= maximumHold
+        keyPressedDuringHold = false
+        guard isCleanTap else {
+            firstTapEndedAt = nil
+            return false
+        }
+        if let firstTapEndedAt, now - firstTapEndedAt <= maximumGap {
+            // Start over rather than chain, so three taps read as one double
+            // tap plus a stray, not two overlapping doubles.
+            self.firstTapEndedAt = nil
+            return true
+        }
+        firstTapEndedAt = now
+        return false
+    }
+
+    /// A real key went down: whatever is in progress is a chord (ctrl+C),
+    /// not a tap.
+    mutating func keyPressed() {
+        keyPressedDuringHold = heldSince != nil
+        firstTapEndedAt = nil
+    }
+
+    mutating func reset() {
+        self = DoubleTapDetector(maximumHold: maximumHold, maximumGap: maximumGap)
+    }
+}
+
+/// Publishes each double tap of one configurable modifier set, listening on
+/// `SharedKeyboardTap` alongside the hold-to-talk shortcuts.
+final class ModifierDoubleTapMonitor: SharedKeyboardTapListener {
     /// Fires once per completed double tap.
     let doubleTapPublisher = PassthroughSubject<Void, Never>()
 
-    /// Longest a tap may be held and still count as a tap rather than a hold.
-    private static let maximumTapHoldDuration: TimeInterval = 0.35
-
-    /// Longest gap between the two taps.
-    private static let maximumGapBetweenTaps: TimeInterval = 0.45
-
-    private var globalEventTap: CFMachPort?
-    private var globalEventTapRunLoopSource: CFRunLoopSource?
-
-    /// Resolved per event so a shortcut changed in Settings takes effect
-    /// without restarting the tap, matching the push-to-talk monitor.
+    /// Both asked on every event, so a change in Settings applies at once.
     private let shortcutProvider: () -> ModifierDoubleTapShortcut
-
-    /// Whether this channel is switched on at all. Also resolved per event so
-    /// the toggle takes effect immediately.
     private let isEnabledProvider: () -> Bool
-
-    /// All mutated only from the tap callback, which CoreGraphics runs on the
-    /// main run loop, so no synchronization is needed.
-    private var isModifierSetCurrentlyHeld = false
-    private var currentHoldStartedAt: TimeInterval = 0
-    private var lastCompletedTapEndedAt: TimeInterval = 0
-    /// Set when a key is pressed while the modifier is down, which
-    /// disqualifies the hold from counting as a tap.
-    private var didPressKeyDuringCurrentHold = false
+    private var detector = DoubleTapDetector()
 
     init(
         shortcutProvider: @escaping () -> ModifierDoubleTapShortcut,
@@ -97,133 +128,40 @@ final class ModifierDoubleTapMonitor: ObservableObject {
         self.isEnabledProvider = isEnabledProvider
     }
 
-    deinit {
-        stop()
-    }
-
+    /// Safe to call repeatedly; the permission poller does.
     func start() {
-        guard globalEventTap == nil else { return }
-
-        let monitoredEventTypes: [CGEventType] = [.flagsChanged, .keyDown]
-        let eventMask = monitoredEventTypes.reduce(CGEventMask(0)) { currentMask, eventType in
-            currentMask | (CGEventMask(1) << eventType.rawValue)
-        }
-
-        let eventTapCallback: CGEventTapCallBack = { _, eventType, event, userInfo in
-            guard let userInfo else { return Unmanaged.passUnretained(event) }
-            let monitor = Unmanaged<ModifierDoubleTapMonitor>.fromOpaque(userInfo).takeUnretainedValue()
-            return monitor.handleGlobalEventTap(eventType: eventType, event: event)
-        }
-
-        guard let globalEventTap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .listenOnly,
-            eventsOfInterest: eventMask,
-            callback: eventTapCallback,
-            userInfo: Unmanaged.passUnretained(self).toOpaque()
-        ) else {
-            HeyMateLog.log("⚠️ Modifier double tap: couldn't create CGEvent tap")
-            return
-        }
-
-        guard let globalEventTapRunLoopSource = CFMachPortCreateRunLoopSource(
-            kCFAllocatorDefault,
-            globalEventTap,
-            0
-        ) else {
-            CFMachPortInvalidate(globalEventTap)
-            HeyMateLog.log("⚠️ Modifier double tap: couldn't create event tap run loop source")
-            return
-        }
-
-        self.globalEventTap = globalEventTap
-        self.globalEventTapRunLoopSource = globalEventTapRunLoopSource
-
-        CFRunLoopAddSource(CFRunLoopGetMain(), globalEventTapRunLoopSource, .commonModes)
-        CGEvent.tapEnable(tap: globalEventTap, enable: true)
+        SharedKeyboardTap.shared.add(self)
     }
 
     func stop() {
-        isModifierSetCurrentlyHeld = false
-        didPressKeyDuringCurrentHold = false
-        lastCompletedTapEndedAt = 0
+        SharedKeyboardTap.shared.remove(self)
+        detector.reset()
+    }
 
-        if let globalEventTapRunLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), globalEventTapRunLoopSource, .commonModes)
-            self.globalEventTapRunLoopSource = nil
+    func keyboardTapReceived(_ type: CGEventType, keyCode: UInt16, flags: CGEventFlags) {
+        guard isEnabledProvider() else {
+            detector.reset()
+            return
         }
-
-        if let globalEventTap {
-            CFMachPortInvalidate(globalEventTap)
-            self.globalEventTap = nil
+        switch type {
+        case .keyDown:
+            detector.keyPressed()
+        case .flagsChanged:
+            let held = NSEvent.ModifierFlags(rawValue: UInt(flags.rawValue))
+                .intersection(.deviceIndependentFlagsMask)
+                .subtracting(.capsLock)
+            let requiredSetHeld = held == shortcutProvider().requiredModifierFlags
+            if detector.modifiersChanged(requiredSetHeld: requiredSetHeld, at: ProcessInfo.processInfo.systemUptime) {
+                doubleTapPublisher.send(())
+            }
+        default:
+            break
         }
     }
 
-    private func handleGlobalEventTap(eventType: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
-        if eventType == .tapDisabledByTimeout || eventType == .tapDisabledByUserInput {
-            if let globalEventTap {
-                CGEvent.tapEnable(tap: globalEventTap, enable: true)
-            }
-            return Unmanaged.passUnretained(event)
-        }
-
-        guard isEnabledProvider() else {
-            isModifierSetCurrentlyHeld = false
-            return Unmanaged.passUnretained(event)
-        }
-
-        if eventType == .keyDown {
-            // A real keystroke while the modifier is down means the user is
-            // typing a chord, not tapping. Disqualify the whole sequence.
-            didPressKeyDuringCurrentHold = true
-            lastCompletedTapEndedAt = 0
-            return Unmanaged.passUnretained(event)
-        }
-
-        guard eventType == .flagsChanged else { return Unmanaged.passUnretained(event) }
-
-        let requiredFlags = shortcutProvider().requiredModifierFlags
-        let currentFlags = NSEvent.ModifierFlags(rawValue: UInt(event.flags.rawValue))
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting(.capsLock)
-
-        let isModifierSetHeldNow = currentFlags == requiredFlags
-        guard isModifierSetHeldNow != isModifierSetCurrentlyHeld else {
-            return Unmanaged.passUnretained(event)
-        }
-
-        let now = ProcessInfo.processInfo.systemUptime
-        isModifierSetCurrentlyHeld = isModifierSetHeldNow
-
-        if isModifierSetHeldNow {
-            currentHoldStartedAt = now
-            didPressKeyDuringCurrentHold = false
-            return Unmanaged.passUnretained(event)
-        }
-
-        // Released. Decide whether that was a clean tap, and if so whether it
-        // completes a pair.
-        let holdDuration = now - currentHoldStartedAt
-        let wasCleanTap = !didPressKeyDuringCurrentHold && holdDuration <= Self.maximumTapHoldDuration
-        didPressKeyDuringCurrentHold = false
-
-        guard wasCleanTap else {
-            lastCompletedTapEndedAt = 0
-            return Unmanaged.passUnretained(event)
-        }
-
-        let gapSincePreviousTap = now - lastCompletedTapEndedAt
-        if lastCompletedTapEndedAt > 0, gapSincePreviousTap <= Self.maximumGapBetweenTaps {
-            // Reset rather than keep the timestamp, so three taps read as one
-            // double tap plus a stray, not two overlapping doubles.
-            lastCompletedTapEndedAt = 0
-            doubleTapPublisher.send(())
-        } else {
-            lastCompletedTapEndedAt = now
-        }
-
-        return Unmanaged.passUnretained(event)
+    /// Releases may have been missed while the tap was off; start clean.
+    func keyboardTapResumed() {
+        detector.reset()
     }
 }
 
