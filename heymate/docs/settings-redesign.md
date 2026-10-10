@@ -141,7 +141,7 @@ HeyMate
   Talk & Voice        Talking · Microphone · Listening · Speaking
   Notch               Micro-apps · Behavior · In the notch now
 Intelligence
-  AI                  Your AI · Model · Voice chat · Other engines · Helper apps
+  AI & Accounts       Your AI · Model · Voice chat · Other engines · Helper apps
   Agents & Control    Agent jobs · Computer control · Honesty & safety rules
   Connections         Connected apps · Composio · Google
 Privacy
@@ -160,10 +160,10 @@ Moves, by item:
 | Cursor companion | General › Behavior | **General › Startup & presence** |
 | Replay onboarding | General › Behavior | **General › Help** |
 | Show in screen recordings | General › System presence | **Privacy & Data › Screen capture** |
-| Model + effort | Accounts + Advanced | **AI › Model** (together) |
-| Voice chat | Advanced | **AI › Voice chat** |
-| OpenCode / Custom API | Advanced | **AI › Other engines** (disclosed only when chosen) |
-| Keep AI apps updated | Advanced | **AI › Helper apps** |
+| Model + effort | Accounts + Advanced | **AI & Accounts › Model** (together) |
+| Voice chat | Advanced | **AI & Accounts › Voice chat** |
+| OpenCode / Custom API | Advanced | **AI & Accounts › Other engines** (setup shown only when chosen) |
+| Keep AI apps updated | Advanced | **AI & Accounts › Helper apps** |
 | Agent sign-in + project folder | Advanced | **Agents & Control › Agent jobs** |
 | Computer control, Cua driver | Advanced | **Agents & Control › Computer control** |
 | Behavior contract | Advanced | **Agents & Control › Honesty & safety rules** |
@@ -175,6 +175,9 @@ Moves, by item:
 Naming: section names are nouns a person would type into search; row titles
 are the thing being set, not the mechanism ("Interaction sounds", never
 "Clicks"; "Helper apps" with Claude/Codex/OpenCode named in the help line).
+"AI & Accounts" keeps the word existing in-app copy uses ("Sign in from
+Settings → AI & Accounts"). Buttons keep HeyMate's sentence case; a trailing
+ellipsis marks buttons that open a dialog or sheet ("Erase…", "Edit…").
 
 ### Deep-link contract
 
@@ -197,11 +200,15 @@ All in `SettingsComponents.swift`, on DS tokens only:
 - `SettingsDestructiveRow` — red action that always confirms.
 - `SettingsStatusBadge` — positive / attention / critical / neutral / progress.
 - `SettingsInlineHelp` and `SettingsNotice` — help text and tinted callouts with an optional action.
-- `SettingsDivider`, `settingsFieldChrome()`, `SettingsSecretField`.
+- `SettingsDivider`, `settingsFieldChrome()`, `SettingsSecretKeyRow`.
 
-New tokens in `DesignSystem.swift`: `DS.Settings` metrics (rail width, content
-measure, row insets, row min height, control widths), `DS.Colors.switchTrackOn/Off`,
-`switchKnob`, `selectionFill`, `focusRing`, `DS.Fonts.mono`, `DS.Fonts.editor`.
+New tokens in `DesignSystem.swift`: `DS.SettingsLayout` metrics (rail width,
+content measure, row insets, row min height, control widths, switch and radio
+sizes), `DS.Colors.switchTrackOn/Off`, `switchKnobOn/Off`, `selectionFill`,
+`focusRing`, `revealHighlight`, `DS.Fonts.mono`, `DS.Fonts.editor`.
+
+Also in the kit: `SettingsChoiceRow` + `SettingsRadioMark` (pick-one lists such
+as the AI engine), `SettingsEmptyRow`, `SettingsRefreshButton`.
 
 ## 6. Behaviors added
 
@@ -212,5 +219,21 @@ measure, row insets, row min height, control widths), `DS.Colors.switchTrackOn/O
   *Restore defaults* for shortcuts.
 - Confirmation for every removal of a stored key (ElevenLabs, custom API,
   Composio) and for erase/sign-out; destructive styling on all of them.
-- VoiceOver: every row is one element with label, value, and hint; swatches
-  report selection; status badges read their tone.
+- VoiceOver: switches are exposed as native toggles (label = row title, hint =
+  help text); segmented controls, swatches, the rail, and radio rows report
+  selection; section titles are headers.
+- Privacy › Never capture: *Choose app…* picks an app instead of typing its
+  bundle id; typed ids are checked and duplicates are refused.
+- *Open the card on hover* now binds through `@AppStorage` (same key and
+  default), fixing the stale switch.
+- `AISettingsView.swift` (dead) is deleted; the duplicate accent picker now
+  shares `SettingsAccentSwatches` with onboarding.
+
+## 7. Verification
+
+- Unit tests: `DesktopSettingsTabsTests` (deep-link contract, legacy
+  `advanced` alias, rail grouping) and `SettingsCatalogTests` (search ranking,
+  synonyms, diacritics, shortcut conflicts, bundle-id check). Neither touches
+  UserDefaults.
+- Visual check: each section in light and dark via `screencapture` on a Mac
+  (not possible from the Linux container this branch was written in).
