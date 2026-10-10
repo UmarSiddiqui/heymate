@@ -170,7 +170,44 @@ struct DesktopConnectorScopeMenu: View {
         self.isNarrow = isNarrow
     }
 
+    @State private var isShowingPicker = false
+
     var body: some View {
+        if compact {
+            compactPicker
+        } else {
+            menu
+        }
+    }
+
+    /// A popover rather than a menu: a menu closes after every click, so
+    /// turning three apps off took three trips.
+    private var compactPicker: some View {
+        Button { isShowingPicker.toggle() } label: {
+            ComposerChipLabel(
+                symbolName: "app.connected.to.app.below.fill",
+                title: isNarrow ? (enabledCount > 0 ? "\(enabledCount)" : "") : compactTitle,
+                isHighlighted: isShowingPicker || enabledCount > 0
+            )
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .help("Choose which connected apps this chat can use")
+        .accessibilityLabel("Apps for this chat: \(compactTitle)")
+        .popover(isPresented: $isShowingPicker, arrowEdge: .top) {
+            ConnectorScopePickerPanel(
+                items: connectedItems,
+                isEnabled: { companionManager.isChatConnectorEnabled($0) },
+                setEnabled: { companionManager.setChatConnectorEnabled($1, selectionID: $0) },
+                manage: {
+                    isShowingPicker = false
+                    companionManager.openDesktopWindow(section: .connectors)
+                }
+            )
+        }
+    }
+
+    private var menu: some View {
         Menu {
             if connectedItems.isEmpty {
                 Text("No connected apps")
@@ -192,27 +229,15 @@ struct DesktopConnectorScopeMenu: View {
                 companionManager.openDesktopWindow(section: .connectors)
             }
         } label: {
-            if compact {
-                ComposerChipLabel(
-                    symbolName: "app.connected.to.app.below.fill",
-                    title: isNarrow ? (enabledCount > 0 ? "\(enabledCount)" : "") : compactTitle,
-                    isHighlighted: enabledCount > 0
-                )
-            } else {
-                DesktopChatControlLabel(
-                    symbolName: "app.connected.to.app.below.fill",
-                    title: enabledCount == 1 ? "1 app" : "\(enabledCount) apps",
-                    detail: "Connectors"
-                )
-            }
+            DesktopChatControlLabel(
+                symbolName: "app.connected.to.app.below.fill",
+                title: enabledCount == 1 ? "1 app" : "\(enabledCount) apps",
+                detail: "Connectors"
+            )
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
+        .menuStyle(.borderlessButton)
         .fixedSize()
-        .pointerCursor()
         .help("Choose which connected apps this chat can use")
-        .accessibilityLabel("Apps for this chat: \(compactTitle)")
     }
 
     /// "Apps · 3" when some are on, "Apps" when none, so the chip always
@@ -260,6 +285,74 @@ struct DesktopConnectorScopeMenu: View {
 
     private var enabledCount: Int {
         connectedItems.filter { companionManager.isChatConnectorEnabled($0.id) }.count
+    }
+}
+
+/// The list behind the composer's Apps chip: a switch per connected app,
+/// and a way to connect more. Stays open while you flip several.
+private struct ConnectorScopePickerPanel: View {
+    let items: [(id: String, name: String)]
+    let isEnabled: (String) -> Bool
+    let setEnabled: (String, Bool) -> Void
+    let manage: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Apps in this chat")
+                    .font(DS.Fonts.headline)
+                    .foregroundColor(DS.Colors.textPrimary)
+                Spacer(minLength: 12)
+                if items.count > 1 {
+                    let allOn = items.allSatisfy { isEnabled($0.id) }
+                    Button(allOn ? "Turn all off" : "Turn all on") {
+                        for item in items { setEnabled(item.id, !allOn) }
+                    }
+                    .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
+                    .focusEffectDisabled()
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
+
+            if items.isEmpty {
+                Text("No apps connected yet. Connect Gmail, Slack, GitHub and more, then pick which ones each chat can use.")
+                    .font(DS.Fonts.body)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 10)
+            } else {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(items, id: \.id) { item in
+                            Toggle(isOn: Binding(
+                                get: { isEnabled(item.id) },
+                                set: { setEnabled(item.id, $0) }
+                            )) {
+                                Text(item.name)
+                                    .font(DS.Fonts.bodyLarge)
+                                    .foregroundColor(DS.Colors.textPrimary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .toggleStyle(.switch)
+                            .controlSize(.small)
+                            .padding(.horizontal, 14)
+                            .frame(height: 36)
+                        }
+                    }
+                }
+                .frame(maxHeight: 320)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Divider()
+            Button(items.isEmpty ? "Connect apps…" : "Manage apps…", action: manage)
+                .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
+                .padding(10)
+        }
+        .frame(width: 280)
     }
 }
 
