@@ -16,7 +16,7 @@ Hold a key, ask about anything on your screen, and it answers out loud. It can a
 
 [**Download for Mac**](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg) · [Website](https://getheymate.vercel.app) · [Watch the demo](https://getheymate.vercel.app/#demo) · [Changelog](https://github.com/UmarSiddiqui/heymate/releases)
 
-<sub>Inspired by <a href="https://github.com/farzaa/clicky">Clicky</a> and <a href="https://github.com/TheBoredTeam/boring.notch">Boring Notch</a>.</sub>
+<sub>Inspired by <a href="https://github.com/TheBoredTeam/boring.notch">Boring Notch</a>.</sub>
 
 <br>
 
@@ -249,6 +249,6 @@ If ElevenLabs or on-device can't run, HeyMate falls back to the Mac voice for th
 
 ## License
 
-MIT. See [`heymate/LICENSE`](heymate/LICENSE). HeyMate grew out of the MIT-licensed [Clicky](https://github.com/farzaa/clicky) project, and that copyright notice is kept in the license file.
+MIT. See [`heymate/LICENSE`](heymate/LICENSE). Notices for third-party code are in [`heymate/THIRD_PARTY_NOTICES.md`](heymate/THIRD_PARTY_NOTICES.md).
 
 <sub>Not affiliated with Apple, Anthropic, or OpenAI. Claude, ChatGPT, and macOS are trademarks of their respective owners.</sub>

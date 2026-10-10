@@ -66,6 +66,13 @@ nonisolated enum SupportLinks {
             subtitle: "Read the code that runs on your machine.",
             symbolName: "chevron.left.forwardslash.chevron.right",
             url: URL(string: repositoryURLString)!
+        ),
+        Destination(
+            id: "licenses",
+            title: "Licenses",
+            subtitle: "HeyMate's license and notices for code it builds on.",
+            symbolName: "doc.text",
+            url: URL(string: "\(repositoryURLString)/blob/main/heymate/THIRD_PARTY_NOTICES.md")!
         )
     ]
 
