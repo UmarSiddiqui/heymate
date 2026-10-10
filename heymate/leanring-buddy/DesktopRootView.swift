@@ -12,8 +12,12 @@
 //
 //  The sidebar is deliberately three items: Chat, Apps, Settings. Jobs are
 //  reached from the chat (each mate's own work), skills and memory from a
-//  mate's sheet, and Notch Apps and Privacy are Settings tabs. The other
-//  `DesktopSection` cases stay so deep links keep working.
+//  mate's sheet, and Notch Apps and Privacy are Settings sections. The
+//  other `DesktopSection` cases stay so deep links keep working.
+//
+//  While Settings is open the sidebar becomes the Settings section rail
+//  (with Back to chat and Apps on top), so there is never a second sidebar
+//  inside the page.
 //
 //  Everything here is a view onto the same `CompanionManager`. There is no
 //  second state store and no syncing, which is why changing a setting in
@@ -67,15 +71,15 @@ enum DesktopSection: String, CaseIterable, Identifiable, Hashable {
     /// reached from inside chat or Settings.
     static let sidebarSections: [DesktopSection] = [.connectors, .settings]
 
-    /// The `@AppStorage` key Settings reads to pick its tab.
-    static let settingsTabDefaultsKey = "desktopSettingsSelectedTab"
+    /// The `@AppStorage` key Settings reads to pick its section.
+    static let settingsTabDefaultsKey = DesktopSettingsTab.storageKey
 
     /// Notch Apps and Privacy live inside Settings now. A deep link to one
     /// of them lands on Settings, on that tab.
     var settingsTab: String? {
         switch self {
-        case .notch: return "notch"
-        case .privacy: return "privacy"
+        case .notch: return DesktopSettingsTab.notch.rawValue
+        case .privacy: return DesktopSettingsTab.privacy.rawValue
         default: return nil
         }
     }
@@ -109,6 +113,8 @@ struct DesktopRootView: View {
 
     @State private var selectedSection: DesktopSection
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
+    /// Search and scroll-to-row state shared by the Settings rail and page.
+    @StateObject private var settingsNavigation = SettingsNavigationModel()
 
     init(companionManager: CompanionManager, initialSection: DesktopSection) {
         self.companionManager = companionManager
@@ -139,8 +145,14 @@ struct DesktopRootView: View {
                 .navigationTitle("")
             } else {
                 NavigationSplitView(columnVisibility: $sidebarVisibility) {
-                    workspaceSidebar
-                        .navigationSplitViewColumnWidth(min: 220, ideal: 237, max: 260)
+                    Group {
+                        if selectedSection == .settings {
+                            settingsSidebar
+                        } else {
+                            workspaceSidebar
+                        }
+                    }
+                    .navigationSplitViewColumnWidth(min: 220, ideal: 237, max: 260)
                 } detail: {
                     detail
                         .safeAreaInset(edge: .top, spacing: 0) {
@@ -195,6 +207,36 @@ struct DesktopRootView: View {
             sidebarStatusBar
         }
         .background(CelestialSidebarBackground(accent: companionManager.themeColor))
+    }
+
+    /// The Settings rail, with the way out of Settings on top.
+    private var settingsSidebar: some View {
+        SettingsSidebar(
+            navigation: settingsNavigation,
+            header: AnyView(
+                VStack(alignment: .leading, spacing: 2) {
+                    SettingsSidebarItem(title: "Back to chat", symbolName: "chevron.left") {
+                        select(.chat)
+                    }
+                    .keyboardShortcut("[", modifiers: .command)
+                    SettingsSidebarItem(
+                        title: DesktopSection.connectors.displayName,
+                        symbolName: DesktopSection.connectors.symbolName
+                    ) {
+                        select(.connectors)
+                    }
+                    Rectangle()
+                        .fill(DS.Colors.hairline)
+                        .frame(height: 1)
+                        .padding(.horizontal, DS.Spacing.sm)
+                        .padding(.top, DS.Spacing.sm)
+                        .accessibilityHidden(true)
+                }
+            )
+        )
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            sidebarStatusBar
+        }
     }
 
     /// Jobs, Skills, and Memory open from chat and from a mate's sheet, not
@@ -299,16 +341,14 @@ struct DesktopRootView: View {
                 composioConnections: companionManager.composioConnections,
                 composioToolkitDirectory: companionManager.composioToolkitDirectory
             )
-        case .notch:
-            DesktopNotchView(activityCenter: companionManager.notchActivityCenter)
+        case .notch, .privacy, .settings:
+            // Notch and Privacy land on Settings (see `landingSection`), so
+            // all three show the Settings page for the remembered section.
+            SettingsDetailView(companionManager: companionManager, navigation: settingsNavigation)
         case .skills:
             DesktopSkillsView(companionManager: companionManager)
         case .memory:
             DesktopMemoryView(companionManager: companionManager)
-        case .privacy:
-            DesktopPrivacyView(companionManager: companionManager)
-        case .settings:
-            DesktopSettingsView(companionManager: companionManager)
         }
     }
 }
