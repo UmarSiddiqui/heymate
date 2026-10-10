@@ -1169,4 +1169,11 @@ extension Color {
         func lift(_ component: CGFloat) -> Double { component + (1 - component) * fraction }
         return Color(red: lift(rgb.redComponent), green: lift(rgb.greenComponent), blue: lift(rgb.blueComponent))
     }
+
+    /// Moves this colour toward black by `fraction` (0 unchanged, 1 black).
+    func blendedWithBlack(fraction: Double) -> Color {
+        guard let rgb = NSColor(self).usingColorSpace(.sRGB) else { return self }
+        func dim(_ component: CGFloat) -> Double { component * (1 - fraction) }
+        return Color(red: dim(rgb.redComponent), green: dim(rgb.greenComponent), blue: dim(rgb.blueComponent))
+    }
 }
