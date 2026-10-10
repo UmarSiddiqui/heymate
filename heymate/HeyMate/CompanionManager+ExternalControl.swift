@@ -219,8 +219,8 @@ extension CompanionManager {
 
         do {
             CaptureAudit.shared.recordCaptureAttempt(context: CaptureAudit.Context.externalControlScreenshot)
-            let captures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
-            let selectedCaptures: [CompanionScreenCapture]
+            let captures = try await ScreenCapture.allScreens()
+            let selectedCaptures: [ScreenSnapshot]
             if focused {
                 let cursorCaptures = captures.filter(\.isCursorScreen)
                 selectedCaptures = cursorCaptures.isEmpty ? captures : cursorCaptures

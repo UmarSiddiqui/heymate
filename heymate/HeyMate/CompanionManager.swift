@@ -1701,7 +1701,7 @@ final class CompanionManager: ObservableObject {
     /// Screen Content is requested automatically after Screen Recording — it
     /// is not a fourth setup gate.
     var allPermissionsGranted: Bool {
-        WindowPositionManager.requiredPermissionsAreGranted(
+        MacPermissions.requiredPermissionsAreGranted(
             hasAccessibility: hasAccessibilityPermission,
             hasScreenRecording: hasScreenRecordingPermission,
             hasMicrophone: hasMicrophonePermission
@@ -2570,7 +2570,7 @@ final class CompanionManager: ObservableObject {
         let previouslyHadMicrophone = hasMicrophonePermission
         let previouslyHadAll = allPermissionsGranted
 
-        let currentlyHasAccessibility = WindowPositionManager.hasAccessibilityPermission()
+        let currentlyHasAccessibility = MacPermissions.hasAccessibilityPermission()
         if hasAccessibilityPermission != currentlyHasAccessibility {
             hasAccessibilityPermission = currentlyHasAccessibility
         }
@@ -2591,7 +2591,7 @@ final class CompanionManager: ObservableObject {
             handsFreeDoubleTapMonitor.stop()
         }
 
-        let currentlyHasScreenRecording = WindowPositionManager.shouldTreatScreenRecordingPermissionAsGrantedForSessionLaunch()
+        let currentlyHasScreenRecording = MacPermissions.screenRecordingLooksGranted()
         if hasScreenRecordingPermission != currentlyHasScreenRecording {
             hasScreenRecordingPermission = currentlyHasScreenRecording
         }
@@ -3094,7 +3094,7 @@ final class CompanionManager: ObservableObject {
                     // Screenshot capture begins (spinner visuals).
                     dispatch(.beginContextCapture)
                     CaptureAudit.shared.recordCaptureAttempt(context: CaptureAudit.Context.dictateResponsePipeline)
-                    let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+                    let screenCaptures = try await ScreenCapture.allScreens()
                     guard !Task.isCancelled else { return }
                     dispatch(.contextCaptured)
 
@@ -3742,7 +3742,7 @@ final class CompanionManager: ObservableObject {
                 await awaitConnectorActivation()
                 guard !Task.isCancelled, !completion.didComplete else { return }
 
-                let screenCaptures: [CompanionScreenCapture]
+                let screenCaptures: [ScreenSnapshot]
                 var contextUnavailableNote = ""
                 if !shouldCaptureScreen {
                     HeyMateLog.log("⚡️ Talk: text-only fast path")
@@ -3756,9 +3756,9 @@ final class CompanionManager: ObservableObject {
                     if talkUsesFocusedWindowContext {
                         // Focused-window capture falls back to all screens
                         // itself when no frontmost window qualifies.
-                        screenCaptures = try await CompanionScreenCaptureUtility.captureFocusedWindowAsJPEG()
+                        screenCaptures = try await ScreenCapture.focusedWindow()
                     } else {
-                        screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+                        screenCaptures = try await ScreenCapture.allScreens()
                     }
                 }
 
@@ -4256,7 +4256,7 @@ final class CompanionManager: ObservableObject {
     /// Resolves the model's visual actions against the captured displays and
     /// publishes them for rendering. A "clear" action removes everything
     /// drawn before it in the same list.
-    func applyVisualActions(_ actions: [VisualAction], screenCaptures: [CompanionScreenCapture]) {
+    func applyVisualActions(_ actions: [VisualAction], screenCaptures: [ScreenSnapshot]) {
         let screens = screenCaptures.enumerated().map { index, capture in
             VisualActionResolver.ScreenGeometryInfo(
                 id: "screen\(index + 1)",
@@ -4320,9 +4320,9 @@ final class CompanionManager: ObservableObject {
 
     func applyPointingParseResult(
         _ parseResult: PointingParseResult,
-        screenCaptures: [CompanionScreenCapture]
+        screenCaptures: [ScreenSnapshot]
     ) {
-        let targetScreenCapture: CompanionScreenCapture? = {
+        let targetScreenCapture: ScreenSnapshot? = {
             if let screenNumber = parseResult.screenNumber,
                screenNumber >= 1 && screenNumber <= screenCaptures.count {
                 return screenCaptures[screenNumber - 1]
@@ -4468,7 +4468,7 @@ final class CompanionManager: ObservableObject {
 
             do {
                 CaptureAudit.shared.recordCaptureAttempt(context: CaptureAudit.Context.onboardingDemoInteraction)
-                let screenCaptures = try await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()
+                let screenCaptures = try await ScreenCapture.allScreens()
 
                 // Only send the cursor screen so Claude can't pick something
                 // on a different monitor that we can't point at.

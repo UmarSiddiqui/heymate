@@ -635,7 +635,7 @@ private struct NotchHomeTab: View {
                 subtitle: companionManager.hasAccessibilityPermission
                     ? nil
                     : "Drag HeyMate.app into the list if it isn't there",
-                grantAction: { WindowPositionManager.requestAccessibilityPermission() }
+                grantAction: { MacPermissions.requestAccessibilityPermission() }
             )
             NotchPermissionRow(
                 label: "Screen Recording",
@@ -644,7 +644,7 @@ private struct NotchHomeTab: View {
                 subtitle: companionManager.hasScreenRecordingPermission
                     ? "Only takes a screenshot when you use the hotkey"
                     : "Grant once — signed builds keep this after rebuilds",
-                grantAction: { WindowPositionManager.requestScreenRecordingPermission() }
+                grantAction: { MacPermissions.requestScreenRecordingPermission() }
             )
 
             Button("Why these permissions?") {

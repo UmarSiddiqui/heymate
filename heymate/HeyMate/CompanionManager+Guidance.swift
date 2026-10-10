@@ -190,7 +190,7 @@ extension CompanionManager {
     /// outcome lines and the last place the buddy pointed.
     func playGuidedReply(
         _ reply: GuidedReply,
-        screenCaptures: [CompanionScreenCapture]
+        screenCaptures: [ScreenSnapshot]
     ) async throws -> (actionOutcome: String?, lastPointedLocation: CGPoint?) {
         let steps = reply.steps.filter { !$0.displayText.isEmpty || $0.pointsSomewhere }
         guard !steps.isEmpty else { return (nil, nil) }
@@ -330,7 +330,7 @@ extension CompanionManager {
     /// and sets up the next walkthrough step.
     func playGuidedTurn(
         _ reply: GuidedReply,
-        screenCaptures: [CompanionScreenCapture]
+        screenCaptures: [ScreenSnapshot]
     ) async throws {
         let (actionOutcome, _) = try await playGuidedReply(
             reply,

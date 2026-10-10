@@ -24,15 +24,15 @@ struct NotchAppDropTile: View {
         VStack(alignment: .leading, spacing: 8) {
             dragCard
                 .help("Drag HeyMate.app into the Settings list")
-                .onAppear(perform: WindowPositionManager.prewarmAppBundleForPrivacyDrop)
+                .onAppear(perform: PrivacyDropBundle.prewarm)
 
             HStack(spacing: 6) {
                 if missingAccessibility {
                     settingsLink(
                         title: "Open Accessibility",
                         action: {
-                            WindowPositionManager.revealPreparedAppInFinder()
-                            WindowPositionManager.openAccessibilitySettings()
+                            PrivacyDropBundle.revealInFinder()
+                            MacPermissions.openAccessibilitySettings()
                         }
                     )
                 }
@@ -40,14 +40,14 @@ struct NotchAppDropTile: View {
                     settingsLink(
                         title: "Open Screen Recording",
                         action: {
-                            WindowPositionManager.revealPreparedAppInFinder()
-                            WindowPositionManager.openScreenRecordingSettings()
+                            PrivacyDropBundle.revealInFinder()
+                            MacPermissions.openScreenRecordingSettings()
                         }
                     )
                 }
                 settingsLink(
                     title: "Show in Finder",
-                    action: WindowPositionManager.revealPreparedAppInFinder
+                    action: { PrivacyDropBundle.revealInFinder() }
                 )
             }
         }
@@ -57,7 +57,7 @@ struct NotchAppDropTile: View {
     /// sits on top and covers every point of it.
     private var dragCard: some View {
         HStack(spacing: 12) {
-            Image(nsImage: NSWorkspace.shared.icon(forFile: WindowPositionManager.runningAppBundleURL.path))
+            Image(nsImage: NSWorkspace.shared.icon(forFile: PrivacyDropBundle.runningAppURL.path))
                 .resizable()
                 .frame(width: 44, height: 44)
                 .scaleEffect(isHovering && !isDragging ? 1.06 : 1)
@@ -118,8 +118,8 @@ enum PrivacySettingsPane {
     @MainActor
     func open() {
         switch self {
-        case .accessibility: WindowPositionManager.openAccessibilitySettings()
-        case .screenRecording: WindowPositionManager.openScreenRecordingSettings()
+        case .accessibility: MacPermissions.openAccessibilitySettings()
+        case .screenRecording: MacPermissions.openScreenRecordingSettings()
         }
     }
 }
@@ -210,7 +210,7 @@ final class AppBundleDragSourceView: NSView, NSDraggingSource {
     }
 
     private func beginAppBundleDrag(downEvent: NSEvent) {
-        let bundleURL = WindowPositionManager.prepareAppBundleForPrivacyDrop()
+        let bundleURL = PrivacyDropBundle.prepare()
         let draggingItem = NSDraggingItem(pasteboardWriter: AppBundlePasteboardWriter(fileURL: bundleURL))
         let icon = NSWorkspace.shared.icon(forFile: bundleURL.path)
         icon.size = NSSize(width: 56, height: 56)
