@@ -4,7 +4,7 @@
 //
 //  Provider-neutral seams for the AI services so backends can be swapped
 //  without touching CompanionManager. These mirror the surfaces of the
-//  shipping implementations (ClaudeAPI, ElevenLabsTTSClient). The STT seam
+//  shipping implementations (AnthropicMessagesClient, ElevenLabsVoiceClient). The STT seam
 //  already exists as SpeechToTextProvider + LiveTranscriptionSession
 //  with three interchangeable conformers, so it stays as the canonical
 //  StreamingSTTClient boundary.
@@ -18,7 +18,7 @@ import Foundation
 
 /// Streaming vision/model conversation client.
 ///
-/// Conformed to by ClaudeAPI (via the Cloudflare Worker proxy). Any future
+/// Conformed to by AnthropicMessagesClient (direct or via a proxy). Any future
 /// provider (OpenAI, Gemini, local models) implements this protocol and can
 /// be injected into CompanionManager without other changes.
 protocol VisionConversationClient: AnyObject {
@@ -39,7 +39,7 @@ protocol VisionConversationClient: AnyObject {
 
 /// Text-to-speech client.
 ///
-/// Conformed to by ElevenLabsTTSClient. Implementations must be cancellable
+/// Conformed to by ElevenLabsVoiceClient. Implementations must be cancellable
 /// immediately from any state (Talk re-press interrupts playback).
 @MainActor
 protocol TTSClient: AnyObject {
@@ -78,7 +78,7 @@ struct AssistantToolCall: Sendable {
 /// `onToolCallRequested`, feed the result back, and continue until the model
 /// produces a final answer with no further tool calls.
 ///
-/// Only `ClaudeAPI` conforms today. The subscription CLI and OpenCode
+/// Only `AnthropicMessagesClient` conforms today. The subscription CLI and OpenCode
 /// backends already run their own tool loops server-side (or have none at
 /// all for a scratch Talk session), so they stay on the plain
 /// `VisionConversationClient` path and never advertise tools to the model.

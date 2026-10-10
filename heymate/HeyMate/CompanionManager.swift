@@ -872,8 +872,8 @@ final class CompanionManager: ObservableObject {
     /// the model, or the key from Settings and the next question should use
     /// them.
     private var customAPIClient: any VisionConversationClient {
-        ClaudeAPI(
-            proxyURL: CustomAPIConfiguration.baseURL,
+        AnthropicMessagesClient(
+            endpoint: CustomAPIConfiguration.baseURL,
             model: CustomAPIConfiguration.model,
             apiKey: CustomAPIConfiguration.apiKey()
         )
@@ -1345,7 +1345,7 @@ final class CompanionManager: ObservableObject {
             return MacOSSpeechSynthesizerClient()
         case .elevenLabs:
             return FallbackTTSClient(
-                primary: ElevenLabsTTSClient(proxyURL: "\(workerBaseURL)/tts"),
+                primary: ElevenLabsVoiceClient(workerURL: "\(workerBaseURL)/tts"),
                 fallback: MacOSSpeechSynthesizerClient()
             )
         case .onDevice:
@@ -4035,7 +4035,7 @@ final class CompanionManager: ObservableObject {
     // MARK: - Talk tool calls
 
     /// Runs one tool call the model asked for mid-turn and returns the
-    /// result text (plus whether it was an error) for `ClaudeAPI` to feed
+    /// result text (plus whether it was an error) for `AnthropicMessagesClient` to feed
     /// back as a `tool_result`. Never throws — a missing tool, a bad
     /// argument, a denied connector call, and a connector failure are all
     /// just different result texts the model can react to in its next

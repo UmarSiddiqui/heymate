@@ -5,7 +5,7 @@
 //  VisionConversationClient backed by a locally running `opencode serve`
 //  HTTP server (https://opencode.ai/docs/server). Lets any model configured
 //  in opencode power the companion while keeping the exact same call shape
-//  as ClaudeAPI, so CompanionManager needs no per-provider branching.
+//  as AnthropicMessagesClient, so CompanionManager needs no per-provider branching.
 //
 //  Request flow per turn:
 //    1. POST /session                 → create a scratch session
@@ -96,7 +96,7 @@ final class OpenCodeClient: VisionConversationClient {
         self.basicAuthUsername = basicAuthUsername
         self.basicAuthPassword = basicAuthPassword
 
-        // Same tuning as ClaudeAPI: default config so keep-alive connections
+        // Same tuning as AnthropicMessagesClient: default config so keep-alive connections
         // are reused across turns, no on-disk cache or cookies.
         self.session = Self.makeSession(
             requestTimeout: 120,

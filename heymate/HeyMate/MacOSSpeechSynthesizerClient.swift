@@ -5,7 +5,7 @@
 //  Local text-to-speech backed by the macOS system synthesizer
 //  (AVSpeechSynthesizer). Needs zero API keys, so spoken replies work even
 //  when the Cloudflare Worker / ElevenLabs account is unavailable. Mirrors
-//  the ElevenLabsTTSClient contract: speakText returns once playback has
+//  the ElevenLabsVoiceClient contract: speakText returns once playback has
 //  started, isPlaying tracks active speech, stopPlayback interrupts at once.
 //
 
