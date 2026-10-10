@@ -221,8 +221,16 @@ class WindowPositionManager {
         return url
     }
 
-    /// Runs the one-time copy in the background so the first drag is instant.
+    /// Runs the one-time copy in the background so the first drag is instant,
+    /// but only when nothing is at `/Applications/HeyMate.app` yet. Showing
+    /// the Permissions card must never replace an installed copy (a dev build
+    /// overwrote the Homebrew install this way); with one already there, the
+    /// copy waits for an actual drag or "Show in Finder".
     nonisolated static func prewarmAppBundleForPrivacyDrop() {
+        let runningURL = runningAppBundleURL.standardizedFileURL
+        let applicationsTarget = applicationsHeyMateURL().standardizedFileURL
+        guard runningURL != applicationsTarget,
+              !FileManager.default.fileExists(atPath: applicationsTarget.path) else { return }
         Task.detached(priority: .utility) {
             _ = prepareAppBundleForPrivacyDrop()
         }

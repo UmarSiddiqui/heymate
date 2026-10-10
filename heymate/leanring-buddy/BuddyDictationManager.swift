@@ -660,29 +660,46 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         activeTranscriptionSession?.cancel()
         activeTranscriptionSession = nil
 
+        // The microphone starts before the transcription session is open.
+        // Opening ElevenLabs takes a network round trip, and the engine used
+        // to wait for it, so the first words were lost and the waveform sat
+        // still for a beat after the shortcut went down. Audio captured in
+        // that gap is queued and handed over once the session is ready.
+        let audioRouter = PendingTranscriptionAudioRouter()
+        try startAudioEngine(routingTo: audioRouter)
+
         let activeTranscriptionSession: any BuddyStreamingTranscriptionSession
         do {
-            activeTranscriptionSession = try await openTranscriptionSession(with: transcriptionProvider)
+            do {
+                activeTranscriptionSession = try await openTranscriptionSession(with: transcriptionProvider)
+            } catch {
+                // ElevenLabs can fail to start (offline, bad key, quota). Rather
+                // than leave the user with nothing, this one press falls back to
+                // the on-device model or Apple Speech. The chosen provider stays
+                // selected, so the next press tries it again.
+                var fallbackProvider = BuddyTranscriptionProviderFactory.offlineFallbackProvider()
+                if fallbackProvider.displayName == transcriptionProvider.displayName {
+                    fallbackProvider = AppleSpeechTranscriptionProvider()
+                }
+                guard fallbackProvider.displayName != transcriptionProvider.displayName else { throw error }
+                print("⚠️ BuddyDictationManager: \(transcriptionProvider.displayName) failed to start (\(error.localizedDescription)), using \(fallbackProvider.displayName)")
+                if fallbackProvider.requiresSpeechRecognitionPermission {
+                    guard await requestSpeechRecognitionPermissionIfNeeded() else { throw error }
+                }
+                activeTranscriptionSession = try await openTranscriptionSession(with: fallbackProvider)
+            }
         } catch {
-            // ElevenLabs can fail to start (offline, bad key, quota). Rather
-            // than leave the user with nothing, this one press falls back to
-            // the on-device model or Apple Speech. The chosen provider stays
-            // selected, so the next press tries it again.
-            var fallbackProvider = BuddyTranscriptionProviderFactory.offlineFallbackProvider()
-            if fallbackProvider.displayName == transcriptionProvider.displayName {
-                fallbackProvider = AppleSpeechTranscriptionProvider()
-            }
-            guard fallbackProvider.displayName != transcriptionProvider.displayName else { throw error }
-            print("⚠️ BuddyDictationManager: \(transcriptionProvider.displayName) failed to start (\(error.localizedDescription)), using \(fallbackProvider.displayName)")
-            if fallbackProvider.requiresSpeechRecognitionPermission {
-                guard await requestSpeechRecognitionPermissionIfNeeded() else { throw error }
-            }
-            activeTranscriptionSession = try await openTranscriptionSession(with: fallbackProvider)
+            audioEngine.stop()
+            audioEngine.inputNode.removeTap(onBus: 0)
+            throw error
         }
 
         self.activeTranscriptionSession = activeTranscriptionSession
-        print("🎙️ BuddyDictationManager: provider ready, starting audio engine")
+        audioRouter.attach(activeTranscriptionSession)
+        print("🎙️ BuddyDictationManager: provider ready, queued audio handed over")
+    }
 
+    private func startAudioEngine(routingTo audioRouter: PendingTranscriptionAudioRouter) throws {
         let inputNode = audioEngine.inputNode
 
         // Route capture to the user's chosen microphone before reading the
@@ -695,7 +712,7 @@ final class BuddyDictationManager: NSObject, ObservableObject {
 
         inputNode.removeTap(onBus: 0)
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
-            self?.activeTranscriptionSession?.appendAudioBuffer(buffer)
+            audioRouter.append(buffer)
             self?.updateAudioPowerLevel(from: buffer)
         }
 
@@ -1061,5 +1078,53 @@ final class BuddyDictationManager: NSObject, ObservableObject {
         }
 
         return fallback
+    }
+}
+
+/// Carries microphone buffers from the audio tap to the transcription
+/// session. Until the session is attached, buffers are queued (capped at
+/// about ten seconds) so speech from the moment the shortcut went down is
+/// not lost while the session is still connecting.
+private final class PendingTranscriptionAudioRouter: @unchecked Sendable {
+    private static let maximumQueuedBuffers = 500
+
+    private let lock = NSLock()
+    private var session: (any BuddyStreamingTranscriptionSession)?
+    private var queuedBuffers: [AVAudioPCMBuffer] = []
+
+    /// Called on the audio thread.
+    func append(_ buffer: AVAudioPCMBuffer) {
+        lock.lock()
+        if let session {
+            lock.unlock()
+            session.appendAudioBuffer(buffer)
+            return
+        }
+        if queuedBuffers.count < Self.maximumQueuedBuffers {
+            queuedBuffers.append(buffer)
+        }
+        lock.unlock()
+    }
+
+    /// Flushes the queue in order, then routes live audio straight through.
+    /// The lock is not held while flushing, so the audio thread never waits
+    /// on a conversion; buffers that arrive meanwhile join the queue and are
+    /// drained by the next pass.
+    func attach(_ session: any BuddyStreamingTranscriptionSession) {
+        while true {
+            lock.lock()
+            if queuedBuffers.isEmpty {
+                self.session = session
+                lock.unlock()
+                return
+            }
+            let buffersToFlush = queuedBuffers
+            queuedBuffers.removeAll()
+            lock.unlock()
+
+            for buffer in buffersToFlush {
+                session.appendAudioBuffer(buffer)
+            }
+        }
     }
 }
