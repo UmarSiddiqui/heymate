@@ -265,6 +265,7 @@ struct SettingsRow<Accessory: View>: View {
     var systemImage: String?
     var item: SettingsItem?
     @ViewBuilder var accessory: () -> Accessory
+    private var brand: AgentBrain?
 
     init(
         _ title: String,
@@ -282,13 +283,20 @@ struct SettingsRow<Accessory: View>: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: DS.SettingsLayout.rowAccessorySpacing) {
-            SettingsRowLabel(title: title, subtitle: subtitle, systemImage: systemImage)
+            SettingsRowLabel(title: title, subtitle: subtitle, systemImage: systemImage, brand: brand)
                 .frame(maxWidth: .infinity, alignment: .leading)
             accessory()
         }
         .settingsRowInsets()
         .accessibilityElement(children: .contain)
         .settingsAnchor(item)
+    }
+
+    /// Uses `brain`'s logo for the row icon when there is one.
+    func brandMark(_ brain: AgentBrain?) -> Self {
+        var row = self
+        row.brand = brain
+        return row
     }
 }
 
@@ -304,10 +312,16 @@ struct SettingsRowLabel: View {
     let title: String
     var subtitle: String?
     var systemImage: String?
+    /// An engine whose logo replaces `systemImage`.
+    var brand: AgentBrain?
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: DS.Spacing.md) {
-            if let systemImage {
+            if let brand {
+                AgentBrandMark(brain: brand, size: 18)
+                    .frame(width: DS.SettingsLayout.rowIconWidth)
+                    .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+            } else if let systemImage {
                 Image(systemName: systemImage)
                     .font(DS.Glyph.regular)
                     .foregroundColor(DS.Colors.textSecondary)
@@ -394,6 +408,8 @@ struct SettingsChoiceRow<Accessory: View>: View {
     var item: SettingsItem?
     let select: () -> Void
     @ViewBuilder var accessory: () -> Accessory
+    /// Shows this engine's real mark in place of `systemImage`.
+    private var brand: AgentBrain?
 
     init(
         _ title: String,
@@ -420,11 +436,17 @@ struct SettingsChoiceRow<Accessory: View>: View {
             Button(action: select) {
                 HStack(alignment: .center, spacing: DS.Spacing.md) {
                     SettingsRadioMark(isSelected: isSelected)
-                    Image(systemName: systemImage)
-                        .font(DS.Glyph.regular)
-                        .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textSecondary)
-                        .frame(width: DS.SettingsLayout.rowIconWidth)
-                        .accessibilityHidden(true)
+                    Group {
+                        if let brand {
+                            AgentBrandMark(brain: brand, size: 18)
+                        } else {
+                            Image(systemName: systemImage)
+                                .font(DS.Glyph.regular)
+                        }
+                    }
+                    .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textSecondary)
+                    .frame(width: DS.SettingsLayout.rowIconWidth)
+                    .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(title)
                             .font(isSelected ? DS.Fonts.headline : DS.Fonts.bodyLarge)
@@ -465,6 +487,15 @@ struct SettingsChoiceRow<Accessory: View>: View {
         .settingsRowInsets()
         .background(isSelected ? DS.Colors.surface2 : Color.clear)
         .settingsAnchor(item)
+    }
+}
+
+extension SettingsChoiceRow {
+    /// Uses `brain`'s logo for the row icon; `systemImage` stays the fallback.
+    func brandMark(_ brain: AgentBrain) -> Self {
+        var row = self
+        row.brand = brain
+        return row
     }
 }
 

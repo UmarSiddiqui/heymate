@@ -352,6 +352,7 @@ struct AgentSignInRows: View {
                     }
                 }
             }
+            .brandMark(AgentBrain.allCases.first { $0.executor == executor })
             if !readiness.remedy.isEmpty, readiness.state != .ready {
                 SettingsInlineHelp(readiness.remedy, tone: .attention)
                     .frame(maxWidth: .infinity, alignment: .leading)
