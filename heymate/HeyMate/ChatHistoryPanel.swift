@@ -20,6 +20,8 @@ struct ChatHistoryPanel: View {
     @State private var exportDocument = ChatPlainTextDocument(text: "")
     @State private var exportFilename = "Chat"
     @State private var isExportingFile = false
+    @State private var pdfExportDocument = ResearchBriefPDFDocument(text: "")
+    @State private var isExportingPDF = false
 
     private var sessions: [ChatSession] {
         companionManager.chatsForActiveMate()
@@ -78,6 +80,12 @@ struct ChatHistoryPanel: View {
             isPresented: $isExportingFile,
             document: exportDocument,
             contentType: .plainText,
+            defaultFilename: exportFilename
+        ) { _ in }
+        .fileExporter(
+            isPresented: $isExportingPDF,
+            document: pdfExportDocument,
+            contentType: .pdf,
             defaultFilename: exportFilename
         ) { _ in }
     }
@@ -143,6 +151,9 @@ struct ChatHistoryPanel: View {
                 }
                 rowButton("Save…", color: DS.Colors.textSecondary) {
                     beginSave(session)
+                }
+                rowButton("PDF…", color: DS.Colors.textSecondary) {
+                    beginPDFSave(session)
                 }
                 rowButton("Delete", color: DS.Colors.destructiveText) {
                     pendingConfirm = .deleteOne(session.id)
@@ -236,6 +247,12 @@ struct ChatHistoryPanel: View {
         exportDocument = ChatPlainTextDocument(text: session.exportPlainText())
         exportFilename = Self.exportFileName(for: session.title)
         isExportingFile = true
+    }
+
+    private func beginPDFSave(_ session: ChatSession) {
+        pdfExportDocument = ResearchBriefPDFDocument(text: session.exportPlainText())
+        exportFilename = Self.exportFileName(for: session.title)
+        isExportingPDF = true
     }
 
     private static func exportFileName(for title: String) -> String {

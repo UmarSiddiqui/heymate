@@ -72,6 +72,7 @@ final class HeadlessAgentLauncher {
         DetachedAgentRunnerExecutable.bundledURL()
     }
     var spawnDetachedRunner: (URL, DetachedAgentLaunchRequest) throws -> Int32 = {
+        let attemptID = $1.attemptID
         let runnerProcessID = try DetachedAgentRunnerBootstrap.spawn(executableURL: $0, request: $1)
         // The app is the runner's parent until it quits, so an exited runner
         // stays a zombie unless something waits on it. Liveness checks use the
@@ -80,6 +81,7 @@ final class HeadlessAgentLauncher {
         let reaper = Thread {
             var waitStatus: Int32 = 0
             while waitpid(runnerProcessID, &waitStatus, 0) == -1, errno == EINTR {}
+            DetachedAgentRunnerDiagnosticLogs.removeIfEmpty(attemptID: attemptID)
         }
         reaper.name = "HeyMate runner reaper"
         reaper.qualityOfService = .utility

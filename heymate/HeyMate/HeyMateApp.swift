@@ -44,6 +44,13 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         HeyMateAnalytics.configure()
         HeyMateAnalytics.trackAppOpened()
 
+        DispatchQueue.global(qos: .utility).async {
+            let removedCount = DetachedAgentRunnerDiagnosticLogs.pruneStaleLogs()
+            if removedCount > 0 {
+                HeyMateLog.log("🎯 HeyMate: Pruned \(removedCount) stale agent-runner logs")
+            }
+        }
+
         companionManager.start()
         AppPresencePreferences.shared.applyOnLaunch()
         AppUpdateController.shared.start()
