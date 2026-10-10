@@ -96,7 +96,7 @@ def synth_note(frequency: float, duration: float) -> list[float]:
 
 def main() -> None:
     assets_root = os.path.join(
-        os.path.dirname(__file__), "..", "leanring-buddy", "Assets.xcassets"
+        os.path.dirname(__file__), "..", "HeyMate", "Assets.xcassets"
     )
 
     # Push-to-talk opens: quick upward "ready" blip.

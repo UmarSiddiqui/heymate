@@ -198,10 +198,10 @@ Requires Xcode 26 and an internet connection on the first build (Swift Package M
 ```bash
 git clone https://github.com/UmarSiddiqui/heymate.git
 cd heymate/heymate
-open leanring-buddy.xcodeproj
+open HeyMate.xcodeproj
 ```
 
-Select the `leanring-buddy` scheme and **My Mac**, check **Signing & Capabilities** (pick your Personal Team), and press Run. A stable signing identity matters because macOS ties Accessibility and Screen Recording grants to it.
+Select the `HeyMate` scheme and **My Mac**, check **Signing & Capabilities** (pick your Personal Team), and press Run. A stable signing identity matters because macOS ties Accessibility and Screen Recording grants to it.
 
 ```bash
 ./scripts/typecheck.sh           # build the app without touching the signed app bundle
@@ -234,8 +234,8 @@ If ElevenLabs or on-device can't run, HeyMate falls back to the Mac voice for th
 
 | Path | What's there |
 | --- | --- |
-| [`heymate/leanring-buddy`](heymate/leanring-buddy) | The SwiftUI app |
-| [`heymate/leanring-buddyTests`](heymate/leanring-buddyTests) · [`UITests`](heymate/leanring-buddyUITests) | Unit and UI tests |
+| [`heymate/HeyMate`](heymate/HeyMate) | The SwiftUI app |
+| [`heymate/HeyMateTests`](heymate/HeyMateTests) · [`UITests`](heymate/HeyMateUITests) | Unit and UI tests |
 | [`heymate/worker`](heymate/worker) | Optional Cloudflare Worker that holds an ElevenLabs key for developers |
 | [`website`](website) | The landing page |
 | [`marketing/demo-video`](marketing/demo-video) | The Remotion project that renders the demo video |

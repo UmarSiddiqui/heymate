@@ -1,7 +1,7 @@
 # HeyMate — Landing Page Plan (v1, free tier)
 
 > Status: BUILT and hosted at https://getheymate.vercel.app (static site in this folder). This document remains the spec.
-> Product facts below are pulled from the app source (`heymate/leanring-buddy/*.swift`, `README.md`, `design-qa.md`). Do not invent features that are not listed in §2.
+> Product facts below are pulled from the app source (`heymate/HeyMate/*.swift`, `README.md`, `design-qa.md`). Do not invent features that are not listed in §2.
 
 ---
 
@@ -341,7 +341,7 @@ Global style suffix: `Apple product photography, studio lighting, pitch black ba
 Delivery: `website/assets/img/IMG-xx.{png,webp}` plus `@1x` halves. All device images must have transparent or pure `#000000` surroundings so they blend into `--bg`.
 
 ### 6.1 Face asset note
-Face PNGs live in `heymate/leanring-buddy/Assets.xcassets/MateFace*.imageset/mate-face-*.png`. Copy, do not regenerate.
+Face PNGs live in `heymate/HeyMate/Assets.xcassets/MateFace*.imageset/mate-face-*.png`. Copy, do not regenerate.
 
 ---
 

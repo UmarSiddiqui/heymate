@@ -31,7 +31,7 @@ export PATH="/opt/homebrew/bin:$PATH"
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-SCHEME="leanring-buddy"
+SCHEME="HeyMate"
 APP_NAME="HeyMate"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="${PROJECT_DIR}/build"
@@ -190,7 +190,7 @@ if [ -z "$DEVELOPMENT_TEAM" ] || [ -z "$RELEASE_SIGNING_IDENTITY" ]; then
 fi
 
 # Sparkle tools (auto-discovered from Xcode's SPM cache)
-SPARKLE_BIN=$(find ~/Library/Developer/Xcode/DerivedData/leanring-buddy*/SourcePackages/artifacts/sparkle/Sparkle/bin -maxdepth 0 2>/dev/null | head -1)
+SPARKLE_BIN=$(find ~/Library/Developer/Xcode/DerivedData/HeyMate*/SourcePackages/artifacts/sparkle/Sparkle/bin -maxdepth 0 2>/dev/null | head -1)
 
 if [ -z "$SPARKLE_BIN" ]; then
     echo "❌ Sparkle tools not found. Build the project in Xcode first so SPM downloads Sparkle."
@@ -328,7 +328,7 @@ mkdir -p "${BUILD_DIR}" "${EXPORT_DIR}" "${DMG_OUTPUT_DIR}" "${RELEASES_DIR}"
 
 echo "📦 Archiving..."
 xcodebuild archive \
-    -project "${PROJECT_DIR}/leanring-buddy.xcodeproj" \
+    -project "${PROJECT_DIR}/HeyMate.xcodeproj" \
     -scheme "${SCHEME}" \
     -archivePath "${ARCHIVE_PATH}" \
     DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM}" \

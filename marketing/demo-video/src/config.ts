@@ -1,7 +1,7 @@
 // Brand tokens, timing and copy for the HeyMate demo video.
 // Everything you are likely to tweak lives in this one file.
 //
-// Colors mirror `heymate/leanring-buddy/DesignSystem.swift` (dark mode) and
+// Colors mirror `heymate/HeyMate/DesignSystem.swift` (dark mode) and
 // `AppTheme.swift`. The only UI accent is Signal blue, the app's default
 // buddy color. Violet (`iconGlow`) is reserved for the logo reveal.
 

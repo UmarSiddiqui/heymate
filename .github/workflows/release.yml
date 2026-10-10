@@ -37,8 +37,8 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 60
     env:
-      PROJECT: heymate/leanring-buddy.xcodeproj
-      SCHEME: leanring-buddy
+      PROJECT: heymate/HeyMate.xcodeproj
+      SCHEME: HeyMate
       DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
       APP_NAME: HeyMate
       # In-app updates (Sparkle). The feed is the appcast.xml attached to the
@@ -79,7 +79,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.DERIVED_DATA }}/SourcePackages
-          key: spm-${{ runner.os }}-${{ hashFiles('heymate/leanring-buddy.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ runner.os }}-${{ hashFiles('heymate/HeyMate.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-${{ runner.os }}-
 
       - name: Import the signing identity
