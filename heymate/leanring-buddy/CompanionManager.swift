@@ -3899,6 +3899,7 @@ final class CompanionManager: ObservableObject {
                 let isGuidedPlayback = activeRoutineTurn == nil && backgroundRoutineSession == nil
                 if isGuidedPlayback {
                     applyWalkthroughDirectives(guidedReply.walkthroughDirectives, goal: transcript)
+                    endWalkthroughIfFinished(by: guidedReply)
                 } else if let firstPointing = guidedReply.firstPointing {
                     applyPointingParseResult(firstPointing, screenCaptures: screenCaptures)
                 }

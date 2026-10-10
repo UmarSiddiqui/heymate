@@ -86,6 +86,21 @@ extension CompanionManager {
         }
     }
 
+    /// Seen live: on the last step the model says "that worked" without
+    /// writing [PLAN:done]. A reply on the final step that points at nothing
+    /// and names no step means the walkthrough is over.
+    func endWalkthroughIfFinished(by reply: GuidedReply) {
+        guard let walkthrough = activeWalkthrough,
+              walkthrough.currentStepIndex >= walkthrough.steps.count - 1,
+              reply.pointingStepCount == 0,
+              !reply.walkthroughDirectives.contains(where: {
+                  if case .step = $0 { return true }
+                  if case .plan = $0 { return true }
+                  return false
+              }) else { return }
+        endWalkthrough()
+    }
+
     func endWalkthrough() {
         disarmWalkthroughClickMonitor()
         activeWalkthrough = nil
