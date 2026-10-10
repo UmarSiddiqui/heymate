@@ -2,15 +2,18 @@
 //  VoiceRouter.swift
 //  HeyMate
 //
-//  Isolated regex predicates plus a tiny RouteDecision. This is the free tier
-//  of a two-tier router: it answers what it can answer without a round trip
-//  and hands everything genuinely ambiguous to `VoiceIntentClassifier`.
+//  The free first pass of voice routing. It settles what plain word
+//  matching can settle (local shortcuts, an explicit "agent,", questions
+//  about the screen) and hands anything genuinely ambiguous to
+//  `VoiceIntentClassifier`, which costs a round trip.
 //
-//  The point of that split is that this file must NOT grow. Every new guard
-//  here is a rule someone has to keep true forever; the classifier is one call
-//  that generalises. If a case is being missed, the fix is almost always the
-//  classifier's prompt, not another regex. Do not grow this into a cascade
-//  of guards.
+//  Keep this small. Every rule added here has to stay true forever, while
+//  the classifier generalises; a missed case is almost always a fix to the
+//  classifier's prompt, not a new rule here.
+//
+//  Every predicate takes text already passed through
+//  `SpokenText.normalizedSpokenCommandText`: lowercase, single-spaced,
+//  without punctuation or apostrophes ("whats", "dont").
 //
 
 import Foundation
@@ -22,137 +25,168 @@ nonisolated enum VoiceRouteDecision: Equatable {
     case confirmDestructive
     case talk
     /// Nothing free could decide this one. `VoiceIntentClassifier` gets a
-    /// turn, and its failure falls back to `fallbackDecision`.
+    /// turn, and if it fails, `fallbackDecision` decides.
     case needsClassification
 }
 
 nonisolated enum VoiceRouter {
-
-    /// Everything that can be decided for free, decided for free.
-    ///
-    /// Order matters and each step earns its place: a local shortcut must not
-    /// pay a round trip, an explicit "agent," is the user having already
-    /// decided, and a question about what is on screen is the single most
-    /// common thing said to this app — sending that to a classifier would add
-    /// half a second to almost every turn to be told what it plainly is.
-    ///
-    /// Everything left over is genuinely ambiguous and goes to the model.
-    /// This is deliberately five steps, not thirteen.
+    /// Decides for free whatever can be decided for free, in this order:
+    /// 1. a local shortcut (volume, open an app) never pays a round trip;
+    /// 2. a sensitive or sweeping destructive request is confirmed first,
+    ///    unless the user explicitly addressed an agent;
+    /// 3. an explicit "agent," means the user already chose;
+    /// 4. a question plus background work is both at once (checked before
+    ///    the screen question, or the background half would be lost);
+    /// 5. a question about the screen, or pointing at something visible
+    ///    without naming anything durable, is Talk.
     static func decide(_ transcript: String) -> VoiceRouteDecision {
         if let local = LocalVoiceAction.parse(transcript) {
             return .local(local)
         }
+        let text = SpokenText.normalizedSpokenCommandText(SpokenText.normalizedCommandCandidate(from: transcript))
+        let addressedAgent = AgentInvocation.explicitPrefixTask(transcript) != nil
 
-        let candidate = SpokenText.normalizedCommandCandidate(from: transcript)
-        let normalized = SpokenText.normalizedSpokenCommandText(candidate)
-
-        let explicitAgentTask = AgentInvocation.explicitPrefixTask(transcript)
-
-        if isSensitiveOrDestructiveAgentTaskRequest(normalized), explicitAgentTask == nil {
-            return .confirmDestructive
-        }
-        if explicitAgentTask != nil {
-            return .agent
-        }
-        // Hybrid is checked before the screen question, because "what is this
-        // error and also fix it in the background" satisfies both and the
-        // background half is the part that would be lost.
-        if containsHybridForegroundCue(normalized), containsHybridBackgroundCue(normalized) {
-            return .hybrid
-        }
-        if isScreenQuestion(normalized) || isPerceptionQuestion(normalized) {
-            return .talk
-        }
-        // "open this", "read that out" — pointing at what is visible with
-        // nothing durable named. There is no folder in it, so there is nothing
-        // for an agent to do and nothing worth a round trip.
-        if containsReferentialWorkTarget(normalized), !containsDurableWorkTarget(normalized) {
-            return .talk
-        }
+        if !addressedAgent && isSensitiveOrDestructiveAgentTaskRequest(text) { return .confirmDestructive }
+        if addressedAgent { return .agent }
+        if containsHybridForegroundCue(text) && containsHybridBackgroundCue(text) { return .hybrid }
+        if isScreenQuestion(text) || isPerceptionQuestion(text) { return .talk }
+        if containsReferentialWorkTarget(text) && !containsDurableWorkTarget(text) { return .talk }
         return .needsClassification
     }
 
-    /// Used when the classifier is unreachable. This is the old behaviour —
-    /// prefixes plus a fixed list of coding nouns — kept as a floor so a
-    /// network failure degrades to what shipped before rather than to nothing.
+    /// Used when the classifier can't be reached: the older prefix-and-
+    /// coding-noun rule, so an outage routes as well as before, not worse.
     static func fallbackDecision(_ transcript: String) -> VoiceRouteDecision {
         AgentInvocation.isAgentRequest(transcript) ? .agent : .talk
     }
 
-    /// A question about what the person is looking at. Never agent work, so
-    /// it can skip the classifier: an interrogative opener plus a reference to
-    /// something visible. "What does this error mean" qualifies; "clean up my
-    /// Downloads folder" does not.
-    static func isScreenQuestion(_ normalized: String) -> Bool {
-        let openerPattern = #"^(?:what|why|how|who|when|where|which|explain|describe|tell\s+me|whats|whos)\b"#
-        guard normalized.range(of: openerPattern, options: .regularExpression) != nil else {
-            return false
-        }
-        let screenReferencePattern = #"\b(?:this|that|it|here|screen|display|visible|selected|highlighted|window|page|says|saying|shown|showing)\b"#
-        return normalized.range(of: screenReferencePattern, options: .regularExpression) != nil
+    /// A question opener plus a reference to something visible: "what does
+    /// this error mean", but not "clean up my Downloads folder".
+    static func isScreenQuestion(_ text: String) -> Bool {
+        Patterns.questionOpener.matches(text) && Patterns.screenReference.matches(text)
     }
 
-    /// "What am I looking at" names no demonstrative, so `isScreenQuestion`
-    /// misses it, yet only the screen can answer it.
-    static func isPerceptionQuestion(_ normalized: String) -> Bool {
-        let perceptionCue = #"\b(?:looking\s+at|you\s+see|i\s+see|seeing|on\s+my\s+(?:screen|display|monitor)|in\s+front\s+of\s+me)\b"#
-        return normalized.range(of: perceptionCue, options: .regularExpression) != nil
+    /// "What am I looking at" points at nothing, yet only the screen answers it.
+    static func isPerceptionQuestion(_ text: String) -> Bool {
+        Patterns.perception.matches(text)
     }
 
-    static func looksLikeAgentWork(_ normalized: String) -> Bool {
-        containsAgentWorkAction(normalized) && containsDurableWorkTarget(normalized)
+    static func looksLikeAgentWork(_ text: String) -> Bool {
+        containsAgentWorkAction(text) && containsDurableWorkTarget(text)
     }
 
-    static func containsAgentWorkAction(_ normalized: String) -> Bool {
-        let actionPattern = #"\b(?:check|look\s+at|take\s+a\s+look|inspect|review|audit|fix|modify|change|update|edit|build|create|make|write|draft|research|search|find|summari[sz]e|organize|clean\s+up|cleanup|test|run|install|compare|read|move|rename|delete|prune|optimi[sz]e|wire|implement|add|remove|route|delegate|ensure|verify|validate|confirm|diagnose|investigate|repair|polish|improve|finish|sort\s+out|deal\s+with|take\s+care\s+of|make\s+sure|look\s+into|figure\s+out)\b"#
-        return normalized.range(of: actionPattern, options: .regularExpression) != nil
+    static func containsAgentWorkAction(_ text: String) -> Bool {
+        Patterns.workAction.matches(text)
     }
 
-    static func containsDurableWorkTarget(_ normalized: String) -> Bool {
-        let targetPattern = #"\b(?:heymate|github|repo|repository|codebase|project|app|settings|preference|preferences|log|logs|memory|skill|skills|desktop|download|downloads|document|documents|folder|folders|file|files|code|diff|git|branch|pull\s+request|pr|issue|issues|bug|test|tests|build|swift|xcode|email|gmail|calendar|spreadsheet|sheet|doc|slides|voice|computer\s+use|tool|tools|tooling|model|models)\b"#
-        return normalized.range(of: targetPattern, options: .regularExpression) != nil
+    static func containsDurableWorkTarget(_ text: String) -> Bool {
+        Patterns.durableTarget.matches(text)
     }
 
-    static func containsFreshResearchRequest(_ normalized: String) -> Bool {
-        let researchPattern = #"\b(?:latest|live|price|news|weather|schedule|standings|research|look\s+up|search\s+(?:the\s+)?web|google|browse)\b"#
-        return normalized.range(of: researchPattern, options: .regularExpression) != nil
+    /// Anything touching credentials, permissions or production, or a
+    /// destructive verb aimed broadly ("all", "everything") or at files,
+    /// repositories, history and the like.
+    static func isSensitiveOrDestructiveAgentTaskRequest(_ text: String) -> Bool {
+        if Patterns.sensitiveTarget.matches(text) { return true }
+        guard Patterns.destructiveVerb.matches(text) else { return false }
+        return Patterns.broadScope.matches(text) || Patterns.destructibleTarget.matches(text)
     }
 
-    static func isSensitiveOrDestructiveAgentTaskRequest(_ normalized: String) -> Bool {
-        let destructivePattern = #"\b(?:delete|remove|erase|wipe|destroy|drop|revoke|reset|nuke|clear|purge|uninstall|terminate|kill)\b"#
-        let broadScopePattern = #"\b(?:all|everything|entire|whole)\b"#
-        let destructiveTargetPattern = #"\b(?:file|files|folder|folders|directory|directories|repo|repository|branch|branches|commit|commits|tag|tags|history|database|databases|keychain|account|accounts)\b"#
-        let sensitiveTargetsPattern = #"\b(?:account|accounts|credential|credentials|password|passwords|token|tokens|api\s*key|secret|secrets|permission|permissions|auth|ssh|private\s+key|keychain|database|databases|prod|production|system\s+settings)\b"#
-
-        let hasDestructiveVerb = normalized.range(of: destructivePattern, options: .regularExpression) != nil
-        let hasBroadScope = normalized.range(of: broadScopePattern, options: .regularExpression) != nil
-        let hasDestructiveTarget = normalized.range(of: destructiveTargetPattern, options: .regularExpression) != nil
-        let hasSensitiveTarget = normalized.range(of: sensitiveTargetsPattern, options: .regularExpression) != nil
-
-        return hasSensitiveTarget || (hasDestructiveVerb && (hasBroadScope || hasDestructiveTarget))
+    static func containsHybridForegroundCue(_ text: String) -> Bool {
+        Patterns.foregroundCue.matches(text)
     }
 
-    static func containsHybridForegroundCue(_ normalized: String) -> Bool {
-        let foregroundPattern = #"\b(?:what|why|how|who|when|where|explain|tell\s+me|describe|summari[sz]e|answer|quick\s+(?:answer|thought|view)|what\s+do\s+you\s+think|do\s+you\s+think)\b"#
-        return normalized.range(of: foregroundPattern, options: .regularExpression) != nil
+    static func containsHybridBackgroundCue(_ text: String) -> Bool {
+        Patterns.backgroundCue.matches(text)
     }
 
-    static func containsHybridBackgroundCue(_ normalized: String) -> Bool {
-        let backgroundPattern = #"\b(?:background|agent|agents|agent\s+mode|do\s+the\s+work|work\s+on\s+it|take\s+care\s+of\s+it|also\s+(?:fix|implement|patch|research|find|check|review|update|change|build|create)|while\s+you(?:re)?\s+(?:at\s+it|doing\s+that)|combination\s+of\s+the\s+two)\b"#
-        return normalized.range(of: backgroundPattern, options: .regularExpression) != nil
+    static func containsReferentialWorkTarget(_ text: String) -> Bool {
+        Patterns.referential.matches(text)
     }
 
-    static func containsNaturalBackgroundWorkCue(_ normalized: String) -> Bool {
-        let cuePattern = #"\b(?:make\s+sure|ensure|verify|validate|confirm|look\s+into|figure\s+out|sort\s+out|deal\s+with|take\s+care\s+of|get\s+(?:this|that|it|.+?)\s+working|wire\s+(?:up|in)|hook\s+(?:up|in)|set\s+up|finish|polish|improve|repair|diagnose|investigate)\b"#
-        if normalized.range(of: cuePattern, options: .regularExpression) != nil {
-            return true
-        }
-        let makeUsePattern = #"\b(?:make|have)\b.{1,80}\b(?:use|using|route|routing|send|sending|call|calling)\b"#
-        return normalized.range(of: makeUsePattern, options: .regularExpression) != nil
-    }
+    // MARK: - Vocabulary
 
-    static func containsReferentialWorkTarget(_ normalized: String) -> Bool {
-        let referencePattern = #"\b(?:this|that|it|here|current\s+(?:file|screen|window|page|repo|repository|project|app)|visible\s+(?:file|code|screen|window|page)|selected\s+(?:text|file|code|region)|the\s+(?:current|visible|selected)\s+(?:thing|part|file|code|screen|window|page)|what\s+we\s+(?:just\s+)?(?:talked|discussed)\s+about|the\s+thing\s+from\s+before)\b"#
-        return normalized.range(of: referencePattern, options: .regularExpression) != nil
+    private nonisolated enum Patterns {
+        static let questionOpener = TextPattern.anyOf([
+            "what", "why", "how", "who", "when", "where", "which",
+            "explain", "describe", "tell me", "whats", "whos",
+        ], atStart: true)
+
+        static let screenReference = TextPattern.anyOf([
+            "this", "that", "it", "here", "screen", "display", "visible", "selected",
+            "highlighted", "window", "page", "says", "saying", "shown", "showing",
+        ])
+
+        static let perception = TextPattern.anyOf(
+            ["looking at", "you see", "i see", "seeing", "in front of me"]
+                + ["screen", "display", "monitor"].map { "on my \($0)" }
+        )
+
+        static let workAction = TextPattern.anyOf([
+            "check", "look at", "take a look", "inspect", "review", "audit", "fix", "modify",
+            "change", "update", "edit", "build", "create", "make", "write", "draft", "research",
+            "search", "find", "summarise", "summarize", "organize", "clean up", "cleanup", "test",
+            "run", "install", "compare", "read", "move", "rename", "delete", "prune", "optimise",
+            "optimize", "wire", "implement", "add", "remove", "route", "delegate", "ensure",
+            "verify", "validate", "confirm", "diagnose", "investigate", "repair", "polish",
+            "improve", "finish", "sort out", "deal with", "take care of", "make sure",
+            "look into", "figure out",
+        ])
+
+        static let durableTarget = TextPattern.anyOf([
+            "heymate", "github", "repo", "repository", "codebase", "project", "app", "settings",
+            "preference", "preferences", "log", "logs", "memory", "skill", "skills", "desktop",
+            "download", "downloads", "document", "documents", "folder", "folders", "file", "files",
+            "code", "diff", "git", "branch", "pull request", "pr", "issue", "issues", "bug", "test",
+            "tests", "build", "swift", "xcode", "email", "gmail", "calendar", "spreadsheet", "sheet",
+            "doc", "slides", "voice", "computer use", "tool", "tools", "tooling", "model", "models",
+        ])
+
+        static let destructiveVerb = TextPattern.anyOf([
+            "delete", "remove", "erase", "wipe", "destroy", "drop", "revoke", "reset", "nuke",
+            "clear", "purge", "uninstall", "terminate", "kill",
+        ])
+
+        static let broadScope = TextPattern.anyOf(["all", "everything", "entire", "whole"])
+
+        static let destructibleTarget = TextPattern.anyOf([
+            "file", "files", "folder", "folders", "directory", "directories", "repo", "repository",
+            "branch", "branches", "commit", "commits", "tag", "tags", "history", "database",
+            "databases", "keychain", "account", "accounts",
+        ])
+
+        static let sensitiveTarget = TextPattern.anyOf([
+            "account", "accounts", "credential", "credentials", "password", "passwords", "token",
+            "tokens", "api key", "apikey", "secret", "secrets", "permission", "permissions", "auth",
+            "ssh", "private key", "keychain", "database", "databases", "prod", "production",
+            "system settings",
+        ])
+
+        static let foregroundCue = TextPattern.anyOf([
+            "what", "why", "how", "who", "when", "where", "explain", "tell me", "describe",
+            "summarise", "summarize", "answer", "quick answer", "quick thought", "quick view",
+            "what do you think", "do you think",
+        ])
+
+        static let backgroundCue = TextPattern.anyOf(
+            [
+                "background", "agent", "agents", "agent mode", "do the work", "work on it",
+                "take care of it", "combination of the two",
+            ]
+            + ["fix", "implement", "patch", "research", "find", "check", "review", "update",
+               "change", "build", "create"].map { "also \($0)" }
+            + ["while you", "while youre"].flatMap { ["\($0) at it", "\($0) doing that"] }
+        )
+
+        static let referential = TextPattern.anyOf(
+            ["this", "that", "it", "here", "the thing from before"]
+            + ["file", "screen", "window", "page", "repo", "repository", "project", "app"].map { "current \($0)" }
+            + ["file", "code", "screen", "window", "page"].map { "visible \($0)" }
+            + ["text", "file", "code", "region"].map { "selected \($0)" }
+            + ["current", "visible", "selected"].flatMap { adjective in
+                ["thing", "part", "file", "code", "screen", "window", "page"].map { "the \(adjective) \($0)" }
+            }
+            + ["talked", "discussed"].flatMap { ["what we \($0) about", "what we just \($0) about"] }
+        )
     }
 }

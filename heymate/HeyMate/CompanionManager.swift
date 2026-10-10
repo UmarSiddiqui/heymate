@@ -432,7 +432,7 @@ final class CompanionManager: ObservableObject {
             isSilentModeEnabled: isSilentModeEnabled,
             isSuggestionDismissed: SilentModePreferences.isSuggestionDismissed,
             hasOfferedThisSession: hasOfferedSilentModeThisSession,
-            isPlayingThroughBuiltInSpeakers: HeyMateSystemOutputVolume.isDefaultOutputBuiltInSpeaker()
+            isPlayingThroughBuiltInSpeakers: SystemVolume.isDefaultOutputBuiltInSpeaker()
         ) else { return }
         hasOfferedSilentModeThisSession = true
         isSilentModeSuggestionVisible = true

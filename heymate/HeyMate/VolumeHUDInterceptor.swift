@@ -51,15 +51,15 @@ final class VolumeHUDInterceptor: ObservableObject {
     }
 
     private func apply(_ key: MediaKey, fineAdjustment: Bool) {
-        let current = HeyMateSystemOutputVolume.currentScalar() ?? 0.5
+        let current = SystemVolume.currentScalar() ?? 0.5
         let step: Float = fineAdjustment ? 1 / 64 : 1 / 16
         let newVolume: Float
 
         switch key {
         case .volumeUp:
-            newVolume = HeyMateSystemOutputVolume.clampedScalar(current + step)
+            newVolume = SystemVolume.clampedScalar(current + step)
         case .volumeDown:
-            newVolume = HeyMateSystemOutputVolume.clampedScalar(current - step)
+            newVolume = SystemVolume.clampedScalar(current - step)
         case .mute:
             if current > 0.001 {
                 volumeBeforeMute = current
@@ -69,7 +69,7 @@ final class VolumeHUDInterceptor: ObservableObject {
             }
         }
 
-        guard HeyMateSystemOutputVolume.setScalar(newVolume) else { return }
+        guard SystemVolume.setScalar(newVolume) else { return }
         publish(volume: newVolume)
     }
 

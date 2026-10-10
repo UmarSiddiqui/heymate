@@ -568,14 +568,12 @@ struct OnDeviceVoiceDownloadRow: View {
 /// Whether the local Google command-line tool is installed and signed in.
 /// Refreshes itself, because no other control depends on it.
 struct GoogleCLISettingsRow: View {
-    @State private var gogCLIStatus = HeyMateGogCLIStatus.unknown
+    @State private var gogCLIStatus = GoogleWorkspaceCLIStatus.unknown
     @State private var hasChecked = false
     @State private var isRefreshing = false
 
     private var isConnected: Bool {
-        gogCLIStatus.isInstalled
-            && gogCLIStatus.credentialsExist
-            && (gogCLIStatus.accountEmail?.isEmpty == false || gogCLIStatus.serviceAccountConfigured)
+        gogCLIStatus.isReadyForUserAccount
     }
 
     var body: some View {
@@ -604,7 +602,7 @@ struct GoogleCLISettingsRow: View {
 
     private func refresh() async {
         isRefreshing = true
-        gogCLIStatus = await HeyMateGogCLIStatusResolver.refresh()
+        gogCLIStatus = await GoogleWorkspaceCLIInspector.refresh()
         hasChecked = true
         isRefreshing = false
     }

@@ -51,17 +51,17 @@ nonisolated enum LocalVoiceAction: Equatable {
         case .openApp(let name):
             return HeyMateAppLauncher.open(named: name)
         case .volumeUp:
-            return HeyMateSystemOutputVolume.adjust(by: 0.1) != nil
+            return SystemVolume.adjust(by: 0.1) != nil
         case .volumeDown:
-            return HeyMateSystemOutputVolume.adjust(by: -0.1) != nil
+            return SystemVolume.adjust(by: -0.1) != nil
         case .mute:
-            return HeyMateSystemOutputVolume.setScalar(0)
+            return SystemVolume.setScalar(0)
         case .unmute:
-            let current = HeyMateSystemOutputVolume.currentScalar() ?? 0
+            let current = SystemVolume.currentScalar() ?? 0
             let restored = current < 0.02 ? 0.4 : current
-            return HeyMateSystemOutputVolume.setScalar(restored)
+            return SystemVolume.setScalar(restored)
         case .setVolume(let percent):
-            return HeyMateSystemOutputVolume.setScalar(Float(percent) / 100)
+            return SystemVolume.setScalar(Float(percent) / 100)
         }
     }
 

@@ -30,9 +30,9 @@ struct LocalKernelTests {
     }
 
     @Test func outputVolumeScalarClamps() {
-        #expect(HeyMateSystemOutputVolume.clampedScalar(-1) == 0)
-        #expect(HeyMateSystemOutputVolume.clampedScalar(0.4) == 0.4)
-        #expect(HeyMateSystemOutputVolume.clampedScalar(2) == 1)
+        #expect(SystemVolume.clampedScalar(-1) == 0)
+        #expect(SystemVolume.clampedScalar(0.4) == 0.4)
+        #expect(SystemVolume.clampedScalar(2) == 1)
     }
 
     @Test func localVoiceActionDoesNotTreatOpenThisAsLaunch() {

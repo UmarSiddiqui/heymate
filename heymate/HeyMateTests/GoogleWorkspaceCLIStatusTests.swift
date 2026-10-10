@@ -1,5 +1,5 @@
 //
-//  HeyMateGogCLIStatusTests.swift
+//  GoogleWorkspaceCLIStatusTests.swift
 //  HeyMateTests
 //
 //  Settings gogcli readiness is file inspection only. Fixtures live in a
@@ -11,7 +11,7 @@ import Foundation
 import Testing
 @testable import HeyMate
 
-struct HeyMateGogCLIStatusTests {
+struct GoogleWorkspaceCLIStatusTests {
 
     @Test func reportsNotInstalledWhenExecutableAndSupportFilesAreMissing() throws {
         let home = try makeTemporaryHome()
@@ -94,18 +94,18 @@ struct HeyMateGogCLIStatusTests {
         home: URL,
         knownExecutablePaths: [String] = [],
         environment: [String: String] = [:]
-    ) -> HeyMateGogCLIStatus {
-        HeyMateGogCLIStatusResolver.refreshSynchronously(
+    ) -> GoogleWorkspaceCLIStatus {
+        GoogleWorkspaceCLIInspector.inspect(
             fileManager: .default,
             homeDirectory: home,
             environment: environment,
-            knownExecutablePaths: knownExecutablePaths
+            executablePaths: knownExecutablePaths
         )
     }
 
     private func makeTemporaryHome() throws -> URL {
         let home = FileManager.default.temporaryDirectory
-            .appendingPathComponent("HeyMateGogCLIStatusTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("GoogleWorkspaceCLIStatusTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         return home
     }
