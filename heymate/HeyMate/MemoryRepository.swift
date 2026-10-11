@@ -41,6 +41,10 @@ nonisolated struct MemoryItem: Codable, Equatable, Identifiable {
 }
 
 nonisolated enum MemoryContext {
+    /// Owner of HeyMate's own talk memory. Talk is not a mate, so it gets a
+    /// fixed id of its own instead of borrowing First Mate's.
+    static let heyMateTalkOwnerID = UUID(uuidString: "4E7A11C0-0000-4000-8000-000000000001")!
+
     static func items(_ items: [MemoryItem], for mateID: UUID?) -> [MemoryItem] {
         items.filter { item in
             if let owner = item.mateID { return owner == mateID }

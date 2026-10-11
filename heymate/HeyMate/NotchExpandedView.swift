@@ -782,7 +782,7 @@ private struct NotchHomeTab: View {
         let messageText = typedMessageInput
         // A refused message keeps the text and the card: the reason renders
         // in the feedback row right below the field.
-        guard companionManager.sendTypedMessage(messageText) else { return }
+        guard companionManager.sendTypedMessage(messageText, asHeyMateTalk: true) else { return }
         typedMessageInput = ""
 
         // A slash command's answer (the /help listing, "no such command", the

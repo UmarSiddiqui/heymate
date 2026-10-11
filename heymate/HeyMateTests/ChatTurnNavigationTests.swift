@@ -274,6 +274,57 @@ struct ChatTurnNavigationTests {
         #expect(fixture.manager.chatConnectorExclusions == ["example-connector"])
     }
 
+    @Test func talkAnswersAsHeyMateEvenWithAMateChatOpen() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        var mate = fixture.addMate(name: "Pixel", brain: .onDevice)
+        mate.memoryNote = "Use concise design feedback."
+        _ = manager.mateDirectory.upsertMate(mate)
+        manager.memoryRepository.updateSessionSummary(mateID: mate.id, text: "Pixel project is a blue logo.")
+        manager.memoryRepository.updateSessionSummary(
+            mateID: MemoryContext.heyMateTalkOwnerID, text: "Talk remembers the red bike."
+        )
+        manager.memoryItems = manager.memoryRepository.loadAll()
+        manager.openMate(id: mate.id)
+        let openChatMessages = manager.currentChat.messages
+
+        manager.isHeyMateTalkTurn = true
+        manager.sendTranscriptToClaudeWithScreenshot(transcript: "Explain the next step", shouldCaptureScreen: false)
+        let task = try #require(manager.currentResponseTask)
+        try await fixture.client.waitForRequest()
+        let request = try #require(fixture.client.requests.first)
+        #expect(request.systemPrompt.contains(CompanionPrompts.heyMateTalkPersona))
+        #expect(!request.systemPrompt.contains(mate.memoryNote))
+        #expect(!request.systemPrompt.contains(Mate.firstMateSoul))
+        #expect(request.userPrompt.contains("Talk remembers the red bike."))
+        #expect(!request.userPrompt.contains("Pixel project"))
+
+        fixture.client.finish(text: "Oh, you missed the big button? Cute. Top right.")
+        await task.value
+        #expect(manager.activeMateID == mate.id)
+        #expect(manager.currentChat.messages == openChatMessages)
+        #expect(manager.heyMateTalkSession.messages.map(\.role) == [.user, .assistant])
+        let talkSummary = manager.memoryItems.first {
+            $0.kind == .sessionSummary && $0.mateID == MemoryContext.heyMateTalkOwnerID
+        }
+        #expect(talkSummary?.text.contains("Top right.") == true)
+        let pixelSummary = manager.memoryItems.first { $0.kind == .sessionSummary && $0.mateID == mate.id }
+        #expect(pixelSummary?.text == "Pixel project is a blue logo.")
+    }
+
+    @Test func sayingAMateNameDuringTalkDoesNotSwitchMates() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        let mate = fixture.addMate(name: "Pixel", brain: .onDevice)
+        let openBefore = manager.activeMateID
+        manager.handleTalkTranscript("Pixel, what is on my screen right now?")
+        #expect(manager.isHeyMateTalkTurn)
+        #expect(manager.activeMateID == openBefore)
+        #expect(manager.activeMateID != mate.id)
+    }
+
     @Test func specialistRequestIncludesOwnNoteAndOnlyItsScopedSummary() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
