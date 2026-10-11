@@ -8,6 +8,10 @@ exponential decay, no samples).
 Sounds:
   listen-start   rising soft blip when push-to-talk opens the mic (talk mode)
   response-ready gentle two-note chime when TTS audio starts playing
+  job-started    two quick rising steps when a job begins
+  job-done       three-note rising arpeggio when a job finishes
+  job-needs-you  two soft falling notes, twice, when a job waits on you
+  message-sent   short falling blip when a typed message goes out
 
 Usage: python3 scripts/generate_ui_sounds.py
 """
@@ -78,6 +82,22 @@ def two_note_chime(first_freq: float, second_freq: float,
     return [s * scale for s in mixed]
 
 
+def sequence(notes: list[tuple[float, float]], gap: float) -> list[float]:
+    """Bell notes one after another, each starting `gap` seconds apart."""
+    rendered = [synth_note(freq, dur) for freq, dur in notes]
+    gap_samples = int(gap * SAMPLE_RATE)
+    total = gap_samples * (len(rendered) - 1) + len(rendered[-1])
+    total = max(total, max(gap_samples * i + len(r) for i, r in enumerate(rendered)))
+    mixed = [0.0] * total
+    for index, note in enumerate(rendered):
+        offset = index * gap_samples
+        for i, value in enumerate(note):
+            mixed[offset + i] += value
+    peak = max(abs(v) for v in mixed) or 1.0
+    scale = PEAK_AMPLITUDE / peak
+    return [v * scale for v in mixed]
+
+
 def synth_note(frequency: float, duration: float) -> list[float]:
     """Bell-flavored note: fundamental + 0.25 octave partial + 0.125 twelfth."""
     total_samples = int(duration * SAMPLE_RATE)
@@ -110,6 +130,30 @@ def main() -> None:
         os.path.join(assets_root, "ResponseReady.dataset", "response-ready.wav"),
         two_note_chime(first_freq=880.0, second_freq=1318.51,
                        note_duration=0.22, overlap=0.06),
+    )
+
+    # Job started: G5 → C6, quick and light.
+    write_wav(
+        os.path.join(assets_root, "JobStarted.dataset", "job-started.wav"),
+        sequence([(783.99, 0.12), (1046.50, 0.16)], gap=0.07),
+    )
+
+    # Job done: C6 → E6 → G6, a small "ta-da".
+    write_wav(
+        os.path.join(assets_root, "JobDone.dataset", "job-done.wav"),
+        sequence([(1046.50, 0.18), (1318.51, 0.18), (1567.98, 0.32)], gap=0.09),
+    )
+
+    # Needs you: E6 → C6 twice, asks for attention without alarm.
+    write_wav(
+        os.path.join(assets_root, "JobNeedsYou.dataset", "job-needs-you.wav"),
+        sequence([(1318.51, 0.14), (1046.50, 0.2), (1318.51, 0.14), (1046.50, 0.24)], gap=0.11),
+    )
+
+    # Message sent: quick downward glide, like something leaving.
+    write_wav(
+        os.path.join(assets_root, "MessageSent.dataset", "message-sent.wav"),
+        sine_glide(duration=0.1, start_freq=987.77, end_freq=659.25),
     )
 
 

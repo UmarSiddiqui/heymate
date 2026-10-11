@@ -6,6 +6,7 @@
 //  is not exercised here.
 //
 
+import AppKit
 import CoreGraphics
 import Foundation
 import Testing
@@ -122,5 +123,27 @@ struct MateRailPreviewTests {
         #expect(SpeechStylePreferences.elevenLabsSpeed(1.5) == 1.2)
         #expect(SpeechStylePreferences.macRate(defaultRate: 0.5, minimum: 0, maximum: 1, speed: 1.5) == 0.75)
         #expect(SpeechStylePreferences.speedLabel(1.25) == "1.25×")
+    }
+}
+
+struct InteractionSoundAndKeyCapTests {
+    @Test func jobEventsMapToSounds() {
+        #expect(UISoundPlayer.sound(for: .started) == .jobStarted)
+        #expect(UISoundPlayer.sound(for: .finished(summary: "ok")) == .jobDone)
+        #expect(UISoundPlayer.sound(for: .planReady(text: "plan")) == .jobNeedsYou)
+        #expect(UISoundPlayer.sound(for: .text("chatter")) == nil)
+    }
+
+    @MainActor
+    @Test func everySoundHasAnAsset() {
+        for sound in UISoundPlayer.Sound.allCases {
+            #expect(NSDataAsset(name: sound.rawValue) != nil, "missing \(sound.rawValue)")
+        }
+    }
+
+    @Test func modifiersBecomeMacGlyphs() {
+        #expect(KeyCapSymbols.symbol(for: "ctrl") == "⌃")
+        #expect(KeyCapSymbols.symbol(for: "option") == "⌥")
+        #expect(KeyCapSymbols.menuTitle(for: ["ctrl", "option"], words: "ctrl + option") == "⌃⌥   ctrl + option")
     }
 }

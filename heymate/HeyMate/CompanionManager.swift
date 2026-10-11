@@ -3562,6 +3562,7 @@ final class CompanionManager: ObservableObject {
             let messageWithContext = messageText.appending(contextPreamble(for: contextTokens))
             lastTranscript = messageText
             HeyMateAnalytics.track(.userMessageSent(characterCount: messageText.count))
+            UISoundPlayer.shared.play(.messageSent)
             // Not `requiresIdle`: a busy Talk pipeline is something a second
             // question deliberately interrupts, and the states where typing
             // genuinely cannot be served were refused above by name.
@@ -4966,6 +4967,9 @@ final class CompanionManager: ObservableObject {
     private func handleAgentEvent(runID: UUID, event: AgentEvent) {
         if let run = agentRunStore.run(id: runID) {
             agentUserNotifier.handle(run: run, event: event)
+        }
+        if let sound = UISoundPlayer.sound(for: event) {
+            UISoundPlayer.shared.play(sound)
         }
 
         postMateRunUpdate(runID: runID, event: event)

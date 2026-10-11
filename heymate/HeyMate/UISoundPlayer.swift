@@ -21,6 +21,24 @@ final class UISoundPlayer {
         case listenStart = "ListenStart"
         /// Gentle two-note chime when the spoken response starts playing.
         case responseReady = "ResponseReady"
+        /// Two quick rising steps when a job begins.
+        case jobStarted = "JobStarted"
+        /// A small rising arpeggio when a job finishes.
+        case jobDone = "JobDone"
+        /// Two soft falling notes, twice, when a job waits on you.
+        case jobNeedsYou = "JobNeedsYou"
+        /// A short falling blip when a typed message goes out.
+        case messageSent = "MessageSent"
+    }
+
+    /// The sound a job event makes, or nil for the chatter in between.
+    nonisolated static func sound(for event: AgentEvent) -> Sound? {
+        switch event {
+        case .started: return .jobStarted
+        case .planReady, .approvalRequested, .failed: return .jobNeedsYou
+        case .finished: return .jobDone
+        case .sessionIdentified, .tool, .text: return nil
+        }
     }
 
     /// Decoded asset bytes, read once. Loading the data set from the asset
