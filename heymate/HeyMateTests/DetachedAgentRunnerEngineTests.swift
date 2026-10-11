@@ -187,6 +187,60 @@ struct DetachedAgentRunnerEngineTests {
         #expect(binaryPaths == [resolve("/bin/ls")])
     }
 
+    /// Keep the interpreter alive on stdin so the check cannot accidentally
+    /// pass by seeing only the transient `/usr/bin/env` or `/bin/sh` image.
+    @Test(arguments: ["direct", "shebang", "env"])
+    func expectedChildPathsIncludeHeldSystemShellBackend(invocation: String) async throws {
+        let fixture = try makeFixtureDirectory(named: "held-system-shell")
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let script = try makeExecutableScript(
+            in: fixture, named: "agent",
+            contents: "\(invocation == "env" ? "#!/usr/bin/env sh" : "#!/bin/sh")\nIFS= read -r release\n"
+        )
+        let input = Pipe()
+        let child = Process()
+        let executable = invocation == "direct" ? URL(fileURLWithPath: "/bin/sh") : script
+        child.executableURL = executable
+        child.arguments = invocation == "direct" ? [script.path] : []
+        child.environment = ["PATH": "/usr/bin:/bin"]
+        child.standardInput = input
+        child.standardOutput = FileHandle.nullDevice
+        child.standardError = FileHandle.nullDevice
+        try child.run()
+        defer {
+            if child.isRunning { child.terminate() }
+            child.waitUntilExit()
+        }
+
+        let backendStarted = await waitUntil(timeout: 2) {
+            guard let identity = AgentProcessIdentityInspector.identity(for: child.processIdentifier) else { return false }
+            return ["/bin/bash", "/bin/dash", "/bin/zsh"].contains(identity.executablePath)
+        }
+        #expect(backendStarted)
+        let identity = try #require(AgentProcessIdentityInspector.identity(for: child.processIdentifier))
+        let expected = DetachedAgentChildExecutable.expectedExecutablePaths(for: executable, searchPATH: "/usr/bin:/bin")
+        #expect(expected.contains(identity.executablePath), "Actual backend: \(identity.executablePath); expected: \(expected)")
+        #expect(AgentProcessIdentityInspector.matchesLiveProcess(identity))
+    }
+
+    @Test func systemShellSelectionIsRestrictedToExactSystemPaths() {
+        for backend in ["/bin/bash", "/bin/dash", "/bin/zsh"] {
+            #expect(DetachedAgentChildExecutable.selectedSystemShellBackend(
+                expectedPaths: ["/bin/sh"], selection: backend
+            ) == backend)
+        }
+        for selection in [nil, "/tmp/bash", "/bin/ls", "bash", "/bin/../tmp/bash"] as [String?] {
+            #expect(DetachedAgentChildExecutable.selectedSystemShellBackend(
+                expectedPaths: ["/bin/sh"], selection: selection
+            ) == nil)
+        }
+        for executable in ["/tmp/sh", "/usr/local/bin/sh", "/usr/bin/env", "/usr/local/bin/node"] {
+            #expect(DetachedAgentChildExecutable.selectedSystemShellBackend(
+                expectedPaths: [executable], selection: "/bin/bash"
+            ) == nil)
+        }
+    }
+
     @Test func bufferedFailureEventWinsOverZeroProcessExit() async throws {
         let fixture = try makeFixtureDirectory(named: "buffered-failure")
         defer { try? FileManager.default.removeItem(at: fixture) }

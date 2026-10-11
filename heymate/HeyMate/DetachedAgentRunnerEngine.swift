@@ -621,14 +621,29 @@ nonisolated enum DetachedAgentChildExecutable {
     ) -> Set<String> {
         let scriptPath = executableURL.resolvingSymlinksInPath().path
         var paths: Set<String> = [scriptPath]
-        guard let interpreter = shebangInterpreter(atPath: scriptPath) else { return paths }
-
-        paths.insert(resolved(interpreter.path))
-        if let program = interpreter.envProgram,
-           let programPath = lookUp(program, searchPATH: searchPATH, fileManager: fileManager) {
-            paths.insert(resolved(programPath))
+        if let interpreter = shebangInterpreter(atPath: scriptPath) {
+            paths.insert(resolved(interpreter.path))
+            if let program = interpreter.envProgram,
+               let programPath = lookUp(program, searchPATH: searchPATH, fileManager: fileManager) {
+                paths.insert(resolved(programPath))
+            }
+        }
+        // macOS /bin/sh is an executable dispatcher, not a symlink. After
+        // exec, proc_pidpath reports the selected backend instead of sh.
+        // Only the system selector and its fixed system backends qualify.
+        if let backend = selectedSystemShellBackend(
+            expectedPaths: paths,
+            selection: try? fileManager.destinationOfSymbolicLink(atPath: "/private/var/select/sh")
+        ), fileManager.isExecutableFile(atPath: backend) {
+            paths.insert(backend)
         }
         return paths
+    }
+
+    static func selectedSystemShellBackend(expectedPaths: Set<String>, selection: String?) -> String? {
+        guard expectedPaths.contains("/bin/sh"), let selection,
+              ["/bin/bash", "/bin/dash", "/bin/zsh"].contains(selection) else { return nil }
+        return selection
     }
 
     /// The interpreter from a `#!` line. For `/usr/bin/env [-S] [flags] prog`
