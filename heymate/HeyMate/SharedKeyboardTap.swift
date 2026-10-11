@@ -50,7 +50,19 @@ final class SharedKeyboardTap {
         if listeners.isEmpty { uninstall() }
     }
 
+    /// Replaces the tap with a fresh one. A tap created before Input
+    /// Monitoring was granted keeps the reduced event set it started with,
+    /// so a new grant only reaches the shortcuts through a new tap.
+    func reinstall() {
+        guard !listeners.isEmpty else { return }
+        uninstall()
+        install()
+    }
+
     private func install() {
+        if !CGPreflightListenEventAccess() {
+            HeyMateLog.log("⚠️ Global shortcuts: Input Monitoring is off, so the keyboard shortcuts can't hear key presses")
+        }
         let mask = [CGEventType.flagsChanged, .keyDown, .keyUp]
             .reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << $1.rawValue) }
 
