@@ -21,6 +21,12 @@
   box-shadow: 0 40px 100px rgba(0, 0, 0, 0.22), 0 0 0 1px var(--hairline);
 }
 .film-frame video { display: block; width: 100%; height: 100%; }
+.film-frame .film-vertical { display: none; }
+@media (max-width: 640px) and (orientation: portrait) {
+  .film-frame { aspect-ratio: 9 / 16; max-width: 420px; }
+  .film-frame .film-landscape { display: none; }
+  .film-frame .film-vertical { display: block; }
+}
 
 .card-clip {
   border-radius: var(--r-sm);

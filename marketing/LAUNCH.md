@@ -50,6 +50,15 @@ Produce a readable 16:9 walkthrough and a separately framed 9:16 cut; do not cro
 
 ## Draft X posts
 
+**Meet HeyMate tour (draft, not posted).** Attach `marketing/demo-video/out/heymate-meet-1080x1920.mp4` (41.6 s, vertical). About 261 of 280 weighted characters. Reply with the music credit (Show Me by Peyruis, CC BY 3.0, https://soundcloud.com/peyruis).
+
+> Hold ⌃⌥, ask about anything on your screen. HeyMate points, explains out loud, and waits while you try.
+>
+> A more fun way to use the AI you already have: your Claude or ChatGPT plan, an API key, or a local model.
+>
+> Free, open source, Mac.
+> https://getheymate.vercel.app/?utm_source=x&utm_medium=social&utm_campaign=meet_heymate
+
 Post one is under 280 characters without an attachment URL:
 
 > Learn desktop apps and websites, one step at a time. HeyMate points, explains, and waits while you try it. Free and open source. Available for macOS. Try one useful walkthrough: https://getheymate.vercel.app
