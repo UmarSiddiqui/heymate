@@ -31,7 +31,7 @@ struct MateHomeLayoutTests {
         #expect(DesktopSection.sidebarSections == [.connectors, .settings])
         #expect(DesktopSection.connectors.displayName == "Apps")
         #expect(DesktopSection.connectors.rawValue == "connectors")
-        #expect(DesktopSection.agents.displayName == "Jobs")
+        #expect(DesktopSection.agents.displayName == "Agents")
     }
 
     @Test func notchAppsAndPrivacyDeepLinksLandOnSettingsTabs() {
@@ -115,13 +115,33 @@ struct MateHomeLayoutTests {
         let scout = sampleMate(id: id, name: "Inbox Scout", job: "Watch the inbox")
         let renamed = sampleMate(id: id, name: "Mail Scout", job: "Watch the inbox")
         #expect(MateFace.assetName(for: scout) == MateFace.assetName(for: renamed))
-        #expect(MateFace.assetNames.contains(MateFace.assetName(for: scout)))
-        #expect(MateFace.assetNames.count == 20)
+        #expect(MateFace.legacyAssetNames.contains(MateFace.assetName(for: scout)))
+        #expect(MateFace.legacyAssetNames.count == 20)
+        #expect(MateFace.assetNames.count == 29)
+        #expect(Set(MateFace.assetNames).count == MateFace.assetNames.count)
+        #expect(MateFace.packs.map(\.id) == ["signal", "margin", "instrument", "original"])
+        #expect(MateFace.label(for: "MateFaceSignalPointer") == "Pointer")
         #expect(MateFace.assetNames.contains("MateFaceCrescent"))
         #expect(MateFace.assetNames.contains("MateFaceRobot"))
+        #expect(MateFace.assetNames.contains("MateFaceMarginBoat"))
         #expect(MateFace.fillsFrame("MateFaceLilac"))
         #expect(MateFace.fillsFrame("MateFaceAmber") == false)
         #expect(MateFace.fillsFrame("MateFaceStyledGirl") == false)
+        #expect(MateFace.fillsFrame("MateFaceSignalComet") == false)
+        #expect(MateFaceExpression.live(.listening(.talk)) == .listening)
+        #expect(MateFaceExpression.live(.thinking) == .thinking)
+        #expect(MateFaceExpression.live(.speaking) == .speaking)
+        #expect(MateFaceExpression.live(.idle) == .idle)
+        let cast = MateCast.proposals(
+            from: MateCastAnswers(skill: "Photopea", style: "Patient", project: "a logo", packID: "signal"),
+            existingNames: ["First Mate"]
+        )
+        #expect(cast.count == 3)
+        #expect(Set(cast.map(\.name)).count == 3)
+        #expect(cast.allSatisfy { $0.faceTint.isEmpty == false })
+        #expect(cast.allSatisfy { MateFace.pack(containing: $0.faceAssetName)?.id == "signal" })
+        #expect(MateCast.shouldOffer(hasCompletedOnboarding: true, activeMateCount: 1, alreadyOffered: false))
+        #expect(MateCast.shouldOffer(hasCompletedOnboarding: true, activeMateCount: 2, alreadyOffered: false) == false)
     }
 
     @Test func longChatsShowTheNewestPageUntilEarlierIsAskedFor() {
