@@ -26,7 +26,7 @@ enum NotchExpandedTab: String, CaseIterable, Identifiable {
         switch self {
         case .home: return "Home"
         case .apps: return "Apps"
-        case .agents: return "Jobs"
+        case .agents: return "Agents"
         }
     }
 
@@ -553,6 +553,7 @@ private struct NotchHomeTab: View {
                                     companionManager.openDesktopWindow(section: section)
                                 }
                             )
+                            NotchMatesPeek(companionManager: companionManager)
                             doorsRow
                         }
                     }
@@ -808,48 +809,47 @@ private struct NotchHomeTab: View {
         VStack(alignment: .leading, spacing: 7) {
             DSSectionLabel(title: "Jump to")
 
-            // 2×2 so each door has room for a one-line "what's behind it"
-            // and the column fills the card instead of floating at the top.
-            VStack(spacing: 7) {
-                HStack(spacing: 7) {
-                    NotchDoorTile(
-                        title: "Jobs",
-                        subtitle: agentsDoorSubtitle,
-                        systemName: "sparkles",
-                        key: "1",
-                        help: "See running and finished jobs"
-                    ) {
-                        companionManager.shouldRevealAgentsTab = true
-                    }
-                    NotchDoorTile(
-                        title: "Window",
-                        subtitle: "Chat and history",
-                        systemName: "macwindow",
-                        key: "2",
-                        help: "Open the full HeyMate window"
-                    ) {
-                        companionManager.openDesktopWindow(section: .chat)
-                    }
+            // One row of compact doors under the mates peek.
+            HStack(spacing: 6) {
+                NotchDoorTile(
+                    title: "Agents",
+                    subtitle: agentsDoorSubtitle,
+                    systemName: "sparkles",
+                    key: "1",
+                    help: "See the agents and the work they are doing",
+                    isCompact: true
+                ) {
+                    companionManager.shouldRevealAgentsTab = true
                 }
-                HStack(spacing: 7) {
-                    NotchDoorTile(
-                        title: "Skills",
-                        subtitle: "How it answers",
-                        systemName: "wand.and.stars",
-                        key: "3",
-                        help: "Markdown files that shape how HeyMate answers"
-                    ) {
-                        companionManager.openDesktopWindow(section: .skills)
-                    }
-                    NotchDoorTile(
-                        title: "Settings",
-                        subtitle: "Engine, voice, keys",
-                        systemName: "gearshape",
-                        key: "4",
-                        help: "Engine, model, voice, shortcuts, and appearance"
-                    ) {
-                        companionManager.openDesktopWindow(section: .settings)
-                    }
+                NotchDoorTile(
+                    title: "Window",
+                    subtitle: "Chat and history",
+                    systemName: "macwindow",
+                    key: "2",
+                    help: "Open the full HeyMate window",
+                    isCompact: true
+                ) {
+                    companionManager.openDesktopWindow(section: .chat)
+                }
+                NotchDoorTile(
+                    title: "Skills",
+                    subtitle: "How it answers",
+                    systemName: "wand.and.stars",
+                    key: "3",
+                    help: "Markdown files that shape how HeyMate answers",
+                    isCompact: true
+                ) {
+                    companionManager.openDesktopWindow(section: .skills)
+                }
+                NotchDoorTile(
+                    title: "Settings",
+                    subtitle: "Engine, voice, keys",
+                    systemName: "gearshape",
+                    key: "4",
+                    help: "Engine, model, voice, shortcuts, and appearance",
+                    isCompact: true
+                ) {
+                    companionManager.openDesktopWindow(section: .settings)
                 }
             }
         }
@@ -949,7 +949,7 @@ private struct NotchRecentAgentRow: View {
         .buttonStyle(.plain)
         .pointerCursor()
         .onHover { isHovering = $0 }
-        .help("Open on the Jobs tab")
+        .help("Open on the Agents tab")
     }
 
     private var detail: String {
@@ -980,6 +980,7 @@ private struct NotchDoorTile: View {
     let systemName: String
     let key: KeyEquivalent
     let help: String
+    let isCompact: Bool
     let action: () -> Void
 
     init(
@@ -988,6 +989,7 @@ private struct NotchDoorTile: View {
         systemName: String,
         key: KeyEquivalent,
         help: String,
+        isCompact: Bool = false,
         action: @escaping () -> Void
     ) {
         self.title = title
@@ -995,12 +997,47 @@ private struct NotchDoorTile: View {
         self.systemName = systemName
         self.key = key
         self.help = help
+        self.isCompact = isCompact
         self.action = action
     }
 
     @State private var isHovering = false
 
     var body: some View {
+        if isCompact {
+            compactBody
+        } else {
+            fullBody
+        }
+    }
+
+    /// Icon over a one-word title, four to a row.
+    private var compactBody: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: systemName)
+                    .font(DS.Glyph.regular)
+                    .foregroundColor(isHovering ? DS.Colors.accentText : DS.Colors.textSecondary)
+                Text(title)
+                    .font(DS.Fonts.caption.weight(.semibold))
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .dsSurface(.row, isHighlighted: isHovering)
+            .animation(.easeOut(duration: 0.12), value: isHovering)
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .help("\(help) · \(subtitle)")
+        .keyboardShortcut(key, modifiers: .command)
+        .onHover { isHovering = $0 }
+        .accessibilityLabel(title)
+        .accessibilityHint(subtitle)
+    }
+
+    private var fullBody: some View {
         Button(action: action) {
             HStack(spacing: 9) {
                 RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
@@ -1202,7 +1239,7 @@ private struct NotchAgentsTab: View {
             DSSectionLabel(title: "New job")
 
             HStack(spacing: 8) {
-                TextField("Describe a job for HeyMate", text: $sandboxPromptText)
+                TextField("Describe work for an agent", text: $sandboxPromptText)
                     .textFieldStyle(.plain)
                     .font(DS.Fonts.body)
                     .foregroundColor(DS.Colors.textPrimary)
@@ -1308,6 +1345,10 @@ private struct NotchAgentsTab: View {
                     ForEach(section.runs) { run in
                         AgentRunCard(
                             run: run,
+                            canFollowUp: companionManager.canSendAgentFollowUp(runID: run.id),
+                            onFollowUp: { text in
+                                companionManager.sendAgentFollowUp(runID: run.id, instruction: text)
+                            },
                             onCancel: { companionManager.cancelAgent(runID: run.id) },
                             onApprove: { companionManager.approveAgent(runID: run.id) },
                             onDeny: { companionManager.denyAgent(runID: run.id) },
@@ -1351,12 +1392,15 @@ private struct NotchAgentsTab: View {
 
 private struct AgentRunCard: View {
     let run: AgentRun
+    var canFollowUp: Bool = false
+    var onFollowUp: ((String) -> Bool)? = nil
     let onCancel: () -> Void
     let onApprove: () -> Void
     let onDeny: () -> Void
     let onApprovePlan: () -> Void
     let onDismissPlan: () -> Void
     let onOpenFolder: () -> Void
+    @State private var followUpText = ""
 
     var body: some View {
         let projectColor = Color(
@@ -1431,6 +1475,19 @@ private struct AgentRunCard: View {
                 }
                 Spacer()
             }
+
+            if canFollowUp {
+                HStack(spacing: 8) {
+                    TextField("Follow up in this thread", text: $followUpText)
+                        .textFieldStyle(.plain)
+                        .font(DS.Fonts.body)
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .onSubmit(sendFollowUp)
+                    cardButton("Send", isProminent: true, action: sendFollowUp)
+                        .disabled(followUpText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                .accessibilityLabel("Follow up with this agent")
+            }
         }
         .padding(12)
         // The project's own hue washes in from the corner so runs in the
@@ -1472,6 +1529,14 @@ private struct AgentRunCard: View {
         if !run.latestAction.isEmpty { return run.latestAction }
         if !run.summary.isEmpty { return run.summary }
         return run.prompt
+    }
+
+    private func sendFollowUp() {
+        let text = followUpText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        if onFollowUp?(text) == true {
+            followUpText = ""
+        }
     }
 
     private func elapsedLabel(at now: Date) -> String {
@@ -1593,7 +1658,7 @@ private struct NotchStatusCard: View {
 
     private var statusTitle: String {
         if companionManager.isForegroundAgentActive {
-            return "Working on a job"
+            return "An agent is working"
         }
         switch companionManager.voiceState {
         case .idle: return "Ready when you are"

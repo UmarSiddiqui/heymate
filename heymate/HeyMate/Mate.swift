@@ -25,6 +25,12 @@ nonisolated struct Mate: Equatable, Identifiable {
     var soul: String = ""
     /// Chosen picture. Nil keeps the face that belongs to this mate.
     var faceAssetName: String? = nil
+    /// Optional color laid over the picture. Nil leaves the art as drawn.
+    var faceTint: String? = nil
+    /// A small shape at the top of the face: tuft, band, or hood.
+    var faceHair: String? = nil
+    /// A small shape at the bottom of the face: collar or scarf.
+    var faceOutfit: String? = nil
     /// The default mate. Sees the other mates and can hand them work.
     /// Specialists stay false even if they are renamed to the same words.
     var conductsOthers: Bool = false
@@ -51,7 +57,8 @@ nonisolated struct Mate: Equatable, Identifiable {
 extension Mate: Codable {
     private enum CodingKeys: String, CodingKey {
         case id, name, job, pinned, archived, unreadCount, createdAt, updatedAt
-        case memoryNote, folderPath, soul, faceAssetName, conductsOthers, brainRawValue, connectorExclusionIDs
+        case memoryNote, folderPath, soul, faceAssetName, faceTint, faceHair, faceOutfit
+        case conductsOthers, brainRawValue, connectorExclusionIDs
     }
 
     init(from decoder: Decoder) throws {
@@ -68,6 +75,9 @@ extension Mate: Codable {
         folderPath = try container.decodeIfPresent(String.self, forKey: .folderPath)
         soul = try container.decodeIfPresent(String.self, forKey: .soul) ?? ""
         faceAssetName = try container.decodeIfPresent(String.self, forKey: .faceAssetName)
+        faceTint = try container.decodeIfPresent(String.self, forKey: .faceTint)
+        faceHair = try container.decodeIfPresent(String.self, forKey: .faceHair)
+        faceOutfit = try container.decodeIfPresent(String.self, forKey: .faceOutfit)
         conductsOthers = try container.decodeIfPresent(Bool.self, forKey: .conductsOthers) ?? false
         brainRawValue = try container.decodeIfPresent(String.self, forKey: .brainRawValue)
         connectorExclusionIDs = try container.decodeIfPresent([String].self, forKey: .connectorExclusionIDs)
@@ -87,6 +97,9 @@ extension Mate: Codable {
         try container.encodeIfPresent(folderPath, forKey: .folderPath)
         try container.encode(soul, forKey: .soul)
         try container.encodeIfPresent(faceAssetName, forKey: .faceAssetName)
+        try container.encodeIfPresent(faceTint, forKey: .faceTint)
+        try container.encodeIfPresent(faceHair, forKey: .faceHair)
+        try container.encodeIfPresent(faceOutfit, forKey: .faceOutfit)
         try container.encode(conductsOthers, forKey: .conductsOthers)
         try container.encodeIfPresent(brainRawValue, forKey: .brainRawValue)
         try container.encodeIfPresent(connectorExclusionIDs, forKey: .connectorExclusionIDs)

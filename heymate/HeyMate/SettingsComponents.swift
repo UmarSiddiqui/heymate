@@ -203,6 +203,8 @@ struct SettingsSection<Content: View>: View {
                     if let title {
                         Text(title)
                             .font(DS.Fonts.sectionLabel)
+                            .textCase(.uppercase)
+                            .tracking(0.8)
                             .foregroundColor(DS.Colors.textTertiary)
                             .accessibilityAddTraits(.isHeader)
                     }

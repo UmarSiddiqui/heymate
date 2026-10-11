@@ -35,10 +35,12 @@ final class ElevenLabsVoiceClient: TTSClient {
         struct VoiceSettings: Encodable {
             let stability = 0.5
             let similarityBoost = 0.75
+            let speed = SpeechStylePreferences.elevenLabsSpeed()
 
             enum CodingKeys: String, CodingKey {
                 case stability
                 case similarityBoost = "similarity_boost"
+                case speed
             }
         }
 

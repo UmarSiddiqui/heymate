@@ -373,10 +373,13 @@ extension CompanionManager: MateRoutineRunning {
         name: String,
         job: String,
         soul: String,
-        faceAssetName: String?
+        faceAssetName: String?,
+        faceTint: String? = nil,
+        faceHair: String? = nil,
+        faceOutfit: String? = nil
     ) -> String? {
         guard let mate = mateDirectory.mates.first(where: { $0.id == id }) else {
-            return "That mate is gone."
+            return "That agent is gone."
         }
         let previousFace = mate.faceAssetName
         let edited = MateProfileEdit.applying(
@@ -384,7 +387,10 @@ extension CompanionManager: MateRoutineRunning {
                 name: name,
                 job: job,
                 soul: soul,
-                faceAssetName: faceAssetName
+                faceAssetName: faceAssetName,
+                faceTint: faceTint,
+                faceHair: faceHair,
+                faceOutfit: faceOutfit
             ),
             to: mate,
             now: Date(),
@@ -392,7 +398,7 @@ extension CompanionManager: MateRoutineRunning {
         )
         switch edited {
         case .failure(.missingNameOrJob):
-            return "A mate needs a name and a job."
+            return "An agent needs a name and what it does."
         case .failure(.nameTaken):
             return "That name is already taken."
         case .success(let updated):
@@ -660,7 +666,7 @@ extension CompanionManager: MateRoutineRunning {
         guard let requests = MateCreationParser.parseRequests(text), !requests.isEmpty else { return false }
         if let takenName = requests.compactMap(\.name).first(where: { mateDirectory.mateStore.isNameTaken($0) }) {
             appendUserMessage(text)
-            appendAssistantMessage("A mate named \(takenName) already exists. Choose a different name or edit that mate.")
+            appendAssistantMessage("An agent named \(takenName) already exists. Choose a different name or edit that agent.")
             return true
         }
         var existingNames = mateDirectory.mates.filter { !$0.archived }.map(\.name)
@@ -673,7 +679,7 @@ extension CompanionManager: MateRoutineRunning {
         }
         guard let first = created.first else {
             appendUserMessage(text)
-            appendAssistantMessage("I couldn't save that mate. Try creating it again from New mate.")
+            appendAssistantMessage("I couldn't save that agent. Try creating it again from New agent.")
             return true
         }
         syncMatePublications()

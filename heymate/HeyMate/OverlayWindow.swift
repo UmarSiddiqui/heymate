@@ -67,6 +67,18 @@ final class OverlayWindowManager {
         }
     }
 
+    /// Takes the overlays off screen without tearing them down, so the
+    /// screenshot picker can't select them; `false` puts them back.
+    func setYielded(_ yielded: Bool) {
+        for window in windows {
+            if yielded {
+                window.orderOut(nil)
+            } else {
+                window.orderFrontRegardless()
+            }
+        }
+    }
+
     func hideOverlay() {
         for window in windows {
             window.orderOut(nil)
