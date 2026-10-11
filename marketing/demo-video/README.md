@@ -1,5 +1,16 @@
 # HeyMate demo video
 
+## Meet HeyMate (40 seconds)
+
+`MeetHeyMate` (1920×1080) and `MeetHeyMateVertical` (1080×1920), 30 fps, in the `Meet-HeyMate` Studio folder. A fun, teaching-first tour: your AI is stuck in a tab → the buddy pops out of the notch → it teaches a spreadsheet chart step by step and waits while you do it → quick "ask about anything" examples → bring your own AI (Claude via Claude Code, ChatGPT via Codex, OpenCode) → "a more fun way to use them" → Say hey. UI is recreated and the UI scenes carry a small **Illustrated UI** tag. Music: Show Me by Peyruis (CC BY 3.0, credit below).
+
+Source: `src/MeetHeyMate.tsx` (scene list and lengths) and `src/meet/`. Every scene is also registered on its own as `meet-<id>` and `meet-<id>-vertical`.
+
+```sh
+npx remotion render MeetHeyMate out/heymate-meet-1920x1080.mp4 --codec=h264 --crf=18 --pixel-format=yuv420p --audio-codec=aac
+npx remotion render MeetHeyMateVertical out/heymate-meet-1080x1920.mp4 --codec=h264 --crf=18 --pixel-format=yuv420p --audio-codec=aac
+```
+
 ## Pixel Coach product demo (42 seconds)
 
 `PixelCoachDemo` (1920×1080) and `PixelCoachDemoVertical` (1080×1920) are new 30 fps animated product demos. Seven separately editable scenes introduce a locally created Photopea tutor, its distinct name/job and saved practice note, then an example background-removal lesson where the user performs each action. Every frame says **Recreated product demo**. Earlier concept and tour compositions remain unchanged.
