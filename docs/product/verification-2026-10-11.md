@@ -2,11 +2,11 @@
 
 ## Current result
 
-The combined app, embedded runner, and test targets built successfully with ad-hoc signing. The complete HeyMateTests target passed **1,116 tests in 167 suites**, in **30.532 seconds**. `git diff --check` passed. Independent reviews of creation, consent, response ownership, and private-result delivery found no remaining blocker after the fixes described below.
+The combined app, embedded runner, and test targets built successfully with ad-hoc signing. The complete HeyMateTests target passed **1,118 tests in 167 suites**, in **32.289 seconds**. `git diff --check` passed. Independent reviews of creation, consent, response ownership, and private-result delivery found no remaining blocker after the fixes described below.
 
 This local result includes the original EOF fix from PR #14 and all current PR #20 polish. The branch includes the original #14 commit (`5686c14`) through a merge, rather than reauthoring its patch. Final-head CI is a separate check.
 
-**Core native acceptance passed after unlock.** Two distinct mates, saved notes, navigation cancellation, complete job delivery, and restart persistence were verified with the real Codex GPT-6-Luna provider. Screen-guided teaching remains pending because macOS denied screen capture for the ad-hoc candidate before a model call. PR #20 remains draft until that live check and final-head CI pass. The requested video is now an animated product demo, explicitly replacing continuous screen recording.
+**Core native acceptance passed after unlock.** Two distinct mates, saved notes, navigation cancellation, complete job delivery, and restart persistence were verified with the real Codex GPT-6-Luna provider. After the user refreshed the existing screen-recording grant and the app relaunched, live screen guidance worked: Pixel Coach identified Magic Wand, detected an incorrect triangle selection, and correctly refused to continue when Photopea was no longer visible. Automatic multi-step advancement and an end-to-end guided export were not verified; these are not claimed as passing. The requested video is now an animated product demo, explicitly replacing continuous screen recording.
 
 ## Behavior covered
 
@@ -26,7 +26,9 @@ This local result includes the original EOF fix from PR #14 and all current PR #
 4. Review found and fixed explicit-agent provider misrouting, missing executor-override consent, and a stuck foreground voice state after model changes. Targeted regressions are included in the final complete run.
 5. Live capture failed with ScreenCaptureKit domain `com.apple.ScreenCaptureKit.SCStreamErrorDomain`, code `-3801`. The failure occurred before a model call, but generic advice incorrectly blamed model settings. The exact permission denial now explains screen-recording access and app relaunch. Localized-message and unrelated-domain/code controls passed; capture and consent policy are unchanged.
 
-The successful runner fixture completed in 0.114 seconds in the final run; all five terminal-result scenarios completed in 0.371 seconds. Existing framework/deprecation warnings remain; no build error remained.
+6. Final-head CI exposed a shell-identity failure. A deterministic local regression confirmed that macOS `/bin/sh` can re-execute the selected `/bin/bash` backend after the transient launch image is gone. The runner now recognizes only the executable, explicitly selected system backend for an expected `/bin/sh`; arbitrary interpreters are not admitted, and PID/start-time/UID/boot identity checks remain intact. Held-process tests cover direct shell, direct shebang, and env shebang launches. The new test failed before the fix, then all 34 targeted tests and the complete 1,118-test suite passed. CI did not retain its actual child executable path, so its exact remote mechanism is not asserted. No timeout was increased.
+
+Existing framework/deprecation warnings remain; no build error remained.
 
 ## Reproduce
 
@@ -50,16 +52,16 @@ xcodebuild \
 
 Local evidence:
 
-- Latest build: `/tmp/heymate-screen-permission-build.log`
-- Latest complete tests: `/tmp/heymate-screen-permission-full-tests.log`
-- Latest result: `/tmp/heymate-product-polish-derived/Logs/Test/Test-HeyMate-2026.10.11_16-21-51-+0800.xcresult`
+- Latest build: `/tmp/heymate-shell-dispatch-build.log`
+- Latest complete tests: `/tmp/heymate-shell-dispatch-full-tests.log`
+- Latest result: `/tmp/heymate-product-polish-derived/Logs/Test/Test-HeyMate-2026.10.11_16-40-49-+0800.xcresult`
 - Earlier integrated build: `/tmp/heymate-polish-final-isolation-build.log`
 - Complete tests: `/tmp/heymate-polish-final-isolation-full-tests.log`
 - Result bundle: `/tmp/heymate-product-polish-derived/Logs/Test/Test-HeyMate-2026.10.11_13-27-37-+0800.xcresult`
 - EOF diagnosis: `/tmp/heymate-polish-pr14-diagnostic-tests.log`
 - Order-dependent failure diagnosis: `/tmp/heymate-engine-manager-sample.txt` and `/tmp/heymate-engine-manager-processes.txt` (private local diagnostics, not release assets)
 
-Earlier overlapping checks passed 141 tests/16 suites for identity/memory/navigation, 62/8 plus 3 routine tests for named creation, 16/2 after parser review, and 39/5 after navigation-state review. [CI at `5ab9a49`](https://github.com/UmarSiddiqui/heymate/actions/runs/38111416968) passed 1,064 tests/162 suites before the additional polish. These are historical, overlapping checks, not counts to add to the final 1,116.
+Earlier overlapping checks passed 141 tests/16 suites for identity/memory/navigation, 62/8 plus 3 routine tests for named creation, 16/2 after parser review, and 39/5 after navigation-state review. [CI at `5ab9a49`](https://github.com/UmarSiddiqui/heymate/actions/runs/38111416968) passed 1,064 tests/162 suites before the additional polish. These are historical, overlapping checks, not counts to add to the final 1,118.
 
 ## Live findings and remaining gate
 
@@ -73,13 +75,13 @@ Earlier native attempts were blocked by a locked console. After unlock, the fina
 - An approved read-only workspace-count job returned the full answer only to its initiating Pixel Coach chat. Counts matched the actual workspace: one direct non-hidden file and zero folders.
 - After relaunch, both notes persisted and the job answer remained exactly once in its original conversation. This verifies ordinary replay, not crash-atomic delivery.
 
-A screen-guidance request reached capture and failed with macOS permission denial before contacting the model. The actionable error correction is included and tested; regrant/relaunch and a successful live screen lesson remain required.
+A screen-guidance request reached capture and failed with macOS permission denial before contacting the model. The actionable error correction is included and tested. After the user refreshed the existing grant and authenticated, screen capture succeeded. Pixel Coach gave the Magic Wand step, recognized the triangle rather than the background was selected, and later correctly reported that the HeyMate website was visible instead of Photopea. These are real provider responses. A complete guided export and automatic step advancement remain unverified; the user asked to stop dwelling on Photopea and finish the release.
 
 The Photopea editing sequence itself was separately verified manually through its real UI: Magic Wand (tolerance 16, contiguous), select white, Edit > Clear, File > Export as > PNG. The exported 1000×800 PNG has transparent pixels in all four corners and preserved opaque purple triangle/dot artwork. This is not evidence that HeyMate guided that edit.
 
 Before merging:
 
-1. Regrant screen capture to the patched app, relaunch, and verify a real Photopea screen-guidance response and step progression.
-2. Confirm final-head CI, then merge using a merge commit so the original #14 commit remains in history.
+1. Confirm final-head CI for the shell-identity correction.
+2. Merge using a merge commit so the original #14 commit remains in history; verify the resulting release artifact.
 
-The user replaced the requested screen recording with an animated Remotion product demo. Recreated interaction must be labeled clearly and must not imply that a failed or unverified live lesson passed.
+The user replaced the requested screen recording with an animated Remotion product demo. The 42-second landscape and portrait demos are complete, with a persistent “RECREATED PRODUCT DEMO” label. They use the separately verified Photopea export and do not claim to be a live screen recording. Editable Remotion source and both MP4 exports are saved locally.
