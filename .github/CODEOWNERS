@@ -1,0 +1,9 @@
+# Changes here can reach every user's Mac through a signed release, so they
+# always need the maintainer's review.
+/.github/                         @UmarSiddiqui
+/heymate/script/                  @UmarSiddiqui
+/heymate/scripts/                 @UmarSiddiqui
+/heymate/HeyMate.xcodeproj/       @UmarSiddiqui
+/heymate/HeyMate/Info.plist       @UmarSiddiqui
+/heymate/HeyMate/HeyMate.entitlements @UmarSiddiqui
+/website/install.sh               @UmarSiddiqui

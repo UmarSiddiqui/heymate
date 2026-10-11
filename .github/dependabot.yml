@@ -1,0 +1,8 @@
+# Swift packages are pinned in the Xcode project, which Dependabot cannot
+# read; security alerts still cover them. This keeps workflow actions current.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
