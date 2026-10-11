@@ -73,6 +73,29 @@ struct UISnapshotTests {
         )
     }
 
+    @Test(.enabled(if: outputDirectory != nil))
+    func attachedPanel() throws {
+        let manager = Self.sampleManager()
+        try Self.render(
+            ZStack(alignment: .top) {
+                Color(white: 0.35)
+                Color.black.frame(width: 200, height: 32)
+                    .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 10, bottomTrailingRadius: 10))
+                AttachedDesktopChrome(
+                    neckWidth: 200, neckHeight: 42, cornerRadius: 22,
+                    onClose: {}, onDetach: {}
+                ) {
+                    MateHomeView(companionManager: manager, isCompactLayout: false, onOpenSection: { _ in })
+                }
+                .padding(.horizontal, 30)
+                .padding(.bottom, 30)
+            },
+            size: CGSize(width: 1240, height: 800),
+            dark: true,
+            name: "attached-panel"
+        )
+    }
+
     // MARK: Fixtures
 
     static func sampleManager() -> CompanionManager {
