@@ -59,6 +59,61 @@ nonisolated enum LocalControlPort {
     }
 }
 
+/// Keeps web pages out. Binding to loopback stops other machines, but any
+/// page open in a browser on this Mac can still send requests to
+/// 127.0.0.1: a plain cross-site POST needs no preflight, and DNS
+/// rebinding makes a hostile page same-origin with this server. So a
+/// request must name a loopback Host, carry no foreign Origin, and send a
+/// body as application/json, which a page can only do after a preflight
+/// this server never approves for other origins.
+nonisolated enum LocalControlRequestPolicy {
+    static func refusal(for request: LocalControlHTTPRequest) -> String? {
+        guard let host = request.headers["host"], isLoopbackAuthority(host) else {
+            return "Requests must be addressed to 127.0.0.1"
+        }
+        if let origin = request.headers["origin"], !isLoopbackOrigin(origin) {
+            return "Browser pages can't use the HeyMate bridge"
+        }
+        if !request.body.isEmpty {
+            let contentType = request.headers["content-type"]?.lowercased() ?? ""
+            guard contentType.hasPrefix("application/json") else {
+                return "Send the body as application/json"
+            }
+        }
+        return nil
+    }
+
+    /// "127.0.0.1", "localhost" or "[::1]", with or without a port.
+    static func isLoopbackAuthority(_ authority: String) -> Bool {
+        let value = authority.trimmingCharacters(in: .whitespaces).lowercased()
+        let hostPart: Substring
+        if value.hasPrefix("[") {
+            guard let close = value.firstIndex(of: "]") else { return false }
+            hostPart = value[value.index(after: value.startIndex)..<close]
+            let rest = value[value.index(after: close)...]
+            guard rest.isEmpty || isPortSuffix(rest) else { return false }
+        } else {
+            let pieces = value.split(separator: ":", omittingEmptySubsequences: false)
+            guard pieces.count <= 2 else { return false }
+            hostPart = pieces[0]
+            if pieces.count == 2, !isPortSuffix(":" + pieces[1]) { return false }
+        }
+        return ["127.0.0.1", "localhost", "::1"].contains(String(hostPart))
+    }
+
+    static func isLoopbackOrigin(_ origin: String) -> Bool {
+        let value = origin.trimmingCharacters(in: .whitespaces).lowercased()
+        guard value.hasPrefix("http://") else { return false }
+        return isLoopbackAuthority(String(value.dropFirst("http://".count)))
+    }
+
+    private static func isPortSuffix<S: StringProtocol>(_ text: S) -> Bool {
+        guard text.first == ":" else { return false }
+        let digits = text.dropFirst()
+        return !digits.isEmpty && digits.count <= 5 && digits.allSatisfy(\.isNumber)
+    }
+}
+
 nonisolated struct LocalControlHTTPRequest {
     static let maximumHeaderBytes = 32 * 1024
     static let maximumBodyBytes = 1024 * 1024
@@ -225,6 +280,9 @@ nonisolated final class LocalControlServer: @unchecked Sendable {
     }
 
     private func respond(to request: LocalControlHTTPRequest, on connection: NWConnection) {
+        if let refusal = LocalControlRequestPolicy.refusal(for: request) {
+            return reply(.error(403, refusal), on: connection)
+        }
         let unauthorized = LocalControlResponse.error(401, "Unauthorized")
         guard LocalControlAuth.isAuthorized(headers: request.headers) else { return reply(unauthorized, on: connection) }
 
