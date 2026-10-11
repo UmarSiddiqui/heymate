@@ -19,7 +19,7 @@
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="HeyMate. Learn your software. One step at a time. Desktop apps and websites. Free and open source. Available for macOS.">
-  <meta property="og:video" content="https://getheymate.vercel.app/assets/video/heymate-demo-v2.mp4">
+  <meta property="og:video" content="https://getheymate.vercel.app/assets/video/heymate-pixel-coach-demo.mp4">
   <meta property="og:video:type" content="video/mp4">
   <meta property="og:video:width" content="1920">
   <meta property="og:video:height" content="1080">
@@ -79,13 +79,13 @@
       },
       {
         "@type": "VideoObject",
-        "name": "HeyMate: 38-second illustrated product tour",
-        "description": "An illustrated tour with recreated UI showing screen-aware answers, coding-agent plan approval, and mates. This is an animation, not a recorded usability test.",
-        "thumbnailUrl": "https://getheymate.vercel.app/assets/video/demo-poster-v2.jpg",
-        "contentUrl": "https://getheymate.vercel.app/assets/video/heymate-demo-v2.mp4",
+        "name": "HeyMate: 42-second recreated Pixel Coach product demo",
+        "description": "An animated product demo with recreated UI and chat showing a Photopea tutor, its saved practice note, and an example background-removal lesson. The transparent PNG was exported manually. A complete HeyMate-guided lesson and automatic step advancement remain unverified.",
+        "thumbnailUrl": "https://getheymate.vercel.app/assets/video/pixel-coach-poster.png",
+        "contentUrl": "https://getheymate.vercel.app/assets/video/heymate-pixel-coach-demo.mp4",
         "embedUrl": "https://getheymate.vercel.app/#demo",
-        "uploadDate": "2026-09-28",
-        "duration": "PT38S",
+        "uploadDate": "2026-10-11",
+        "duration": "PT42S",
         "about": { "@id": "https://getheymate.vercel.app/#app" }
       },
       {
@@ -165,16 +165,16 @@
 
     <section class="film" id="demo">
       <div class="wrap center reveal">
-        <p class="eyebrow">The 38-second illustrated tour</p>
-        <h2>Meet your software companion.</h2>
+        <p class="eyebrow">42-second recreated product demo</p>
+        <h2>Meet Pixel Coach.</h2>
       </div>
       <div class="wrap">
         <div class="film-frame reveal">
-          <video controls preload="none" playsinline poster="assets/video/demo-poster-v2.jpg" aria-label="HeyMate demo: the notch, screen-aware answers, approved coding agents, and mates">
-            <source src="assets/video/heymate-demo-v2.mp4" type="video/mp4">
+          <video controls preload="none" playsinline poster="assets/video/pixel-coach-poster.png" aria-label="Recreated product demo: create Pixel Coach, save a practice note, and follow an example Photopea lesson" aria-describedby="demo-disclosure">
+            <source src="assets/video/heymate-pixel-coach-demo.mp4" type="video/mp4">
           </video>
         </div>
-        <p class="caption center" style="margin-top:14px">Animated tour with recreated UI. Music: <a href="https://soundcloud.com/peyruis">Show Me by Peyruis</a>, licensed under <a href="https://creativecommons.org/licenses/by/3.0/">CC BY 3.0</a>.</p>
+        <p class="caption center wrap-narrow" id="demo-disclosure" style="margin-top:14px"><strong>RECREATED PRODUCT DEMO.</strong> Animated UI and chat. The transparent PNG was exported manually in Photopea; a complete HeyMate-guided lesson and automatic step advancement remain unverified.</p>
       </div>
     </section>
 
@@ -395,6 +395,15 @@
         <!-- Latest three releases. Keep in sync with changelog.html (newest first). -->
         <ol class="releases">
           <li class="release reveal">
+            <div class="release-meta"><span class="release-version">1.0.39</span><time class="release-date" datetime="2026-10-11">Oct 11, 2026</time></div>
+            <ul>
+              <li><strong>Create a mate in chat.</strong> An explicit request to create a named mate now happens locally, with its own greeting and editable starter, without starting a coding job.</li>
+              <li><strong>Your mate remembers its role.</strong> Replies retain the mate's name, job, personality, and saved notes. Conversation summaries stay with the mate they belong to.</li>
+              <li><strong>Replies stay in the right chat.</strong> Switching conversations cancels an in-progress reply, while background jobs keep their original chat.</li>
+              <li><strong>Get the job's actual answer.</strong> Successful agent jobs return their answer to the conversation that started them. Missing results are reported as unverified instead of a generic success.</li>
+            </ul>
+          </li>
+          <li class="release reveal">
             <div class="release-meta"><span class="release-version">1.0.38</span><time class="release-date" datetime="2026-10-11">Oct 11, 2026</time></div>
             <ul>
               <li><strong>A lighter app.</strong> HeyMate now ships without leftover test instrumentation, so it does a little less work while it runs.</li>
@@ -406,16 +415,6 @@
             <ul>
               <li><strong>Save a chat as a PDF.</strong> In chat history, PDF… sits next to Save… and writes the whole conversation as a printable PDF.</li>
               <li><strong>A tidier Logs folder.</strong> Background job logs that were left empty are removed when the job ends, and logs older than a week are cleared out when HeyMate starts.</li>
-            </ul>
-          </li>
-          <li class="release reveal">
-            <div class="release-meta"><span class="release-version">1.0.36</span><time class="release-date" datetime="2026-10-10">Oct 10, 2026</time></div>
-            <ul>
-              <li><strong>Replies start sooner.</strong> HeyMate keeps its connections warm and does the heavy lifting off the main thread, so the window stays responsive while an answer streams in.</li>
-              <li><strong>Pointing works with computer use.</strong> When HeyMate controls your Mac, the cursor now flies to the right spot on the right display.</li>
-              <li><strong>Setup names your real shortcut.</strong> Onboarding shows the Talk shortcut you actually use, and can be cancelled cleanly at any step.</li>
-              <li><strong>No more stalls on big scripts.</strong> Automations that print a lot of output no longer hang.</li>
-              <li><strong>HeyMate is fully its own.</strong> New license and names throughout, with open-source credits listed in Settings.</li>
             </ul>
           </li>
         </ol>
