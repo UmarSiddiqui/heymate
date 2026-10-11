@@ -20,18 +20,45 @@
   });
 
   // Click an install command to copy it.
+  // Polite live region announcing copy results to screen readers.
+  var copyStatus = document.createElement("p");
+  copyStatus.id = "copy-status";
+  copyStatus.className = "visually-hidden";
+  copyStatus.setAttribute("aria-live", "polite");
+  copyStatus.setAttribute("role", "status");
+  document.body.appendChild(copyStatus);
+
+  var copyTimer = null;
+  function announceCopy(message) {
+    copyStatus.textContent = message;
+    if (copyTimer) clearTimeout(copyTimer);
+    copyTimer = setTimeout(function () { copyStatus.textContent = ""; }, 4000);
+  }
+
   document.querySelectorAll("[data-copy]").forEach(function (el) {
+    var text = el.getAttribute("data-copy") || el.textContent.trim();
     el.setAttribute("role", "button");
     el.setAttribute("tabindex", "0");
     el.setAttribute("title", "Copy");
+    el.setAttribute("aria-label", "Copy command: " + text);
+
     function copy() {
-      var text = el.getAttribute("data-copy") || el.textContent.trim();
       track(el.getAttribute("data-copy-event") || "command_copy");
-      if (!navigator.clipboard) return;
+      if (!navigator.clipboard || !navigator.clipboard.writeText) {
+        el.classList.add("copy-failed");
+        setTimeout(function () { el.classList.remove("copy-failed"); }, 1600);
+        announceCopy("Clipboard is not available. Select the command text and copy it manually.");
+        return;
+      }
       navigator.clipboard.writeText(text).then(function () {
         el.classList.add("copied");
         setTimeout(function () { el.classList.remove("copied"); }, 1600);
-      }, function () {});
+        announceCopy("Copied: " + text);
+      }, function () {
+        el.classList.add("copy-failed");
+        setTimeout(function () { el.classList.remove("copy-failed"); }, 1600);
+        announceCopy("Copy was blocked. Select the command text and copy it manually.");
+      });
     }
     el.addEventListener("click", copy);
     el.addEventListener("keydown", function (event) {
