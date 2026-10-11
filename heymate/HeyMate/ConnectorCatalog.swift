@@ -290,7 +290,7 @@ enum ConnectorCatalog {
             transport: .localCLI,
             symbolName: "sparkles",
             maximumRisk: .destructive,
-            capabilities: ["Run a coding job", "Stream progress into Jobs"],
+            capabilities: ["Run coding work", "Stream progress into Agents"],
             requiredExecutableName: "claude",
             installHint: "npm i -g @anthropic-ai/claude-code"
         )

@@ -26,7 +26,7 @@ enum NotchExpandedTab: String, CaseIterable, Identifiable {
         switch self {
         case .home: return "Home"
         case .apps: return "Apps"
-        case .agents: return "Jobs"
+        case .agents: return "Agents"
         }
     }
 
@@ -812,11 +812,11 @@ private struct NotchHomeTab: View {
             // One row of compact doors under the mates peek.
             HStack(spacing: 6) {
                 NotchDoorTile(
-                    title: "Jobs",
+                    title: "Agents",
                     subtitle: agentsDoorSubtitle,
                     systemName: "sparkles",
                     key: "1",
-                    help: "See running and finished jobs",
+                    help: "See the agents and the work they are doing",
                     isCompact: true
                 ) {
                     companionManager.shouldRevealAgentsTab = true
@@ -949,7 +949,7 @@ private struct NotchRecentAgentRow: View {
         .buttonStyle(.plain)
         .pointerCursor()
         .onHover { isHovering = $0 }
-        .help("Open on the Jobs tab")
+        .help("Open on the Agents tab")
     }
 
     private var detail: String {
@@ -1239,7 +1239,7 @@ private struct NotchAgentsTab: View {
             DSSectionLabel(title: "New job")
 
             HStack(spacing: 8) {
-                TextField("Describe a job for HeyMate", text: $sandboxPromptText)
+                TextField("Describe work for an agent", text: $sandboxPromptText)
                     .textFieldStyle(.plain)
                     .font(DS.Fonts.body)
                     .foregroundColor(DS.Colors.textPrimary)
@@ -1345,6 +1345,10 @@ private struct NotchAgentsTab: View {
                     ForEach(section.runs) { run in
                         AgentRunCard(
                             run: run,
+                            canFollowUp: companionManager.canSendAgentFollowUp(runID: run.id),
+                            onFollowUp: { text in
+                                companionManager.sendAgentFollowUp(runID: run.id, instruction: text)
+                            },
                             onCancel: { companionManager.cancelAgent(runID: run.id) },
                             onApprove: { companionManager.approveAgent(runID: run.id) },
                             onDeny: { companionManager.denyAgent(runID: run.id) },
@@ -1388,12 +1392,15 @@ private struct NotchAgentsTab: View {
 
 private struct AgentRunCard: View {
     let run: AgentRun
+    var canFollowUp: Bool = false
+    var onFollowUp: ((String) -> Bool)? = nil
     let onCancel: () -> Void
     let onApprove: () -> Void
     let onDeny: () -> Void
     let onApprovePlan: () -> Void
     let onDismissPlan: () -> Void
     let onOpenFolder: () -> Void
+    @State private var followUpText = ""
 
     var body: some View {
         let projectColor = Color(
@@ -1468,6 +1475,19 @@ private struct AgentRunCard: View {
                 }
                 Spacer()
             }
+
+            if canFollowUp {
+                HStack(spacing: 8) {
+                    TextField("Follow up in this thread", text: $followUpText)
+                        .textFieldStyle(.plain)
+                        .font(DS.Fonts.body)
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .onSubmit(sendFollowUp)
+                    cardButton("Send", isProminent: true, action: sendFollowUp)
+                        .disabled(followUpText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                .accessibilityLabel("Follow up with this agent")
+            }
         }
         .padding(12)
         // The project's own hue washes in from the corner so runs in the
@@ -1509,6 +1529,14 @@ private struct AgentRunCard: View {
         if !run.latestAction.isEmpty { return run.latestAction }
         if !run.summary.isEmpty { return run.summary }
         return run.prompt
+    }
+
+    private func sendFollowUp() {
+        let text = followUpText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        if onFollowUp?(text) == true {
+            followUpText = ""
+        }
     }
 
     private func elapsedLabel(at now: Date) -> String {
@@ -1630,7 +1658,7 @@ private struct NotchStatusCard: View {
 
     private var statusTitle: String {
         if companionManager.isForegroundAgentActive {
-            return "Working on a job"
+            return "An agent is working"
         }
         switch companionManager.voiceState {
         case .idle: return "Ready when you are"

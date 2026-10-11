@@ -51,7 +51,7 @@ struct DesktopAgentsView: View {
 
     var body: some View {
         DesktopPage(
-            title: "Jobs",
+            title: "Agents",
             subtitle: subtitleText,
             accessory: AnyView(
                 DesktopComposerModelButton(companionManager: companionManager)
@@ -90,8 +90,8 @@ struct DesktopAgentsView: View {
             if finishedSections.isEmpty && activeRuns.isEmpty && runsNeedingAttention.isEmpty {
                 DesktopEmptyState(
                     symbolName: "sparkles",
-                    title: "No jobs yet",
-                    message: "Ask a mate to make or change something, or type a job above. HeyMate plans first, asks before changing anything, and works in its own folder under ~/Projects/heymate unless you pick one."
+                    title: "No agent work yet",
+                    message: "Ask an agent to make or change something, or describe the work above. HeyMate plans first, asks before changing anything, and works in its own folder under ~/Projects/heymate unless you pick one."
                 )
             }
 
@@ -104,19 +104,19 @@ struct DesktopAgentsView: View {
             }
         }
         .confirmationDialog(
-            "Undo the last job?",
+            "Undo the last piece of work?",
             isPresented: $isConfirmingUndo,
             titleVisibility: .visible
         ) {
-            Button("Undo last job", role: .destructive) {
+            Button("Undo last work", role: .destructive) {
                 companionManager.undoLastAgentWork()
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The folder goes back to how it was before that job. A copy of what is there now is kept, just in case.")
+            Text("The folder goes back to how it was before that work. A copy of what is there now is kept, just in case.")
         }
         .confirmationDialog(
-            "Take over this job in Terminal?",
+            "Take over this work in Terminal?",
             isPresented: Binding(
                 get: { runPendingTerminalTakeover != nil },
                 set: { isPresented in
@@ -140,7 +140,7 @@ struct DesktopAgentsView: View {
             )
         }
         .confirmationDialog(
-            "Stop this job?",
+            "Stop this agent?",
             isPresented: Binding(
                 get: { runIDPendingCancel != nil },
                 set: { isPresented in
@@ -149,7 +149,7 @@ struct DesktopAgentsView: View {
             ),
             titleVisibility: .visible
         ) {
-            Button("Stop job", role: .destructive) {
+            Button("Stop", role: .destructive) {
                 if let runIDPendingCancel {
                     companionManager.cancelAgent(runID: runIDPendingCancel)
                 }
@@ -160,7 +160,7 @@ struct DesktopAgentsView: View {
             Text("Work already written in its folder stays.")
         }
         .confirmationDialog(
-            "Remove this job from the list?",
+            "Remove this from the list?",
             isPresented: Binding(
                 get: { runIDPendingRemoval != nil },
                 set: { isPresented in
@@ -197,7 +197,7 @@ struct DesktopAgentsView: View {
             }
             Button("Cancel", role: .cancel) { runIDPendingFolderTrash = nil }
         } message: {
-            Text("HeyMate then removes this job from the list. If the folder is already gone, the list entry stays.")
+            Text("HeyMate then removes this from the list. If the folder is already gone, the list entry stays.")
         }
         .confirmationDialog(
             "Restore this earlier snapshot?",
@@ -224,9 +224,9 @@ struct DesktopAgentsView: View {
     private var subtitleText: String {
         let runningCount = activeRuns.count + runsNeedingAttention.count
         if runningCount > 0 {
-            return "\(runningCount) in progress. Chat answers now; jobs are work your mates do over time."
+            return "\(runningCount) in progress. Each agent keeps its own chat, and the work shows up here."
         }
-        return "Chat answers now. Jobs are work your mates do over time, in their own folder."
+        return "Each agent keeps its own chat and folder. Work they start shows up here."
     }
 
     // MARK: Partitions
@@ -254,7 +254,7 @@ struct DesktopAgentsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 TextField(
                     attachedFolderURL == nil
-                        ? "Describe a job for HeyMate"
+                        ? "Describe work for an agent"
                         : "What should HeyMate do in \(attachedFolderURL!.lastPathComponent)?",
                     text: $promptText,
                     axis: .vertical
@@ -367,7 +367,7 @@ struct DesktopAgentsView: View {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.prompt = "Attach"
-        panel.message = "Pick the folder this job may work in. Changes there will ask for your approval."
+        panel.message = "Pick the folder this agent may work in. Changes there will ask for your approval."
         guard panel.runModal() == .OK, let chosenURL = panel.url else { return }
         attachedFolderURL = chosenURL
     }
@@ -406,7 +406,7 @@ struct DesktopAgentsView: View {
     private var suggestionsSummary: String {
         let count = companionManager.loadedStandingOrders.count
         let saved = count == 1 ? "1 saved" : "\(count) saved"
-        return "\(saved) · HeyMate offers these jobs and never starts one unasked"
+        return "\(saved) · HeyMate offers this work and never starts it unasked"
     }
 
     private var standingOrdersAndUndoCard: some View {
@@ -440,7 +440,7 @@ struct DesktopAgentsView: View {
                 }
 
                 if companionManager.loadedStandingOrders.isEmpty {
-                    Text("No suggestions yet. Add one and HeyMate will offer that job when it sees a match.")
+                    Text("No suggestions yet. Add one and HeyMate will offer that work when it sees a match.")
                         .font(DS.Fonts.caption)
                         .foregroundColor(DS.Colors.textTertiary)
                 } else {
@@ -462,7 +462,7 @@ struct DesktopAgentsView: View {
                             .lineLimit(1)
                     }
                     Spacer(minLength: 0)
-                    Button("Undo last job") { isConfirmingUndo = true }
+                    Button("Undo last work") { isConfirmingUndo = true }
                         .buttonStyle(DSSecondaryButtonStyle())
                         .disabled(companionManager.latestAgentUndoEntry == nil)
                 }
@@ -518,7 +518,7 @@ struct DesktopAgentsView: View {
                 }
             }
         } else if snapshots.count == 1 {
-            Text("Only the latest job can be undone.")
+            Text("Only the latest piece of work can be undone.")
                 .font(DS.Fonts.caption)
                 .foregroundColor(DS.Colors.textTertiary)
         }
@@ -1067,7 +1067,7 @@ struct DesktopAgentsView: View {
     private func conversationPlaceholder(for run: AgentRun) -> String {
         run.status == .awaitingPlanApproval
             ? "Say what to change in the plan"
-            : "Message this job…"
+            : "Message this agent…"
     }
 
     private func conversationButtonLabel(for run: AgentRun) -> String {
@@ -1084,7 +1084,7 @@ struct DesktopAgentsView: View {
     private func activityLabel(_ kind: AgentActivityEntry.Kind) -> String {
         switch kind {
         case .user: return "You"
-        case .agent: return "Mate"
+        case .agent: return "Agent"
         case .progress: return "Work"
         case .status: return "Status"
         }

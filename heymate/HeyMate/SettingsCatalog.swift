@@ -77,7 +77,7 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
         case .accounts:
             return "Which AI answers you, and how hard it thinks."
         case .agents:
-            return "Jobs that work on their own, and what HeyMate may do on this Mac."
+            return "Agents that work on their own, and what HeyMate may do on this Mac."
         case .connections:
             return "The apps and services HeyMate can reach for you."
         case .privacy:

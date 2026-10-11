@@ -180,7 +180,7 @@ struct ChatHistoryPanel: View {
                 .font(DS.Fonts.caption)
                 .foregroundColor(DS.Colors.textTertiary)
             HStack(spacing: DS.Spacing.md) {
-                rowButton("Delete all chats for this mate", color: DS.Colors.destructiveText) {
+                rowButton("Delete all chats for this agent", color: DS.Colors.destructiveText) {
                     pendingConfirm = .deleteMate
                 }
                 rowButton("Delete all chats", color: DS.Colors.destructiveText) {
@@ -195,7 +195,7 @@ struct ChatHistoryPanel: View {
         case .deleteOne:
             return "Delete this chat?"
         case .deleteMate:
-            return "Delete all chats for this mate?"
+            return "Delete all chats for this agent?"
         case .deleteAll:
             return "Delete all chats?"
         case nil:
@@ -208,7 +208,7 @@ struct ChatHistoryPanel: View {
         case .deleteOne:
             return "Delete"
         case .deleteMate:
-            return "Delete all chats for this mate"
+            return "Delete all chats for this agent"
         case .deleteAll:
             return "Delete all chats"
         case nil:
