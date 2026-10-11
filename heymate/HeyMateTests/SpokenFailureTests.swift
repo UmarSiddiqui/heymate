@@ -36,6 +36,45 @@ struct SpokenFailureTests {
         #expect(SpokenFailure.classify(message: "the page shows a credentials form") == .generic)
     }
 
+    @Test(arguments: [
+        "The user declined TCCs for application, window, display capture",
+        "Screen capture permission was denied",
+        "Bildschirmaufnahme nicht erlaubt"
+    ])
+    func screenCaptureDenialUsesPermissionRecoveryRegardlessOfLocalizedMessage(message: String) {
+        let error = NSError(
+            domain: "com.apple.ScreenCaptureKit.SCStreamErrorDomain",
+            code: -3801,
+            userInfo: [NSLocalizedDescriptionKey: message]
+        )
+        let failure = SpokenFailure.classify(error)
+        #expect(failure == .screenCapturePermission)
+        let explanation = failure.spokenUtterance ?? ""
+        #expect(explanation.contains("System Settings"))
+        #expect(explanation.contains("Privacy & Security"))
+        #expect(explanation.contains("Screen & System Audio Recording"))
+        #expect(explanation.contains("allow HeyMate"))
+        #expect(explanation.contains("Quit and reopen HeyMate"))
+        #expect(!explanation.contains("model"))
+    }
+
+    @Test func unrelatedDomainCodeOrMessageDoesNotClaimScreenPermissionDenial() {
+        let message = "The user declined TCCs for application, window, display capture"
+        let unrelatedDomain = NSError(
+            domain: "ExampleProvider",
+            code: -3801,
+            userInfo: [NSLocalizedDescriptionKey: message]
+        )
+        let unrelatedCaptureError = NSError(
+            domain: "com.apple.ScreenCaptureKit.SCStreamErrorDomain",
+            code: -3802,
+            userInfo: [NSLocalizedDescriptionKey: message]
+        )
+        #expect(SpokenFailure.classify(unrelatedDomain) == .generic)
+        #expect(SpokenFailure.classify(unrelatedCaptureError) == .generic)
+        #expect(SpokenFailure.classify(message: message, code: -3801) == .generic)
+    }
+
     @Test func http402AndQuotaWordsAreCredits() {
         let paymentRequired = NSError(
             domain: "OpenCodeClient",
