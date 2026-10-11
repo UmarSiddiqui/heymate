@@ -10,9 +10,28 @@ import {TeachingSteps} from './teaching/TeachingSteps';
 import {TeachingMates} from './teaching/TeachingMates';
 import {TeachingClose} from './teaching/TeachingClose';
 import {TeachingShareCard} from './TeachingShareCard';
+import {PixelCoachDemo} from './PixelCoachDemo';
+import {PixelInvitation} from './pixel-coach/Invitation';
+import {PixelCreate} from './pixel-coach/Create';
+import {PixelIdentity} from './pixel-coach/Identity';
+import {PixelSelect} from './pixel-coach/Select';
+import {PixelClear} from './pixel-coach/Clear';
+import {PixelExport} from './pixel-coach/Export';
+import {PixelClose} from './pixel-coach/Close';
 
 export const RemotionRoot: React.FC = () => (
   <>
+    <Folder name="Pixel-Coach-Demo">
+      <Composition id="PixelCoachDemo" component={PixelCoachDemo} durationInFrames={1260} fps={30} width={1920} height={1080}/>
+      <Composition id="PixelCoachDemoVertical" component={PixelCoachDemo} durationInFrames={1260} fps={30} width={1080} height={1920}/>
+      <Composition id="PixelInvitation" component={PixelInvitation} durationInFrames={120} fps={30} width={1920} height={1080}/>
+      <Composition id="PixelCreate" component={PixelCreate} durationInFrames={180} fps={30} width={1920} height={1080}/>
+      <Composition id="PixelIdentity" component={PixelIdentity} durationInFrames={150} fps={30} width={1920} height={1080}/>
+      <Composition id="PixelSelect" component={PixelSelect} durationInFrames={210} fps={30} width={1920} height={1080}/>
+      <Composition id="PixelClear" component={PixelClear} durationInFrames={180} fps={30} width={1920} height={1080}/>
+      <Composition id="PixelExport" component={PixelExport} durationInFrames={210} fps={30} width={1920} height={1080}/>
+      <Composition id="PixelClose" component={PixelClose} durationInFrames={210} fps={30} width={1920} height={1080}/>
+    </Folder>
     <Folder name="Teaching-Concept">
       <Composition id="TeachingFirst" component={TeachingFirst} durationInFrames={720} fps={30} width={1920} height={1080} />
       <Composition id="TeachingFirstVertical" component={TeachingFirst} durationInFrames={720} fps={30} width={1080} height={1920} />

@@ -1,6 +1,16 @@
 # HeyMate launch kit
 
-Working launch plan, updated 11 October 2026. Copy below is a draft; it is not a record of publication. Release notes belong to a released build, not an unmerged PR.
+Working launch plan, updated 11 October 2026. Published work is recorded below; later stages remain a plan.
+
+## Publication record
+
+- [HeyMate v1.0.39](https://github.com/UmarSiddiqui/heymate/releases/tag/v1.0.39) is published. PR #20 is merged; 1,118 tests passed locally and in CI. The official release was verified and installed.
+- The [teaching-first landing page](https://getheymate.vercel.app) is live from earlier website PRs #15 and #22. This update supplies the new 42-second recreated demo, editable source, and website v1.0.39 notes; deployment evidence belongs in its PR.
+- [Pilot recruitment post](https://x.com/umarsiddiquiii/status/2109134193972351200) is published. This is an invitation, not evidence of ten completed tests.
+- [Release and native demo video post](https://x.com/umarsiddiquiii/status/2109208920468451380) is published on X. Campaign: `utm_source=x&utm_medium=social&utm_campaign=mates_1039`.
+- The user replaced the requested real recording with an animated product demo. Both landscape and portrait exports are complete and labeled **RECREATED PRODUCT DEMO**. A full guided export and automatic step advancement were not verified; do not present the animation as live-test proof.
+- Still incomplete: fresh-account install validation, ten-person pilot results, publishing on a second video channel, community distribution, creator outreach, and a broader launch. No analytics integration or new marketing account was created in this work.
+
 
 ## Lead with a useful task
 
@@ -17,18 +27,18 @@ Keep private analytics evidence separate from public launch copy. Treat the chec
 ## Before a broad launch
 
 1. Test installation and first-run permissions on a fresh Mac account. Current builds are self-signed and not notarized; document that friction clearly. A terminal installer is not notarization.
-2. Record a complete real walkthrough, including waiting time, mistakes, corrections, and successful export. Use an owned sample image and remove private account details.
+2. Collect end-to-end task evidence through the pilot. The current publishing deliverable is the user-requested recreated demo; it does not establish task success. Do not restart live capture as a publication requirement for that animation.
 3. Verify two named mates behave differently, retain the right context, and remain distinct after switching chats and relaunching. Do not advertise a polished persona experience from configuration fields alone.
 4. Resolve the current release-blocking bugs and review overlapping PRs. On 11 October the only open PR was [#14: detach CLI pipe readers at EOF](https://github.com/UmarSiddiqui/heymate/pull/14); recheck before editing related code.
 5. Invite ten people to try the same small task. Record where they fail, whether they finish, and whether they use HeyMate again. Fix repeated blockers before paying for reach or making a large announcement.
 
 Suggested pilot gates, not measured results: at least 8 of 10 complete the chosen task without live rescue; at least 5 use HeyMate again within seven days; no unhandled crash, cross-mate identity leak, or private content in telemetry. The small sample gives feedback, not statistical proof.
 
-## Proof video
+## Video assets
 
-Use the existing Remotion project for captions and framing. The current 38-second film is a recreated UI animation; label it as an illustrated tour. Do not present it as a screen recording.
+The current publishing asset is the 42-second Pixel Coach recreated product demo, with landscape and portrait cuts, an original synthesized score, and editable Remotion source. It is labeled throughout. The older 38-second illustrated tour remains in source. No new recording is required for this publication.
 
-New capture brief:
+The following capture brief is retained only for a future independently authorized proof-video task:
 
 - **0–4 s:** Show the starting logo and the exact request: “Walk me through removing this background, one step at a time.”
 - **4–18 s:** Real app points to the first control. The person clicks it. Preserve enough waiting time to show the actual interaction; label any speed-up.
@@ -36,7 +46,7 @@ New capture brief:
 - **32–42 s:** Show the exported transparent image. Briefly repeat the important action without the assistant.
 - **42–50 s:** Name the app, show version/provider used, and link to the demo and source. Note current install limitations in the description.
 
-Produce a readable 16:9 walkthrough and a separately framed 9:16 cut; do not crop away the highlighted target. Add captions for every spoken instruction. Use only audio and assets with redistribution rights. Keep the original capture and an edit list. Publication requires a completed capture; animations must remain labeled.
+Produce a readable 16:9 walkthrough and a separately framed 9:16 cut; do not crop away the highlighted target. Add captions for every spoken instruction. Use only audio and assets with redistribution rights. Keep the original capture and an edit list. Any future live-proof publication requires a completed capture; the current animation can be published with its recreation label.
 
 ## Draft X posts
 
