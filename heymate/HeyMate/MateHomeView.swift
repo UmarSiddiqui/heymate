@@ -19,6 +19,9 @@ struct MateHomeView: View {
 
     @State private var searchText = ""
     @State private var hoveredRailMateID: UUID?
+    @State private var hoveredRailChatID: UUID?
+    @State private var chatPendingDelete: ChatSession?
+    @AppStorage(MateRailTab.storageKey) private var railTabRawValue = MateRailTab.defaultTab.rawValue
     @State private var isDrawerOpen = false
     @State private var isShowingNewMate = false
     @State private var typedMessageInput = ""
@@ -41,6 +44,7 @@ struct MateHomeView: View {
     @State private var isConfirmingFolderRemoval = false
     @State private var filesActionError: String?
     @FocusState private var isComposerFocused: Bool
+    @FocusState private var focusedRailTab: MateRailTab?
 
     private var columns: [MateHomeColumn] {
         MateHomeLayout.visibleColumns(isCompact: isCompactLayout, isDrawerOpen: isDrawerOpen)
@@ -153,6 +157,24 @@ struct MateHomeView: View {
             Text(pendingDeletionWarning)
         }
         .confirmationDialog(
+            "Delete this chat?",
+            isPresented: Binding(
+                get: { chatPendingDelete != nil },
+                set: { if !$0 { chatPendingDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let session = chatPendingDelete {
+                    companionManager.deleteChat(id: session.id)
+                }
+                chatPendingDelete = nil
+            }
+            Button("Cancel", role: .cancel) { chatPendingDelete = nil }
+        } message: {
+            Text("\(chatPendingDelete?.title ?? "This chat") is removed from your history.")
+        }
+        .confirmationDialog(
             "Archive \(matePendingArchive?.name ?? "this mate")?",
             isPresented: archiveDialogPresented,
             titleVisibility: .visible
@@ -178,37 +200,248 @@ struct MateHomeView: View {
 
     // MARK: Rail
 
+    private var railTab: MateRailTab { MateRailTab.stored(railTabRawValue) }
+
     private var mateRail: some View {
         VStack(alignment: .leading, spacing: 0) {
+            railTabBar
+                .padding(.horizontal, 12)
+                .padding(.top, 14)
+            .onChange(of: railTabRawValue) { _, _ in
+                searchText = ""
+            }
+
             HStack(spacing: 7) {
                 Image(systemName: "magnifyingglass")
                     .font(DS.Glyph.small)
                     .foregroundColor(DS.Colors.textTertiary)
-                TextField("Search mates", text: $searchText)
+                TextField(railTab.searchPrompt, text: $searchText)
                     .textFieldStyle(.plain)
                     .font(DS.Fonts.bodyLarge)
+                    .accessibilityLabel(railTab.searchPrompt)
             }
             .padding(.horizontal, 10)
             .frame(height: 32)
             .background(DS.Colors.surface2.opacity(0.7))
             .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous))
             .padding(.horizontal, 12)
-            .padding(.top, 14)
+            .padding(.top, 10)
             .padding(.bottom, 10)
 
-            Button {
-                isShowingNewMate = true
-            } label: {
-                Label("New mate", systemImage: "plus")
-                    .font(DS.Fonts.headline)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 10)
-                    .frame(height: 32)
+            switch railTab {
+            case .chats:
+                chatsRailList
+            case .mates:
+                matesRailList
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .keyboardShortcut("n", modifiers: [.command, .shift])
+
+            Divider().overlay(DS.Colors.borderSubtle)
+            // Labeled rows, not a lone gear: there are only two places to
+            // go, and a 28pt unlabeled icon was easy to miss.
+            VStack(spacing: 2) {
+                ForEach(MateHomeLayout.workspaceSections) { section in
+                    SettingsSidebarItem(
+                        title: section.displayName,
+                        symbolName: section.symbolName
+                    ) {
+                        onOpenSection(section)
+                    }
+                }
+            }
             .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+        }
+        .background(DS.Colors.surface1.opacity(0.9))
+        .background {
+            // ⌘⇧N makes a mate from either tab. On Mates the visible
+            // button owns the shortcut.
+            if railTab != .mates {
+                Button("New mate") { isShowingNewMate = true }
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
+                    .opacity(0)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+
+    /// Chats and Mates. Drawn with DS tokens rather than a system segmented
+    /// control, which would pick up the system accent color.
+    private var railTabBar: some View {
+        HStack(spacing: 2) {
+            ForEach(MateRailTab.allCases) { tab in
+                let isSelected = tab == railTab
+                Button {
+                    railTabRawValue = tab.rawValue
+                } label: {
+                    Text(tab.title)
+                        .font(DS.Fonts.control)
+                        .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textSecondary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 26)
+                        .background(
+                            RoundedRectangle(cornerRadius: DS.CornerRadius.small - 2, style: .continuous)
+                                .fill(isSelected ? DS.Colors.selectionFill : Color.clear)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: DS.CornerRadius.small - 2, style: .continuous)
+                                .stroke(focusedRailTab == tab ? DS.Colors.focusRing : Color.clear, lineWidth: 1)
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                // A DS ring instead of the system one, which uses the accent color.
+                .focusEffectDisabled()
+                .focused($focusedRailTab, equals: tab)
+                .accessibilityLabel("\(tab.title) tab")
+                .accessibilityAddTraits(isSelected ? [.isSelected, .isButton] : .isButton)
+            }
+        }
+        .padding(2)
+        .background(
+            RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                .fill(DS.Colors.surface2.opacity(0.7))
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Sidebar: Chats or Mates")
+    }
+
+    private func railActionButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(DS.Fonts.headline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10)
+                .frame(height: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .padding(.horizontal, 8)
+    }
+
+    // MARK: Chats tab
+
+    private var mainChats: [ChatSession] {
+        MainChatList.sessions(
+            saved: companionManager.savedChats,
+            current: companionManager.currentChat,
+            defaultMateID: companionManager.mateDirectory.defaultMateID,
+            query: searchText
+        )
+    }
+
+    private var chatsRailList: some View {
+        let chats = mainChats
+        let selectedID = MainChatList.selectedID(
+            current: companionManager.currentChat,
+            activeMateID: companionManager.activeMateID,
+            defaultMateID: companionManager.mateDirectory.defaultMateID
+        )
+        return VStack(alignment: .leading, spacing: 0) {
+            // ⌘N lives on the header's new-chat button, which follows the
+            // open mate; this one always starts with main HeyMate.
+            railActionButton("New chat", systemImage: "square.and.pencil") {
+                companionManager.startNewMainChat()
+            }
+            .help("New chat with HeyMate")
+            .accessibilityLabel("New chat with HeyMate")
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    railHeader(searchText.isEmpty ? "Chats" : "Results")
+                    if chats.isEmpty {
+                        Text(searchText.isEmpty ? "Chats with HeyMate show up here." : "No chats match that.")
+                            .font(DS.Fonts.caption)
+                            .foregroundColor(DS.Colors.textTertiary)
+                            .padding(.horizontal, 12)
+                            .padding(.top, 6)
+                    }
+                    ForEach(chats) { session in
+                        chatRow(session, selected: session.id == selectedID)
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
+            }
+        }
+    }
+
+    private func chatRow(_ session: ChatSession, selected: Bool) -> some View {
+        let isSaved = companionManager.savedChats.contains { $0.id == session.id }
+        return Button {
+            openMainChat(session)
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(session.title)
+                    .font(DS.Fonts.headline)
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .lineLimit(1)
+                Text(session.updatedAt.formatted(.relative(presentation: .named)))
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                    .fill(
+                        selected
+                            ? DS.Colors.selectionFill
+                            : (hoveredRailChatID == session.id ? DS.Colors.surface2 : Color.clear)
+                    )
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .onHover { isHovering in
+            if isHovering {
+                hoveredRailChatID = session.id
+            } else if hoveredRailChatID == session.id {
+                hoveredRailChatID = nil
+            }
+        }
+        .accessibilityLabel("Open chat \(session.title)")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .contextMenu {
+            if isSaved {
+                Button("Delete", role: .destructive) { chatPendingDelete = session }
+            }
+        }
+    }
+
+    /// Opens a main HeyMate chat, leaving any mate chat that is open.
+    private func openMainChat(_ session: ChatSession) {
+        let defaultID = companionManager.mateDirectory.defaultMateID
+        let mateIsOpen = (companionManager.activeMateID ?? defaultID) != defaultID
+        if session.id == companionManager.currentChat.id {
+            // The fresh, unsaved chat is already open; just make sure main
+            // HeyMate is the active mate.
+            if mateIsOpen { companionManager.startNewMainChat() }
+            return
+        }
+        if companionManager.savedChats.contains(where: { $0.id == session.id }) {
+            companionManager.openChat(id: session.id)
+        } else {
+            companionManager.startNewMainChat()
+        }
+    }
+
+    // MARK: Mates tab
+
+    private var matesRailList: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            railActionButton("New mate", systemImage: "plus") {
+                isShowingNewMate = true
+            }
+            .keyboardShortcut("n", modifiers: [.command, .shift])
+            .help("New mate (⌘⇧N)")
+            .accessibilityLabel("New mate")
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
@@ -242,24 +475,7 @@ struct MateHomeView: View {
                 .padding(.top, 12)
                 .padding(.bottom, 8)
             }
-
-            Divider().overlay(DS.Colors.borderSubtle)
-            // Labeled rows, not a lone gear: there are only two places to
-            // go, and a 28pt unlabeled icon was easy to miss.
-            VStack(spacing: 2) {
-                ForEach(MateHomeLayout.workspaceSections) { section in
-                    SettingsSidebarItem(
-                        title: section.displayName,
-                        symbolName: section.symbolName
-                    ) {
-                        onOpenSection(section)
-                    }
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 8)
         }
-        .background(DS.Colors.surface1.opacity(0.9))
     }
 
     private var rail: (pinned: [Mate], others: [Mate]) {
@@ -517,15 +733,19 @@ struct MateHomeView: View {
             }
             Spacer(minLength: 8)
             jobsButton
-            Button {
-                isShowingChatHistory = true
-            } label: {
-                Image(systemName: "clock.arrow.circlepath")
-                    .font(DS.Glyph.regular)
+            // On desktop, main HeyMate's chats live in the rail's Chats tab,
+            // so history here is only for a mate's own past chats.
+            if showsChatHistoryButton {
+                Button {
+                    isShowingChatHistory = true
+                } label: {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(DS.Glyph.regular)
+                }
+                .dsToolbarIconButtonStyle()
+                .help(chatHistoryHelp)
+                .accessibilityLabel(chatHistoryHelp)
             }
-            .dsToolbarIconButtonStyle()
-            .help("Chat history")
-            .accessibilityLabel("Chat history")
             Button {
                 companionManager.startNewChat()
             } label: {
@@ -574,6 +794,22 @@ struct MateHomeView: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(DS.Colors.borderSubtle).frame(height: 1)
         }
+    }
+
+    private var isMainHeyMateActive: Bool {
+        let defaultID = companionManager.mateDirectory.defaultMateID
+        return (companionManager.activeMateID ?? defaultID) == defaultID
+    }
+
+    private var showsChatHistoryButton: Bool {
+        isCompactLayout || !isMainHeyMateActive
+    }
+
+    private var chatHistoryHelp: String {
+        if !isMainHeyMateActive, let mate = activeMate {
+            return "Past chats with \(mate.name)"
+        }
+        return "Chat history"
     }
 
     /// The way into Jobs: the work mates are doing over time. The count is

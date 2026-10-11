@@ -169,6 +169,26 @@ struct MateCreationCommandTests {
         #expect(manager.routines.isEmpty)
     }
 
+    @Test func newMainChatLeavesAnOpenMateForMainHeyMate() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        let defaultID = manager.mateDirectory.defaultMateID
+        let mate = try #require(manager.createMate(name: "Scout", job: "research"))
+        #expect(manager.activeMateID == mate.id)
+
+        manager.startNewMainChat()
+
+        #expect((manager.activeMateID ?? defaultID) == defaultID)
+        #expect(manager.currentChat.mateID == defaultID)
+        #expect(manager.currentChat.messages.isEmpty)
+        #expect(MainChatList.selectedID(
+            current: manager.currentChat,
+            activeMateID: manager.activeMateID,
+            defaultMateID: defaultID
+        ) == manager.currentChat.id)
+    }
+
     @Test func namedCreationSavesAndOpensMateWithoutStartingWork() throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }

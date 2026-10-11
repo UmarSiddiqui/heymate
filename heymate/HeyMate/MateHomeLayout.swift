@@ -176,3 +176,76 @@ enum MateRailOrder {
         return (pinned, others)
     }
 }
+
+/// The two tabs at the top of the desktop rail. Chats is the user's own
+/// conversations with HeyMate; Mates is the only place mates are listed.
+enum MateRailTab: String, CaseIterable, Identifiable {
+    case chats
+    case mates
+
+    /// The `@AppStorage` key the rail reads to remember its tab.
+    static let storageKey = "mateHome.railTab"
+    static let defaultTab: MateRailTab = .chats
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .chats: return "Chats"
+        case .mates: return "Mates"
+        }
+    }
+
+    var searchPrompt: String {
+        switch self {
+        case .chats: return "Search chats"
+        case .mates: return "Search mates"
+        }
+    }
+
+    /// Unknown or missing stored values fall back to Chats.
+    static func stored(_ rawValue: String) -> MateRailTab {
+        MateRailTab(rawValue: rawValue) ?? defaultTab
+    }
+}
+
+/// The Chats tab: every session that belongs to main HeyMate (the default
+/// mate), newest first. Sessions saved before mates existed have no mate id
+/// and count as main HeyMate's.
+enum MainChatList {
+    static func sessions(
+        saved: [ChatSession],
+        current: ChatSession,
+        defaultMateID: UUID,
+        query: String
+    ) -> [ChatSession] {
+        func isMain(_ session: ChatSession) -> Bool {
+            (session.mateID ?? defaultMateID) == defaultMateID
+        }
+        var mains = saved.filter(isMain)
+        // A fresh main chat isn't saved until it has a message; list it so
+        // the open conversation is always visible and selected.
+        if isMain(current), !mains.contains(where: { $0.id == current.id }) {
+            mains.append(current)
+        }
+        mains.sort { $0.updatedAt > $1.updatedAt }
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return mains }
+        return mains.filter { session in
+            session.title.localizedStandardContains(trimmed)
+                || session.messages.contains { $0.text.localizedStandardContains(trimmed) }
+        }
+    }
+
+    /// The row to highlight: the open chat, but only while main HeyMate is
+    /// the active mate. A mate's chat never selects a main row.
+    static func selectedID(
+        current: ChatSession,
+        activeMateID: UUID?,
+        defaultMateID: UUID
+    ) -> UUID? {
+        guard (activeMateID ?? defaultMateID) == defaultMateID else { return nil }
+        guard (current.mateID ?? defaultMateID) == defaultMateID else { return nil }
+        return current.id
+    }
+}
