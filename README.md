@@ -44,8 +44,8 @@ Screen guidance needs a vision-capable provider. The optional Apple Intelligence
 - **Keep control of coding work.** Agents show a read-only plan before execution. Approved jobs get workspace snapshots for undo; external actions are subject to their tool's approval policy. Undo cannot reverse a sent message or an external service change.
 
 <p align="center">
-  <a href="https://getheymate.vercel.app/#demo"><img src="docs/media/heymate-demo-poster.jpg" width="720" alt="Play the 38-second HeyMate demo"></a><br>
-  <sub>▶ <a href="https://getheymate.vercel.app/#demo">Watch the 38-second illustrated tour</a> (recreated UI) · Music: <a href="https://soundcloud.com/peyruis">Show Me by Peyruis</a>, <a href="https://creativecommons.org/licenses/by/3.0/">CC BY 3.0</a></sub>
+  <a href="https://getheymate.vercel.app/#demo"><img src="docs/media/heymate-meet-poster.jpg" width="720" alt="Play the 40-second Meet HeyMate tour"></a><br>
+  <sub>▶ <a href="https://getheymate.vercel.app/#demo">Watch the 40-second illustrated tour</a> (recreated UI) · Music: <a href="https://soundcloud.com/peyruis">Show Me by Peyruis</a>, <a href="https://creativecommons.org/licenses/by/3.0/">CC BY 3.0</a></sub>
 </p>
 
 ## Features

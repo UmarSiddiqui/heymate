@@ -18,9 +18,20 @@ import {PixelSelect} from './pixel-coach/Select';
 import {PixelClear} from './pixel-coach/Clear';
 import {PixelExport} from './pixel-coach/Export';
 import {PixelClose} from './pixel-coach/Close';
+import {MEET_FPS, MEET_SCENES, MEET_TOTAL_FRAMES, MeetHeyMate} from './MeetHeyMate';
 
 export const RemotionRoot: React.FC = () => (
   <>
+    <Folder name="Meet-HeyMate">
+      <Composition id="MeetHeyMate" component={MeetHeyMate} durationInFrames={MEET_TOTAL_FRAMES} fps={MEET_FPS} width={1920} height={1080} />
+      <Composition id="MeetHeyMateVertical" component={MeetHeyMate} durationInFrames={MEET_TOTAL_FRAMES} fps={MEET_FPS} width={1080} height={1920} />
+      {MEET_SCENES.map(({id, seconds, Component}) => (
+        <Composition key={id} id={`meet-${id}`} component={Component} durationInFrames={Math.round(seconds * MEET_FPS)} fps={MEET_FPS} width={1920} height={1080} />
+      ))}
+      {MEET_SCENES.map(({id, seconds, Component}) => (
+        <Composition key={id} id={`meet-${id}-vertical`} component={Component} durationInFrames={Math.round(seconds * MEET_FPS)} fps={MEET_FPS} width={1080} height={1920} />
+      ))}
+    </Folder>
     <Folder name="Pixel-Coach-Demo">
       <Composition id="PixelCoachDemo" component={PixelCoachDemo} durationInFrames={1260} fps={30} width={1920} height={1080}/>
       <Composition id="PixelCoachDemoVertical" component={PixelCoachDemo} durationInFrames={1260} fps={30} width={1080} height={1920}/>
