@@ -553,6 +553,7 @@ private struct NotchHomeTab: View {
                                     companionManager.openDesktopWindow(section: section)
                                 }
                             )
+                            NotchMatesPeek(companionManager: companionManager)
                             doorsRow
                         }
                     }
@@ -808,48 +809,47 @@ private struct NotchHomeTab: View {
         VStack(alignment: .leading, spacing: 7) {
             DSSectionLabel(title: "Jump to")
 
-            // 2×2 so each door has room for a one-line "what's behind it"
-            // and the column fills the card instead of floating at the top.
-            VStack(spacing: 7) {
-                HStack(spacing: 7) {
-                    NotchDoorTile(
-                        title: "Jobs",
-                        subtitle: agentsDoorSubtitle,
-                        systemName: "sparkles",
-                        key: "1",
-                        help: "See running and finished jobs"
-                    ) {
-                        companionManager.shouldRevealAgentsTab = true
-                    }
-                    NotchDoorTile(
-                        title: "Window",
-                        subtitle: "Chat and history",
-                        systemName: "macwindow",
-                        key: "2",
-                        help: "Open the full HeyMate window"
-                    ) {
-                        companionManager.openDesktopWindow(section: .chat)
-                    }
+            // One row of compact doors under the mates peek.
+            HStack(spacing: 6) {
+                NotchDoorTile(
+                    title: "Jobs",
+                    subtitle: agentsDoorSubtitle,
+                    systemName: "sparkles",
+                    key: "1",
+                    help: "See running and finished jobs",
+                    isCompact: true
+                ) {
+                    companionManager.shouldRevealAgentsTab = true
                 }
-                HStack(spacing: 7) {
-                    NotchDoorTile(
-                        title: "Skills",
-                        subtitle: "How it answers",
-                        systemName: "wand.and.stars",
-                        key: "3",
-                        help: "Markdown files that shape how HeyMate answers"
-                    ) {
-                        companionManager.openDesktopWindow(section: .skills)
-                    }
-                    NotchDoorTile(
-                        title: "Settings",
-                        subtitle: "Engine, voice, keys",
-                        systemName: "gearshape",
-                        key: "4",
-                        help: "Engine, model, voice, shortcuts, and appearance"
-                    ) {
-                        companionManager.openDesktopWindow(section: .settings)
-                    }
+                NotchDoorTile(
+                    title: "Window",
+                    subtitle: "Chat and history",
+                    systemName: "macwindow",
+                    key: "2",
+                    help: "Open the full HeyMate window",
+                    isCompact: true
+                ) {
+                    companionManager.openDesktopWindow(section: .chat)
+                }
+                NotchDoorTile(
+                    title: "Skills",
+                    subtitle: "How it answers",
+                    systemName: "wand.and.stars",
+                    key: "3",
+                    help: "Markdown files that shape how HeyMate answers",
+                    isCompact: true
+                ) {
+                    companionManager.openDesktopWindow(section: .skills)
+                }
+                NotchDoorTile(
+                    title: "Settings",
+                    subtitle: "Engine, voice, keys",
+                    systemName: "gearshape",
+                    key: "4",
+                    help: "Engine, model, voice, shortcuts, and appearance",
+                    isCompact: true
+                ) {
+                    companionManager.openDesktopWindow(section: .settings)
                 }
             }
         }
@@ -980,6 +980,7 @@ private struct NotchDoorTile: View {
     let systemName: String
     let key: KeyEquivalent
     let help: String
+    let isCompact: Bool
     let action: () -> Void
 
     init(
@@ -988,6 +989,7 @@ private struct NotchDoorTile: View {
         systemName: String,
         key: KeyEquivalent,
         help: String,
+        isCompact: Bool = false,
         action: @escaping () -> Void
     ) {
         self.title = title
@@ -995,12 +997,47 @@ private struct NotchDoorTile: View {
         self.systemName = systemName
         self.key = key
         self.help = help
+        self.isCompact = isCompact
         self.action = action
     }
 
     @State private var isHovering = false
 
     var body: some View {
+        if isCompact {
+            compactBody
+        } else {
+            fullBody
+        }
+    }
+
+    /// Icon over a one-word title, four to a row.
+    private var compactBody: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: systemName)
+                    .font(DS.Glyph.regular)
+                    .foregroundColor(isHovering ? DS.Colors.accentText : DS.Colors.textSecondary)
+                Text(title)
+                    .font(DS.Fonts.caption.weight(.semibold))
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .dsSurface(.row, isHighlighted: isHovering)
+            .animation(.easeOut(duration: 0.12), value: isHovering)
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .help("\(help) · \(subtitle)")
+        .keyboardShortcut(key, modifiers: .command)
+        .onHover { isHovering = $0 }
+        .accessibilityLabel(title)
+        .accessibilityHint(subtitle)
+    }
+
+    private var fullBody: some View {
         Button(action: action) {
             HStack(spacing: 9) {
                 RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)

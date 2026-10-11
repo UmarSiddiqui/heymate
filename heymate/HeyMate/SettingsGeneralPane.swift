@@ -107,6 +107,21 @@ struct SettingsGeneralPane: View {
                     .disabled(!updateController.canCheckForUpdates)
             }
             SettingsDivider()
+            SettingsRow(
+                "What's new",
+                subtitle: "Everything that shipped in HeyMate, newest first."
+            ) {
+                Button {
+                    if let url = URL(string: SupportLinks.changelogURLString) { NSWorkspace.shared.open(url) }
+                } label: {
+                    Image(systemName: "arrow.up.right")
+                        .font(DS.Glyph.small)
+                }
+                .dsToolbarIconButtonStyle(size: DS.ControlSize.small)
+                .help("Open the changelog")
+                .accessibilityLabel("Open the changelog")
+            }
+            SettingsDivider()
             if updateController.isReady {
                 SettingsToggleRow(
                     "Check automatically",

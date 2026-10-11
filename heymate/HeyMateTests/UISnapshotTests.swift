@@ -96,6 +96,26 @@ struct UISnapshotTests {
         )
     }
 
+    @Test(.enabled(if: outputDirectory != nil))
+    func notchMatesPeek() throws {
+        let manager = Self.sampleManager()
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("peek-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try "# Outreach\n\nNick Saraev — draft ready\nLeon van Zyl — draft ready".write(
+            to: folder.appendingPathComponent("outreach.md"), atomically: true, encoding: .utf8)
+        try "Channel,Email\nIndyDevDan,yes\nAI Anytime,yes".write(
+            to: folder.appendingPathComponent("leads.csv"), atomically: true, encoding: .utf8)
+        manager.mates[0].folderPath = folder.path
+        try Self.render(
+            NotchMatesPeek(companionManager: manager)
+                .padding(16)
+                .background(Color.black),
+            size: CGSize(width: 380, height: 260),
+            dark: true,
+            name: "notch-mates-peek"
+        )
+    }
+
     // MARK: Fixtures
 
     static func sampleManager() -> CompanionManager {

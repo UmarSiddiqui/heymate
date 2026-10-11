@@ -184,13 +184,13 @@ enum DS {
         // buddy's accent stays reserved for the one action that matters.
 
         /// Switch track when on.
-        static var switchTrackOn: Color { textPrimary }
+        static var switchTrackOn: Color { accent }
 
         /// Switch track when off.
         static var switchTrackOff: Color { surface4 }
 
         /// Switch knob sitting on the "on" track.
-        static var switchKnobOn: Color { background }
+        static var switchKnobOn: Color { .white }
 
         /// Switch knob sitting on the "off" track.
         static let switchKnobOff = Color(light: "#FFFFFF", dark: "#B3B3BA")

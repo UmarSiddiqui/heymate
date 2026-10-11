@@ -21,6 +21,7 @@ nonisolated enum SupportLinks {
 
     static let repositoryURLString = "https://github.com/UmarSiddiqui/heymate"
     static let permissionsPageURLString = "https://getheymate.vercel.app/permissions"
+    static let changelogURLString = "https://getheymate.vercel.app/changelog"
     static let feedbackEmailAddress = "umarsiddiqui3037+heymate@gmail.com"
 
     /// Issue URLs name the forms in `.github/ISSUE_TEMPLATE/`; rename them together.

@@ -117,6 +117,14 @@ struct SettingsDetailView: View {
 /// Return opens the first one, Esc clears the search, Cmd-F focuses it.
 struct SettingsSidebar: View {
     @ObservedObject var navigation: SettingsNavigationModel
+
+    /// "HeyMate 1.4.2 (87)" at the foot of the rail, for bug reports.
+    static var versionLine: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "HeyMate \(version) (\(build))"
+    }
     /// Rows above the search field. The desktop window puts "Back to chat"
     /// and "Apps" here.
     var header: AnyView?
@@ -155,6 +163,13 @@ struct SettingsSidebar: View {
                 .padding(.bottom, DS.Spacing.lg)
             }
             .scrollIndicators(.never)
+
+            Text(Self.versionLine)
+                .font(DS.Fonts.caption)
+                .foregroundColor(DS.Colors.textTertiary)
+                .padding(.horizontal, DS.Spacing.md + 2)
+                .padding(.bottom, DS.Spacing.md)
+                .textSelection(.enabled)
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .background(
