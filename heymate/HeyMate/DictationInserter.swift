@@ -78,6 +78,16 @@ enum DictationInserter {
         resolveFocusedElement()?.info
     }
 
+    /// The focused element when it is safe to read back, for watching what
+    /// the user does to inserted text. Nil for secure fields.
+    @MainActor
+    static func focusedElementForObservation() -> AXUIElement? {
+        guard let focus = resolveFocusedElement(),
+              !DictationFieldSecurity.isLikelySecure(role: focus.info.role, subrole: focus.info.subrole)
+        else { return nil }
+        return focus.element
+    }
+
     /// Inserts text using the priority ladder documented at the top of this
     /// file. Never throws.
     @MainActor

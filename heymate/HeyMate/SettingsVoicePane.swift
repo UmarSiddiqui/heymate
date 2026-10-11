@@ -14,6 +14,7 @@ import SwiftUI
 struct SettingsVoicePane: View {
     @ObservedObject var companionManager: CompanionManager
     @ObservedObject var navigation: SettingsNavigationModel
+    @ObservedObject private var dictationVocabulary = DictationVocabulary.shared
 
     // Device and voice lists are read when the page appears and on demand.
     // Enumerating CoreAudio on every body evaluation would be wasteful and
@@ -75,6 +76,16 @@ struct SettingsVoicePane: View {
                 )
             }
             SettingsDivider()
+            SettingsRow(
+                SettingsItem.learnedWords.title,
+                subtitle: learnedWordsSubtitle,
+                item: .learnedWords
+            ) {
+                if !dictationVocabulary.words.isEmpty {
+                    Button("Clear") { dictationVocabulary.removeAll() }
+                }
+            }
+            SettingsDivider()
             SettingsToggleRow(
                 SettingsItem.focusedWindow.title,
                 subtitle: "Sharper, faster answers from the app in front of you.",
@@ -89,6 +100,14 @@ struct SettingsVoicePane: View {
                 isOn: $companionManager.isUISoundEnabled
             )
         }
+    }
+
+    private var learnedWordsSubtitle: String {
+        let words = dictationVocabulary.keyterms
+        guard !words.isEmpty else {
+            return "Fix a word HeyMate typed for you and it hears that word right next time."
+        }
+        return words.prefix(12).joined(separator: ", ") + (words.count > 12 ? ", and \(words.count - 12) more" : "")
     }
 
     // MARK: Microphone

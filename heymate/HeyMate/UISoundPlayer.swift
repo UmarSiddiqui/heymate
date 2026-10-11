@@ -16,12 +16,16 @@ final class UISoundPlayer {
 
     static let shared = UISoundPlayer()
 
-    enum Sound: String {
+    enum Sound: String, CaseIterable {
         /// Soft rising blip when push-to-talk opens the mic.
         case listenStart = "ListenStart"
         /// Gentle two-note chime when the spoken response starts playing.
         case responseReady = "ResponseReady"
     }
+
+    /// Decoded asset bytes, read once. Loading the data set from the asset
+    /// catalog on the first press is what made the first blip late.
+    private var soundData: [Sound: Data] = [:]
 
     /// Strong references so players aren't deallocated mid-playback; finished
     /// entries are pruned on every call.
@@ -32,14 +36,30 @@ final class UISoundPlayer {
 
         activePlayers.removeAll { !$0.isPlaying }
 
-        guard let asset = NSDataAsset(name: sound.rawValue),
-              let player = try? AVAudioPlayer(data: asset.data) else {
+        guard let data = data(for: sound),
+              let player = try? AVAudioPlayer(data: data) else {
             HeyMateLog.log("🔇 UISoundPlayer: missing or unplayable sound asset \(sound.rawValue)")
             return
         }
         player.volume = 0.5
         activePlayers.append(player)
         player.play()
+    }
+
+    /// Loads every sound and primes the audio output so the first blip of
+    /// a session plays on time instead of after the device wakes.
+    func warmUp() {
+        for sound in Sound.allCases {
+            guard let data = data(for: sound), let player = try? AVAudioPlayer(data: data) else { continue }
+            player.prepareToPlay()
+        }
+    }
+
+    private func data(for sound: Sound) -> Data? {
+        if let cached = soundData[sound] { return cached }
+        guard let asset = NSDataAsset(name: sound.rawValue) else { return nil }
+        soundData[sound] = asset.data
+        return asset.data
     }
 
     private var isSoundEnabled: Bool {

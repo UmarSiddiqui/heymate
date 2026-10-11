@@ -306,8 +306,24 @@ final class CompanionManager: ObservableObject {
     private var annotationExpiryTask: Task<Void, Never>?
     // lazy so the closure can capture self (stored-property initializers cannot).
     private lazy var annotationClearKeyMonitor = AnnotationClearKeyMonitor { [weak self] in
-        self?.cancelGuidance()
-        self?.cancelSpatialContextAndAnnotations()
+        self?.handleGlobalEscape()
+    }
+
+    private let systemOverlayYield = SystemOverlayYield()
+
+    /// Escape anywhere clears drawings and pointing, and stops a reply that
+    /// is still being prepared or spoken. Listening, agents and approvals
+    /// are left alone: they have their own explicit stop controls.
+    private func handleGlobalEscape() {
+        cancelGuidance()
+        cancelSpatialContextAndAnnotations()
+        switch state {
+        case .capturingContext, .thinking, .speaking, .guiding:
+            HeyMateLog.log("⎋ Escape interrupted the reply")
+            cancelInFlightChatTurn()
+        default:
+            break
+        }
     }
 
     // MARK: - Onboarding Prompt Bubble
@@ -2665,6 +2681,11 @@ final class CompanionManager: ObservableObject {
         contextualConnectorSuggestionMonitor.start()
         // Escape clears any on-screen drawing annotations (master spec).
         annotationClearKeyMonitor.start()
+        UISoundPlayer.shared.warmUp()
+        systemOverlayYield.onYieldChange = { [weak self] yielded in
+            self?.overlayWindowManager.setYielded(yielded)
+        }
+        systemOverlayYield.start()
         // Load skill files + refresh the published memory snapshot. Bundled
         // defaults are seeded first so a fresh install starts with skills.
         reloadSkills()
@@ -2715,6 +2736,7 @@ final class CompanionManager: ObservableObject {
         overlayWindowManager.hideOverlay()
         transientHideTask?.cancel()
         annotationClearKeyMonitor.stop()
+        systemOverlayYield.stop()
         notchCompanionController.stop()
         annotationExpiryTask?.cancel()
         pendingDictateStartTask?.cancel()
@@ -3307,8 +3329,17 @@ final class CompanionManager: ObservableObject {
                 guard !Task.isCancelled else { return }
 
                 if !textToInsert.isEmpty {
+                    DictationCorrectionLearner.shared.stop()
                     let outcome = await DictationInserter.insert(textToInsert)
                     HeyMateLog.log("✍️ Dictation insert (\(insertionContextSummary)): \(outcome)")
+                    if Self.insertionLanded(outcome) {
+                        // Give the target app a beat to apply the text before
+                        // the learner snapshots the field.
+                        try? await Task.sleep(for: .milliseconds(250))
+                        if let element = DictationInserter.focusedElementForObservation() {
+                            DictationCorrectionLearner.shared.observe(element, inserted: textToInsert)
+                        }
+                    }
                 }
 
                 dispatch(.interactionFinished)
@@ -3321,6 +3352,13 @@ final class CompanionManager: ObservableObject {
                 dispatch(.interactionFinished)
                 scheduleTransientHideIfNeeded()
             }
+        }
+    }
+
+    static func insertionLanded(_ outcome: InsertionOutcome) -> Bool {
+        switch outcome {
+        case .insertedViaAccessibility, .insertedViaPasteboard, .insertedViaTyping: return true
+        case .blockedSecureField, .unsupportedPath, .failed: return false
         }
     }
 

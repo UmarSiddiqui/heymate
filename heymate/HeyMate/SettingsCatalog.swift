@@ -155,6 +155,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
     // Talk & Voice
     case silentMode
     case dictationMode
+    case learnedWords
     case focusedWindow
     case interactionSounds
     case microphone
@@ -208,7 +209,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .talkShortcut, .chatShortcut, .dictateShortcut, .regionShortcut,
              .doubleTapText, .doubleTapHandsFree, .restoreShortcuts:
             return .shortcuts
-        case .silentMode, .dictationMode, .focusedWindow, .interactionSounds,
+        case .silentMode, .dictationMode, .learnedWords, .focusedWindow, .interactionSounds,
              .microphone, .listenProvider, .speakProvider, .onDeviceVoice,
              .macVoice, .elevenLabsKey, .elevenLabsVoice:
             return .voice
@@ -245,6 +246,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .restoreShortcuts: return "Restore default shortcuts"
         case .silentMode: return "Silent mode"
         case .dictationMode: return "Dictation style"
+        case .learnedWords: return "Learned words"
         case .focusedWindow: return "Look at the front window only"
         case .interactionSounds: return "Interaction sounds"
         case .microphone: return "Microphone"
@@ -300,6 +302,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .restoreShortcuts: return "reset defaults keys"
         case .silentMode: return "quiet mute public work type no voice"
         case .dictationMode: return "smart literal dictation mode"
+        case .learnedWords: return "dictionary vocabulary corrections custom words names spelling"
         case .focusedWindow: return "context screen capture focused window front app"
         case .interactionSounds: return "clicks chime blip sound effects feedback audio"
         case .microphone: return "mic input device audio headset airpods"
