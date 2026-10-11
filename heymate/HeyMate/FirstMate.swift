@@ -160,7 +160,7 @@ enum MateHandoffParser {
         }
         if !missing.isEmpty {
             let names = missing.joined(separator: ", ")
-            let note = "I don't have a mate named \(names)."
+            let note = "I don't have an agent named \(names)."
             spoken = spoken.isEmpty ? note : "\(spoken)\n\(note)"
         }
         if !tooDeep.isEmpty {

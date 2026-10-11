@@ -103,7 +103,7 @@ extension MateRoutine {
 nonisolated enum MateRoutineAccounting {
     static let networkWaitStatus = "I'll run it when the internet is back"
     static let failurePauseCount = 3
-    static let archivedPauseReason = "Paused because this mate is archived."
+    static let archivedPauseReason = "Paused because this agent is archived."
     static let manualPauseReason = "Paused by you."
 
     static func isDue(_ routine: MateRoutine, now: Date) -> Bool {

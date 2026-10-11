@@ -22,6 +22,7 @@ struct MateHomeView: View {
     @State private var hoveredRailMateID: UUID?
     @State private var isDrawerOpen = false
     @State private var isShowingNewMate = false
+    @State private var isShowingCast = false
     @State private var typedMessageInput = ""
     @State private var imageAttachments: [ChatImageAttachment] = []
     @State private var isShowingImageImporter = false
@@ -72,6 +73,21 @@ struct MateHomeView: View {
             }
         }
         .background(CelestialAtmosphere())
+        .onAppear {
+            if MateCast.shouldOffer(
+                hasCompletedOnboarding: companionManager.hasCompletedOnboarding,
+                activeMateCount: companionManager.mates.filter { !$0.archived }.count,
+                alreadyOffered: UserDefaults.standard.bool(forKey: MateHomeView.castOfferedKey)
+            ) {
+                isShowingCast = true
+            }
+        }
+        .sheet(isPresented: $isShowingCast, onDismiss: markCastOffered) {
+            MateCastSheet(
+                existingNames: companionManager.mates.map(\.name),
+                onCreate: addCast
+            )
+        }
         .sheet(isPresented: $isShowingNewMate) {
             NewMateSheet { name, job in
                 companionManager.createMate(name: name, job: job) != nil
@@ -83,13 +99,16 @@ struct MateHomeView: View {
                 companionManager: companionManager,
                 isLastNonArchivedMate: deletionReplacesWithFreshHeyMate(mate),
                 onOpenSection: onOpenSection,
-                onSave: { name, job, soul, face in
+                onSave: { name, job, soul, face, tint, hair, outfit in
                     companionManager.updateMateProfile(
                         id: mate.id,
                         name: name,
                         job: job,
                         soul: soul,
-                        faceAssetName: face
+                        faceAssetName: face,
+                        faceTint: tint,
+                        faceHair: hair,
+                        faceOutfit: outfit
                     )
                 },
                 onDelete: {
@@ -106,7 +125,7 @@ struct MateHomeView: View {
             mateDrawer
                 .frame(minWidth: 320, minHeight: 420)
                 .confirmationDialog(
-                    "Delete \(matePendingDelete?.name ?? "this mate")?",
+                    "Delete \(matePendingDelete?.name ?? "this agent")?",
                     isPresented: sheetDeleteDialogPresented,
                     titleVisibility: .visible
                 ) {
@@ -149,7 +168,7 @@ struct MateHomeView: View {
         })
         #endif
         .confirmationDialog(
-            "Delete \(matePendingDelete?.name ?? "this mate")?",
+            "Delete \(matePendingDelete?.name ?? "this agent")?",
             isPresented: rootDeleteDialogPresented,
             titleVisibility: .visible
         ) {
@@ -159,7 +178,7 @@ struct MateHomeView: View {
             Text(pendingDeletionWarning)
         }
         .confirmationDialog(
-            "Archive \(matePendingArchive?.name ?? "this mate")?",
+            "Archive \(matePendingArchive?.name ?? "this agent")?",
             isPresented: archiveDialogPresented,
             titleVisibility: .visible
         ) {
@@ -209,8 +228,17 @@ struct MateHomeView: View {
                 }
                 .dsToolbarIconButtonStyle()
                 .keyboardShortcut("n", modifiers: [.command, .shift])
-                .help("New mate (⇧⌘N)")
-                .accessibilityLabel("New mate")
+                .help("New agent (⇧⌘N)")
+                .accessibilityLabel("New agent")
+                Button {
+                    isShowingCast = true
+                } label: {
+                    Image(systemName: "person.3")
+                        .font(DS.Glyph.regular)
+                }
+                .dsToolbarIconButtonStyle()
+                .help("Meet a cast")
+                .accessibilityLabel("Meet a cast")
             }
             .padding(.horizontal, 12)
             .padding(.top, 14)
@@ -224,11 +252,17 @@ struct MateHomeView: View {
                             mateRow(mate)
                         }
                     }
+                    if !suggestedAgents.isEmpty {
+                        railHeader("Suggested")
+                        ForEach(suggestedAgents) { suggestion in
+                            suggestedRow(suggestion)
+                        }
+                    }
                     if showsActiveMateHeader {
-                        railHeader(searchText.isEmpty ? "Mates" : "Results")
+                        railHeader(searchText.isEmpty ? "Agents" : "Results")
                     }
                     if rail.others.isEmpty && rail.pinned.isEmpty && (archivedRail.isEmpty || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
-                        Text(searchText.isEmpty ? "New mates show up here." : "No mates match that.")
+                        Text(searchText.isEmpty ? "New agents show up here." : "No agents match that.")
                             .font(DS.Fonts.caption)
                             .foregroundColor(DS.Colors.textTertiary)
                             .padding(.horizontal, 12)
@@ -244,9 +278,9 @@ struct MateHomeView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
+            .padding(.horizontal, 8)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
             }
 
             Divider().overlay(DS.Colors.borderSubtle)
@@ -275,6 +309,97 @@ struct MateHomeView: View {
             query: searchText,
             defaultMateID: companionManager.mateDirectory.defaultMateID
         )
+    }
+
+    private var suggestedAgents: [AgentSuggestion] {
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty else { return [] }
+        return AgentSuggestionCatalog.offers(existingJobs: companionManager.mates.map(\.job))
+    }
+
+    private func suggestedRow(_ suggestion: AgentSuggestion) -> some View {
+        Button {
+            addSuggestion(suggestion)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "plus.circle")
+                    .font(DS.Glyph.regular)
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .frame(width: 36)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(suggestion.name)
+                        .font(DS.Fonts.headline)
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .lineLimit(1)
+                    Text(suggestion.job)
+                        .font(DS.Fonts.body)
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .accessibilityLabel("Add \(suggestion.name)")
+    }
+
+    private func addSuggestion(_ suggestion: AgentSuggestion) {
+        guard let mate = companionManager.createMate(
+            name: suggestion.name,
+            job: suggestion.job,
+            soul: suggestion.soul
+        ) else { return }
+        _ = companionManager.updateMateProfile(
+            id: mate.id,
+            name: mate.name,
+            job: mate.job,
+            soul: suggestion.soul,
+            faceAssetName: suggestion.faceAssetName
+        )
+    }
+
+    private func liveFace(_ mate: Mate, size: CGFloat) -> some View {
+        MateFaceView(
+            mate: mate,
+            size: size,
+            expression: MateFaceExpression.live(companionManager.state)
+        )
+    }
+
+    private func addCast(_ members: [MateCastProposal]) {
+        var created: Mate?
+        for member in members {
+            guard let mate = companionManager.createMate(
+                name: member.name,
+                job: member.job,
+                soul: member.soul,
+                opensChat: false
+            ) else { continue }
+            _ = companionManager.updateMateProfile(
+                id: mate.id,
+                name: mate.name,
+                job: mate.job,
+                soul: member.soul,
+                faceAssetName: member.faceAssetName,
+                faceTint: member.faceTint,
+                faceHair: member.faceHair,
+                faceOutfit: member.faceOutfit
+            )
+            created = mate
+        }
+        if let created {
+            companionManager.openMate(id: created.id)
+        }
+    }
+
+    private static let castOfferedKey = "heymate.castOffered"
+
+    private func markCastOffered() {
+        UserDefaults.standard.set(true, forKey: Self.castOfferedKey)
     }
 
     private var archivedRail: [Mate] {
@@ -534,7 +659,7 @@ struct MateHomeView: View {
                         Button(mate.name) { companionManager.openMate(id: mate.id) }
                     }
                     Divider()
-                    Button("New mate") { isShowingNewMate = true }
+                    Button("New agent") { isShowingNewMate = true }
                     if let mate = activeMate {
                         Divider()
                         if mate.archived {
@@ -551,7 +676,7 @@ struct MateHomeView: View {
                 }
                 .menuStyle(.borderlessButton)
                 .frame(width: 28)
-                .help("Switch mate")
+                .help("Switch agent")
             }
             Spacer(minLength: 8)
             jobsButton
@@ -581,8 +706,8 @@ struct MateHomeView: View {
                     .font(DS.Glyph.regular)
             }
             .dsToolbarIconButtonStyle(isActive: isDrawerOpen)
-            .help(isDrawerOpen ? "Hide mate details" : "Mate details")
-            .accessibilityLabel(isDrawerOpen ? "Hide mate details" : "Mate details")
+            .help(isDrawerOpen ? "Hide agent details" : "Agent details")
+            .accessibilityLabel(isDrawerOpen ? "Hide agent details" : "Agent details")
             if isCompactLayout {
                 Menu {
                     ForEach(MateHomeLayout.workspaceSections) { section in
@@ -625,7 +750,7 @@ struct MateHomeView: View {
                 Button {
                     beginMateSettings(mate)
                 } label: {
-                    MateFaceView(mate: mate, size: 30)
+                    liveFace(mate, size: 30)
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
@@ -671,7 +796,7 @@ struct MateHomeView: View {
                 Image(systemName: DesktopSection.agents.symbolName)
                     .font(DS.Glyph.regular)
                 if !isCompactLayout {
-                    Text("Jobs")
+                    Text("Agents")
                         .font(DS.Fonts.control)
                 }
                 if activeCount > 0 {
@@ -696,9 +821,9 @@ struct MateHomeView: View {
     }
 
     private func jobsHelp(activeCount: Int, needsYou: Bool) -> String {
-        if needsYou { return "Jobs: something needs your approval" }
-        if activeCount > 0 { return "Jobs: \(activeCount) in progress" }
-        return "Jobs: work your mates do over time"
+        if needsYou { return "Agents: something needs your approval" }
+        if activeCount > 0 { return "Agents: \(activeCount) in progress" }
+        return "Agents: work they do over time"
     }
 
     private var headerTitles: some View {
@@ -707,7 +832,7 @@ struct MateHomeView: View {
                 Button {
                     beginMateSettings(mate)
                 } label: {
-                    MateFaceView(mate: mate, size: isCompactLayout ? 28 : 32)
+                    liveFace(mate, size: isCompactLayout ? 28 : 32)
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
@@ -866,7 +991,7 @@ struct MateHomeView: View {
                 Button {
                     beginMateSettings(mate)
                 } label: {
-                    MateFaceView(mate: mate, size: 64)
+                    liveFace(mate, size: 64)
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
@@ -1141,7 +1266,7 @@ struct MateHomeView: View {
                     mateJobRow(run)
                 }
                 if unfinished.count > limit {
-                    Button("\(unfinished.count - limit) more in Jobs") {
+                    Button("\(unfinished.count - limit) more in Agents") {
                         onOpenSection(.agents)
                     }
                     .buttonStyle(.plain)
@@ -1187,7 +1312,7 @@ struct MateHomeView: View {
             case .awaitingPlanApproval:
                 Button("Approve plan") { companionManager.approveAgentPlan(runID: run.id) }
                     .dsCapsuleButtonStyle(.primary, height: DS.ControlSize.small)
-                    .help("Let this job make the changes its plan describes")
+                    .help("Let this agent make the changes its plan describes")
             case .waitingForApproval:
                 Button("Allow") { companionManager.approveAgent(runID: run.id) }
                     .dsCapsuleButtonStyle(.primary, height: DS.ControlSize.small)
@@ -1200,7 +1325,7 @@ struct MateHomeView: View {
                 onOpenSection(.agents)
             }
             .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
-            .help("Open this job in Jobs")
+            .help("Open this work in Agents")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
@@ -1559,7 +1684,7 @@ struct MateHomeView: View {
                 memorySection
                 if let mate = activeMate {
                     Divider()
-                    Button("Delete mate…", role: .destructive) {
+                    Button("Delete agent…", role: .destructive) {
                         matePendingDelete = mate
                     }
                     .dsCapsuleButtonStyle(.destructive, height: DS.ControlSize.small)
@@ -1588,12 +1713,12 @@ struct MateHomeView: View {
                 }
             }
             if let mate = activeMate {
-                MateFaceView(mate: mate, size: 88)
+                liveFace(mate, size: 88)
                     .accessibilityHidden(true)
                 Button {
                     beginMateSettings(mate)
                 } label: {
-                    Label("Edit mate", systemImage: "paintbrush.pointed")
+                    Label("Edit agent", systemImage: "paintbrush.pointed")
                         .font(DS.Fonts.control)
                 }
                 .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)
@@ -1625,12 +1750,12 @@ struct MateHomeView: View {
     /// for me?" is answered next to the chat rather than on another page.
     private var jobsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Jobs")
+            Text("Work")
                 .font(DS.Fonts.sectionLabel)
                 .foregroundColor(DS.Colors.textTertiary)
             let recent = activeMateJobs.prefix(5)
             if recent.isEmpty {
-                Text("Ask this mate to make or change something and the job shows up here.")
+                Text("Ask this agent to make or change something and the work shows up here.")
                     .font(DS.Fonts.body)
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1658,7 +1783,7 @@ struct MateHomeView: View {
                 .font(DS.Fonts.sectionLabel)
                 .foregroundColor(DS.Colors.textTertiary)
             TextField(
-                "A short note only this mate keeps",
+                "A short note only this agent keeps",
                 text: memoryNoteBinding,
                 axis: .vertical
             )
@@ -1743,7 +1868,7 @@ struct MateHomeView: View {
                 .foregroundColor(DS.Colors.textSecondary)
                 .pointerCursor()
             } else {
-                Text("A mate's folder is created when they start file work.")
+                Text("An agent's folder is created when they start file work.")
                     .font(DS.Fonts.body)
                     .foregroundColor(DS.Colors.textTertiary)
             }
@@ -1931,11 +2056,11 @@ private struct NewMateSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("New mate")
+            Text("New agent")
                 .font(DS.Fonts.hero)
             TextField("Name", text: $name)
                 .textFieldStyle(.roundedBorder)
-            TextField("Job, in one sentence", text: $job)
+            TextField("What they do, in one sentence", text: $job)
                 .textFieldStyle(.roundedBorder)
             if let errorText {
                 Text(errorText)
@@ -1957,7 +2082,7 @@ private struct NewMateSheet: View {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedJob = job.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty, !trimmedJob.isEmpty else {
-            errorText = "A mate needs a name and a job."
+            errorText = "An agent needs a name and what it does."
             return
         }
         if onCreate(trimmedName, trimmedJob) {

@@ -4827,7 +4827,7 @@ final class CompanionManager: ObservableObject {
         if didContinue {
             shouldRevealAgentsTab = true
         } else {
-            agentRevealErrorText = "That job can't be continued — start a new one."
+            agentRevealErrorText = "That agent can't be continued. Start a new one."
         }
         return didContinue
     }

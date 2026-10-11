@@ -138,7 +138,7 @@ nonisolated enum SubscriptionSignInCopy {
     static func signInNeededMessage(for executor: HeadlessExecutor) -> String {
         let product = productName(for: executor)
         return "\(product) isn't signed in on this Mac. Use “\(signInActionTitle(for: executor))” in the notch, "
-            + "or open Settings → AI & Accounts. You can also switch this mate to another engine "
+            + "or open Settings → AI & Accounts. You can also switch this agent to another engine "
             + "from the menu under the message box."
     }
 

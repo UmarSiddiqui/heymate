@@ -44,7 +44,7 @@ enum DesktopSection: String, CaseIterable, Identifiable, Hashable {
     var displayName: String {
         switch self {
         case .chat: return "Chat"
-        case .agents: return "Jobs"
+        case .agents: return "Agents"
         case .connectors: return "Apps"
         case .notch: return "Notch Apps"
         case .skills: return "Skills"
@@ -301,7 +301,7 @@ struct DesktopRootView: View {
     }
 
     private var statusWord: String {
-        if companionManager.isForegroundAgentActive { return "Working on a job" }
+        if companionManager.isForegroundAgentActive { return "An agent is working" }
         switch companionManager.voiceState {
         case .idle: return "Ready"
         case .listening: return "Listening"
