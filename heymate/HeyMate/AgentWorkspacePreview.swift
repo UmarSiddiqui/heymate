@@ -20,7 +20,7 @@ nonisolated enum AgentWorkspacePreviewTarget: Equatable {
     }
 
     static func resolve(for run: AgentRun, fileManager: FileManager = .default) -> Self? {
-        let candidateTexts = run.activity.reversed().map(\.text) + [run.summary, run.latestAction]
+        let candidateTexts = [run.finalAnswer].compactMap { $0 } + run.activity.reversed().map(\.text) + [run.summary, run.latestAction]
         for candidateText in candidateTexts {
             if let localServerURL = firstLocalServerURL(in: candidateText) {
                 return .localServer(localServerURL)

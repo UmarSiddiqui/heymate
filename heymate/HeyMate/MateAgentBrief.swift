@@ -16,10 +16,11 @@ enum MateAgentBrief {
         var lines = [
             "how you work, as an agent and not a chatbot:",
             "- this chat window cannot read or write files, and it is not your workspace. \(workspace) you never need the user to tell you where they are.",
-            "- the only way you do file work, run commands, or take several steps is an agent run. start it by ending your reply with exactly one line: [WORK: the complete task, with every detail the run needs]",
-            "- a run plans first and shows the user the plan for approval before it changes anything, so you never ask for approval, a path, or confirmation yourself. do not write a plan, a list of steps, or a question in the chat. write [WORK: ...] instead.",
-            "- never say you are read-only, empty, or unable to write, and never give the user drafted file contents to paste. the run does the writing.",
-            "- your reply is at most two sentences: what the run will do, then the [WORK: ...] line. the result comes back to the user without them asking again.",
+            "- when the user asks you to create or change files or run commands for them, start an agent run by ending your reply with exactly one line: [WORK: the complete task, with every detail the run needs]",
+            "- a run plans first and shows the user the plan for approval before it changes anything, so you never ask for approval, a path, or confirmation yourself for that run. let the run produce its execution plan instead of duplicating it in chat.",
+            "- when the user asks you to do file work, never say you are read-only, empty, or unable to write, and never substitute drafted file contents for the requested action. the run does the writing.",
+            "- when starting a run, keep the handoff to at most two sentences: what the run will do, then the [WORK: ...] line. the result comes back to the user without them asking again.",
+            "- when the user asks to learn, understand, or do something themselves (\"teach me\", \"show me how\", \"walk me through\"), teach directly in this chat. for screen walkthroughs follow the [PLAN: ...] and [STEP:n] instructions, guide only the current step, then wait for their progress. multiple teaching steps do not require a [WORK: ...] run or a handoff to another mate.",
             "- when no file or command work is needed, answer directly and briefly. ask a question only when a wrong guess would waste real work, and ask one.",
             "- for anything current or that you are not sure of, search the web with the tools you have instead of guessing or telling the user to look it up.",
         ]
@@ -27,13 +28,13 @@ enum MateAgentBrief {
             // Without this the chat model only sees its own tools and answers
             // "no app control is available here" instead of starting the run
             // that has it.
-            lines.append("- a run can also operate other mac apps in the background: open an app, click, type, use menus, without taking the user's cursor. when the user asks you to do something in an app that none of your connected apps can reach, start a [WORK: ...] run for it. never say app control is unavailable.")
+            lines.append("- a run can also operate other mac apps in the background: open an app, click, type, use menus, without taking the user's cursor. when the user asks you to perform an app task for them, rather than teach them, and none of your connected apps can reach it, start a [WORK: ...] run for it. never say app control is unavailable.")
             // Without this the brief above sent "how many emails today?" to a
             // run that drove Mail.app, when connected Gmail answers in seconds.
             lines.append("- for email, calendar, and other services listed as connected apps, use those tools directly in this chat. they answer in seconds; a run is slower and needs the user's approval.")
         }
         if mate.conductsOthers {
-            lines.append("- for a specialist's job, hand it over with [ASK: ...] instead of [WORK: ...].")
+            lines.append("- for a specialist's execution job, hand it over with [ASK: ...] instead of [WORK: ...]. keep a requested teaching walkthrough in this chat.")
         }
         return lines.joined(separator: "\n")
     }
@@ -98,7 +99,7 @@ enum MateWorkParser {
 /// reads as steps the mate took rather than a card the user has to go find.
 enum MateRunReport {
     static func planReady(plan: String) -> String {
-        let body = plan.count > 700 ? String(plan.prefix(699)) + "…" : plan
+        let body = AgentReceiptPrivacy.safeResult(plan)
         var text = "Step 1 of 2 · plan ready. Nothing has changed yet."
         if !body.isEmpty { text += "\n\n\(body)" }
         text += "\n\nApprove the plan below or in Jobs, and I'll do it."
@@ -106,18 +107,23 @@ enum MateRunReport {
     }
 
     static func finished(summary: String, changedFileCount: Int?) -> String {
-        var text = "Step 2 of 2 · done."
-        let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty { text += " \(trimmed)" }
+        let trimmed = AgentReceiptPrivacy.privateAnswer(summary)
+        var text = AgentFinalResult.hasUsableAnswer(trimmed)
+            ? "Job result\n\n\(trimmed)" : AgentFinalResult.missingMessage
         if let changedFileCount, changedFileCount > 0 {
             text += "\n\(changedFileCount) file\(changedFileCount == 1 ? "" : "s") changed. You can undo this from Jobs."
         }
-        text += "\n\nWant me to keep doing this on a schedule? Say \"every morning, …\" and I'll set it up."
         return text
     }
 
     static func failed(message: String) -> String {
-        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = AgentReceiptPrivacy.privateAnswer(message)
         return "That run stopped: \(trimmed.isEmpty ? "it failed without a reason" : trimmed). Tell me to try again and I'll start a new run."
+    }
+
+    static func cancelled(summary: String) -> String {
+        summary.hasPrefix("Handed off to Terminal")
+            ? "This job was handed off to Terminal. HeyMate has no final result yet."
+            : "This job was cancelled. It did not report a completed result."
     }
 }

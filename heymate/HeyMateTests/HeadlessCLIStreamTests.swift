@@ -127,6 +127,79 @@ struct HeadlessCLIOutputDeliveryBufferTests {
     }
 }
 
+struct HeadlessCLIPipeReaderEndOfFileTests {
+
+    /// Thread-safe count of readability callbacks, which run on a dispatch queue.
+    private final class CallbackCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = 0
+        func increment() { lock.lock(); value += 1; lock.unlock() }
+        var count: Int { lock.lock(); defer { lock.unlock() }; return value }
+    }
+
+    @Test func standardOutputReaderDetachesAtEndOfFileAndKeepsTrailingBytes() async throws {
+        let pipe = Pipe()
+        let deliveryBuffer = HeadlessCLIOutputDeliveryBuffer()
+        let reader = HeadlessCLIStandardOutputReader(deliveryBuffer: deliveryBuffer)
+        let callbacks = CallbackCounter()
+        pipe.fileHandleForReading.readabilityHandler = { handle in
+            callbacks.increment()
+            _ = reader.readAvailableData(from: handle)
+        }
+
+        try pipe.fileHandleForWriting.write(contentsOf: Data("first\npartial".utf8))
+        try pipe.fileHandleForWriting.close()
+
+        let detached = await waitUntilDetached(pipe.fileHandleForReading)
+        #expect(detached)
+        let callbacksAtDetach = callbacks.count
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        #expect(callbacks.count == callbacksAtDetach)
+
+        reader.readToEndAndSeal(from: pipe.fileHandleForReading)
+        var lines: [String] = []
+        drain: while true {
+            switch deliveryBuffer.nextBatch() {
+            case .lines(let batch): lines += batch
+            case .overflow, .finished: break drain
+            }
+        }
+        #expect(lines == ["first", "partial"])
+    }
+
+    @Test func standardErrorReaderDetachesAtEndOfFile() async throws {
+        let pipe = Pipe()
+        let tail = HeadlessCLIStandardErrorTail()
+        let reader = HeadlessCLIStandardErrorReader(tail: tail)
+        let callbacks = CallbackCounter()
+        pipe.fileHandleForReading.readabilityHandler = { handle in
+            callbacks.increment()
+            reader.readAvailableData(from: handle)
+        }
+
+        try pipe.fileHandleForWriting.write(contentsOf: Data("diagnostic\n".utf8))
+        try pipe.fileHandleForWriting.close()
+
+        let detached = await waitUntilDetached(pipe.fileHandleForReading)
+        #expect(detached)
+        let callbacksAtDetach = callbacks.count
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        #expect(callbacks.count == callbacksAtDetach)
+
+        reader.readToEndAndSeal(from: pipe.fileHandleForReading)
+        #expect(tail.recentLines(limit: 6) == ["diagnostic"])
+    }
+
+    private func waitUntilDetached(_ handle: FileHandle) async -> Bool {
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            if handle.readabilityHandler == nil { return true }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        return handle.readabilityHandler == nil
+    }
+}
+
 @MainActor
 struct HeadlessCLIProcessTreeTests {
 
@@ -214,6 +287,49 @@ struct HeadlessCLIProcessTreeTests {
         #expect(exitStatus == 0)
         #expect(lineCountAtExit == expectedLines.count)
         #expect(outputLines == expectedLines)
+    }
+
+    @Test func readabilityHandlersDetachAtEndOfFileBeforeTerminalCleanup() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "HeadlessCLIProcessEndOfFileTests-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let process = HeadlessCLIProcess()
+        var outputLines: [String] = []
+        var exitStatus: Int32?
+        // Closing both pipes and then sleeping keeps the process group alive,
+        // so terminal cleanup cannot be what detaches the handlers.
+        try process.start(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: [
+                "-c",
+                "echo hi; echo diagnostic >&2; exec >&- 2>&-; sleep 3"
+            ],
+            currentDirectoryURL: directoryURL,
+            onLine: { outputLines.append($0) },
+            onExit: { exitStatus = $0 }
+        )
+        defer { process.terminateThenKill() }
+
+        let detached = await waitUntil(timeout: 2.5) {
+            !process.hasAttachedOutputReadabilityHandler
+        }
+        #expect(detached)
+        #expect(exitStatus == nil)
+
+        let exited = await waitUntil(timeout: 8) { exitStatus != nil }
+        #expect(exited)
+        #expect(exitStatus == 0)
+        #expect(outputLines == ["hi"])
+        #expect(process.recentStandardErrorSummary == "diagnostic")
+        #expect(!process.hasAttachedOutputReadabilityHandler)
     }
 
     @Test func exitCallbackWaitsForInFlightStandardErrorAppend() async throws {

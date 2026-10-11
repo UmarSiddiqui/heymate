@@ -141,7 +141,7 @@ struct AgentCompletionReceiptTests {
         #expect(markdown.contains("Added: `Sources/New.swift`"))
         #expect(markdown.contains("Read-only plan approved before write access"))
         #expect(markdown.contains("Pre-write workspace snapshot recorded for Undo"))
-        #expect(markdown.contains("REDACTED"))
+        #expect(markdown.contains("private result text is omitted"))
 
         #expect(markdown.contains(originalPrompt) == false)
         #expect(markdown.contains(sessionIdentifier) == false)
@@ -195,6 +195,23 @@ struct AgentCompletionReceiptTests {
         #expect(markdown.contains(apiKey) == false)
         #expect(markdown.contains(accessKey) == false)
         #expect(markdown.contains(jwt) == false)
-        #expect(markdown.contains("REDACTED"))
+        #expect(markdown.contains("private result text is omitted"))
+    }
+
+    @Test func portableReceiptOmitsOrdinaryConfidentialFinalAnswer() {
+        var run = AgentRun.queued(id: UUID(), title: "Fixture", prompt: "Fixture",
+                                  workspaceURL: URL(fileURLWithPath: "/tmp/fixture"), executor: .codex, origin: .sandbox)
+        run.status = .succeeded
+        run.summary = AgentFinalResult.availableSummary
+        run.privateFinalResult = "The confidential acquisition codename is Blue Lantern."
+        let receipt = AgentCompletionReceipt.markdown(for: run)
+        #expect(!receipt.contains("Blue Lantern"))
+        #expect(!receipt.contains(run.privateFinalResult!))
+        #expect(receipt.contains("private result text is omitted"))
+        run.summary = AgentFinalResult.missingMessage
+        run.privateFinalResult = nil
+        let missing = AgentCompletionReceipt.markdown(for: run)
+        #expect(missing.contains("Process ended; result unavailable"))
+        #expect(!missing.contains("Result: Completed"))
     }
 }

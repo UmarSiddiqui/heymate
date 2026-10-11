@@ -25,6 +25,7 @@ final class DetachedAgentRunnerEngine {
     }
 
     private let request: DetachedAgentLaunchRequest
+    private let rootDirectoryURL: URL
     private let process = HeadlessCLIProcess()
     private let adapter: HeadlessCLIAdapter
     private let journal: DetachedAgentRuntimeJournal
@@ -35,8 +36,7 @@ final class DetachedAgentRunnerEngine {
     private let wakeMainApp: () -> Void
 
     private var state: DetachedAgentDurableState
-    private var agentReportedFailure = false
-    private var agentReportedBlocked = false
+    private var finalResult = AgentFinalResult()
     private var pendingProviderApprovalID: String?
     private var workBudgetRemaining: Duration
     private var workSegmentStartedAt: SuspendingClock.Instant?
@@ -60,6 +60,7 @@ final class DetachedAgentRunnerEngine {
             throw InitializationError.unsupportedLeg
         }
         self.request = request
+        self.rootDirectoryURL = rootDirectoryURL
         self.exitProcess = exitProcess
         self.wakeMainApp = wakeMainApp
         adapter = HeadlessCLIAdapterFactory.adapter(for: request.executor)
@@ -132,6 +133,7 @@ final class DetachedAgentRunnerEngine {
         guard !isTerminal, !isStopping else { return }
 
         for event in adapter.events(fromStdoutLine: line) {
+            finalResult.consume(event)
             switch event {
             case .started:
                 continue
@@ -142,19 +144,16 @@ final class DetachedAgentRunnerEngine {
             case .tool(let summary):
                 recordProgress(summary)
             case .text:
-                // Raw assistant output stays in runner memory/pipe only. It
-                // must never be disguised as a persistence-safe summary.
+                // Only the final, bounded/redacted result projection is
+                // retained by finalResult. Raw commentary is never persisted.
                 continue
             case .planReady:
                 // Initial rollout detaches write-enabled execute legs only.
                 recordProgress("Runner received an unsupported plan event")
             case .approvalRequested(let providerID, _):
                 beginApprovalWait(providerID: providerID)
-            case .finished(let finalMessage):
-                // Read in memory only; the message itself is never persisted.
-                if headlessAgentReportsBlocked(finalMessage) { agentReportedBlocked = true }
-            case .failed:
-                agentReportedFailure = true
+            case .finished, .failed:
+                continue
             }
         }
     }
@@ -164,7 +163,7 @@ final class DetachedAgentRunnerEngine {
         pauseWorkTimeout()
         approvalTimeoutTask?.cancel()
 
-        if agentReportedFailure {
+        if finalResult.outcome == .failed {
             finishTerminal(
                 phase: .failed,
                 exitCode: status,
@@ -184,21 +183,29 @@ final class DetachedAgentRunnerEngine {
         }
         // Exit 0 only means the process ended. An agent that was refused a
         // permission or lacked a tool says so and still exits cleanly.
-        if agentReportedBlocked {
+        switch finalResult.outcome {
+        case .blocked(let reason):
+            try? AgentPrivateResultStore.save(reason, root: rootDirectoryURL, runID: request.runID, attemptID: request.attemptID)
             finishTerminal(
                 phase: .failed,
                 exitCode: status,
                 summary: nil,
-                error: "Agent could not finish the task. Open its chat for details."
+                error: AgentFinalResult.blockedSummary
             )
-            return
+        case .reported(let answer):
+            do {
+                try AgentPrivateResultStore.save(answer, root: rootDirectoryURL, runID: request.runID, attemptID: request.attemptID)
+                finishTerminal(phase: .succeeded, exitCode: 0, summary: AgentFinalResult.availableSummary, error: nil)
+            } catch {
+                // The work may have succeeded even if saving its answer failed.
+                finishTerminal(phase: .succeeded, exitCode: 0, summary: AgentFinalResult.missingMessage, error: nil)
+            }
+        case .missing, .failed:
+            // A missing answer is a delivery limitation, not evidence the
+            // work failed. Keep process success, with an explicit unknown outcome.
+            finishTerminal(phase: .succeeded, exitCode: 0,
+                           summary: AgentFinalResult.missingMessage, error: nil)
         }
-        finishTerminal(
-            phase: .succeeded,
-            exitCode: 0,
-            summary: "Work completed",
-            error: nil
-        )
     }
 
     private func recordProgress(_ summary: String) {
@@ -614,14 +621,29 @@ nonisolated enum DetachedAgentChildExecutable {
     ) -> Set<String> {
         let scriptPath = executableURL.resolvingSymlinksInPath().path
         var paths: Set<String> = [scriptPath]
-        guard let interpreter = shebangInterpreter(atPath: scriptPath) else { return paths }
-
-        paths.insert(resolved(interpreter.path))
-        if let program = interpreter.envProgram,
-           let programPath = lookUp(program, searchPATH: searchPATH, fileManager: fileManager) {
-            paths.insert(resolved(programPath))
+        if let interpreter = shebangInterpreter(atPath: scriptPath) {
+            paths.insert(resolved(interpreter.path))
+            if let program = interpreter.envProgram,
+               let programPath = lookUp(program, searchPATH: searchPATH, fileManager: fileManager) {
+                paths.insert(resolved(programPath))
+            }
+        }
+        // macOS /bin/sh is an executable dispatcher, not a symlink. After
+        // exec, proc_pidpath reports the selected backend instead of sh.
+        // Only the system selector and its fixed system backends qualify.
+        if let backend = selectedSystemShellBackend(
+            expectedPaths: paths,
+            selection: try? fileManager.destinationOfSymbolicLink(atPath: "/private/var/select/sh")
+        ), fileManager.isExecutableFile(atPath: backend) {
+            paths.insert(backend)
         }
         return paths
+    }
+
+    static func selectedSystemShellBackend(expectedPaths: Set<String>, selection: String?) -> String? {
+        guard expectedPaths.contains("/bin/sh"), let selection,
+              ["/bin/bash", "/bin/dash", "/bin/zsh"].contains(selection) else { return nil }
+        return selection
     }
 
     /// The interpreter from a `#!` line. For `/usr/bin/env [-S] [flags] prog`

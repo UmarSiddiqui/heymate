@@ -13,6 +13,7 @@ nonisolated enum SpokenFailure: Equatable {
     case cancelled
     case outOfCredits
     case signedOut
+    case screenCapturePermission
     case generic
 
     /// Spoken line, or `nil` when the failure should stay silent (cancel).
@@ -24,6 +25,8 @@ nonisolated enum SpokenFailure: Equatable {
             return "the selected model is out of credits. listen and speak on this mac don't use credits. pick another model in settings."
         case .signedOut:
             return "the selected model isn't signed in on this mac. open the notch and tap sign in, or switch to another engine."
+        case .screenCapturePermission:
+            return "I couldn't see your screen. In System Settings, open Privacy & Security, then Screen & System Audio Recording, and allow HeyMate. Quit and reopen HeyMate, then try again."
         case .generic:
             return "i couldn't complete that. check the selected model in settings."
         }
@@ -36,6 +39,11 @@ nonisolated enum SpokenFailure: Equatable {
         let nsError = error as NSError
         if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
             return .cancelled
+        }
+        // SCStreamErrorUserDeclined: capture was refused before the model
+        // received an image. Match the domain and code, not localized text.
+        if nsError.domain == "com.apple.ScreenCaptureKit.SCStreamErrorDomain", nsError.code == -3801 {
+            return .screenCapturePermission
         }
         return classify(message: error.localizedDescription, code: nsError.code)
     }

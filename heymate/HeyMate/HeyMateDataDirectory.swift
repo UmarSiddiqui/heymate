@@ -18,15 +18,22 @@ import Foundation
 
 nonisolated enum HeyMateDataDirectory {
 
-    /// True only inside the unit-test host. `XCTestConfigurationFilePath` is
-    /// set at launch, before the test bundle (and `XCTestCase`) is loaded.
+    /// Redirects data for the unit-test host or an explicit scratch profile.
+    /// XCTest's launch environment is available before its bundle is loaded.
     static let isHostingTests: Bool = {
         let environment = ProcessInfo.processInfo.environment
         return environment[testDataRootKey] != nil
-            || environment["XCTestConfigurationFilePath"] != nil
+            || isUnitTestHost
+    }()
+
+    /// Unlike the scratch-data override, this identifies hosted unit tests
+    /// only. A separately launched QA app must still run normal services.
+    static var isUnitTestHost: Bool {
+        let environment = ProcessInfo.processInfo.environment
+        return environment["XCTestConfigurationFilePath"] != nil
             || environment["XCTestBundlePath"] != nil
             || NSClassFromString("XCTestCase") != nil
-    }()
+    }
 
     /// Carries the scratch root to child processes — the detached agent
     /// runner computes the same paths and must land in the same folder.
@@ -67,6 +74,13 @@ nonisolated enum HeyMateDataDirectory {
               let identifier = Bundle.main.bundleIdentifier else { return }
         setenv(testDataRootKey, scratchRoot.path, 1)
         preferencesSnapshot = UserDefaults.standard.persistentDomain(forName: identifier) ?? [:]
+        if isUnitTestHost {
+            // The app delegate constructs a manager before XCTest starts its
+            // fixtures. Do not warm the user's installed voice models there.
+            // A scratch QA app using only testDataRootKey keeps its choices.
+            UserDefaults.standard.set("macos", forKey: "selectedVoiceSpeakProvider")
+            UserDefaults.standard.set("apple", forKey: "selectedVoiceListenProvider")
+        }
         atexit {
             HeyMateDataDirectory.restorePreferences()
         }

@@ -97,6 +97,12 @@ nonisolated struct AgentActivityEntry: Codable, Equatable, Identifiable {
     }
 }
 
+/// Stable destination, independent of which mate or chat is currently open.
+nonisolated struct AgentChatOwner: Codable, Equatable {
+    let mateID: UUID
+    let chatID: UUID
+}
+
 /// One persisted agent job. Artifact bytes live in `workspacePath`, not here.
 nonisolated struct AgentRun: Codable, Equatable, Identifiable {
     let id: UUID
@@ -140,6 +146,24 @@ nonisolated struct AgentRun: Codable, Equatable, Identifiable {
     /// Follow-ups sent while a process is busy. They resume this same session
     /// in order after the current write leg finishes.
     var queuedFollowUpInstructions: [String]
+    var chatOwner: AgentChatOwner? = nil
+    /// Deduplicates completion delivery across journal recovery and relaunch.
+    var chatResultDeliveryKey: String? = nil
+    /// Private answer prose. Never included in receipts, metadata journals,
+    /// telemetry, or activity logs. Nil for older jobs and missing answers.
+    var privateFinalResult: String? = nil
+
+    var finalAnswer: String? {
+        if let privateFinalResult, AgentFinalResult.hasUsableAnswer(privateFinalResult) {
+            return AgentReceiptPrivacy.privateAnswer(privateFinalResult)
+        }
+        // Older app-owned executors kept their final answer in summary.
+        return AgentFinalResult.hasUsableAnswer(summary) ? AgentReceiptPrivacy.privateAnswer(summary) : nil
+    }
+
+    var resultDeliveryKey: String {
+        "\(detachedAttemptIdentifier):\(status.rawValue):\(finishedAt?.timeIntervalSince1970 ?? 0)"
+    }
 
     var workspaceURL: URL {
         URL(fileURLWithPath: workspacePath, isDirectory: true)
@@ -157,7 +181,8 @@ nonisolated struct AgentRun: Codable, Equatable, Identifiable {
         executor: HeadlessExecutor,
         origin: AgentRunOrigin,
         createdAt: Date = Date(),
-        sessionIdentifier: String = ""
+        sessionIdentifier: String = "",
+        chatOwner: AgentChatOwner? = nil
     ) -> AgentRun {
         AgentRun(
             id: id,
@@ -185,7 +210,8 @@ nonisolated struct AgentRun: Codable, Equatable, Identifiable {
                 AgentActivityEntry(kind: .user, text: prompt, createdAt: createdAt),
                 AgentActivityEntry(kind: .status, text: "Queued", createdAt: createdAt)
             ],
-            queuedFollowUpInstructions: []
+            queuedFollowUpInstructions: [],
+            chatOwner: chatOwner
         )
     }
 }
@@ -234,6 +260,9 @@ extension AgentRun {
             [String].self,
             forKey: .queuedFollowUpInstructions
         ) ?? []
+        chatOwner = try container.decodeIfPresent(AgentChatOwner.self, forKey: .chatOwner)
+        chatResultDeliveryKey = try container.decodeIfPresent(String.self, forKey: .chatResultDeliveryKey)
+        privateFinalResult = try container.decodeIfPresent(String.self, forKey: .privateFinalResult)
     }
 
     mutating func appendActivity(

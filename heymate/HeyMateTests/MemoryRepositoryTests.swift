@@ -16,6 +16,74 @@ import Testing
 @MainActor
 struct MemoryRepositoryTests {
 
+    @Test func legacyMemoriesDecodeWithoutAssigningAnUnprovenOwner() throws {
+        let storeFileURL = makeTemporaryStoreFileURL()
+        defer { removeTemporaryFile(at: storeFileURL) }
+        let summary = makeItem(kind: .sessionSummary, text: "old conversation", minutesAfterEpochBase: 1)
+        let preference = makeItem(kind: .preference, text: "prefer short answers", minutesAfterEpochBase: 2)
+        let data = try JSONEncoder().encode([summary, preference])
+        let records = try #require(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
+        #expect(records.allSatisfy { $0["mateID"] == nil })
+        try data.write(to: storeFileURL)
+
+        let restored = FileMemoryRepository(fileURL: storeFileURL).loadAll()
+        #expect(restored == [summary, preference])
+        #expect(MemoryContext.items(restored, for: UUID()) == [preference])
+    }
+
+    @Test func promptContextSharesDurableKnowledgeButScopesConversationSummaries() {
+        let firstID = UUID()
+        let secondID = UUID()
+        let sharedPreference = makeItem(kind: .preference, text: "shared preference", minutesAfterEpochBase: 1)
+        let sharedFact = makeItem(kind: .projectFact, text: "shared fact", minutesAfterEpochBase: 2)
+        let legacySummary = makeItem(kind: .sessionSummary, text: "unknown owner", minutesAfterEpochBase: 3)
+        var firstSummary = makeItem(kind: .sessionSummary, text: "first conversation", minutesAfterEpochBase: 4)
+        firstSummary.mateID = firstID
+        var secondSummary = makeItem(kind: .sessionSummary, text: "second conversation", minutesAfterEpochBase: 5)
+        secondSummary.mateID = secondID
+        var firstPreference = makeItem(kind: .preference, text: "first preference", minutesAfterEpochBase: 6)
+        firstPreference.mateID = firstID
+        let all = [sharedPreference, sharedFact, legacySummary, firstSummary, secondSummary, firstPreference]
+
+        #expect(MemoryContext.items(all, for: firstID) == [sharedPreference, sharedFact, firstSummary, firstPreference])
+        #expect(MemoryContext.items(all, for: secondID) == [sharedPreference, sharedFact, secondSummary])
+        #expect(MemoryContext.items(all, for: nil) == [sharedPreference, sharedFact])
+    }
+
+    @Test func updatingOneMateSummaryPreservesOtherMatesAndLegacyRecords() {
+        let storeFileURL = makeTemporaryStoreFileURL()
+        defer { removeTemporaryFile(at: storeFileURL) }
+        let firstID = UUID()
+        let secondID = UUID()
+        let repository = FileMemoryRepository(fileURL: storeFileURL)
+        let legacy = makeItem(kind: .sessionSummary, text: "unassigned history", minutesAfterEpochBase: 1)
+        let shared = makeItem(kind: .preference, text: "shared preference", minutesAfterEpochBase: 2)
+        repository.append(legacy)
+        repository.append(shared)
+        repository.updateSessionSummary(mateID: firstID, text: "first old", now: Date(timeIntervalSinceReferenceDate: 200))
+        repository.updateSessionSummary(mateID: secondID, text: "second unchanged", now: Date(timeIntervalSinceReferenceDate: 300))
+        repository.updateSessionSummary(mateID: firstID, text: " first new ", now: Date(timeIntervalSinceReferenceDate: 400))
+
+        let restored = FileMemoryRepository(fileURL: storeFileURL).loadAll()
+        #expect(restored.count == 4)
+        #expect(restored.contains(legacy))
+        #expect(restored.contains(shared))
+        #expect(restored.filter { $0.mateID == firstID }.map(\.text) == ["first new"])
+        #expect(restored.filter { $0.mateID == secondID }.map(\.text) == ["second unchanged"])
+        repository.updateSessionSummary(mateID: firstID, text: " \n ")
+        #expect(repository.loadAll() == restored)
+    }
+
+    @Test func scopedMemoryAddsOnlyATextIdentifierToItsPayload() throws {
+        var item = makeItem(kind: .sessionSummary, text: "text only", minutesAfterEpochBase: 1)
+        item.mateID = UUID()
+        let data = try JSONEncoder().encode(item)
+        let encoded = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(Set(encoded.keys) == Set(["id", "kind", "text", "createdAt", "mateID"]))
+        #expect(encoded["mateID"] as? String == item.mateID?.uuidString)
+        #expect(try JSONDecoder().decode(MemoryItem.self, from: data) == item)
+    }
+
     /// Unique subdirectory per suite instance: parallel test runs each get a
     /// private file, and the defer removes everything even when tests fail.
     private func makeTemporaryStoreFileURL() -> URL {

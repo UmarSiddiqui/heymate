@@ -52,6 +52,7 @@ extension CompanionManager: MateRoutineRunning {
 
     func openMate(id: UUID) {
         guard let mate = mateDirectory.mates.first(where: { $0.id == id }) else { return }
+        cancelForegroundChatTurnForNavigation()
         persistCurrentChatIfNeeded()
         mateDirectory.activeMateID = id
         activeMateID = id
@@ -72,7 +73,7 @@ extension CompanionManager: MateRoutineRunning {
     }
 
     @discardableResult
-    func createMate(name: String, job: String, opensChat: Bool = true) -> Mate? {
+    func createMate(name: String, job: String, soul: String = "", opensChat: Bool = true) -> Mate? {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedJob = job.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty, !trimmedJob.isEmpty else { return nil }
@@ -88,19 +89,24 @@ extension CompanionManager: MateRoutineRunning {
             createdAt: now,
             updatedAt: now,
             memoryNote: "",
-            folderPath: nil
+            folderPath: nil,
+            soul: soul
         )
         guard mateDirectory.upsertMate(mate) else { return nil }
-        ensureMateFolder(id: mate.id)
+        let firstChat = MateFirstMoment.chat(for: mate)
+        if rememberConversationsEnabled { chatHistoryStore.upsert(firstChat) }
         syncMatePublications()
-        if opensChat { openMate(id: mate.id) }
+        if opensChat {
+            openMate(id: mate.id)
+            currentChat = firstChat
+        }
         return mate
     }
 
     /// Starts the approval-gated agent run a mate asked for with `[WORK: ...]`.
     /// A specialist works in its own folder; First Mate has none, so it uses
     /// the sandbox run. Either way the run plans first and waits for approval.
-    func startMateWork(_ tasks: [String], mate: Mate?) {
+    func startMateWork(_ tasks: [String], mate: Mate?, brain: AgentBrain? = nil) {
         guard !tasks.isEmpty else { return }
         var workspaceURL: URL?
         if let mate, !mate.conductsOthers {
@@ -110,40 +116,90 @@ extension CompanionManager: MateRoutineRunning {
             }
         }
         let ownerID = mate?.id ?? mateDirectory.defaultMateID
+        let source = backgroundRoutineSession ?? currentChat
+        let chatOwner = AgentChatOwner(mateID: ownerID, chatID: source.id)
         if let pending = MateWorkGate.runAwaitingUser(ownedBy: ownerID, owners: mateRunOwners, runs: agentRuns) {
             postMateMessage(mateID: ownerID, text: MateWorkGate.reminder(for: pending))
             return
         }
         for task in tasks {
-            let runID = workspaceURL.map { startAttachedAgent(prompt: task, workspaceURL: $0) }
-                ?? startSandboxAgent(prompt: task)
-            if let runID { mateRunOwners[runID] = ownerID }
+            if let workspaceURL {
+                startAttachedAgent(prompt: task, workspaceURL: workspaceURL, brain: brain, chatOwner: chatOwner)
+            } else {
+                startSandboxAgent(prompt: task, brain: brain, chatOwner: chatOwner)
+            }
         }
     }
 
     /// Reports a run's milestones in the chat that asked for it, so the mate
     /// comes back with results instead of waiting to be asked.
     func postMateRunUpdate(runID: UUID, event: AgentEvent) {
-        guard let mateID = mateRunOwners[runID] else { return }
-        let run = agentRunStore.run(id: runID)
+        guard let run = agentRunStore.run(id: runID), let owner = run.chatOwner else { return }
+        if run.status.isTerminal, run.chatResultDeliveryKey == run.resultDeliveryKey { return }
         let text: String
         switch event {
         case .planReady:
-            let plan = (run?.planText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard run.status == .awaitingPlanApproval else { return }
+            let plan = run.planText.trimmingCharacters(in: .whitespacesAndNewlines)
             text = MateRunReport.planReady(plan: plan)
-        case .finished(let summary):
-            mateRunOwners[runID] = nil
-            text = MateRunReport.finished(
-                summary: summary,
-                changedFileCount: run?.workspaceChangeSummary?.totalCount
+        case .finished:
+            guard run.status == .succeeded || run.status == .cancelled else { return }
+            text = run.status == .cancelled ? MateRunReport.cancelled(summary: run.latestAction) : MateRunReport.finished(
+                summary: run.finalAnswer ?? AgentFinalResult.missingMessage,
+                changedFileCount: run.workspaceChangeSummary?.totalCount
             )
-        case .failed(let message):
-            mateRunOwners[runID] = nil
-            text = MateRunReport.failed(message: message)
+        case .failed:
+            guard run.status == .failed else { return }
+            text = MateRunReport.failed(message: run.privateFinalResult ?? run.error)
         default:
             return
         }
-        postMateMessage(mateID: mateID, text: text)
+        postAgentMessage(owner: owner, text: text)
+        if run.status.isTerminal {
+            _ = agentRunStore.update(id: runID) { $0.chatResultDeliveryKey = run.resultDeliveryKey }
+            agentRuns = agentRunStore.loadAll()
+        }
+    }
+
+    /// Direct agent invocations also need a saved initiating question. Mates
+    /// that already appended their conversation pass an explicit owner instead.
+    func prepareAgentChatOwner(prompt: String) -> AgentChatOwner {
+        appendUserMessage(prompt)
+        let source = backgroundRoutineSession ?? currentChat
+        return AgentChatOwner(mateID: source.mateID ?? mateDirectory.defaultMateID, chatID: source.id)
+    }
+
+    func deliverPendingAgentResults() {
+        for run in agentRunStore.loadAll() where run.status.isTerminal && run.chatOwner != nil {
+            let event: AgentEvent = run.status == .failed
+                ? .failed(message: run.error) : .finished(summary: run.summary)
+            postMateRunUpdate(runID: run.id, event: event)
+        }
+    }
+
+    /// A deleted chat stays deleted. Never redirect to the newest chat of a
+    /// mate, and never save hidden history when conversation storage is off.
+    private func postAgentMessage(owner: AgentChatOwner, text: String) {
+        guard mateDirectory.mates.contains(where: { $0.id == owner.mateID }) else { return }
+        let isVisible = currentChat.id == owner.chatID
+        let isBackground = backgroundRoutineSession?.id == owner.chatID
+        let source: ChatSession?
+        if isBackground { source = backgroundRoutineSession }
+        else if isVisible { source = currentChat }
+        else if rememberConversationsEnabled { source = chatHistoryStore.loadAll().first { $0.id == owner.chatID } }
+        else { source = nil }
+        guard var session = source,
+              (session.mateID ?? mateDirectory.defaultMateID) == owner.mateID else { return }
+        session.messages.append(ChatMessage(id: UUID(), role: .assistant, text: text, createdAt: Date()))
+        session.updatedAt = Date()
+        if isVisible { currentChat = session }
+        if isBackground { backgroundRoutineSession = session }
+        if rememberConversationsEnabled {
+            chatHistoryStore.upsert(session)
+            savedChats = chatHistoryStore.loadAll()
+        }
+        if !isVisible { mateDirectory.incrementUnread(id: owner.mateID) }
+        syncMatePublications()
     }
 
     func postMateMessage(mateID: UUID, text: String) {
@@ -218,8 +274,10 @@ extension CompanionManager: MateRoutineRunning {
         let openChatBelongs = (currentChat.mateID ?? mateDirectory.defaultMateID) == id
         let viewingDeletedMate = openChatBelongs || activeMateID == id
         let routineBelongs = activeRoutineTurn?.mateID == id
-        if openChatBelongs || routineBelongs {
+        if routineBelongs || activeHandoffMateID == id {
             cancelInFlightChatTurn()
+        } else if openChatBelongs {
+            cancelForegroundChatTurnForNavigation()
         }
         if routineBelongs {
             clearRoutineDelivery()
@@ -233,6 +291,10 @@ extension CompanionManager: MateRoutineRunning {
             chatHistoryStore.delete(id: session.id)
         }
         mateDirectory.routineStore.deleteAll(mateID: id)
+        for item in memoryRepository.loadAll() where item.mateID == id {
+            memoryRepository.delete(id: item.id)
+        }
+        memoryItems = memoryRepository.loadAll()
         if let face = mateDirectory.mates.first(where: { $0.id == id })?.faceAssetName {
             MateFaceStore.deleteIfCustom(face)
         }
@@ -270,7 +332,7 @@ extension CompanionManager: MateRoutineRunning {
         syncMatePublications()
     }
 
-    private func applyStoredPreferences(of mate: Mate) {
+    func applyStoredPreferences(of mate: Mate) {
         MatePreferenceWriteBack.isApplying = true
         defer { MatePreferenceWriteBack.isApplying = false }
         if let raw = mate.brainRawValue, let brain = AgentBrain(rawValue: raw), selectedBrain != brain {
@@ -360,7 +422,7 @@ extension CompanionManager: MateRoutineRunning {
     }
 
     var isChatTurnBusy: Bool {
-        if currentResponseTask != nil || activeRoutineTurn != nil { return true }
+        if isResponseInFlight || activeRoutineTurn != nil || activeHandoffMateID != nil { return true }
         switch state {
         case .idle, .error:
             return false
@@ -391,12 +453,16 @@ extension CompanionManager: MateRoutineRunning {
     }
 
     func kickoffRoutine(_ routine: MateRoutine) -> MateRoutineKickoff {
-        if isChatTurnBusy { return .busy }
+        kickoffRoutine(routine, deliverySession: nil)
+    }
+
+    func kickoffRoutine(_ routine: MateRoutine, deliverySession: ChatSession?) -> MateRoutineKickoff {
+        if isChatTurnBusy || openCodeTrainingNotice != nil { return .busy }
         let openMateID = currentChat.mateID ?? mateDirectory.defaultMateID
-        let visible = openMateID == routine.mateID
-        if !visible {
-            backgroundRoutineSession = sessionForRoutineAppend(mateID: routine.mateID)
-        }
+        let session = deliverySession ?? (openMateID == routine.mateID
+            ? currentChat : sessionForRoutineAppend(mateID: routine.mateID))
+        let visible = session.id == currentChat.id
+        if !visible { backgroundRoutineSession = session }
         activeRoutineTurn = ActiveRoutineTurn(
             routineID: routine.id,
             mateID: routine.mateID,
@@ -410,9 +476,10 @@ extension CompanionManager: MateRoutineRunning {
         let accepted = sendTypedMessage(routine.task)
         if !accepted {
             clearRoutineDelivery()
+            if openCodeTrainingNotice != nil { return .busy }
             return .failed("Couldn't send that routine.")
         }
-        if currentResponseTask == nil {
+        if !isResponseInFlight {
             completeActiveRoutineTurn(.success("Started."))
         }
         return .started
@@ -423,7 +490,7 @@ extension CompanionManager: MateRoutineRunning {
         let visible = turn.writesIntoOpenChat
         let mateID = turn.mateID
         let routineID = turn.routineID
-        if let background = backgroundRoutineSession {
+        if rememberConversationsEnabled, let background = backgroundRoutineSession {
             chatHistoryStore.upsert(background)
         }
         clearRoutineDelivery()
@@ -476,22 +543,23 @@ extension CompanionManager: MateRoutineRunning {
         return false
     }
 
-    func beginHandoff(_ handoff: MateHandoff) {
+    func beginHandoff(_ handoff: MateHandoff, deliverySession: ChatSession? = nil) {
         guard mateDirectory.mates.contains(where: { $0.id == handoff.mateID && !$0.archived }) else {
             scheduleNextHandoffIfNeeded()
             return
         }
-        if holdForOpenCodeTrainingConsent(handoff.instruction, imageAttachments: [], handoff: handoff) {
-            return
-        }
         let openMateID = currentChat.mateID ?? mateDirectory.defaultMateID
+        let session = deliverySession ?? (openMateID == handoff.mateID
+            ? currentChat : sessionForRoutineAppend(mateID: handoff.mateID))
+        if holdForOpenCodeTrainingConsent(
+            handoff.instruction, imageAttachments: [], handoff: handoff, deliverySession: session,
+            explicitExecutor: HeadlessExecutor.explicitlyRequested(in: handoff.instruction)
+        ) { return }
         activeHandoffMateID = handoff.mateID
         activeHandoffHops = handoff.hops
-        if openMateID != handoff.mateID {
-            backgroundRoutineSession = sessionForRoutineAppend(mateID: handoff.mateID)
-        }
+        if session.id != currentChat.id { backgroundRoutineSession = session }
         let accepted = sendTypedMessage(handoff.deliveredInstruction)
-        let startedModelTurn = accepted && currentResponseTask != nil
+        let startedModelTurn = accepted && isResponseInFlight
         if !startedModelTurn {
             activeHandoffMateID = nil
             activeHandoffHops = 0
@@ -503,7 +571,7 @@ extension CompanionManager: MateRoutineRunning {
     func completeActiveHandoff(succeeded: Bool) {
         guard let mateID = activeHandoffMateID else { return }
         let visible = backgroundRoutineSession == nil
-        if let background = backgroundRoutineSession {
+        if rememberConversationsEnabled, let background = backgroundRoutineSession {
             chatHistoryStore.upsert(background)
         }
         activeHandoffMateID = nil
@@ -580,36 +648,29 @@ extension CompanionManager: MateRoutineRunning {
     }()
 
     private func acceptMateCreation(_ text: String) -> Bool {
-        guard let jobs = MateCreationParser.parse(text), !jobs.isEmpty else { return false }
+        guard let requests = MateCreationParser.parseRequests(text), !requests.isEmpty else { return false }
+        if let takenName = requests.compactMap(\.name).first(where: { mateDirectory.mateStore.isNameTaken($0) }) {
+            appendUserMessage(text)
+            appendAssistantMessage("A mate named \(takenName) already exists. Choose a different name or edit that mate.")
+            return true
+        }
         var existingNames = mateDirectory.mates.filter { !$0.archived }.map(\.name)
         var created: [Mate] = []
-        let now = Date()
-        for job in jobs {
-            let name = MateNameGenerator.name(for: job, existingNames: existingNames)
-            let mate = Mate(
-                id: UUID(),
-                name: name,
-                job: job,
-                pinned: false,
-                archived: false,
-                unreadCount: 0,
-                createdAt: now,
-                updatedAt: now,
-                memoryNote: "",
-                folderPath: nil
-            )
-            guard mateDirectory.upsertMate(mate) else { continue }
-            ensureMateFolder(id: mate.id)
+        for request in requests {
+            let name = request.name ?? MateNameGenerator.name(for: request.job, existingNames: existingNames)
+            guard let mate = createMate(name: name, job: request.job, soul: request.soul, opensChat: false) else { continue }
             existingNames.append(name)
             created.append(mate)
         }
-        guard let first = created.first else { return false }
+        guard let first = created.first else {
+            appendUserMessage(text)
+            appendAssistantMessage("I couldn't save that mate. Try creating it again from New mate.")
+            return true
+        }
         syncMatePublications()
         openMate(id: first.id)
-        appendUserMessage(text)
-        let lines = created.map { "\($0.name) — \($0.job)" }.joined(separator: "\n")
-        let lead = created.count == 1 ? "I added a mate." : "I added \(created.count) mates."
-        appendAssistantMessage("\(lead)\n\(lines)")
+        // With history off, keep the first moment only in this open chat.
+        if currentChat.messages.isEmpty { currentChat = MateFirstMoment.chat(for: first) }
         return true
     }
 

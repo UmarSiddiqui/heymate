@@ -20,12 +20,14 @@ import SwiftUI
 
 /// Keeps a Talk turn inside the on-device context window. The window is a
 /// few thousand tokens, and the full behavior contract is larger than that.
-/// The latest user words stay; older instructions are what get cut.
+/// The latest user words and a bounded mate identity stay; older context
+/// is what gets cut. Identity never replaces the on-device capability rules.
 enum OnDevicePromptFit {
-    static let characterBudget = 6_000
+    nonisolated static let characterBudget = 6_000
 
     static let instructions = """
-    You are HeyMate, a concise companion that lives on this Mac. \
+    You are a concise companion in the HeyMate app on this Mac. \
+    Use the supplied mate's name, job, and personality. \
     Answer in plain spoken sentences. You cannot see images or control the computer. \
     If you cannot do something, say so in one sentence.
     """
@@ -36,17 +38,23 @@ enum OnDevicePromptFit {
         characterBudget: Int = characterBudget
     ) -> (instructions: String, prompt: String) {
         let budget = max(characterBudget, 200)
-        let user = String(userPrompt.suffix(budget))
         let separator = "\n\n"
-        let roomForContext = budget - user.count - separator.count
+        let identity = MateSoul.identityExcerpt(
+            in: systemPrompt,
+            characterLimit: min(1_200, max(0, budget - 200 - separator.count))
+        )
+        let fittedInstructions = identity.map { $0 + separator + instructions } ?? instructions
+        let promptBudget = budget - (identity.map { $0.count + separator.count } ?? 0)
+        let user = String(userPrompt.suffix(promptBudget))
+        let roomForContext = promptBudget - user.count - separator.count
         guard roomForContext > 80 else {
-            return (instructions, user)
+            return (fittedInstructions, user)
         }
         let context = String(systemPrompt.suffix(roomForContext)).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !context.isEmpty else {
-            return (instructions, user)
+            return (fittedInstructions, user)
         }
-        return (instructions, context + separator + user)
+        return (fittedInstructions, context + separator + user)
     }
 }
 
@@ -151,7 +159,8 @@ final class OnDeviceLanguageClient: VisionConversationClient {
     private static func generate(
         systemPrompt: String,
         userPrompt: String,
-        allowShrink: Bool
+        allowShrink: Bool,
+        characterBudget: Int = OnDevicePromptFit.characterBudget
     ) async throws -> String {
         #if canImport(FoundationModels)
         if #available(macOS 26.0, *) {
@@ -162,7 +171,11 @@ final class OnDeviceLanguageClient: VisionConversationClient {
                         ?? "Apple Intelligence isn't available."
                 )
             }
-            let fitted = OnDevicePromptFit.clip(systemPrompt: systemPrompt, userPrompt: userPrompt)
+            let fitted = OnDevicePromptFit.clip(
+                systemPrompt: systemPrompt,
+                userPrompt: userPrompt,
+                characterBudget: characterBudget
+            )
             let session = LanguageModelSession(model: model, instructions: fitted.instructions)
             do {
                 return try await session.respond(
@@ -171,11 +184,11 @@ final class OnDeviceLanguageClient: VisionConversationClient {
                 ).content
             } catch {
                 if allowShrink, fitted.prompt.count > 800, Self.isContextOverflow(error) {
-                    let shorter = String(fitted.prompt.suffix(fitted.prompt.count / 2))
                     return try await generate(
-                        systemPrompt: "",
-                        userPrompt: shorter,
-                        allowShrink: false
+                        systemPrompt: systemPrompt,
+                        userPrompt: userPrompt,
+                        allowShrink: false,
+                        characterBudget: max(800, characterBudget / 2)
                     )
                 }
                 throw OnDeviceLanguageError.unavailable(Self.spokenFailure(for: error))

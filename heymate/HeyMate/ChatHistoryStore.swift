@@ -33,6 +33,8 @@ nonisolated struct ChatSession: Codable, Equatable, Identifiable {
     var mateID: UUID? = nil
     /// Unsent composer text for this session. Nil when the field is empty.
     var draftText: String? = nil
+    /// A single local introduction created with a new mate, never on reopen.
+    var firstMoment: MateFirstMoment? = nil
 
     static let defaultTitle = "New chat"
 

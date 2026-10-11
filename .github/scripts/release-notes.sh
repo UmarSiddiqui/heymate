@@ -32,9 +32,9 @@ echo "## Download"
 echo
 echo "**[HeyMate.dmg](${REPO_URL}/releases/download/v${VERSION}/HeyMate.dmg)**: open it and drag HeyMate into Applications."
 echo
-echo "Easiest install, no macOS malware warning: \`curl -fsSL https://getheymate.vercel.app/install.sh | bash\`"
+echo "Alternative installers: \`brew install umarsiddiqui/tap/heymate\`, or inspect the [installer source](${REPO_URL}/blob/main/website/install.sh) before running \`curl -fsSL https://getheymate.vercel.app/install.sh | bash\`."
 echo
-echo "This build is ad-hoc signed, not Developer ID-signed, so a DMG opened from the browser is blocked by macOS. Use the command above, or open **System Settings > Privacy & Security > Open Anyway**. Requires macOS 14.2 or later (Apple silicon or Intel)."
+echo "This build uses HeyMate's stable self-signed certificate. It is not signed with Apple Developer ID or notarized by Apple. If macOS blocks first launch, review the app and use **System Settings > Privacy & Security > Open Anyway** if you choose to proceed. The Terminal installer removes quarantine; this does not provide notarization. Requires macOS 14.2 or later (Apple silicon or Intel)."
 echo
 
 if [ ${#features[@]} -gt 0 ]; then

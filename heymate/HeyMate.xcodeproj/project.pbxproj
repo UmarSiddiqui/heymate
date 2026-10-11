@@ -28,6 +28,8 @@
 		A10001112F90011100000111 /* HeyMate/DetachedAgentRunnerInvocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003212F90032100000321 /* HeyMate/DetachedAgentRunnerInvocation.swift */; };
 		A10001122F90011200000112 /* HeyMate/DetachedAgentRunnerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003222F90032200000322 /* HeyMate/DetachedAgentRunnerEngine.swift */; };
 		A10001132F90011300000113 /* HeyMate/DetachedAgentRunnerExecutable.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003232F90032300000323 /* HeyMate/DetachedAgentRunnerExecutable.swift */; };
+		A10001142F90011400000114 /* HeyMate/AgentFinalResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003242F90032400000324 /* HeyMate/AgentFinalResult.swift */; };
+		A10001152F90011500000115 /* HeyMate/AgentReceiptPrivacy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003252F90032500000325 /* HeyMate/AgentReceiptPrivacy.swift */; };
 		AA00BB032F6500030039DA55 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB022F6500020039DA55 /* Sparkle */; };
 		AA00BB062F6500060039DA55 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB052F6500050039DA55 /* PostHog */; };
 		AA00BB092F6500090039DA55 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB082F6500080039DA55 /* FluidAudio */; };
@@ -97,6 +99,8 @@
 		A10003212F90032100000321 /* HeyMate/DetachedAgentRunnerInvocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/DetachedAgentRunnerInvocation.swift"; sourceTree = SOURCE_ROOT; };
 		A10003222F90032200000322 /* HeyMate/DetachedAgentRunnerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/DetachedAgentRunnerEngine.swift"; sourceTree = SOURCE_ROOT; };
 		A10003232F90032300000323 /* HeyMate/DetachedAgentRunnerExecutable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/DetachedAgentRunnerExecutable.swift"; sourceTree = SOURCE_ROOT; };
+		A10003242F90032400000324 /* HeyMate/AgentFinalResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/AgentFinalResult.swift"; sourceTree = SOURCE_ROOT; };
+		A10003252F90032500000325 /* HeyMate/AgentReceiptPrivacy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/AgentReceiptPrivacy.swift"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -211,6 +215,8 @@
 				A10003212F90032100000321 /* HeyMate/DetachedAgentRunnerInvocation.swift */,
 				A10003222F90032200000322 /* HeyMate/DetachedAgentRunnerEngine.swift */,
 				A10003232F90032300000323 /* HeyMate/DetachedAgentRunnerExecutable.swift */,
+				A10003242F90032400000324 /* HeyMate/AgentFinalResult.swift */,
+				A10003252F90032500000325 /* HeyMate/AgentReceiptPrivacy.swift */,
 			);
 			path = HeyMateAgentRunner;
 			sourceTree = "<group>";
@@ -434,6 +440,8 @@
 				A10001112F90011100000111 /* HeyMate/DetachedAgentRunnerInvocation.swift in Sources */,
 				A10001122F90011200000112 /* HeyMate/DetachedAgentRunnerEngine.swift in Sources */,
 				A10001132F90011300000113 /* HeyMate/DetachedAgentRunnerExecutable.swift in Sources */,
+				A10001142F90011400000114 /* HeyMate/AgentFinalResult.swift in Sources */,
+				A10001152F90011500000115 /* HeyMate/AgentReceiptPrivacy.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

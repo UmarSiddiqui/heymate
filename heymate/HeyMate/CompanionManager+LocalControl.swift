@@ -254,7 +254,8 @@ extension CompanionManager {
         guard let mate = createMate(name: name, job: job, opensChat: false) else {
             return .error(500, "Could not create the mate")
         }
-        // The folder is assigned once the mate is stored, so read it back.
+        // Creating a mate does not create workspace files. The folder is
+        // assigned when file work starts or the user explicitly creates it.
         let folder = mateDirectory.mates.first { $0.id == mate.id }?.folderPath ?? ""
         return .ok(["created": true, "name": mate.name, "job": mate.job, "folder": folder])
     }

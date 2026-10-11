@@ -327,7 +327,7 @@ nonisolated enum HeyMateMCPServer {
       {
         name: "heymate_create_mate",
         description:
-          "Add a mate (a specialist with its own chat and workspace folder) to the user's HeyMate roster. This is the only way to create a mate: a job cannot edit HeyMate's own configuration files. Pass the mate's job in one sentence; name is optional and is generated from the job when omitted.",
+          "Add a mate (a specialist with its own chat) to the user's HeyMate roster. Its workspace folder is created when file work starts. This is the only way for a running job to create a mate: a job cannot edit HeyMate's own configuration files. Pass the mate's job in one sentence; name is optional and is generated from the job when omitted.",
         inputSchema: {
           type: "object",
           properties: {

@@ -37,14 +37,22 @@ final class ConnectorToolCoordinator: ObservableObject {
     /// one before then, the earlier one resolves as denied — silently
     /// dropping a suspended approval would hang its caller forever.
     func requestApproval(for request: ConnectorToolApprovalRequest) async -> Bool {
+        guard !Task.isCancelled else { return false }
         pendingApprovalContinuation?.resume(returning: false)
         pendingApprovalContinuation = nil
 
         pendingRequest = request
         NSSound.beep()
 
-        return await withCheckedContinuation { continuation in
-            pendingApprovalContinuation = continuation
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                pendingApprovalContinuation = continuation
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                guard self?.pendingRequest?.id == request.id else { return }
+                self?.denyPendingRequest()
+            }
         }
     }
 

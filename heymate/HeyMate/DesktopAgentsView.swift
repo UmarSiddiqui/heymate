@@ -752,10 +752,10 @@ struct DesktopAgentsView: View {
                 planBlock(for: run)
             }
 
-            if !run.summary.isEmpty,
+            if !(run.finalAnswer ?? run.summary).isEmpty,
                run.status != .awaitingPlanApproval,
                selectedRunID != run.id {
-                Text(run.summary)
+                Text(run.finalAnswer ?? run.summary)
                     .font(DS.Fonts.body)
                     .foregroundColor(DS.Colors.textSecondary)
                     .lineLimit(selectedRunID == run.id ? nil : 3)
@@ -763,7 +763,7 @@ struct DesktopAgentsView: View {
             }
 
             if !run.error.isEmpty {
-                Text(run.error)
+                Text(run.status == .failed ? run.privateFinalResult ?? run.error : run.error)
                     .font(DS.Fonts.caption)
                     .foregroundColor(DS.Colors.destructiveText)
                     .lineLimit(selectedRunID == run.id ? nil : 2)
@@ -951,6 +951,16 @@ struct DesktopAgentsView: View {
             }
 
             if selectedThreadSurface == .activity {
+                if run.status == .succeeded, let answer = run.finalAnswer {
+                    VStack(alignment: .leading, spacing: 6) {
+                        DSSectionLabel(title: "Final answer")
+                        Text(answer)
+                            .font(DS.Fonts.body)
+                            .foregroundColor(DS.Colors.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                    }
+                }
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(run.activity) { entry in
                         activityRow(entry, projectColor: projectColor)
