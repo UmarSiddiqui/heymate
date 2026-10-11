@@ -1,8 +1,8 @@
 # HeyMate demo video
 
-## Meet HeyMate (40 seconds)
+## Meet HeyMate (41 seconds)
 
-`MeetHeyMate` (1920×1080) and `MeetHeyMateVertical` (1080×1920), 30 fps, in the `Meet-HeyMate` Studio folder. A fun, teaching-first tour: your AI is stuck in a tab → the buddy pops out of the notch → it teaches a spreadsheet chart step by step and waits while you do it → quick "ask about anything" examples → bring your own AI (Claude via Claude Code, ChatGPT via Codex, OpenCode) → "a more fun way to use them" → Say hey. UI is recreated and the UI scenes carry a small **Illustrated UI** tag. Music: Show Me by Peyruis (CC BY 3.0, credit below).
+`MeetHeyMate` (1920×1080) and `MeetHeyMateVertical` (1080×1920), 30 fps, in the `Meet-HeyMate` Studio folder. A fun, teaching-first tour: your AI is stuck in a tab → the buddy pops out of the notch → it teaches a spreadsheet chart step by step and waits while you do it → quick "ask about anything" examples → bring your own AI (Claude via Claude Code, ChatGPT via Codex, OpenCode, plus your own API key, local models, or Apple Intelligence) → "a more fun way to use them" → Say hey. UI is recreated and the UI scenes carry a small **Illustrated UI** tag. Music: Show Me by Peyruis (CC BY 3.0, credit below).
 
 Source: `src/MeetHeyMate.tsx` (scene list and lengths) and `src/meet/`. Every scene is also registered on its own as `meet-<id>` and `meet-<id>-vertical`.
 
