@@ -41,7 +41,11 @@ final class MacOSSpeechSynthesizerClient: NSObject, TTSClient {
         // behavior of speaking in the system language's default voice.
         utterance.voice = SpeechVoiceCatalog.resolvedSystemVoice()
             ?? AVSpeechSynthesisVoice(language: Locale.current.identifier)
-        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+        utterance.rate = SpeechStylePreferences.macRate(
+            defaultRate: AVSpeechUtteranceDefaultSpeechRate,
+            minimum: AVSpeechUtteranceMinimumSpeechRate,
+            maximum: AVSpeechUtteranceMaximumSpeechRate
+        )
 
         try Task.checkCancellation()
         await withCheckedContinuation { continuation in

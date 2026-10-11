@@ -43,10 +43,20 @@ final class VoiceDictation: ObservableObject {
         "HeyMate", "Codex", "Claude", "Anthropic", "OpenAI",
         "SwiftUI", "Xcode", "Vercel", "Next.js", "localhost"
     ]
+    /// Words the user taught by correcting dictation come first: they are
+    /// the ones this engine already got wrong.
+    private static var currentKeyterms: [String] {
+        let learned = DictationVocabulary.shared.keyterms
+        return learned + keyterms.filter { !learned.contains($0) }
+    }
     private static let defaultFinalTranscriptTimeout: TimeInterval = 2.4
 
     private var provider: any SpeechToTextProvider
     private let audioEngine = AVAudioEngine()
+    /// Where live microphone buffers go while the mic is open. Kept so a
+    /// device change mid-press can reopen capture into the same session.
+    private var liveRouter: AudioBufferRouter?
+    private var engineConfigurationObserver: NSObjectProtocol?
     private var isRecordingFromButton = false
     private var active: Utterance?
     /// Bumped by every start, stop and cancel, so a start still waiting on
@@ -246,13 +256,13 @@ final class VoiceDictation: ObservableObject {
             onPartial: { [weak self, weak utterance] text in
                 Task { @MainActor in
                     guard let self, let utterance, self.active === utterance else { return }
-                    utterance.heard = text
+                    utterance.heard = DictationVocabulary.shared.applyLearnedCorrections(to: text)
                 }
             },
             onFinal: { [weak self, weak utterance] text in
                 Task { @MainActor in
                     guard let self, let utterance, self.active === utterance else { return }
-                    utterance.heard = text
+                    utterance.heard = DictationVocabulary.shared.applyLearnedCorrections(to: text)
                     if utterance.isFinishing { self.complete(utterance) }
                 }
             },
@@ -263,7 +273,7 @@ final class VoiceDictation: ObservableObject {
                 }
             }
         )
-        return try await provider.openSession(keyterms: Self.keyterms, handlers: handlers)
+        return try await provider.openSession(keyterms: Self.currentKeyterms, handlers: handlers)
     }
 
     private func startMicrophone(feeding router: AudioBufferRouter) throws {
@@ -284,11 +294,47 @@ final class VoiceDictation: ObservableObject {
         }
         audioEngine.prepare()
         try audioEngine.start()
+        liveRouter = router
+        observeEngineConfigurationChanges()
     }
 
     private func stopMicrophone() {
+        liveRouter = nil
+        if let engineConfigurationObserver {
+            NotificationCenter.default.removeObserver(engineConfigurationObserver)
+            self.engineConfigurationObserver = nil
+        }
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
+    }
+
+    /// AirPods connecting, a USB mic unplugged or the system default input
+    /// changing all stop the engine mid-press. Reopening on the new device
+    /// keeps the press alive; the sessions resample per buffer, so a new
+    /// sample rate is fine.
+    private func observeEngineConfigurationChanges() {
+        guard engineConfigurationObserver == nil else { return }
+        engineConfigurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: audioEngine,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.reopenMicrophoneAfterDeviceChange() }
+        }
+    }
+
+    private func reopenMicrophoneAfterDeviceChange() {
+        guard let router = liveRouter, let active, !active.isFinishing else { return }
+        HeyMateLog.log("🎙️ VoiceDictation: audio device changed mid-press, reopening the microphone")
+        audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
+        do {
+            try startMicrophone(feeding: router)
+        } catch {
+            HeyMateLog.log("❌ VoiceDictation: couldn't reopen the microphone after a device change: \(error)")
+            lastErrorMessage = "the microphone changed and couldn't restart. try again."
+            cancel(keepingDraft: true)
+        }
     }
 
     /// Points capture at the microphone chosen in Settings. Nil means the

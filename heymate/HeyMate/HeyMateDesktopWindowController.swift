@@ -36,6 +36,10 @@ final class HeyMateDesktopWindowController: NSObject, NSWindowDelegate {
 
     private var window: NSWindow?
     private weak var companionManager: CompanionManager?
+    private var deactivationObserver: NSObjectProtocol?
+    /// True while the window is being rebuilt for the other placement, so
+    /// its close doesn't restore the resting activation policy.
+    private var isSwitchingPlacement = false
 
     /// What the app's activation policy was before we made the window
     /// visible, so closing restores exactly that rather than assuming.
@@ -54,7 +58,9 @@ final class HeyMateDesktopWindowController: NSObject, NSWindowDelegate {
         guard let companionManager else { return }
 
         if window == nil {
-            window = makeWindow(companionManager: companionManager, initialSection: initialSection)
+            window = DesktopWindowPlacement.isAttached
+                ? makeAttachedWindow(companionManager: companionManager, initialSection: initialSection)
+                : makeWindow(companionManager: companionManager, initialSection: initialSection)
         } else {
             // Already built — just retarget the sidebar selection.
             NotificationCenter.default.post(
@@ -66,6 +72,16 @@ final class HeyMateDesktopWindowController: NSObject, NSWindowDelegate {
 
         guard let window else { return }
 
+        if window is AttachedDesktopPanel {
+            // Hanging from the notch it is part of the notch, not an app
+            // window: no Dock tile, and it folds away when you switch apps.
+            placeUnderNotch(window)
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            observeDeactivation()
+            return
+        }
+
         // Become a regular app so the window gets normal chrome, a Dock
         // icon, and keyboard focus. Remembered so `windowWillClose` can put
         // it back.
@@ -75,6 +91,19 @@ final class HeyMateDesktopWindowController: NSObject, NSWindowDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+    }
+
+    /// Moves the window between hanging from the notch and floating free,
+    /// keeping the section that was open.
+    func setAttached(_ attached: Bool) {
+        guard DesktopWindowPlacement.isAttached != attached else { return }
+        DesktopWindowPlacement.isAttached = attached
+        guard let oldWindow = window else { return }
+        isSwitchingPlacement = true
+        oldWindow.close()
+        isSwitchingPlacement = false
+        window = nil
+        show()
     }
 
     func toggle(initialSection: DesktopSection = .chat) {
@@ -116,6 +145,24 @@ final class HeyMateDesktopWindowController: NSObject, NSWindowDelegate {
         // black (or white) as the page instead of AppKit's default gray.
         newWindow.backgroundColor = NSColor(DS.Colors.background)
 
+        // Beside the traffic lights: put the window back under the notch.
+        let attachButton = NSButton(
+            image: NSImage(systemSymbolName: "rectangle.topthird.inset.filled", accessibilityDescription: "Attach to notch")
+                ?? NSImage(),
+            target: self,
+            action: #selector(attachToNotch)
+        )
+        attachButton.bezelStyle = .accessoryBarAction
+        attachButton.isBordered = false
+        attachButton.toolTip = "Attach to notch"
+        attachButton.contentTintColor = .secondaryLabelColor
+        let accessory = NSTitlebarAccessoryViewController()
+        accessory.layoutAttribute = .leading
+        accessory.view = NSView(frame: NSRect(x: 0, y: 0, width: 34, height: 28))
+        attachButton.frame = NSRect(x: 6, y: 2, width: 24, height: 24)
+        accessory.view.addSubview(attachButton)
+        newWindow.addTitlebarAccessoryViewController(accessory)
+
         newWindow.setFrameAutosaveName(Self.frameAutosaveName)
         if newWindow.frame.size.width < Self.minimumContentSize.width {
             newWindow.setContentSize(Self.defaultContentSize)
@@ -126,7 +173,120 @@ final class HeyMateDesktopWindowController: NSObject, NSWindowDelegate {
 
     // MARK: NSWindowDelegate
 
+    @objc private func attachToNotch() {
+        setAttached(true)
+    }
+
+    // MARK: Attached to the notch
+
+    private static let attachedContentSize = CGSize(width: 1_160, height: 740)
+    private static let attachedCornerRadius: CGFloat = 22
+
+    private func makeAttachedWindow(
+        companionManager: CompanionManager,
+        initialSection: DesktopSection
+    ) -> NSWindow {
+        let screen = Self.notchScreen
+        let rootView = AttachedDesktopChrome(
+            neckWidth: Self.notchWidth(on: screen),
+            neckHeight: Self.neckHeight(on: screen),
+            cornerRadius: Self.attachedCornerRadius,
+            onClose: { [weak self] in self?.window?.close() },
+            onDetach: { [weak self] in self?.setAttached(false) }
+        ) {
+            DesktopRootView(companionManager: companionManager, initialSection: initialSection)
+        }
+        let panel = AttachedDesktopPanel(
+            contentRect: NSRect(origin: .zero, size: Self.attachedContentSize),
+            styleMask: [.borderless, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        // The neck continues the black notch, so the attached panel is
+        // always dark, like the notch card.
+        panel.appearance = NSAppearance(named: .darkAqua)
+        panel.hasShadow = true
+        // Above the menu bar, so the panel reads as growing out of the notch.
+        panel.level = .statusBar
+        panel.collectionBehavior = [.fullScreenAuxiliary, .moveToActiveSpace]
+        panel.isReleasedWhenClosed = false
+        panel.delegate = self
+        let hosting = NSHostingView(rootView: rootView)
+        hosting.sizingOptions = []
+        panel.contentView = hosting
+        AppPresencePreferences.shared.registerAmbientWindow(panel)
+        return panel
+    }
+
+    /// The camera housing's width, from the menu bar areas either side of
+    /// it. Macs without a notch get a pill-sized neck.
+    private static func notchWidth(on screen: NSScreen?) -> CGFloat {
+        guard let screen,
+              let left = screen.auxiliaryTopLeftArea,
+              let right = screen.auxiliaryTopRightArea else { return 180 }
+        return max(120, screen.frame.width - left.width - right.width)
+    }
+
+    /// The neck reaches a little below the notch before it opens out.
+    private static func neckHeight(on screen: NSScreen?) -> CGFloat {
+        max(screen?.safeAreaInsets.top ?? 0, NSStatusBar.system.thickness) + 10
+    }
+
+    private static var notchScreen: NSScreen? {
+        NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main
+    }
+
+    private func placeUnderNotch(_ window: NSWindow) {
+        guard let screen = Self.notchScreen else { return }
+        let frame = screen.frame
+        let size = CGSize(
+            width: min(Self.attachedContentSize.width, frame.width - 40),
+            height: min(Self.attachedContentSize.height + Self.neckHeight(on: screen), frame.height - 60)
+        )
+        window.setFrame(
+            NSRect(x: frame.midX - size.width / 2, y: frame.maxY - size.height, width: size.width, height: size.height),
+            display: true
+        )
+    }
+
+    /// Clicking into another app folds the attached panel away, like the
+    /// notch itself. Sheets and panels inside HeyMate keep it open.
+    private func observeDeactivation() {
+        guard deactivationObserver == nil else { return }
+        // Armed a beat later: activating can briefly bounce focus.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.armDeactivationObserver()
+        }
+    }
+
+    private func armDeactivationObserver() {
+        guard deactivationObserver == nil, window is AttachedDesktopPanel, window?.isVisible == true else { return }
+        deactivationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let window = self?.window as? AttachedDesktopPanel, window.isVisible else { return }
+                window.close()
+            }
+        }
+    }
+
     func windowWillClose(_ notification: Notification) {
+        if let deactivationObserver {
+            NotificationCenter.default.removeObserver(deactivationObserver)
+            self.deactivationObserver = nil
+        }
+        // Rebuilding for the other placement: the policy is settled once the
+        // new window closes, not now. Restoring here would deactivate the
+        // app mid-switch and fold the new attached panel straight away.
+        if isSwitchingPlacement { return }
+        // An attached panel never changed the policy unless it replaced a
+        // detached window, in which case the remembered policy is restored.
+        if notification.object is AttachedDesktopPanel, activationPolicyBeforeShowing == nil { return }
         // Back to a menu-bar-only app. Without this the Dock icon survives
         // the window and HeyMate stops feeling ambient.
         // Show in Dock wins over "what it was before": if the user asked for
@@ -141,6 +301,109 @@ final class HeyMateDesktopWindowController: NSObject, NSWindowDelegate {
         DispatchQueue.main.async {
             NSApp.setActivationPolicy(restoredPolicy)
         }
+    }
+}
+
+/// Whether the desktop window hangs from the notch or floats as a normal
+/// window. Attached is the default: it's the notch app's own surface.
+enum DesktopWindowPlacement {
+    static let attachedKey = "desktopWindowAttachedToNotch"
+
+    static var isAttached: Bool {
+        get { UserDefaults.standard.object(forKey: attachedKey) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: attachedKey) }
+    }
+}
+
+/// A borderless window that can still take the keyboard.
+final class AttachedDesktopPanel: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+
+    override func cancelOperation(_ sender: Any?) {
+        close()
+    }
+}
+
+/// The attached panel's outline: a neck the width of the notch that
+/// curves out into a rounded panel, so the window reads as growing out of
+/// the camera housing.
+struct NotchNeckPanelShape: Shape {
+    var neckWidth: CGFloat
+    var neckHeight: CGFloat
+    var cornerRadius: CGFloat
+    var flareRadius: CGFloat = 14
+
+    func path(in rect: CGRect) -> Path {
+        let width = rect.width
+        let height = rect.height
+        let neckLeft = (width - neckWidth) / 2
+        let neckRight = neckLeft + neckWidth
+        let top = neckHeight
+        let flare = min(flareRadius, neckHeight)
+        let corner = min(cornerRadius, (height - top) / 2)
+
+        var path = Path()
+        path.move(to: CGPoint(x: neckLeft, y: 0))
+        path.addLine(to: CGPoint(x: neckRight, y: 0))
+        path.addLine(to: CGPoint(x: neckRight, y: top - flare))
+        path.addQuadCurve(to: CGPoint(x: neckRight + flare, y: top), control: CGPoint(x: neckRight, y: top))
+        path.addLine(to: CGPoint(x: width - corner, y: top))
+        path.addQuadCurve(to: CGPoint(x: width, y: top + corner), control: CGPoint(x: width, y: top))
+        path.addLine(to: CGPoint(x: width, y: height - corner))
+        path.addQuadCurve(to: CGPoint(x: width - corner, y: height), control: CGPoint(x: width, y: height))
+        path.addLine(to: CGPoint(x: corner, y: height))
+        path.addQuadCurve(to: CGPoint(x: 0, y: height - corner), control: CGPoint(x: 0, y: height))
+        path.addLine(to: CGPoint(x: 0, y: top + corner))
+        path.addQuadCurve(to: CGPoint(x: corner, y: top), control: CGPoint(x: 0, y: top))
+        path.addLine(to: CGPoint(x: neckLeft - flare, y: top))
+        path.addQuadCurve(to: CGPoint(x: neckLeft, y: top - flare), control: CGPoint(x: neckLeft, y: top))
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// The neck, then a slim bar with detach and close on the right, then the
+/// app, all inside the neck-and-panel outline.
+struct AttachedDesktopChrome<Content: View>: View {
+    let neckWidth: CGFloat
+    let neckHeight: CGFloat
+    let cornerRadius: CGFloat
+    let onClose: () -> Void
+    let onDetach: () -> Void
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        let outline = NotchNeckPanelShape(neckWidth: neckWidth, neckHeight: neckHeight, cornerRadius: cornerRadius)
+        VStack(spacing: 0) {
+            Color.clear.frame(height: neckHeight)
+            HStack(spacing: 6) {
+                Spacer()
+                chromeButton("macwindow.on.rectangle", help: "Detach into a window", action: onDetach)
+                chromeButton("xmark", help: "Close", action: onClose)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 30)
+            content()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .background(outline.fill(Color.black))
+        .clipShape(outline)
+        .overlay(outline.stroke(Color.white.opacity(0.08), lineWidth: 1))
+    }
+
+    private func chromeButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.white.opacity(0.7))
+                .frame(width: 24, height: 24)
+                .background(Circle().fill(Color.white.opacity(0.08)))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
     }
 }
 

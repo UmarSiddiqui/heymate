@@ -155,12 +155,15 @@ enum SettingsItem: String, CaseIterable, Identifiable {
     // Talk & Voice
     case silentMode
     case dictationMode
+    case learnedWords
     case focusedWindow
     case interactionSounds
     case microphone
     case listenProvider
     case speakProvider
     case onDeviceVoice
+    case speechSpeed
+    case onDeviceVoiceStyle
     case macVoice
     case elevenLabsKey
     case elevenLabsVoice
@@ -208,8 +211,8 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .talkShortcut, .chatShortcut, .dictateShortcut, .regionShortcut,
              .doubleTapText, .doubleTapHandsFree, .restoreShortcuts:
             return .shortcuts
-        case .silentMode, .dictationMode, .focusedWindow, .interactionSounds,
-             .microphone, .listenProvider, .speakProvider, .onDeviceVoice,
+        case .silentMode, .dictationMode, .learnedWords, .focusedWindow, .interactionSounds,
+             .microphone, .listenProvider, .speakProvider, .onDeviceVoice, .speechSpeed, .onDeviceVoiceStyle,
              .macVoice, .elevenLabsKey, .elevenLabsVoice:
             return .voice
         case .microApps, .hoverOpensCard, .notchContent:
@@ -245,12 +248,15 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .restoreShortcuts: return "Restore default shortcuts"
         case .silentMode: return "Silent mode"
         case .dictationMode: return "Dictation style"
+        case .learnedWords: return "Learned words"
         case .focusedWindow: return "Look at the front window only"
         case .interactionSounds: return "Interaction sounds"
         case .microphone: return "Microphone"
         case .listenProvider: return "Listen with"
         case .speakProvider: return "Speak with"
         case .onDeviceVoice: return "On-device voice"
+        case .speechSpeed: return "Speech speed"
+        case .onDeviceVoiceStyle: return "Voice"
         case .macVoice: return "Mac voice"
         case .elevenLabsKey: return "ElevenLabs API key"
         case .elevenLabsVoice: return "ElevenLabs voice"
@@ -300,12 +306,15 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .restoreShortcuts: return "reset defaults keys"
         case .silentMode: return "quiet mute public work type no voice"
         case .dictationMode: return "smart literal dictation mode"
+        case .learnedWords: return "dictionary vocabulary corrections custom words names spelling"
         case .focusedWindow: return "context screen capture focused window front app"
         case .interactionSounds: return "clicks chime blip sound effects feedback audio"
         case .microphone: return "mic input device audio headset airpods"
         case .listenProvider: return "speech recognition transcription parakeet apple elevenlabs stt"
         case .speakProvider: return "text to speech tts kokoro elevenlabs reply voice"
         case .onDeviceVoice: return "download offline private parakeet kokoro model local"
+        case .speechSpeed: return "rate fast slow talking pace"
+        case .onDeviceVoiceStyle: return "voice character sound kokoro pick choose"
         case .macVoice: return "system voice premium spoken content"
         case .elevenLabsKey: return "elevenlabs api key cloud voice"
         case .elevenLabsVoice: return "elevenlabs voice id clone"

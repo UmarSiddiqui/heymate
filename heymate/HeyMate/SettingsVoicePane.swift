@@ -14,6 +14,7 @@ import SwiftUI
 struct SettingsVoicePane: View {
     @ObservedObject var companionManager: CompanionManager
     @ObservedObject var navigation: SettingsNavigationModel
+    @ObservedObject private var dictationVocabulary = DictationVocabulary.shared
 
     // Device and voice lists are read when the page appears and on demand.
     // Enumerating CoreAudio on every body evaluation would be wasteful and
@@ -75,6 +76,16 @@ struct SettingsVoicePane: View {
                 )
             }
             SettingsDivider()
+            SettingsRow(
+                SettingsItem.learnedWords.title,
+                subtitle: learnedWordsSubtitle,
+                item: .learnedWords
+            ) {
+                if !dictationVocabulary.words.isEmpty {
+                    Button("Clear") { dictationVocabulary.removeAll() }
+                }
+            }
+            SettingsDivider()
             SettingsToggleRow(
                 SettingsItem.focusedWindow.title,
                 subtitle: "Sharper, faster answers from the app in front of you.",
@@ -89,6 +100,14 @@ struct SettingsVoicePane: View {
                 isOn: $companionManager.isUISoundEnabled
             )
         }
+    }
+
+    private var learnedWordsSubtitle: String {
+        let words = dictationVocabulary.keyterms
+        guard !words.isEmpty else {
+            return "Fix a word HeyMate typed for you and it hears that word right next time."
+        }
+        return words.prefix(12).joined(separator: ", ") + (words.count > 12 ? ", and \(words.count - 12) more" : "")
     }
 
     // MARK: Microphone
@@ -237,6 +256,18 @@ struct SettingsVoicePane: View {
 
             SettingsDivider()
 
+            SpeechSpeedRow()
+                .settingsRowInsets()
+                .settingsAnchor(.speechSpeed)
+
+            SettingsDivider()
+
+            OnDeviceVoiceGrid()
+                .settingsRowInsets()
+                .settingsAnchor(.onDeviceVoiceStyle)
+
+            SettingsDivider()
+
             SettingsSecretKeyRow(
                 title: SettingsItem.elevenLabsKey.title,
                 subtitle: hasElevenLabsKey
@@ -351,6 +382,137 @@ private struct ElevenLabsVoiceRows: View {
             guard isCustom else { return }
             SpeechVoiceCatalog.selectedElevenLabsVoiceID = newValue
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+}
+
+// MARK: - Speech speed
+
+/// One tap per speed, like a playback-speed control.
+struct SpeechSpeedRow: View {
+    @State private var speed = SpeechStylePreferences.speed
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SettingsRowLabel(
+                title: SettingsItem.speechSpeed.title,
+                subtitle: "Takes effect on the next spoken reply."
+            )
+            HStack(spacing: 6) {
+                ForEach(SpeechStylePreferences.speedChoices, id: \.self) { choice in
+                    let isSelected = abs(choice - speed) < 0.01
+                    Button {
+                        speed = choice
+                        SpeechStylePreferences.speed = choice
+                    } label: {
+                        Text(SpeechStylePreferences.speedLabel(choice))
+                            .font(DS.Fonts.control)
+                            .foregroundColor(isSelected ? DS.Colors.textOnAccent : DS.Colors.textSecondary)
+                            .frame(minWidth: 52)
+                            .frame(height: 28)
+                            .background(Capsule().fill(isSelected ? DS.Colors.accent : DS.Colors.surface2))
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+                    .accessibilityLabel("\(SpeechStylePreferences.speedLabel(choice)) speed")
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - On-device voice grid
+
+/// The on-device voices as cards. Tapping one picks it and plays a short
+/// sample, so choosing a voice is listening, not reading names.
+struct OnDeviceVoiceGrid: View {
+    @ObservedObject private var store = OnDeviceVoiceModelStore.shared
+    @State private var selectedID = SpeechStylePreferences.onDeviceVoice
+    @State private var previewingID: String?
+    @State private var previewClient: KokoroTTSClient?
+
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 5)
+
+    private var isAvailable: Bool { KokoroEngine.modelsAreInstalled() }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SettingsRowLabel(
+                title: SettingsItem.onDeviceVoiceStyle.title,
+                subtitle: isAvailable
+                    ? "Tap a voice to hear it. Used when the on-device voice speaks."
+                    : "Download the on-device voice above to pick one of these."
+            )
+            LazyVGrid(columns: columns, spacing: 8) {
+                ForEach(OnDeviceVoiceOption.all) { option in
+                    card(option)
+                }
+            }
+            .disabled(!isAvailable)
+            .opacity(isAvailable ? 1 : 0.5)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func card(_ option: OnDeviceVoiceOption) -> some View {
+        let isSelected = option.id == selectedID
+        return Button {
+            select(option)
+        } label: {
+            VStack(spacing: 5) {
+                Image(systemName: previewingID == option.id ? "waveform" : option.symbol)
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundColor(isSelected ? DS.Colors.accent : DS.Colors.textSecondary)
+                    .frame(height: 26)
+                Text(option.name)
+                    .font(DS.Fonts.headline)
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .lineLimit(1)
+                Text(option.character)
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .padding(.horizontal, 4)
+            .background(
+                RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                    .fill(DS.Colors.surface2.opacity(isSelected ? 1 : 0.6))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                    .strokeBorder(isSelected ? DS.Colors.accent : DS.Colors.borderSubtle, lineWidth: isSelected ? 2 : 1)
+            )
+            .overlay(alignment: .topTrailing) {
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(DS.Colors.textOnAccent, DS.Colors.accent)
+                        .padding(6)
+                }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .accessibilityLabel("\(option.name), \(option.character)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func select(_ option: OnDeviceVoiceOption) {
+        selectedID = option.id
+        SpeechStylePreferences.onDeviceVoice = option.id
+        let client = previewClient ?? KokoroTTSClient()
+        previewClient = client
+        previewingID = option.id
+        Task {
+            try? await client.speakText("Hi, I'm \(option.name). This is how I'll sound.")
+            try? await Task.sleep(for: .seconds(2))
+            if previewingID == option.id { previewingID = nil }
         }
     }
 }

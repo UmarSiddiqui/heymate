@@ -316,7 +316,11 @@ actor KokoroEngine {
     /// Text in, 24 kHz mono float samples out.
     func synthesize(_ text: String) async throws -> (samples: [Float], sampleRate: Int) {
         let kokoroManager = try await loadIfNeeded()
-        let result = try await kokoroManager.synthesizeDetailed(text: text)
+        let result = try await kokoroManager.synthesizeDetailed(
+            text: text,
+            voice: SpeechStylePreferences.onDeviceVoice,
+            speed: Float(SpeechStylePreferences.speed)
+        )
         return (result.samples, result.sampleRate)
     }
 

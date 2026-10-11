@@ -16,6 +16,7 @@ struct MateHomeView: View {
     var onOpenSection: (DesktopSection) -> Void
     var onClose: (() -> Void)? = nil
     var shouldFocusComposerOnAppear: Bool = false
+    var startsWithDrawerOpen: Bool = false
 
     @State private var searchText = ""
     @State private var hoveredRailMateID: UUID?
@@ -33,6 +34,7 @@ struct MateHomeView: View {
     @State private var extraRevealed = 0
     @State private var previewedFilePath: String?
     @State private var isHoldingTalk = false
+    @State private var isComposerExpanded = false
     @State private var settingsMate: Mate?
     @State private var isShowingChatHistory = false
     @State private var matePendingDelete: Mate?
@@ -121,6 +123,7 @@ struct MateHomeView: View {
             onCompletion: handleImageImport
         )
         .onAppear {
+            if startsWithDrawerOpen { isDrawerOpen = true }
             typedMessageInput = companionManager.currentChat.draftText ?? ""
             guard shouldFocusComposerOnAppear else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) {
@@ -136,6 +139,9 @@ struct MateHomeView: View {
         }
         .onChange(of: typedMessageInput) { _, newValue in
             companionManager.updateCurrentDraft(newValue)
+        }
+        .onChange(of: isComposerFocused) { _, focused in
+            if !focused && typedMessageInput.isEmpty { isComposerExpanded = false }
         }
         #if canImport(ImagePlayground)
         .modifier(ImagePlaygroundGate(concept: $companionManager.imagePlaygroundConcept) { url in
@@ -180,35 +186,35 @@ struct MateHomeView: View {
 
     private var mateRail: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 7) {
-                Image(systemName: "magnifyingglass")
-                    .font(DS.Glyph.small)
-                    .foregroundColor(DS.Colors.textTertiary)
-                TextField("Search mates", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(DS.Fonts.bodyLarge)
+            // Search and "new mate" share one row, like a messages inbox.
+            HStack(spacing: 6) {
+                HStack(spacing: 7) {
+                    Image(systemName: "magnifyingglass")
+                        .font(DS.Glyph.small)
+                        .foregroundColor(DS.Colors.textTertiary)
+                    TextField("Search", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(DS.Fonts.bodyLarge)
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background(DS.Colors.surface2.opacity(0.7))
+                .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous))
+
+                Button {
+                    isShowingNewMate = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(DS.Glyph.regular)
+                }
+                .dsToolbarIconButtonStyle()
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+                .help("New mate (⇧⌘N)")
+                .accessibilityLabel("New mate")
             }
-            .padding(.horizontal, 10)
-            .frame(height: 32)
-            .background(DS.Colors.surface2.opacity(0.7))
-            .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous))
             .padding(.horizontal, 12)
             .padding(.top, 14)
-            .padding(.bottom, 10)
-
-            Button {
-                isShowingNewMate = true
-            } label: {
-                Label("New mate", systemImage: "plus")
-                    .font(DS.Fonts.headline)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 10)
-                    .frame(height: 32)
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .keyboardShortcut("n", modifiers: [.command, .shift])
-            .padding(.horizontal, 8)
+            .padding(.bottom, 4)
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
@@ -302,6 +308,11 @@ struct MateHomeView: View {
             routines: companionManager.routines,
             isWorking: isMateWorking(mate)
         )
+        let preview = MateRailPreview.make(
+            for: mate,
+            sessions: companionManager.savedChats,
+            defaultMateID: companionManager.mateDirectory.defaultMateID
+        )
         return HStack(alignment: .center, spacing: 4) {
             // One target for the whole row: clicking anywhere opens the
             // chat. Editing is the pencil on hover or the context menu, so a
@@ -311,21 +322,31 @@ struct MateHomeView: View {
             Button {
                 openMateFromRow(mate)
             } label: {
-                HStack(alignment: .center, spacing: 8) {
-                    MateFaceView(mate: mate, size: 28)
+                HStack(alignment: .center, spacing: 10) {
+                    MateFaceView(mate: mate, size: 36)
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(mate.name)
-                            .font(DS.Fonts.headline)
-                            .foregroundColor(DS.Colors.textPrimary)
-                            .lineLimit(1)
-                        Text(mate.job)
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(mate.name)
+                                .font(DS.Fonts.headline)
+                                .foregroundColor(DS.Colors.textPrimary)
+                                .lineLimit(1)
+                            Spacer(minLength: 4)
+                            if presence != .idle {
+                                Text(presence.label)
+                                    .font(DS.Fonts.caption.weight(.medium))
+                                    .foregroundColor(presence == .working ? DS.Colors.warningText : DS.Colors.textTertiary)
+                            } else if let date = preview.date, hoveredRailMateID != mate.id {
+                                Text(MateRailPreview.timestamp(date))
+                                    .font(DS.Fonts.caption)
+                                    .foregroundColor(DS.Colors.textTertiary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        Text(preview.text)
                             .font(DS.Fonts.body)
-                            .foregroundColor(DS.Colors.textSecondary)
+                            .foregroundColor(mate.unreadCount > 0 ? DS.Colors.textPrimary : DS.Colors.textSecondary)
                             .lineLimit(1)
-                        Text(presence.label)
-                            .font(DS.Fonts.caption.weight(.medium))
-                            .foregroundColor(presence == .working ? DS.Colors.warningText : DS.Colors.textTertiary)
                     }
                     Spacer(minLength: 0)
                 }
@@ -372,16 +393,31 @@ struct MateHomeView: View {
             }
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 8)
+        .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
                 .fill(
                     selected
-                        ? DS.Colors.surface3
+                        ? companionManager.themeColor.opacity(0.22)
                         : (hoveredRailMateID == mate.id ? DS.Colors.surface2 : Color.clear)
                 )
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                .strokeBorder(selected ? companionManager.themeColor.opacity(0.45) : Color.clear, lineWidth: 1)
+        )
+        // Hairline between rows, starting after the face, as in an inbox.
+        .overlay(alignment: .bottom) {
+            if !selected {
+                Rectangle()
+                    .fill(DS.Colors.borderSubtle)
+                    .frame(height: 1)
+                    .padding(.leading, 54)
+                    .padding(.trailing, 8)
+                    .offset(y: 1)
+            }
+        }
         .onHover { isHovering in
             if isHovering {
                 hoveredRailMateID = mate.id
@@ -489,7 +525,9 @@ struct MateHomeView: View {
 
     private var conversationHeader: some View {
         HStack(alignment: .center, spacing: 10) {
-            headerTitles
+            if isCompactLayout {
+                headerTitles
+            }
             if isCompactLayout {
                 Menu {
                     ForEach(companionManager.mates.filter { !$0.archived }) { mate in
@@ -571,9 +609,52 @@ struct MateHomeView: View {
         .foregroundColor(DS.Colors.textSecondary)
         .padding(.horizontal, isCompactLayout ? 12 : 22)
         .padding(.vertical, 10)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(DS.Colors.borderSubtle).frame(height: 1)
+        .frame(minHeight: isCompactLayout ? nil : 64)
+        .overlay {
+            if !isCompactLayout {
+                centeredMateIdentity
+            }
         }
+    }
+
+    /// The face over a name pill, centered above the chat. The pill opens
+    /// the mate's profile on the right; the face opens the editor.
+    private var centeredMateIdentity: some View {
+        VStack(spacing: 4) {
+            if let mate = activeMate {
+                Button {
+                    beginMateSettings(mate)
+                } label: {
+                    MateFaceView(mate: mate, size: 30)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .help("Edit picture, details, and soul")
+                .accessibilityHidden(true)
+            }
+            Button {
+                withAnimation(DS.Animation.controlSpring) { isDrawerOpen.toggle() }
+            } label: {
+                HStack(spacing: 3) {
+                    Text(activeMate?.name ?? Mate.defaultName)
+                        .font(DS.Fonts.control)
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .lineLimit(1)
+                    Image(systemName: isDrawerOpen ? "chevron.left" : "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(DS.Colors.textTertiary)
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 22)
+                .background(Capsule().fill(DS.Colors.surface2.opacity(0.9)))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .help(isDrawerOpen ? "Hide profile" : "Show profile")
+            .accessibilityLabel(isDrawerOpen ? "Hide \(activeMate?.name ?? Mate.defaultName)'s profile" : "Show \(activeMate?.name ?? Mate.defaultName)'s profile")
+        }
+        .padding(.top, 6)
     }
 
     /// The way into Jobs: the work mates are doing over time. The count is
@@ -863,7 +944,6 @@ struct MateHomeView: View {
             HStack(alignment: .top, spacing: 0) {
                 if isUser { Spacer(minLength: 48) }
                 VStack(alignment: isUser ? .trailing : .leading, spacing: 6) {
-                    if !isUser { assistantIdentity }
                     if let names = message.attachmentNames, !names.isEmpty {
                         ForEach(names, id: \.self) { name in
                             Label(name, systemImage: "photo")
@@ -886,6 +966,12 @@ struct MateHomeView: View {
                     } else {
                         ChatMarkdownText(text: message.text)
                     }
+                    HStack(spacing: 6) {
+                        if !isUser {
+                            Text(message.createdAt.formatted(date: .omitted, time: .shortened))
+                                .font(DS.Fonts.caption)
+                                .foregroundColor(DS.Colors.textTertiary)
+                        }
                     ChatMessageActionBar(
                         text: message.text,
                         isUser: isUser,
@@ -901,6 +987,7 @@ struct MateHomeView: View {
                         } : nil,
                         onDelete: { companionManager.deleteMessage(id: message.id) }
                     )
+                    }
                 }
                 .frame(maxWidth: isCompactLayout ? .infinity : 460, alignment: isUser ? .trailing : .leading)
                 if !isUser { Spacer(minLength: 48) }
@@ -911,23 +998,9 @@ struct MateHomeView: View {
     private var streamingRow: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 6) {
-                assistantIdentity
                 ChatMarkdownText(text: companionManager.streamingAssistantText)
             }
             Spacer(minLength: 48)
-        }
-    }
-
-    private var assistantIdentity: some View {
-        HStack(spacing: 6) {
-            if let mate = activeMate {
-                MateFaceView(mate: mate, size: 18)
-                    .accessibilityHidden(true)
-            }
-            Text(activeMate?.name ?? Mate.defaultName)
-                .font(DS.Fonts.caption)
-                .foregroundColor(DS.Colors.textSecondary)
-                .lineLimit(1)
         }
     }
 
@@ -936,81 +1009,85 @@ struct MateHomeView: View {
             if !imageAttachments.isEmpty {
                 ChatAttachmentPreviewStrip(attachments: imageAttachments, remove: removeImageAttachment)
             }
-            VStack(alignment: .leading, spacing: 6) {
-                TextField("Message \(activeMate?.name ?? Mate.defaultName)", text: $typedMessageInput, axis: .vertical)
-                    .accessibilityLabel("Message \(activeMate?.name ?? Mate.defaultName)")
-                    .textFieldStyle(.plain)
-                    .font(DS.Fonts.reading)
-                    .foregroundColor(DS.Colors.textPrimary)
-                    .lineLimit(1...6)
-                    .focused($isComposerFocused)
-                    .onSubmit(sendTypedMessageFromInput)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 10)
-                HStack(spacing: 6) {
-                    Button { isShowingImageImporter = true } label: {
-                        Image(systemName: "paperclip")
-                            .font(DS.Glyph.regular)
-                    }
-                    .dsToolbarIconButtonStyle()
-                    .help("Attach images")
-                    .accessibilityLabel("Attach images")
-                    // Silent mode means no mic, so hold-to-talk would only
-                    // be a button that contradicts the mode.
-                    if !companionManager.isSilentModeEnabled {
-                        holdToTalkButton
-                    }
-                    voiceMenu
-                    Spacer(minLength: 4)
-                    DesktopConnectorScopeMenu(companionManager: companionManager, compact: true, isNarrow: isCompactLayout)
-                    DesktopComposerModelButton(companionManager: companionManager)
-                    Button {
-                        if companionManager.isComposerStopVisible {
-                            companionManager.cancelInFlightChatTurn()
-                        } else {
-                            sendTypedMessageFromInput()
+            if showsTalkFirstComposer {
+                talkFirstComposer
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    TextField("Message \(activeMate?.name ?? Mate.defaultName)", text: $typedMessageInput, axis: .vertical)
+                        .accessibilityLabel("Message \(activeMate?.name ?? Mate.defaultName)")
+                        .textFieldStyle(.plain)
+                        .font(DS.Fonts.reading)
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .lineLimit(1...6)
+                        .focused($isComposerFocused)
+                        .onSubmit(sendTypedMessageFromInput)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 10)
+                    HStack(spacing: 6) {
+                        Button { isShowingImageImporter = true } label: {
+                            Image(systemName: "paperclip")
+                                .font(DS.Glyph.regular)
                         }
-                    } label: {
-                        Image(systemName: companionManager.isComposerStopVisible ? "stop.fill" : "arrow.up")
-                            .font(DS.Glyph.large.weight(.semibold))
-                            .foregroundColor(
-                                companionManager.isComposerStopVisible || canSend
-                                    ? DS.Colors.textOnAccent
-                                    : DS.Colors.textTertiary
-                            )
-                            .frame(width: DS.ControlSize.large, height: DS.ControlSize.large)
-                            .background(
-                                Circle().fill(
+                        .dsToolbarIconButtonStyle()
+                        .help("Attach images")
+                        .accessibilityLabel("Attach images")
+                        // Silent mode means no mic, so hold-to-talk would only
+                        // be a button that contradicts the mode.
+                        if !companionManager.isSilentModeEnabled {
+                            holdToTalkButton
+                        }
+                        voiceMenu
+                        Spacer(minLength: 4)
+                        DesktopConnectorScopeMenu(companionManager: companionManager, compact: true, isNarrow: isCompactLayout)
+                        DesktopComposerModelButton(companionManager: companionManager)
+                        Button {
+                            if companionManager.isComposerStopVisible {
+                                companionManager.cancelInFlightChatTurn()
+                            } else {
+                                sendTypedMessageFromInput()
+                            }
+                        } label: {
+                            Image(systemName: companionManager.isComposerStopVisible ? "stop.fill" : "arrow.up")
+                                .font(DS.Glyph.large.weight(.semibold))
+                                .foregroundColor(
                                     companionManager.isComposerStopVisible || canSend
-                                        ? companionManager.themeColor
-                                        : DS.Colors.surface3
+                                        ? DS.Colors.textOnAccent
+                                        : DS.Colors.textTertiary
                                 )
-                            )
+                                .frame(width: DS.ControlSize.large, height: DS.ControlSize.large)
+                                .background(
+                                    Circle().fill(
+                                        companionManager.isComposerStopVisible || canSend
+                                            ? companionManager.themeColor
+                                            : DS.Colors.surface3
+                                    )
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .pointerCursor()
+                        .disabled(!companionManager.isComposerStopVisible && !canSend)
+                        .help(companionManager.isComposerStopVisible ? "Stop" : "Send (Return)")
+                        .accessibilityLabel(companionManager.isComposerStopVisible ? "Stop" : "Send")
                     }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                    .disabled(!companionManager.isComposerStopVisible && !canSend)
-                    .help(companionManager.isComposerStopVisible ? "Stop" : "Send (Return)")
-                    .accessibilityLabel(companionManager.isComposerStopVisible ? "Stop" : "Send")
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 8)
                 }
-                .foregroundColor(DS.Colors.textSecondary)
-                .padding(.horizontal, 8)
-                .padding(.bottom, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.hero, style: .continuous)
+                        .fill(DS.Colors.surface1.opacity(0.94))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.hero, style: .continuous)
+                        .stroke(
+                            isImageDropTargeted || isComposerFocused
+                                ? DS.Colors.accent.opacity(0.7)
+                                : DS.Colors.borderSubtle,
+                            lineWidth: 1
+                        )
+                )
+                .shadow(color: Color.black.opacity(isCompactLayout ? 0 : 0.16), radius: 18, y: 10)
             }
-            .background(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.hero, style: .continuous)
-                    .fill(DS.Colors.surface1.opacity(0.94))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.hero, style: .continuous)
-                    .stroke(
-                        isImageDropTargeted || isComposerFocused
-                            ? DS.Colors.accent.opacity(0.7)
-                            : DS.Colors.borderSubtle,
-                        lineWidth: 1
-                    )
-            )
-            .shadow(color: Color.black.opacity(isCompactLayout ? 0 : 0.16), radius: 18, y: 10)
             if companionManager.isSilentModeSuggestionVisible {
                 silentModeSuggestion
             }
@@ -1155,6 +1232,98 @@ struct MateHomeView: View {
             let step = run.latestAction.trimmingCharacters(in: .whitespacesAndNewlines)
             return step.isEmpty ? status : "\(status) · \(step)"
         }
+    }
+
+    /// Talking is the main way in, so an idle composer leads with it: the
+    /// mate's face, a wide hold-to-talk control and a small "Type…" that
+    /// opens the full composer. Anything typed, attached or focused keeps
+    /// the full composer up.
+    private var showsTalkFirstComposer: Bool {
+        !companionManager.isSilentModeEnabled
+            && !isComposerExpanded
+            && !isComposerFocused
+            && typedMessageInput.isEmpty
+            && imageAttachments.isEmpty
+            && !companionManager.isComposerStopVisible
+    }
+
+    private var talkShortcutLabel: String {
+        companionManager.talkShortcutOption.keyCapsuleLabels
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " + ")
+    }
+
+    private var talkFirstComposer: some View {
+        HStack(alignment: .bottom, spacing: 10) {
+            Spacer(minLength: 0)
+            if let mate = activeMate, !isCompactLayout {
+                MateFaceView(mate: mate, size: 44)
+                    .offset(y: -14)
+                    .accessibilityHidden(true)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    wideTalkButton
+                    Button {
+                        isComposerExpanded = true
+                        DispatchQueue.main.async { isComposerFocused = true }
+                    } label: {
+                        Label("Type…", systemImage: "keyboard")
+                            .font(DS.Fonts.control)
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .padding(.horizontal, 14)
+                            .frame(height: 40)
+                            .background(Capsule().fill(DS.Colors.surface1.opacity(0.94)))
+                            .overlay(Capsule().strokeBorder(DS.Colors.borderSubtle, lineWidth: 1))
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+                    .keyboardShortcut("l", modifiers: .command)
+                    .help("Type a message (⌘L)")
+                }
+                Text(isHoldingTalk ? "Release to send" : "Or hold \(talkShortcutLabel) anywhere")
+                    .font(DS.Fonts.micro)
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .padding(.leading, 12)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var wideTalkButton: some View {
+        HStack(spacing: 8) {
+            Image(systemName: isHoldingTalk ? "waveform" : "mic.fill")
+                .font(DS.Glyph.regular)
+            Text(isHoldingTalk ? "Listening…" : "Hold to talk")
+                .font(DS.Fonts.controlLarge)
+                .lineLimit(1)
+        }
+        .foregroundColor(DS.Colors.textOnAccent)
+        .frame(minWidth: 220, maxWidth: 340)
+        .frame(height: 40)
+        .background(
+            Capsule().fill(
+                isHoldingTalk
+                    ? companionManager.themeColor
+                    : companionManager.themeColor.opacity(isHoveringTalk ? 0.92 : 0.8)
+            )
+        )
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.18), lineWidth: 1))
+        .contentShape(Capsule())
+        .onHover { isHoveringTalk = $0 }
+        .pointerCursor()
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    if !isHoldingTalk { beginHoldToTalk() }
+                }
+                .onEnded { _ in
+                    endHoldToTalk()
+                }
+        )
+        .help("Hold to talk, release to send")
+        .accessibilityLabel("Hold to talk")
     }
 
     private var holdToTalkButton: some View {
@@ -1375,18 +1544,19 @@ struct MateHomeView: View {
 
     private var mateDrawer: some View {
         ScrollView {
-            // The header already names the mate; the drawer starts with
-            // what's new about it.
+            // A profile first: who this mate is, then what it runs on a
+            // schedule, what it has made, and what it remembers.
             VStack(alignment: .leading, spacing: 22) {
+                mateProfileHeader
                 if let unread = activeMate?.unreadCount, unread > 0 {
                     Text(unread == 1 ? "1 unread routine result" : "\(unread) unread routine results")
                         .font(DS.Fonts.body.weight(.medium))
                         .foregroundColor(DS.Colors.warningText)
                 }
+                routinesSection
+                filesSection
                 jobsSection
                 memorySection
-                filesSection
-                routinesSection
                 if let mate = activeMate {
                     Divider()
                     Button("Delete mate…", role: .destructive) {
@@ -1399,6 +1569,56 @@ struct MateHomeView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(DS.Colors.surface1.opacity(0.94))
+    }
+
+    private var mateProfileHeader: some View {
+        VStack(spacing: 10) {
+            if !isCompactLayout {
+                HStack {
+                    Button {
+                        withAnimation(DS.Animation.controlSpring) { isDrawerOpen = false }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(DS.Glyph.small)
+                    }
+                    .dsToolbarIconButtonStyle(size: DS.ControlSize.small)
+                    .help("Hide profile")
+                    .accessibilityLabel("Hide profile")
+                    Spacer()
+                }
+            }
+            if let mate = activeMate {
+                MateFaceView(mate: mate, size: 88)
+                    .accessibilityHidden(true)
+                Button {
+                    beginMateSettings(mate)
+                } label: {
+                    Label("Edit mate", systemImage: "paintbrush.pointed")
+                        .font(DS.Fonts.control)
+                }
+                .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)
+                VStack(spacing: 3) {
+                    Text(mate.name)
+                        .font(DS.Fonts.title)
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .lineLimit(1)
+                    Text(mate.job)
+                        .font(DS.Fonts.body)
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                    if !mate.soul.isEmpty {
+                        Text(mate.soul)
+                            .font(DS.Fonts.caption)
+                            .foregroundColor(DS.Colors.textTertiary)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(3)
+                            .padding(.top, 4)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
     }
 
     /// This mate's recent jobs, finished ones included, so "what did it do
@@ -1472,33 +1692,24 @@ struct MateHomeView: View {
                         .font(DS.Fonts.body)
                         .foregroundColor(DS.Colors.textTertiary)
                 }
-                ForEach(entries) { entry in
-                    HStack(spacing: 6) {
-                        Button {
-                            guard !entry.isDirectory else { return }
-                            previewedFilePath = entry.id
-                        } label: {
-                            Label(entry.name, systemImage: entry.isDirectory ? "folder" : "doc.text")
-                                .font(DS.Fonts.bodyLarge.weight(.medium))
-                                .lineLimit(1)
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundColor(DS.Colors.textPrimary)
-                        .pointerCursor()
-                        Spacer(minLength: 4)
-                        if !entry.isDirectory {
-                            Button {
-                                filePendingDelete = entry.id
-                            } label: {
-                                Image(systemName: "trash")
-                                    .font(DS.Glyph.small)
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundColor(DS.Colors.textTertiary)
-                            .pointerCursor()
-                            .help("Delete file")
-                            .accessibilityLabel("Delete \(entry.name)")
-                        }
+                LazyVGrid(
+                    columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)],
+                    spacing: 8
+                ) {
+                    ForEach(entries) { entry in
+                        MateArtifactCard(
+                            path: entry.id,
+                            name: entry.name,
+                            isDirectory: entry.isDirectory,
+                            onOpen: {
+                                if entry.isDirectory {
+                                    NSWorkspace.shared.open(URL(fileURLWithPath: entry.id))
+                                } else {
+                                    previewedFilePath = previewedFilePath == entry.id ? nil : entry.id
+                                }
+                            },
+                            onDelete: entry.isDirectory ? nil : { filePendingDelete = entry.id }
+                        )
                     }
                 }
                 if let previewedFilePath,
