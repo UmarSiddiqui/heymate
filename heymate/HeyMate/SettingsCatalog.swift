@@ -162,6 +162,8 @@ enum SettingsItem: String, CaseIterable, Identifiable {
     case listenProvider
     case speakProvider
     case onDeviceVoice
+    case speechSpeed
+    case onDeviceVoiceStyle
     case macVoice
     case elevenLabsKey
     case elevenLabsVoice
@@ -210,7 +212,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
              .doubleTapText, .doubleTapHandsFree, .restoreShortcuts:
             return .shortcuts
         case .silentMode, .dictationMode, .learnedWords, .focusedWindow, .interactionSounds,
-             .microphone, .listenProvider, .speakProvider, .onDeviceVoice,
+             .microphone, .listenProvider, .speakProvider, .onDeviceVoice, .speechSpeed, .onDeviceVoiceStyle,
              .macVoice, .elevenLabsKey, .elevenLabsVoice:
             return .voice
         case .microApps, .hoverOpensCard, .notchContent:
@@ -253,6 +255,8 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .listenProvider: return "Listen with"
         case .speakProvider: return "Speak with"
         case .onDeviceVoice: return "On-device voice"
+        case .speechSpeed: return "Speech speed"
+        case .onDeviceVoiceStyle: return "Voice"
         case .macVoice: return "Mac voice"
         case .elevenLabsKey: return "ElevenLabs API key"
         case .elevenLabsVoice: return "ElevenLabs voice"
@@ -309,6 +313,8 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .listenProvider: return "speech recognition transcription parakeet apple elevenlabs stt"
         case .speakProvider: return "text to speech tts kokoro elevenlabs reply voice"
         case .onDeviceVoice: return "download offline private parakeet kokoro model local"
+        case .speechSpeed: return "rate fast slow talking pace"
+        case .onDeviceVoiceStyle: return "voice character sound kokoro pick choose"
         case .macVoice: return "system voice premium spoken content"
         case .elevenLabsKey: return "elevenlabs api key cloud voice"
         case .elevenLabsVoice: return "elevenlabs voice id clone"

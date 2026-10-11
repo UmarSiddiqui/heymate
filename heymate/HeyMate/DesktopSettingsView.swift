@@ -257,6 +257,8 @@ struct SettingsSidebar: View {
         ForEach(DesktopSettingsTabGroup.allCases) { group in
             Text(group.title)
                 .font(DS.Fonts.sectionLabel)
+                .textCase(.uppercase)
+                .tracking(0.8)
                 .foregroundColor(DS.Colors.textTertiary)
                 .padding(.horizontal, DS.Spacing.sm)
                 .padding(.top, group == DesktopSettingsTabGroup.allCases.first ? DS.Spacing.sm : DS.Spacing.xl)

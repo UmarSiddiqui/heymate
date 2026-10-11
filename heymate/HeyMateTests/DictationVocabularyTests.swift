@@ -100,3 +100,27 @@ struct SystemOverlayYieldTests {
         #expect(!SystemOverlayYield.isScreenshotShortcut(keyCode: 0, flags: commandShift))
     }
 }
+
+struct MateRailPreviewTests {
+    private let calendar = Calendar(identifier: .gregorian)
+    private let now = Date(timeIntervalSince1970: 1_791_700_000)
+
+    @Test func yesterdayAndWeekday() {
+        #expect(MateRailPreview.timestamp(now.addingTimeInterval(-86_400), now: now, calendar: calendar) == "Yesterday")
+        let threeDaysAgo = now.addingTimeInterval(-3 * 86_400)
+        #expect(MateRailPreview.timestamp(threeDaysAgo, now: now, calendar: calendar)
+                == threeDaysAgo.formatted(.dateTime.weekday(.wide)))
+    }
+
+    @Test func previewFallsBackToJob() {
+        let mate = Mate(id: UUID(), name: "A", job: "Does things", pinned: false, archived: false,
+                        unreadCount: 0, createdAt: now, updatedAt: now, memoryNote: "")
+        #expect(MateRailPreview.make(for: mate, sessions: [], defaultMateID: UUID()).text == "Does things")
+    }
+
+    @Test func speedClampsForEachEngine() {
+        #expect(SpeechStylePreferences.elevenLabsSpeed(1.5) == 1.2)
+        #expect(SpeechStylePreferences.macRate(defaultRate: 0.5, minimum: 0, maximum: 1, speed: 1.5) == 0.75)
+        #expect(SpeechStylePreferences.speedLabel(1.25) == "1.25×")
+    }
+}

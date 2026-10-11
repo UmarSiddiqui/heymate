@@ -176,3 +176,45 @@ enum MateRailOrder {
         return (pinned, others)
     }
 }
+
+/// What a rail row shows under a mate's name: the newest line of its newest
+/// chat, like a messages inbox, with the job as the fallback for a mate that
+/// hasn't said anything yet.
+nonisolated struct MateRailPreview: Equatable {
+    let text: String
+    let date: Date?
+
+    static func make(
+        for mate: Mate,
+        sessions: [ChatSession],
+        defaultMateID: UUID
+    ) -> MateRailPreview {
+        let latest = sessions
+            .filter { ($0.mateID ?? defaultMateID) == mate.id }
+            .compactMap { $0.messages.last }
+            .max { $0.createdAt < $1.createdAt }
+        guard let latest else { return MateRailPreview(text: mate.job, date: nil) }
+        let flattened = latest.text
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        return MateRailPreview(text: flattened.isEmpty ? mate.job : flattened, date: latest.createdAt)
+    }
+
+    /// "12:15 am" today, "Yesterday", the weekday within a week, else a date.
+    static func timestamp(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+        if calendar.isDate(date, inSameDayAs: now) {
+            return date.formatted(date: .omitted, time: .shortened)
+        }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
+           calendar.isDate(date, inSameDayAs: yesterday) {
+            return "Yesterday"
+        }
+        if let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day,
+           days < 7 {
+            return date.formatted(.dateTime.weekday(.wide))
+        }
+        return date.formatted(date: .numeric, time: .omitted)
+    }
+}
