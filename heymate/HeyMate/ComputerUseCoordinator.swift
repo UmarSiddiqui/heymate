@@ -59,6 +59,7 @@ final class ComputerUseCoordinator: ObservableObject {
     /// short sentence describing what happened, suitable for speaking back
     /// or appending to the transcript.
     func perform(_ action: ComputerUseAction, statedReason: String) async -> String {
+        guard !Task.isCancelled else { return "This action was cancelled." }
         guard isEnabled else {
             return "Computer control is switched off. Turn it on in Settings if you want me to click things."
         }
@@ -79,6 +80,7 @@ final class ComputerUseCoordinator: ObservableObject {
         }
 
         do {
+            try Task.checkCancellation()
             let outcome = try await executor.execute(request, approval: approvalToken)
             lastOutcomeSummary = outcome.summary
             if let payload = outcome.payload, !payload.isEmpty {
@@ -96,6 +98,7 @@ final class ComputerUseCoordinator: ObservableObject {
     /// request before then, the old one resolves as denied — silently
     /// dropping a suspended approval would hang the caller forever.
     private func requestApproval(for request: ComputerUseRequest) async -> Bool {
+        guard !Task.isCancelled else { return false }
         pendingApprovalContinuation?.resume(returning: false)
         pendingApprovalContinuation = nil
 
@@ -103,8 +106,15 @@ final class ComputerUseCoordinator: ObservableObject {
         pendingRequest = request
         NSSound.beep()
 
-        return await withCheckedContinuation { continuation in
-            pendingApprovalContinuation = continuation
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                pendingApprovalContinuation = continuation
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                guard self?.pendingRequest?.id == request.id else { return }
+                self?.denyPendingRequest()
+            }
         }
     }
 

@@ -400,7 +400,8 @@ struct DetachedAgentLauncherIntegrationTests {
         }
     }
 
-    @Test func terminalJournalWinsWhenFinalStateSaveWasLost() throws {
+    @Test(arguments: ["legacy", "answer", "blocked"])
+    func terminalJournalWinsWhenFinalStateSaveWasLost(scenario: String) throws {
         let attemptID = UUID()
         let harness = try makeHarness(attemptID: attemptID, status: .running)
         defer { try? FileManager.default.removeItem(at: harness.rootURL) }
@@ -433,18 +434,41 @@ struct DetachedAgentLauncherIntegrationTests {
                 runnerIdentity: harness.runnerIdentity
             )
         )
+        let hasPrivateResult = scenario != "legacy"
+        let phase: DetachedAgentRuntimePhase = scenario == "blocked" ? .failed : .succeeded
+        let answer = scenario == "blocked" ? "Permission refused for confidential Blue Lantern files."
+            : String(repeating: "Detailed finding. ", count: 150) + "Source: https://example.test/research"
+        if hasPrivateResult {
+            try AgentPrivateResultStore.save(answer, root: harness.runtimeRootURL, runID: harness.runID, attemptID: attemptID)
+        }
+        let summary = scenario == "blocked" ? AgentFinalResult.blockedSummary
+            : hasPrivateResult ? AgentFinalResult.availableSummary : "Finished safely"
         _ = try journal.append(
             DetachedAgentEventEnvelope(
                 runID: harness.runID,
                 attemptID: attemptID,
-                event: .finished(phase: .succeeded, exitCode: 0, summary: "Finished safely")
+                event: .finished(phase: phase, exitCode: phase == .succeeded ? 0 : 1, summary: summary)
             )
         )
 
+        var answerAtCallback: String?
+        harness.launcher.onEvent = { id, event in
+            switch event {
+            case .finished, .failed: answerAtCallback = harness.store.run(id: id)?.finalAnswer
+            default: break
+            }
+        }
+
         harness.launcher.recoverPersistedRuns()
 
-        #expect(harness.store.run(id: harness.runID)?.status == .succeeded)
-        #expect(harness.store.run(id: harness.runID)?.summary == "Finished safely")
+        #expect(harness.store.run(id: harness.runID)?.status == (scenario == "blocked" ? .failed : .succeeded))
+        #expect(harness.store.run(id: harness.runID)?.summary == summary)
+        #expect(answerAtCallback == (hasPrivateResult ? answer : "Finished safely"))
+        let reloaded = FileAgentRunStore(fileURL: harness.rootURL.appendingPathComponent("runs.json"))
+        #expect(reloaded.run(id: harness.runID)?.finalAnswer == answerAtCallback)
+        let records = try DetachedAgentRuntimeJournal.loadReadOnly(rootDirectoryURL: harness.runtimeRootURL, runID: harness.runID, attemptID: attemptID)
+        #expect(!records.contains { $0.safeSummary?.contains("Detailed finding") == true })
+        #expect(!records.contains { $0.safeSummary?.contains("Blue Lantern") == true })
         #expect(harness.undoLedger.latestReadyEntry()?.runID == harness.runID)
         #expect(harness.launcher.terminationBlockingRunCount == 0)
     }

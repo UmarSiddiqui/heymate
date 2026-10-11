@@ -48,7 +48,8 @@ struct DetachedAgentRunnerEngineTests {
         let state = try #require(try Self.loadState(root: runtimeRoot, request: request))
         #expect(state.phase == .succeeded)
         #expect(state.exitCode == 0)
-        #expect(state.terminalSafeSummary == "Work completed")
+        #expect(state.terminalSafeSummary == AgentFinalResult.availableSummary)
+        #expect(try AgentPrivateResultStore.load(root: runtimeRoot, runID: request.runID, attemptID: request.attemptID) == "Built fixture")
         #expect(state.lastJournalSequence > 0)
 
         let journal = try DetachedAgentRuntimeJournal.loadReadOnly(
@@ -61,6 +62,56 @@ struct DetachedAgentRunnerEngineTests {
         #expect(journal.last?.kind == .finished)
         #expect(journal.last?.phase == .succeeded)
         #expect(wakeCount == 1)
+    }
+
+    @Test(arguments: ["count", "missing", "blocked", "error", "late-exit-error"])
+    func terminalResultDistinguishesAnswerMissingAndFailure(scenario: String) async throws {
+        let fixture = try makeFixtureDirectory(named: scenario)
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let runtimeRoot = fixture.appendingPathComponent("runtime", isDirectory: true)
+        let answer: String
+        switch scenario {
+        case "count": answer = "HEYMATE_RESULT: 2 files and 1 folder. Counted direct children."
+        case "blocked": answer = "HEYMATE_BLOCKED: Permission refused for confidential Blue Lantern files; no count is available."
+        default: answer = "Done"
+        }
+        let line = scenario == "error"
+            ? #"{"type":"error","message":"Synthetic provider failure"}"#
+            : "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"\(answer)\"}}"
+        let script = try makeExecutableScript(in: fixture, named: "agent.sh", contents: """
+        #!/bin/sh
+        printf '%s\\n' '\(line)'
+        exit \(scenario == "late-exit-error" ? 1 : 0)
+        """)
+        let request = makeRequest(executableURL: URL(fileURLWithPath: "/bin/sh"), arguments: [script.path],
+                                  workspaceURL: fixture, runtimeLimit: 5)
+        let engine = try DetachedAgentRunnerEngine(request: request, rootDirectoryURL: runtimeRoot,
+                                                   exitProcess: { _ in }, wakeMainApp: {})
+        engine.start()
+        let ended = await waitUntil(timeout: 5) {
+            (try? Self.loadState(root: runtimeRoot, request: request))?.phase.isTerminal == true
+        }
+        #expect(ended)
+        let state = try #require(try Self.loadState(root: runtimeRoot, request: request))
+        switch scenario {
+        case "count":
+            #expect(state.phase == .succeeded)
+            #expect(state.terminalSafeSummary == AgentFinalResult.availableSummary)
+            #expect(try AgentPrivateResultStore.load(root: runtimeRoot, runID: request.runID, attemptID: request.attemptID) == "2 files and 1 folder. Counted direct children.")
+        case "missing":
+            #expect(state.phase == .succeeded)
+            #expect(state.terminalSafeSummary == AgentFinalResult.missingMessage)
+            #expect(state.terminalSafeError == nil)
+        case "blocked":
+            #expect(state.phase == .failed)
+            #expect(state.terminalSafeError == AgentFinalResult.blockedSummary)
+            #expect(try AgentPrivateResultStore.load(root: runtimeRoot, runID: request.runID, attemptID: request.attemptID)?.contains("Blue Lantern") == true)
+        default: #expect(state.phase == .failed)
+        }
+        let records = try DetachedAgentRuntimeJournal.loadReadOnly(rootDirectoryURL: runtimeRoot, runID: request.runID, attemptID: request.attemptID)
+        #expect(!records.contains { $0.safeSummary?.contains("Blue Lantern") == true })
+        #expect(state.terminalSafeSummary?.contains("Blue Lantern") != true)
+        #expect(state.terminalSafeError?.contains("Blue Lantern") != true)
     }
 
     /// npm installs Codex as a `#!/usr/bin/env node` script, so the child's
@@ -134,6 +185,60 @@ struct DetachedAgentRunnerEngineTests {
             for: URL(fileURLWithPath: "/bin/ls"), searchPATH: "/bin"
         )
         #expect(binaryPaths == [resolve("/bin/ls")])
+    }
+
+    /// Keep the interpreter alive on stdin so the check cannot accidentally
+    /// pass by seeing only the transient `/usr/bin/env` or `/bin/sh` image.
+    @Test(arguments: ["direct", "shebang", "env"])
+    func expectedChildPathsIncludeHeldSystemShellBackend(invocation: String) async throws {
+        let fixture = try makeFixtureDirectory(named: "held-system-shell")
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let script = try makeExecutableScript(
+            in: fixture, named: "agent",
+            contents: "\(invocation == "env" ? "#!/usr/bin/env sh" : "#!/bin/sh")\nIFS= read -r release\n"
+        )
+        let input = Pipe()
+        let child = Process()
+        let executable = invocation == "direct" ? URL(fileURLWithPath: "/bin/sh") : script
+        child.executableURL = executable
+        child.arguments = invocation == "direct" ? [script.path] : []
+        child.environment = ["PATH": "/usr/bin:/bin"]
+        child.standardInput = input
+        child.standardOutput = FileHandle.nullDevice
+        child.standardError = FileHandle.nullDevice
+        try child.run()
+        defer {
+            if child.isRunning { child.terminate() }
+            child.waitUntilExit()
+        }
+
+        let backendStarted = await waitUntil(timeout: 2) {
+            guard let identity = AgentProcessIdentityInspector.identity(for: child.processIdentifier) else { return false }
+            return ["/bin/bash", "/bin/dash", "/bin/zsh"].contains(identity.executablePath)
+        }
+        #expect(backendStarted)
+        let identity = try #require(AgentProcessIdentityInspector.identity(for: child.processIdentifier))
+        let expected = DetachedAgentChildExecutable.expectedExecutablePaths(for: executable, searchPATH: "/usr/bin:/bin")
+        #expect(expected.contains(identity.executablePath), "Actual backend: \(identity.executablePath); expected: \(expected)")
+        #expect(AgentProcessIdentityInspector.matchesLiveProcess(identity))
+    }
+
+    @Test func systemShellSelectionIsRestrictedToExactSystemPaths() {
+        for backend in ["/bin/bash", "/bin/dash", "/bin/zsh"] {
+            #expect(DetachedAgentChildExecutable.selectedSystemShellBackend(
+                expectedPaths: ["/bin/sh"], selection: backend
+            ) == backend)
+        }
+        for selection in [nil, "/tmp/bash", "/bin/ls", "bash", "/bin/../tmp/bash"] as [String?] {
+            #expect(DetachedAgentChildExecutable.selectedSystemShellBackend(
+                expectedPaths: ["/bin/sh"], selection: selection
+            ) == nil)
+        }
+        for executable in ["/tmp/sh", "/usr/local/bin/sh", "/usr/bin/env", "/usr/local/bin/node"] {
+            #expect(DetachedAgentChildExecutable.selectedSystemShellBackend(
+                expectedPaths: [executable], selection: "/bin/bash"
+            ) == nil)
+        }
     }
 
     @Test func bufferedFailureEventWinsOverZeroProcessExit() async throws {

@@ -94,11 +94,36 @@ struct MateProfileTests {
         #expect(MateFace.persistedName("MateFaceRobot", customFileExists: { _ in false }) == "MateFaceRobot")
     }
 
-    @Test func soulEntersThePromptOnlyWhenItIsWritten() {
-        #expect(MateSoul.promptBlock(name: "HeyMate", job: "General chat", soul: "  ") == nil)
+    @Test func nameAndJobStayPresentBeforeAPersonalityIsWritten() throws {
+        let block = try #require(MateSoul.promptBlock(name: " Inbox Scout ", job: " Watch the inbox ", soul: "  "))
+        let compact = try #require(MateSoul.identityExcerpt(in: block, characterLimit: 1_200))
+        #expect(compact.contains("you are Inbox Scout. your job is Watch the inbox."))
+        #expect(!compact.contains("- personality:"))
+        #expect(block.contains("never the safety or capability rules"))
+    }
+
+    @Test func personalityEntersTheIdentityWhenItIsWritten() {
         let block = MateSoul.promptBlock(name: "Inbox Scout", job: "Watch the inbox", soul: "calm")
         #expect(block?.contains("Inbox Scout") == true)
         #expect(block?.contains("calm") == true)
+    }
+
+    @Test func savedMemoryBelongsToTheMateEvenWithoutAPersonality() throws {
+        let block = try #require(MateSoul.promptBlock(
+            name: "Photo Coach", job: "Teach editing", soul: "", memoryNote: " I use Photopea, not Photoshop. "
+        ))
+        #expect(block.contains("I use Photopea, not Photoshop."))
+        let compact = try #require(MateSoul.identityExcerpt(in: block, characterLimit: 1_200))
+        #expect(!compact.contains("- personality:"))
+        #expect(compact.contains("I use Photopea"))
+    }
+
+    @Test func bothConversationStylesUseTheSelectedMateIdentity() {
+        for silent in [false, true] {
+            let prompt = CompanionPrompts.response(isSilentModeEnabled: silent)
+            #expect(prompt.contains("use the mate identity supplied for this turn"))
+            #expect(!prompt.lowercased().contains("you are heymate"))
+        }
     }
 
     @Test func matesSavedBeforeSoulStillDecode() throws {

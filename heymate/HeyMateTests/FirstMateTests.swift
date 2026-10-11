@@ -113,6 +113,19 @@ struct FirstMateTests {
         #expect(!block.contains("- Nova —") == false || block.contains("Nova"))
     }
 
+    @Test func firstMateKeepsItsOwnNoteWithoutReadingSpecialistNotes() {
+        var first = mate(name: "First Mate", conducts: true)
+        first.memoryNote = "Give me a short morning briefing."
+        var specialist = mate(name: "Nova")
+        specialist.memoryNote = "Private note for Nova."
+        let block = FirstMateBrief.promptBlock(
+            mate: first, others: [first, specialist], memoryExcerpts: [], meetingNotesAreOn: false
+        )
+        #expect(block.contains(first.memoryNote))
+        #expect(!block.contains(specialist.memoryNote))
+        #expect(block.contains("Nova — Does Nova"))
+    }
+
     @Test func memoryIndexReadsMarkdownOnly() {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("MemoryIndex-\(UUID().uuidString)", isDirectory: true)
@@ -222,18 +235,44 @@ struct MateRunReportTests {
         #expect(text.contains("Add three pages."))
     }
 
-    @Test func finishedCountsFilesAndOffersSchedule() {
+    @Test func finishedAnswersBeforeSupplementaryFileCounts() {
         let text = MateRunReport.finished(summary: "Blogs added.", changedFileCount: 1)
         #expect(text.contains("1 file changed"))
-        #expect(text.contains("schedule"))
+        #expect(text.hasPrefix("Job result\n\nBlogs added."))
+        #expect(!text.contains("schedule"))
     }
 
     @Test func failureExplainsAndOffersRetry() {
         #expect(MateRunReport.failed(message: "boom").contains("boom"))
     }
+
+    @Test func cancellationAndTerminalHandoffDoNotClaimCompletion() {
+        #expect(MateRunReport.cancelled(summary: "Cancelled").contains("cancelled"))
+        #expect(MateRunReport.cancelled(summary: "Handed off to Terminal — you are driving this session now").contains("handed off to Terminal"))
+    }
 }
 
 struct MateAgentBriefTests {
+    @Test func teachingStaysInChatForSpecialistsAndFirstMate() {
+        for conductsOthers in [false, true] {
+            let mate = Mate(
+                id: UUID(), name: "Photo Coach", job: "Teach photo editing", pinned: false, archived: false,
+                unreadCount: 0, createdAt: Date(), updatedAt: Date(), memoryNote: "", folderPath: nil,
+                conductsOthers: conductsOthers
+            )
+            for runsCanOperateApps in [false, true] {
+                let prompt = MateAgentBrief.promptBlock(mate: mate, runsCanOperateApps: runsCanOperateApps)
+                #expect(prompt.contains("teach directly in this chat"))
+                #expect(prompt.contains("[PLAN: ...] and [STEP:n]"))
+                #expect(prompt.contains("guide only the current step, then wait for their progress"))
+                #expect(!prompt.contains("do not write a plan, a list of steps"))
+                #expect(!prompt.contains("or take several steps is an agent run"))
+                #expect(prompt.contains("before it changes anything"))
+                #expect(prompt.contains("[WORK: the complete task"))
+            }
+        }
+    }
+
     @Test func briefTellsAMateToStartRunsInsteadOfAsking() {
         var mate = Mate(
             id: UUID(), name: "Web Smith", job: "website", pinned: false, archived: false,

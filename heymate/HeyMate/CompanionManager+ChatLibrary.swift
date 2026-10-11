@@ -25,7 +25,14 @@ extension CompanionManager {
     /// only when `id` is that default. The store itself deletes exact `mateID`
     /// matches only, because it does not know the default mate id.
     func clearChats(forMateID id: UUID) {
+        cancelPendingOpenCodeTrainingSend(mateID: id)
         let defaultID = mateDirectory.defaultMateID
+        if let background = backgroundRoutineSession, (background.mateID ?? defaultID) == id {
+            cancelInFlightChatTurn()
+        }
+        if (currentChat.mateID ?? defaultID) == id {
+            cancelForegroundChatTurnForNavigation()
+        }
         chatHistoryStore.deleteSessions(mateID: id)
         if id == defaultID {
             let nilSessionIDs = chatHistoryStore.loadAll().compactMap { session -> UUID? in

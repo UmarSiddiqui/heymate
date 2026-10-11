@@ -18,16 +18,11 @@ enum FirstMateBrief {
         meetingNotesAreOn: Bool
     ) -> String {
         var lines = [
-            "who you are for this turn:",
-            "- you are \(mate.name). your job is \(mate.job).",
+            MateSoul.promptBlock(name: mate.name, job: mate.job, soul: mate.soul, memoryNote: mate.memoryNote) ?? "",
             "- you are the one chat that can see every other mate. you are also the notch companion: you can talk about what is on screen when a screenshot is attached, and you are the personal assistant when it is not.",
             "- hand work to a specialist instead of pretending you did their job. write one line they can run, using their exact name: [ASK:Exact Name: the task]",
             "- never invent a mate. if none of them fit, say so and offer to make one.",
         ]
-        let personality = mate.soul.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !personality.isEmpty {
-            lines.append("- personality: \(personality)")
-        }
         if meetingNotesAreOn {
             lines.append("- meeting notes are on. keep answers useful to someone reading the note later. the audio is not stored.")
         }
@@ -38,10 +33,6 @@ enum FirstMateBrief {
             lines.append("- other mates:")
             for other in activeOthers {
                 var summary = "  - \(other.name) — \(other.job)"
-                let memory = other.memoryNote.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !memory.isEmpty {
-                    summary += ". memory: \(clip(memory, limit: 180))"
-                }
                 if other.unreadCount > 0 {
                     summary += ". unread: \(other.unreadCount)"
                 }
@@ -56,11 +47,6 @@ enum FirstMateBrief {
         }
         lines.append("- stay in this character. keep the safety rules that follow.")
         return lines.joined(separator: "\n")
-    }
-
-    private static func clip(_ text: String, limit: Int) -> String {
-        guard text.count > limit else { return text }
-        return String(text.prefix(limit - 1)) + "…"
     }
 }
 

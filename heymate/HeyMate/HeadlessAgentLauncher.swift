@@ -24,6 +24,7 @@ final class HeadlessAgentLauncher {
         /// will be asked to approve, so it is collected rather than
         /// overwritten the way `summary` is.
         var planFragments: [String] = []
+        var finalResult = AgentFinalResult()
     }
 
     private enum PendingStopReason {
@@ -236,7 +237,8 @@ final class HeadlessAgentLauncher {
         prompt: String,
         executor: HeadlessExecutor,
         screenContext: AgentScreenContext,
-        homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser
+        homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
+        chatOwner: AgentChatOwner? = nil
     ) -> UUID {
         let runID = UUID()
         let workspaceURL = AgentFolderNaming.sandboxFolderURL(
@@ -251,7 +253,8 @@ final class HeadlessAgentLauncher {
             origin: .sandbox,
             workspaceURL: workspaceURL,
             screenContext: screenContext,
-            createWorkspace: true
+            createWorkspace: true,
+            chatOwner: chatOwner
         )
     }
 
@@ -259,7 +262,8 @@ final class HeadlessAgentLauncher {
         prompt: String,
         executor: HeadlessExecutor,
         workspaceURL: URL,
-        screenContext: AgentScreenContext
+        screenContext: AgentScreenContext,
+        chatOwner: AgentChatOwner? = nil
     ) -> UUID {
         beginRun(
             runID: UUID(),
@@ -268,7 +272,8 @@ final class HeadlessAgentLauncher {
             origin: .attached,
             workspaceURL: workspaceURL,
             screenContext: screenContext,
-            createWorkspace: false
+            createWorkspace: false,
+            chatOwner: chatOwner
         )
     }
 
@@ -389,6 +394,7 @@ final class HeadlessAgentLauncher {
             current.status = .planning
             current.planText = ""
             current.summary = ""
+            current.privateFinalResult = nil
             current.error = ""
             current.finishedAt = nil
             current.undoEntryIdentifier = ""
@@ -688,7 +694,8 @@ final class HeadlessAgentLauncher {
         origin: AgentRunOrigin,
         workspaceURL: URL,
         screenContext: AgentScreenContext,
-        createWorkspace: Bool
+        createWorkspace: Bool,
+        chatOwner: AgentChatOwner?
     ) -> UUID {
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = Self.title(from: trimmedPrompt)
@@ -715,7 +722,8 @@ final class HeadlessAgentLauncher {
             executor: executor,
             origin: origin,
             createdAt: createdAt,
-            sessionIdentifier: sessionIdentifier
+            sessionIdentifier: sessionIdentifier,
+            chatOwner: chatOwner
         )
 
         if trimmedPrompt.isEmpty {
@@ -1138,6 +1146,17 @@ final class HeadlessAgentLauncher {
         reduced: AgentRun
     ) {
         var projected = reduced
+        if projected.status == .succeeded || projected.status == .failed, let attemptID = projected.detachedAttemptID {
+            // `reduced` passed run/attempt/schema validation. The artifact was
+            // committed before the terminal journal record, including when
+            // that record arrived ahead of the final state snapshot.
+            projected.privateFinalResult = (try? AgentPrivateResultStore.load(
+                root: detachedRuntimeRootURL, runID: projected.id, attemptID: attemptID)) ?? projected.privateFinalResult
+            if projected.privateFinalResult == nil, projected.summary == AgentFinalResult.availableSummary {
+                projected.summary = AgentFinalResult.missingMessage
+                projected.latestAction = AgentFinalResult.missingMessage
+            }
+        }
         let statusChanged = previous.status != projected.status
         let actionChanged = previous.latestAction != projected.latestAction
         if (statusChanged || actionChanged), !projected.latestAction.isEmpty {
@@ -1438,7 +1457,15 @@ final class HeadlessAgentLauncher {
 
         for event in session.adapter.events(fromStdoutLine: line) {
             guard session.leg.isReadOnly else {
-                apply(event, to: runID)
+                sessions[runID]?.finalResult.consume(event)
+                // A provider result is not process completion. Wait for exit
+                // so a late failure or later tool cannot become a false success.
+                switch event {
+                case .text, .finished: break
+                case .failed(let message):
+                    apply(.failed(message: AgentReceiptPrivacy.safeResult(message)), to: runID)
+                default: apply(event, to: runID)
+                }
                 continue
             }
 
@@ -1478,6 +1505,7 @@ final class HeadlessAgentLauncher {
         // are the only record of what was running and why it died.
         let finishedLeg = sessions[runID]?.leg
         let planFragments = sessions[runID]?.planFragments ?? []
+        let finalResult = sessions[runID]?.finalResult.outcome ?? .missing
         let standardErrorSummary = sessions[runID]?.process.recentStandardErrorSummary ?? ""
         sessions[runID]?.timeoutTask?.cancel()
         sessions[runID] = nil
@@ -1502,7 +1530,7 @@ final class HeadlessAgentLauncher {
             let message = standardErrorSummary.isEmpty
                 ? "Exited with status \(status)"
                 : standardErrorSummary
-            apply(.failed(message: message), to: runID)
+            apply(.failed(message: AgentReceiptPrivacy.safeResult(message)), to: runID)
             return
         }
 
@@ -1516,7 +1544,14 @@ final class HeadlessAgentLauncher {
             return
         }
 
-        apply(.finished(summary: run.summary.isEmpty ? "Done" : run.summary), to: runID)
+        switch finalResult {
+        case .reported(let answer): apply(.finished(summary: answer), to: runID)
+        case .blocked(let reason):
+            _ = store.update(id: runID) { $0.privateFinalResult = reason }
+            apply(.failed(message: AgentFinalResult.blockedSummary), to: runID)
+        case .failed: apply(.failed(message: "Coding agent reported an error"), to: runID)
+        case .missing: apply(.finished(summary: AgentFinalResult.missingMessage), to: runID)
+        }
         startNextQueuedFollowUp(runID: runID)
     }
 
@@ -1670,8 +1705,11 @@ final class HeadlessAgentLauncher {
             _ = store.update(id: runID) { current in
                 guard !current.status.isTerminal else { return }
                 current.status = .succeeded
-                current.summary = summary
-                current.latestAction = summary.isEmpty ? "Done" : summary
+                current.privateFinalResult = AgentFinalResult.hasUsableAnswer(summary)
+                    ? AgentReceiptPrivacy.privateAnswer(summary) : nil
+                current.summary = current.privateFinalResult == nil
+                    ? AgentFinalResult.missingMessage : AgentFinalResult.availableSummary
+                current.latestAction = current.summary
                 current.finishedAt = Date()
                 current.pid = nil
                 current.pendingApprovalID = ""
@@ -1714,6 +1752,7 @@ final class HeadlessAgentLauncher {
             current.status = .planning
             current.planText = ""
             current.summary = ""
+            current.privateFinalResult = nil
             current.error = ""
             current.finishedAt = nil
             current.undoEntryIdentifier = ""

@@ -7,35 +7,102 @@
 
 import Foundation
 
+nonisolated struct MateCreationRequest: Equatable {
+    var name: String?
+    var job: String
+    var soul: String = ""
+}
+
 nonisolated enum MateCreationParser {
     static let maximumCount = 5
 
-    /// Jobs to create, capped at five. Nil when the text is not a mate command.
-    /// "clicky" is an alias for "mate" in this parser only.
+    /// Compatibility projection for callers that only need the jobs.
     static func parse(_ text: String) -> [String]? {
+        parseRequests(text)?.map(\.job)
+    }
+
+    /// Explicit creation commands only. Quoted examples, questions, and
+    /// negated requests never mutate the roster. Legacy lists are capped at
+    /// five; named creation keeps the supplied name and later instructions.
+    static func parseRequests(_ text: String) -> [MateCreationRequest]? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        let folded = trimmed.lowercased()
-        guard folded.contains("make"), mentionsMateAlias(folded) else { return nil }
+        if let named = namedRequest(in: trimmed) { return [named] }
 
         if let colon = trimmed.firstIndex(of: ":") {
             let head = String(trimmed[..<colon])
-            guard mentionsMateAlias(head.lowercased()) else { return nil }
-            let jobs = splitJobs(String(trimmed[trimmed.index(after: colon)...]))
-            guard !jobs.isEmpty else { return nil }
-            let requested = requestedCount(in: head) ?? jobs.count
-            return Array(jobs.prefix(min(maximumCount, max(1, requested))))
+            let listHead = #"(?i)^(?:please\s+)?make\s+me\s+(?:(?:a|an|one|two|three|four|five|\d+)\s+)?(?:mates?|clickys?)\s*$"#
+            if head.range(of: listHead, options: .regularExpression) != nil {
+                let tail = String(trimmed[trimmed.index(after: colon)...])
+                guard !hasRequestQualifier(in: tail) else { return nil }
+                let jobs = splitJobs(tail)
+                guard !jobs.isEmpty else { return nil }
+                let requested = requestedCount(in: head) ?? jobs.count
+                return jobs.prefix(min(maximumCount, max(1, requested))).map {
+                    MateCreationRequest(name: nil, job: $0)
+                }
+            }
         }
 
         let pattern = #"(?i)^(?:please\s+)?make\s+me\s+(?:(?:a|an|one|two|three|four|five|\d+)\s+)?(?:mate|mates|clicky|clickys)\s+(?:that|who|to)\s+(.+)$"#
         guard let job = firstCapture(pattern, in: trimmed) else { return nil }
         let jobText = job.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !jobText.isEmpty else { return nil }
-        return [jobText]
+        guard !jobText.isEmpty, !hasRequestQualifier(in: jobText) else { return nil }
+        return [MateCreationRequest(name: nil, job: jobText)]
     }
 
-    private static func mentionsMateAlias(_ folded: String) -> Bool {
-        folded.range(of: #"\b(?:mates?|clickys?)\b"#, options: .regularExpression) != nil
+    private static func namedRequest(in text: String) -> MateCreationRequest? {
+        let pattern = #"(?is)^(?:please\s+)?(?:create|make|add)\s+(?:me\s+)?(?:(?:a|an)\s+)?(?:test\s+)?mate\s+(?:named|called)\s+(?:"([^"]+)"|'([^']+)'|“([^”]+)”|([^,:\n]+?))\s*[,:]\s*(.+)$"#
+        guard let expression = try? NSRegularExpression(pattern: pattern),
+              let match = expression.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let jobRange = Range(match.range(at: 5), in: text) else { return nil }
+        let name = (1...4).compactMap { index -> String? in
+            guard let range = Range(match.range(at: index), in: text) else { return nil }
+            return String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }.first ?? ""
+        guard !name.isEmpty, !name.hasPrefix("\""), !name.hasPrefix("'"),
+              !name.hasPrefix("“"), !name.hasPrefix("”") else { return nil }
+
+        let description = String(text[jobRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !description.isEmpty, !hasRequestQualifier(in: description, name: name) else { return nil }
+        // The first sentence describes the job; the remaining sentences are
+        // retained verbatim as behavior, not executed as another command.
+        if let boundary = description.range(of: #"\.\s+"#, options: .regularExpression) {
+            let job = String(description[..<boundary.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let soul = String(description[boundary.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !job.isEmpty else { return nil }
+            return MateCreationRequest(name: name, job: job, soul: soul)
+        }
+        return MateCreationRequest(name: name, job: description)
+    }
+
+    /// Local mutation is reserved for one unconditional creation request.
+    /// These clause-level guards leave ambiguous input to ordinary chat;
+    /// behavior such as waiting before a lesson or avoiding files is valid.
+    private static func hasRequestQualifier(in description: String, name: String? = nil) -> Bool {
+        let clause = #"(?:^|[.!?;,\n—–])\s*"#
+        let transition = #"(?:(?:actually|but|then|also|and|next|please|wait)\s*[,;:]?\s+)*"#
+        let cancellationStart = "(?:" + clause + transition + #"|\b(?:but|actually)\s+)"#
+        let secondCommandStart = "(?:" + clause + transition + #"|\b(?:and|then|also)\s+)"#
+        let namedObject = name.map { "|" + NSRegularExpression.escapedPattern(for: $0) } ?? ""
+        let mateObject = #"(?:(?:(?:a|an|the|another|any)\s+)?(?:test\s+)?mates?"# + namedObject + ")"
+        let creationObject = "(?:it|that|this|" + mateObject + ")"
+        let negation = #"(?:do\s+not|don['’]t|never)\s+"#
+        let patterns = [
+            // A cancellation targets creation itself, not files or routines.
+            cancellationStart + negation + #"(?:create|add|save)\s+(?:"# + creationObject + #"\b|(?:yet|now|until)\b)"#,
+            // "Don't make it boring" describes behavior, not cancellation.
+            cancellationStart + negation + #"make\s+(?:"# + mateObject + #"\b|(?:it|that|this)(?:\s+(?:yet|now|until)\b|\s*[.!?;]|\s*$))"#,
+            cancellationStart + #"(?:never\s*mind|cancel\s+(?:that|this|it|the\s+(?:request|creation)))\b"#,
+            // A standalone approval clause applies to this request. A tutor
+            // can still wait for confirmation before each lesson step.
+            clause + transition + #"(?:only\s+)?(?:after|once|if|when|until)\s+(?:I|we)\s+(?:(?:explicitly|first)\s+)?(?:confirm|approve)\b"#,
+            clause + #"(?:please\s+)?(?:wait|ask)\s+for\s+(?:my|our)\s+(?:approval|confirmation)\s*(?:[.!?]|$|before\s+(?:creating|making|adding|saving)\b)"#,
+            clause + transition + #"is\s+(?:that|this|it)\s+(?:the|a)\s+(?:right|correct|valid)\s+(?:command|syntax)\s*\?"#,
+            // Do not store a second roster command as the first mate's soul.
+            secondCommandStart + #"(?:create|make|add)\s+(?:me\s+)?(?:(?:a|an|another|one|two|three|four|five|\d+)\s+)?(?:test\s+)?(?:mates?|clickys?)\b"#
+        ]
+        return patterns.contains { description.range(of: "(?i)" + $0, options: .regularExpression) != nil }
     }
 
     private static func splitJobs(_ tail: String) -> [String] {

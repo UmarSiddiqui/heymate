@@ -97,4 +97,7 @@ struct PendingOpenCodeSend: Equatable {
     var text: String
     var imageAttachmentCount: Int
     var handoff: MateHandoff?
+    var session: ChatSession? = nil
+    var routineID: UUID? = nil
+    var explicitExecutor: HeadlessExecutor? = nil
 }

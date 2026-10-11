@@ -105,7 +105,7 @@ protocol HeadlessCLIAdapter {
 /// without parsing free text.
 let headlessAgentBlockedMarker = "HEYMATE_BLOCKED:"
 
-let headlessAgentExecuteInstruction = "Execute the approved plan now. Do not expand its scope. If any part of the plan could not be completed, such as a permission refusal or a missing tool, begin your final message with \(headlessAgentBlockedMarker) and a one-line reason."
+let headlessAgentExecuteInstruction = "Execute the approved plan now. Do not expand its scope. Begin your final message with \(AgentFinalResult.marker) followed by the answer to the original request and the checks actually performed. For read-only questions, include the requested totals or findings even when no files changed. Never substitute a generic completion message or file-change count for the answer. Do not include credentials, private paths, account identifiers, or unrelated conversation. If any part of the plan could not be completed or verified, such as a permission refusal or a missing tool, begin your final message with \(headlessAgentBlockedMarker) and a one-line reason instead."
 
 /// True when an agent's final message reports that it could not finish.
 func headlessAgentReportsBlocked(_ finalMessage: String) -> Bool {

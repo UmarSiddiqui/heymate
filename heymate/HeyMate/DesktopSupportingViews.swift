@@ -145,6 +145,9 @@ struct DesktopMemoryView: View {
                     Text(item.createdAt.formatted(date: .abbreviated, time: .shortened))
                         .font(DS.Fonts.micro)
                         .foregroundColor(DS.Colors.textTertiary)
+                    Text(memoryScopeLabel(item))
+                        .font(DS.Fonts.micro)
+                        .foregroundColor(DS.Colors.textTertiary)
                 }
                 Spacer(minLength: 0)
                 Button("Edit") {
@@ -170,6 +173,17 @@ struct DesktopMemoryView: View {
         }
     }
 
+    private func memoryScopeLabel(_ item: MemoryItem) -> String {
+        if let mateID = item.mateID {
+            let name = companionManager.mates.first { $0.id == mateID }?.name ?? "Deleted mate"
+            return "Only \(name)"
+        }
+        if item.kind == .sessionSummary {
+            return "Older unassigned summary · kept here, not used in replies"
+        }
+        return "Shared with all mates"
+    }
+
     private func saveEditingMemory(id: UUID) {
         let trimmed = editingDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -189,7 +203,7 @@ struct DesktopMemoryView: View {
     private func memoryExportText(_ items: [MemoryItem]) -> String {
         items.map { item in
             let stamp = item.createdAt.formatted(date: .abbreviated, time: .shortened)
-            return "\(stamp)\n\(item.text)"
+            return "\(stamp) · \(memoryScopeLabel(item))\n\(item.text)"
         }
         .joined(separator: "\n\n")
     }

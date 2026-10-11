@@ -195,8 +195,14 @@ extension CompanionManager {
         let steps = reply.steps.filter { !$0.displayText.isEmpty || $0.pointsSomewhere }
         guard !steps.isEmpty else { return (nil, nil) }
 
+        try Task.checkCancellation()
+        let responseCompletion = currentResponseCompletion
         isGuidancePointerHeld = true
-        defer { releaseGuidancePointer() }
+        defer {
+            // A slow cancelled speech/action callback must not release
+            // the pointer already held by a newer response.
+            if currentResponseCompletion === responseCompletion { releaseGuidancePointer() }
+        }
 
         // Without anything to point at there is nothing to keep in sync, so
         // the reply plays as before: start speaking and hand back.
@@ -264,8 +270,10 @@ extension CompanionManager {
 
             if computerUseCoordinator.isEnabled,
                let outcome = await performComputerUseDirectives(in: step.text) {
+                try Task.checkCancellation()
                 outcomeLines.append(outcome)
             }
+            try Task.checkCancellation()
 
             // Breath between steps so the next flight reads as a new step.
             if pacesSteps {
@@ -336,6 +344,7 @@ extension CompanionManager {
             reply,
             screenCaptures: screenCaptures
         )
+        try Task.checkCancellation()
         if let actionOutcome {
             appendAssistantMessage(actionOutcome)
         }

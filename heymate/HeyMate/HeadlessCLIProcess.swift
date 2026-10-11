@@ -146,9 +146,22 @@ nonisolated final class HeadlessCLIStandardErrorReader: @unchecked Sendable {
 
     func readAvailableData(from handle: FileHandle) {
         lock.lock()
-        defer { lock.unlock() }
-        guard !isSealed else { return }
-        tail.append(handle.availableData)
+        let reachedEndOfFile: Bool
+        if isSealed {
+            reachedEndOfFile = false
+        } else {
+            let data = handle.availableData
+            tail.append(data)
+            reachedEndOfFile = data.isEmpty
+        }
+        lock.unlock()
+        // At EOF the handle stays readable, so FileHandle keeps invoking this
+        // callback with empty reads until someone detaches it. Terminal
+        // cleanup does, but only once MainActor gets to it; detach here so a
+        // busy MainActor cannot leave a dispatch thread spinning meanwhile.
+        if reachedEndOfFile {
+            handle.readabilityHandler = nil
+        }
     }
 
     func readToEndAndSeal(from handle: FileHandle) {
@@ -261,12 +274,24 @@ nonisolated final class HeadlessCLIStandardOutputReader: @unchecked Sendable {
     /// schedule delivery drain.
     func readAvailableData(from handle: FileHandle) -> Bool {
         lock.lock()
-        defer { lock.unlock() }
-        guard !isSealed else { return false }
+        guard !isSealed else {
+            lock.unlock()
+            return false
+        }
 
         let data = handle.availableData
-        guard !data.isEmpty else { return false }
-        return deliveryBuffer.enqueue(accumulator.completeLines(from: data))
+        guard !data.isEmpty else {
+            lock.unlock()
+            // EOF: an empty read repeats for as long as the handler stays
+            // attached, so detach it now instead of waiting for MainActor
+            // cleanup. A trailing partial line stays in the accumulator;
+            // `readToEndAndSeal` flushes it in order.
+            handle.readabilityHandler = nil
+            return false
+        }
+        let needsDrain = deliveryBuffer.enqueue(accumulator.completeLines(from: data))
+        lock.unlock()
+        return needsDrain
     }
 
     /// Called after process group has closed stdout. Earlier callback either
@@ -402,6 +427,12 @@ final class HeadlessCLIProcess {
     }
 
     var processIdentifier: Int32 { spawnedProcessIdentifier }
+
+    /// True while either output pipe still has a readability callback.
+    var hasAttachedOutputReadabilityHandler: Bool {
+        stdoutPipe.fileHandleForReading.readabilityHandler != nil
+            || stderrPipe.fileHandleForReading.readabilityHandler != nil
+    }
 
     /// The tail of the child's stderr, formatted for a run card. Empty when
     /// the child said nothing on stderr.

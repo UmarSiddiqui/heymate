@@ -34,6 +34,19 @@ nonisolated struct MemoryItem: Codable, Equatable, Identifiable {
     let kind: MemoryKind
     var text: String
     let createdAt: Date
+    /// Nil keeps explicit preferences and project facts shared. Old summaries
+    /// have no provable owner: retain them for inspection, but never replay
+    /// them into a mate's conversation.
+    var mateID: UUID? = nil
+}
+
+nonisolated enum MemoryContext {
+    static func items(_ items: [MemoryItem], for mateID: UUID?) -> [MemoryItem] {
+        items.filter { item in
+            if let owner = item.mateID { return owner == mateID }
+            return item.kind != .sessionSummary
+        }
+    }
 }
 
 /// Storage surface for memory records. `AnyObject` so ownership semantics
@@ -92,6 +105,19 @@ final class FileMemoryRepository: MemoryRepository {
 
     func append(_ item: MemoryItem) {
         items.append(item)
+        trimExcessSessionSummaries()
+        persist()
+    }
+
+    /// Refreshes only this mate's rolling context in one write. Legacy
+    /// unowned records stay intact, and another mate's summary is untouched.
+    func updateSessionSummary(mateID: UUID, text: String, now: Date = Date()) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        items.removeAll { $0.kind == .sessionSummary && $0.mateID == mateID }
+        items.append(MemoryItem(
+            id: UUID(), kind: .sessionSummary, text: trimmed, createdAt: now, mateID: mateID
+        ))
         trimExcessSessionSummaries()
         persist()
     }
