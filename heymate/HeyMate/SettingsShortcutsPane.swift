@@ -73,7 +73,7 @@ struct SettingsShortcutsPane: View {
 
     private static let shortcutOptions: [DSMenuOption<PushToTalkShortcut.Option>] =
         PushToTalkShortcut.Option.allOptions.map {
-            DSMenuOption(value: $0, title: $0.displayText)
+            DSMenuOption(value: $0, title: KeyCapSymbols.menuTitle(for: $0.keyCapsuleLabels, words: $0.displayText))
         }
 
     private var holdToTalkSection: some View {
@@ -87,13 +87,21 @@ struct SettingsShortcutsPane: View {
                     SettingsDivider()
                 }
                 VStack(alignment: .leading, spacing: 0) {
-                    SettingsPickerRow(
+                    SettingsRow(
                         role.item.title,
                         subtitle: subtitle(for: role),
-                        item: role.item,
-                        selection: binding(for: role),
-                        options: Self.shortcutOptions
-                    )
+                        item: role.item
+                    ) {
+                        HStack(spacing: DS.Spacing.sm) {
+                            KeyCapsView(labels: binding(for: role).wrappedValue.keyCapsuleLabels)
+                            DSMenuPicker(
+                                accessibilityTitle: role.item.title,
+                                selection: binding(for: role),
+                                options: Self.shortcutOptions,
+                                placeholder: ""
+                            )
+                        }
+                    }
                     if conflicts.contains(role) {
                         SettingsInlineHelp(conflictMessage(for: role), tone: .attention)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -116,7 +124,9 @@ struct SettingsShortcutsPane: View {
     // MARK: Double tap
 
     private static let doubleTapOptions: [DSMenuOption<ModifierDoubleTapShortcut>] =
-        ModifierDoubleTapShortcut.allCases.map { DSMenuOption(value: $0, title: $0.displayText) }
+        ModifierDoubleTapShortcut.allCases.map {
+            DSMenuOption(value: $0, title: KeyCapSymbols.menuTitle(for: $0.keyCapsuleLabels, words: $0.displayText))
+        }
 
     private var doubleTapSection: some View {
         SettingsSection(
@@ -201,5 +211,65 @@ struct SettingsShortcutsPane: View {
         textDoubleTapShortcut = SettingsDoubleTapDefaults.textShortcut
         isHandsFreeDoubleTapEnabled = SettingsDoubleTapDefaults.isHandsFreeEnabled
         handsFreeDoubleTapShortcut = SettingsDoubleTapDefaults.handsFreeShortcut
+    }
+}
+
+// MARK: - Key caps
+
+/// Mac modifier glyphs for the words shortcuts are stored as.
+enum KeyCapSymbols {
+    static func symbol(for label: String) -> String {
+        switch label.lowercased() {
+        case "ctrl", "control": return "⌃"
+        case "option", "opt", "alt": return "⌥"
+        case "command", "cmd": return "⌘"
+        case "shift": return "⇧"
+        case "fn": return "fn"
+        case "space": return "Space"
+        default: return label
+        }
+    }
+
+    /// "⌃⌥  ctrl + option" so the menu reads at a glance and still says it.
+    static func menuTitle(for labels: [String], words: String) -> String {
+        let glyphs = labels
+            .filter { $0 != "×2" }
+            .map(symbol(for:))
+            .joined()
+        return "\(glyphs)   \(words)"
+    }
+}
+
+/// The current combo drawn as keyboard keys.
+struct KeyCapsView: View {
+    let labels: [String]
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(Array(labels.enumerated()), id: \.offset) { _, label in
+                if label == "×2" {
+                    Text("×2")
+                        .font(DS.Fonts.caption.weight(.semibold))
+                        .foregroundColor(DS.Colors.textTertiary)
+                } else {
+                    Text(KeyCapSymbols.symbol(for: label))
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .frame(minWidth: 26, minHeight: 24)
+                        .padding(.horizontal, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(DS.Colors.surface3)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .strokeBorder(DS.Colors.borderSubtle, lineWidth: 1)
+                        )
+                        .shadow(color: .black.opacity(0.25), radius: 0, y: 1)
+                }
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(labels.joined(separator: " "))
     }
 }
