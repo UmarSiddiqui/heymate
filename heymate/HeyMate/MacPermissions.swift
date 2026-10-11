@@ -2,8 +2,9 @@
 //  MacPermissions.swift
 //  HeyMate
 //
-//  The macOS privacy permissions HeyMate needs (Accessibility and Screen
-//  Recording; the microphone is handled by VoiceDictation) and how to ask
+//  The macOS privacy permissions HeyMate needs (Accessibility, Input
+//  Monitoring and Screen Recording; the microphone is handled by
+//  VoiceDictation) and how to ask
 //  for them. macOS only shows each system prompt once per launch, so the
 //  first request shows the prompt and later ones open System Settings.
 //
@@ -21,6 +22,7 @@ enum MacPermissions {
 
     private static var hasPromptedForAccessibility = false
     private static var hasPromptedForScreenRecording = false
+    private static var hasPromptedForInputMonitoring = false
 
     // MARK: - Accessibility
 
@@ -45,6 +47,35 @@ enum MacPermissions {
 
     static func openAccessibilitySettings() {
         openPrivacyPane("Privacy_Accessibility")
+    }
+
+    // MARK: - Input Monitoring
+
+    /// Global shortcuts listen to the keyboard. Current macOS keeps key events
+    /// out of an event tap without Input Monitoring even when Accessibility is
+    /// granted: the tap is created, but it hears modifiers at most and the
+    /// system switches it off.
+    static func hasInputMonitoringPermission() -> Bool {
+        CGPreflightListenEventAccess()
+    }
+
+    @discardableResult
+    static func requestInputMonitoringPermission() -> Route {
+        let route = route(hasPermission: hasInputMonitoringPermission(), alreadyPrompted: hasPromptedForInputMonitoring)
+        switch route {
+        case .alreadyGranted:
+            break
+        case .systemPrompt:
+            hasPromptedForInputMonitoring = true
+            _ = CGRequestListenEventAccess()
+        case .systemSettings:
+            openInputMonitoringSettings()
+        }
+        return route
+    }
+
+    static func openInputMonitoringSettings() {
+        openPrivacyPane("Privacy_ListenEvent")
     }
 
     // MARK: - Screen Recording
