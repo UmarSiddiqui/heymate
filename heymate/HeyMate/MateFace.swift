@@ -2,10 +2,9 @@
 //  MateFace.swift
 //  HeyMate
 //
-//  Three drawn packs (Signal, Margin, Instrument) sit beside the original
-//  color faces and portraits. HeyMate keeps the lilac one. Every other mate
-//  keeps the face that belongs to its id, hashed only against the original
-//  twenty, so a new pack does not reshuffle anyone.
+//  Simple color faces, plus a smaller illustrated set. HeyMate keeps the
+//  lilac one. Every other mate keeps the face that belongs to its id, so a
+//  rename does not swap it.
 //
 
 import AppKit
