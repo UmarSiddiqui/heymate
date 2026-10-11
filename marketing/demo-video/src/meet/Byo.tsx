@@ -9,7 +9,7 @@ type Brain = {name: string; via: string; cmd: string};
 const BRAINS: Brain[] = [
   {name: 'Claude', via: 'Your Claude plan, via Claude Code', cmd: 'claude auth login'},
   {name: 'ChatGPT', via: 'Your ChatGPT plan, via Codex', cmd: 'codex login'},
-  {name: 'OpenCode', via: 'Free models, or your own', cmd: 'opencode auth login'},
+  {name: 'OpenCode', via: 'Free, local, or any provider', cmd: 'opencode auth login'},
 ];
 
 const CARD_AT = [0.8, 0.95, 1.1];
@@ -17,15 +17,17 @@ const TYPE_AT = 1.3;
 const CABLE_AT = 2.1;
 const CONNECT_AT = 2.7;
 const SWITCH_IN = 3.4;
-const ACTIVE_AT = [3.6, 4.8, 6.0, 7.2];
+const ACTIVE_AT = [3.6, 4.6, 5.6, 7.6];
+const EXTRAS_AT = 6.3;
+const EXTRAS = ['Your own API key', 'Local models', 'Apple Intelligence'];
 
 export const MeetByo: React.FC = () => {
   const {vertical, width} = useLayout();
   const {t, frame, fps} = useTime();
 
   const L = vertical
-    ? {titleTop: 170, hub: {x: width / 2, y: 760}, icon: 170, cardY: 1020, cardW: 316, cardH: 300, gap: 18, switchY: 1440}
-    : {titleTop: 80, hub: {x: width / 2, y: 470}, icon: 150, cardY: 660, cardW: 430, cardH: 236, gap: 40, switchY: 950};
+    ? {titleTop: 150, hub: {x: width / 2, y: 700}, icon: 170, cardY: 950, cardW: 316, cardH: 300, gap: 18, switchY: 1340, extrasY: 1560}
+    : {titleTop: 70, hub: {x: width / 2, y: 410}, icon: 130, cardY: 570, cardW: 430, cardH: 236, gap: 40, switchY: 846, extrasY: 976};
   const rowW = L.cardW * 3 + L.gap * 2;
   const cardX = (i: number) => (width - rowW) / 2 + i * (L.cardW + L.gap);
 
@@ -35,6 +37,7 @@ export const MeetByo: React.FC = () => {
   const connected = BRAINS.map((_, i) => t >= CONNECT_AT + i * 0.1);
   const hubPulse = ease(t, [CONNECT_AT, CONNECT_AT + 0.25]) * (1 - ease(t, [CONNECT_AT + 0.4, CONNECT_AT + 1.2]));
   const switchIn = springAt(frame, fps, SWITCH_IN, 'buddy');
+  const extrasLabelIn = springAt(frame, fps, EXTRAS_AT, 'gentle');
 
   // Which brain is active; the switcher highlight slides between them.
   const step = ACTIVE_AT.filter((at) => t >= at).length - 1;
@@ -52,7 +55,7 @@ export const MeetByo: React.FC = () => {
           Bring your own <span style={{color: COLORS.accentText}}>AI.</span>
         </div>
         <div style={{marginTop: 20, fontSize: vertical ? 36 : 30, color: COLORS.textSecondary, lineHeight: 1.35, whiteSpace: 'pre-line', ...riseStyle(subIn, 18, 6)}}>
-          {vertical ? 'Sign in with the plan you already have.\nNo API keys. No new subscription.' : 'Sign in with the plan you already have. No API keys. No new subscription.'}
+          {vertical ? 'Sign in with the plan you already have.\nNo new subscription.' : 'Sign in with the plan you already have. No new subscription.'}
         </div>
       </div>
 
@@ -173,6 +176,48 @@ export const MeetByo: React.FC = () => {
           ))}
         </div>
         <div style={{fontSize: vertical ? 28 : 22, color: COLORS.textTertiary}}>Switch brains anytime. HeyMate itself is free.</div>
+      </div>
+
+      {/* Or skip the subscription entirely */}
+      <div
+        style={{
+          position: 'absolute',
+          left: 40,
+          right: 40,
+          top: L.extrasY,
+          display: 'flex',
+          flexDirection: vertical ? 'column' : 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: vertical ? 18 : 14,
+        }}
+      >
+        <div style={{fontSize: vertical ? 30 : 24, fontWeight: 600, color: COLORS.textSecondary, marginRight: vertical ? 0 : 6, ...riseStyle(extrasLabelIn, 14, 4)}}>
+          No subscription? Use
+        </div>
+        <div style={{display: 'flex', gap: vertical ? 12 : 14, flexWrap: 'wrap', justifyContent: 'center'}}>
+          {EXTRAS.map((label, i) => {
+            const p = springAt(frame, fps, EXTRAS_AT + 0.15 + i * 0.12, 'buddy');
+            return (
+              <div
+                key={label}
+                style={{
+                  padding: vertical ? '12px 22px' : '10px 20px',
+                  borderRadius: 999,
+                  background: COLORS.surface2,
+                  border: `1.5px solid ${COLORS.borderStrong}`,
+                  fontSize: vertical ? 28 : 22,
+                  fontWeight: 600,
+                  color: COLORS.textPrimary,
+                  opacity: Math.min(1, p * 1.5),
+                  transform: `scale(${0.6 + 0.4 * p})`,
+                }}
+              >
+                {label}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </Backdrop>
   );

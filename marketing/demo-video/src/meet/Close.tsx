@@ -70,7 +70,7 @@ export const MeetClose: React.FC = () => {
           />
         </div>
         <div style={{marginTop: vertical ? 44 : 36, fontSize: vertical ? 32 : 28, color: COLORS.textSecondary, whiteSpace: 'pre-line', lineHeight: 1.4, ...riseStyle(metaIn, 16, 4)}}>
-          {vertical ? 'Free & open source · macOS 14.2+\nWorks with Claude, ChatGPT & OpenCode' : 'Free & open source  ·  macOS 14.2+  ·  Works with Claude, ChatGPT & OpenCode'}
+          {vertical ? 'Free & open source · macOS 14.2+\nClaude, ChatGPT, your API key, or local models' : 'Free & open source  ·  macOS 14.2+  ·  Claude, ChatGPT, your API key, or local models'}
         </div>
         <div style={{marginTop: 16, fontSize: vertical ? 32 : 28, fontWeight: 600, color: COLORS.accentText, ...riseStyle(urlIn, 16, 4)}}>
           getheymate.vercel.app

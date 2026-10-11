@@ -21,7 +21,7 @@ export const MEET_SCENES = [
   {id: 'hello', name: 'Meet your mate', seconds: 4, Component: MeetHello},
   {id: 'teach', name: 'It teaches, you do', seconds: 10, Component: MeetTeach},
   {id: 'anything', name: 'Ask about anything', seconds: 6, Component: MeetAnything},
-  {id: 'byo', name: 'Bring your own AI', seconds: 8.5, Component: MeetByo},
+  {id: 'byo', name: 'Bring your own AI', seconds: 9.5, Component: MeetByo},
   {id: 'fun', name: 'A more fun way', seconds: 4.5, Component: MeetFun},
   {id: 'close', name: 'Say hey', seconds: 5, Component: MeetClose},
 ] as const;
