@@ -89,6 +89,14 @@ final class CompanionManager: ObservableObject {
 
     /// Set while a routine is answering into a mate who is not on screen.
     var backgroundRoutineSession: ChatSession?
+
+    /// True while the turn came from push-to-talk or the notch. Talk is always
+    /// HeyMate itself, never whichever mate's chat happens to be open. Typed
+    /// mate chats, routines and handoffs set it back to false.
+    var isHeyMateTalkTurn = false
+    /// HeyMate's own running conversation. Talk is ad hoc, so the thread lives
+    /// for this launch only; what it picks up survives as HeyMate's memory.
+    var heyMateTalkSession: ChatSession = .empty()
     var activeRoutineTurn: ActiveRoutineTurn?
 
     /// Injectable so tests never touch the real agent-runs.json.
@@ -1459,7 +1467,7 @@ final class CompanionManager: ObservableObject {
         } else if let routine {
             _ = kickoffRoutine(routine, deliverySession: session)
         } else {
-            _ = sendTypedMessage(pending.text, imageAttachments: images)
+            _ = sendTypedMessage(pending.text, imageAttachments: images, asHeyMateTalk: isHeyMateTalkTurn)
         }
     }
 
@@ -1703,13 +1711,22 @@ final class CompanionManager: ObservableObject {
 
     /// Completed user/assistant turns from the open chat, for the vision API.
     private func speakingMateForTurn() -> Mate? {
+        if isHeyMateTalkTurn, backgroundRoutineSession == nil { return nil }
         let session = backgroundRoutineSession ?? currentChat
         let id = session.mateID ?? mateDirectory.defaultMateID
         return mateDirectory.mates.first { $0.id == id }
     }
 
+    /// Whose memory the turn in flight reads and writes.
+    private var memoryOwnerForTurn: UUID? {
+        if let mate = speakingMateForTurn() { return mate.id }
+        return isHeyMateTalkTurn ? MemoryContext.heyMateTalkOwnerID : nil
+    }
+
     private func mateIdentityBlock(for mate: Mate?) -> String? {
-        guard let mate else { return nil }
+        guard let mate else {
+            return isHeyMateTalkTurn ? CompanionPrompts.heyMateTalkPersona : nil
+        }
         if mate.conductsOthers {
             let brief = FirstMateBrief.promptBlock(
                 mate: mate,
@@ -1772,7 +1789,8 @@ final class CompanionManager: ObservableObject {
     }
 
     private var conversationHistory: [(userTranscript: String, assistantResponse: String)] {
-        let session = backgroundRoutineSession ?? currentChat
+        let session = backgroundRoutineSession
+            ?? (isHeyMateTalkTurn ? heyMateTalkSession : currentChat)
         return session.apiHistoryPairs(limit: 10).map { pair in
             (
                 userTranscript: TalkContextPolicy.withoutPriorScreenshots(pair.userTranscript),
@@ -2230,6 +2248,20 @@ final class CompanionManager: ObservableObject {
             appendUserMessageToBackground(trimmed, attachmentNames: names)
             return
         }
+        if isHeyMateTalkTurn {
+            heyMateTalkSession.messages.append(ChatMessage(
+                id: UUID(),
+                role: .user,
+                text: trimmed,
+                createdAt: Date(),
+                attachmentNames: names
+            ))
+            heyMateTalkSession.updatedAt = Date()
+            if isRecordingMeeting {
+                meetingNotes.append(speaker: "You", text: trimmed)
+            }
+            return
+        }
         if currentChat.messages.last?.role == .user,
            currentChat.messages.last?.text == trimmed,
            currentChat.messages.last?.attachmentNames == names {
@@ -2292,6 +2324,21 @@ final class CompanionManager: ObservableObject {
             appendAssistantMessageToBackground(trimmed)
             return
         }
+        if isHeyMateTalkTurn {
+            heyMateTalkSession.messages.append(ChatMessage(
+                id: UUID(),
+                role: .assistant,
+                text: trimmed,
+                createdAt: Date()
+            ))
+            heyMateTalkSession.updatedAt = Date()
+            streamingAssistantText = ""
+            lingerCursorCaption(text.trimmingCharacters(in: .whitespacesAndNewlines))
+            if isRecordingMeeting {
+                meetingNotes.append(speaker: "HeyMate", text: trimmed)
+            }
+            return
+        }
         var session = currentChat
         session.messages.append(ChatMessage(
             id: UUID(),
@@ -2331,18 +2378,19 @@ final class CompanionManager: ObservableObject {
     /// of recent exchanges. One item instead of one-per-turn keeps the list
     /// inspectable rather than spammy.
     private func updateRollingSessionSummary() {
-        guard rememberConversationsEnabled, let mate = speakingMateForTurn() else { return }
+        guard rememberConversationsEnabled, let owner = memoryOwnerForTurn else { return }
 
         let recentExchanges = conversationHistory.suffix(6)
         guard !recentExchanges.isEmpty else { return }
 
+        let speakerName = speakingMateForTurn()?.name ?? "HeyMate"
         let digest = recentExchanges.map { exchange in
-            "user: \(exchange.userTranscript)\n\(mate.name): \(exchange.assistantResponse)"
+            "user: \(exchange.userTranscript)\n\(speakerName): \(exchange.assistantResponse)"
         }
         .joined(separator: "\n---\n")
         let truncated = String(digest.prefix(800))
 
-        memoryRepository.updateSessionSummary(mateID: mate.id, text: truncated)
+        memoryRepository.updateSessionSummary(mateID: owner, text: truncated)
         memoryItems = memoryRepository.loadAll()
     }
 
@@ -3405,7 +3453,8 @@ final class CompanionManager: ObservableObject {
     @discardableResult
     func sendTypedMessage(
         _ typedMessageText: String,
-        imageAttachments: [ChatImageAttachment] = []
+        imageAttachments: [ChatImageAttachment] = [],
+        asHeyMateTalk: Bool = false
     ) -> Bool {
         let trimmedTypedMessageText = typedMessageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTypedMessageText.isEmpty || !imageAttachments.isEmpty else { return false }
@@ -3431,12 +3480,13 @@ final class CompanionManager: ObservableObject {
             return false
 
         case .message(let parsedMessage, let contextTokens):
-            let messageText = resolveAddressedMateForSend(parsedMessage)
+            let messageText = asHeyMateTalk ? parsedMessage : resolveAddressedMateForSend(parsedMessage)
             // A message that was nothing but tokens has no question in it.
             guard !messageText.isEmpty else {
                 commandBarFeedback = "Add a question to go with that context."
                 return false
             }
+            isHeyMateTalkTurn = asHeyMateTalk
             if acceptLocalMateCommand(messageText) { return true }
             if holdForOpenCodeTrainingConsent(
                 messageText, imageAttachments: imageAttachments,
@@ -3534,7 +3584,7 @@ final class CompanionManager: ObservableObject {
                 sections.append("Loaded skills:\n" + skillLines.joined(separator: "\n"))
 
             case .memory:
-                let scopedMemory = MemoryContext.items(memoryItems, for: speakingMateForTurn()?.id)
+                let scopedMemory = MemoryContext.items(memoryItems, for: memoryOwnerForTurn)
                 guard !scopedMemory.isEmpty else {
                     sections.append("Remembered notes: none.")
                     continue
@@ -3559,8 +3609,11 @@ final class CompanionManager: ObservableObject {
     /// Shared front door for push-to-talk. Already inside the Talk pipeline,
     /// so it must not idle-gate — that would drop the transcript.
     func handleTalkTranscript(_ transcript: String) {
-        let trimmedTranscript = resolveAddressedMateForSend(transcript.trimmingCharacters(in: .whitespacesAndNewlines))
+        // Talk is always HeyMate: saying a mate's name out loud does not hand
+        // the conversation to that mate or open their chat.
+        let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTranscript.isEmpty else { return }
+        isHeyMateTalkTurn = true
         if acceptLocalMateCommand(trimmedTranscript) { return }
         if holdForOpenCodeTrainingConsent(
             trimmedTranscript, imageAttachments: [],
@@ -3589,7 +3642,7 @@ final class CompanionManager: ObservableObject {
         typedInsideHeyMate: Bool = false,
         alreadyRoutedToMate: Bool = false
     ) {
-        if !alreadyRoutedToMate,
+        if !alreadyRoutedToMate, !isHeyMateTalkTurn,
            let address = MateAddressParser.parse(transcript),
            let mate = MateAddressParser.match(address.mateName, mates: mates) {
             openMate(id: mate.id)
@@ -3871,7 +3924,7 @@ final class CompanionManager: ObservableObject {
                 if let spatialFragment {
                     promptParts.append(spatialFragment)
                 }
-                if let memoryBlock = Self.memoryPromptBlock(items: MemoryContext.items(memoryItems, for: speakingMate?.id)) {
+                if let memoryBlock = Self.memoryPromptBlock(items: MemoryContext.items(memoryItems, for: memoryOwnerForTurn)) {
                     promptParts.append(memoryBlock)
                 }
                 if !screenCaptures.isEmpty, let walkthroughBlock = walkthroughPromptBlock() {
