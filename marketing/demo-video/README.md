@@ -1,5 +1,19 @@
 # HeyMate demo video
 
+## Pixel Coach product demo (42 seconds)
+
+`PixelCoachDemo` (1920×1080) and `PixelCoachDemoVertical` (1080×1920) are new 30 fps animated product demos. Seven separately editable scenes introduce a locally created Photopea tutor, its distinct name/job and saved practice note, then an example background-removal lesson where the user performs each action. Every frame says **Recreated product demo**. Earlier concept and tour compositions remain unchanged.
+
+The interface and chat are simplified recreations, not recorded app interactions. Local mate creation, identity, and saved-note behavior were checked separately. The source practice logo is original owned artwork; `public/pixel-coach/transparent-export.png` is its actual manual Photopea export, checked for 1000×800 dimensions and transparent corners. The edit follows Photopea's [documented background-removal workflow](https://www.photopea.com/tuts/remove-background-from-photo/): Magic Wand, select the white area, Edit → Clear, File → Export as → PNG. This animation does **not** establish that HeyMate's live screen-guidance path completed the lesson. Release validation remains separate.
+
+Source: `src/PixelCoachDemo.tsx` and `src/pixel-coach/`. Preview at `http://localhost:3001/PixelCoachDemo` when the existing Studio server is running, or start `npx remotion studio --no-open`. The film works without sound; all instructions are visible. Its quiet instrumental score is generated from original synthesised tones by `scripts/pixel-coach-score.mjs`; it uses no external samples, inherited soundtrack, recorded app audio, or synthetic speech.
+
+```sh
+npm run typecheck
+npx remotion render PixelCoachDemo out/heymate-pixel-coach-demo-1920x1080.mp4 --codec=h264 --crf=18 --pixel-format=yuv420p --audio-codec=aac
+npx remotion render PixelCoachDemoVertical out/heymate-pixel-coach-demo-1080x1920.mp4 --codec=h264 --crf=18 --pixel-format=yuv420p --audio-codec=aac
+```
+
 ## Teaching concept (24 seconds)
 
 The `Teaching-Concept` folder in Studio contains `TeachingFirst` (1920×1080) and `TeachingFirstVertical` (1080×1920), both 30 fps. This is a new, separate, silent concept film about learning desktop apps and websites step by step and creating helpers for specific jobs. Every frame is labeled **Illustrated concept** and **not a screen recording**. It does not establish that a real task completed or that mate identity passed live testing.
