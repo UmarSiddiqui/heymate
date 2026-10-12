@@ -24,6 +24,10 @@ struct SettingsPrivacyPane: View {
 
     var body: some View {
         SettingsPage(tab: .privacy, navigation: navigation) {
+            SettingsSection("Permissions") {
+                PermissionChecklist()
+                    .settingsRowInsets()
+            }
             screenCaptureSection
             chatsAndMemorySection
             whatLeavesSection

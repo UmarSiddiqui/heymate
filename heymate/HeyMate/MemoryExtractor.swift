@@ -114,7 +114,8 @@ final class MemoryExtractor {
     }
 
     private func usesCustomAPI() -> Bool {
-        customAPIUsableOverride ?? CustomAPIConfiguration.isUsableForTalk
+        customAPIUsableOverride
+            ?? (CustomAPIConfiguration.isUsableForTalk && CustomAPIConfiguration.format == .anthropic)
     }
 
     // MARK: - Cheap path

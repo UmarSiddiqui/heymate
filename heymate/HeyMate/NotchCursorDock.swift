@@ -698,7 +698,7 @@ struct NotchModelPickerPanel: View {
 
     private var customAPIChoice: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("Configured model", detail: "Anthropic-compatible endpoint")
+            sectionHeader("Configured model", detail: "\(CustomAPIConfiguration.format.title) endpoint")
 
             HStack(spacing: 9) {
                 Image(systemName: "network")

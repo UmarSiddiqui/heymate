@@ -235,4 +235,16 @@ struct MateHomeLayoutTests {
         run.status = status
         return run
     }
+
+    @Test func railPreviewDropsMarkdownMarks() {
+        let mate = Mate(
+            id: UUID(), name: "Ivy", job: "Reply", pinned: false, archived: false,
+            unreadCount: 0, createdAt: Date(), updatedAt: Date(), memoryNote: ""
+        )
+        var chat = ChatSession.empty()
+        chat.mateID = mate.id
+        chat.messages = [ChatMessage(id: UUID(), role: .assistant, text: "Drafted **6 replies**.\n\nTwo need *you*.", createdAt: Date())]
+        let preview = MateRailPreview.make(for: mate, sessions: [chat], defaultMateID: UUID())
+        #expect(preview.text == "Drafted 6 replies. Two need you.")
+    }
 }

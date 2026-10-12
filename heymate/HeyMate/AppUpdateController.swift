@@ -7,6 +7,7 @@
 //  URL and public signing key. Source and Debug builds deliberately stay inert.
 //
 
+import AppKit
 import Combine
 import Foundation
 import Sparkle
@@ -72,6 +73,7 @@ final class AppUpdateController: ObservableObject {
     @Published private(set) var availability: AppUpdateAvailability
 
     private var updaterController: SPUStandardUpdaterController?
+    private let userDriverDelegate = BackgroundAppUpdateDriverDelegate()
     private var canCheckObservation: AnyCancellable?
     private let hasReleaseConfiguration: Bool
 
@@ -102,7 +104,7 @@ final class AppUpdateController: ObservableObject {
         let updaterController = SPUStandardUpdaterController(
             startingUpdater: false,
             updaterDelegate: nil,
-            userDriverDelegate: nil
+            userDriverDelegate: userDriverDelegate
         )
         self.updaterController = updaterController
 
@@ -141,5 +143,28 @@ final class AppUpdateController: ObservableObject {
         let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
         guard let buildNumber, buildNumber != shortVersion else { return shortVersion }
         return "\(shortVersion) (\(buildNumber))"
+    }
+}
+
+
+/// HeyMate has no Dock icon, so Sparkle's update window can open behind
+/// whatever is in front and be missed. This brings HeyMate forward whenever
+/// Sparkle shows something, and lets Sparkle use its gentle reminders for
+/// scheduled checks instead of a window that steals focus at a bad moment.
+@MainActor
+final class BackgroundAppUpdateDriverDelegate: NSObject, SPUStandardUserDriverDelegate {
+    var supportsGentleScheduledUpdateReminders: Bool { true }
+
+    func standardUserDriverWillHandleShowingUpdate(
+        _ handleShowingUpdate: Bool,
+        forUpdate update: SUAppcastItem,
+        state: SPUUserUpdateState
+    ) {
+        guard handleShowingUpdate else { return }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func standardUserDriverWillShowModalAlert() {
+        NSApp.activate(ignoringOtherApps: true)
     }
 }

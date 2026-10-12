@@ -18,6 +18,15 @@
 	<string>$(SPARKLE_FEED_URL)</string>
 	<key>SUPublicEDKey</key>
 	<string>$(SPARKLE_PUBLIC_ED_KEY)</string>
+	<!-- Updates without questions: check every 6 hours, download in the
+	     background, install when HeyMate quits or the person says so. Same
+	     signing certificate every release, so permissions carry over. -->
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUAutomaticallyUpdate</key>
+	<true/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>21600</integer>
 	<!-- heymate:// deep links. Two hosts:
 	       heymate://integration/callback?provider=…&status=…  (connector OAuth)
 	       heymate://open/agents                                (open a desktop section) -->
