@@ -88,9 +88,9 @@ nonisolated enum AgentBrain: String, CaseIterable, Hashable, Codable {
     var unavailableReason: String? {
         switch self {
         case .customAPI:
-            return "A custom endpoint answers screen questions. It does not run agent jobs — pick Claude, Codex, or OpenCode for those."
+            return "A custom endpoint answers screen questions. It does not run agents — pick Claude, Codex, or OpenCode for those."
         case .onDevice:
-            return "On this Mac answers chat. It cannot see the screen or run coding jobs — pick Claude, Codex, or OpenCode for those."
+            return "On this Mac answers chat. It cannot see the screen or run agents — pick Claude, Codex, or OpenCode for those."
         case .claudeCode, .openCode, .codex:
             return nil
         }

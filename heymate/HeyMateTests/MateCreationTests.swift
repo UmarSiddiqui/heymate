@@ -20,6 +20,13 @@ struct MateCreationTests {
         )])
     }
 
+    @Test func agentWordingCreatesTheSameWay() {
+        #expect(MateCreationParser.parseRequests("Create an agent named Pixel QA, a patient design tutor") == [
+            MateCreationRequest(name: "Pixel QA", job: "a patient design tutor")
+        ])
+        #expect(MateCreationParser.parseRequests("make me an agent that watches my inbox")?.isEmpty == false)
+    }
+
     @Test(arguments: [
         "Please create a mate called \"Pixel, QA\", a patient design tutor",
         "make me a mate named 'Pixel, QA': a patient design tutor",
@@ -189,8 +196,8 @@ struct MateCreationCommandTests {
         #expect(manager.currentChat.messages.first?.role == .assistant)
         #expect(manager.currentChat.messages.first?.text.hasPrefix("I'm Pixel QA.") == true)
         #expect(manager.currentChat.messages.first?.text.contains("I added a mate") == false)
-        #expect(mate.folderPath == nil)
-        #expect(!FileManager.default.fileExists(atPath: MateWorkspace.proposedURL(for: mate, projectsRoot: MateWorkspace.projectsRoot()).path))
+        let folder = try #require(mate.folderPath)
+        #expect(FileManager.default.fileExists(atPath: URL(fileURLWithPath: folder).appendingPathComponent("AGENTS.md").path))
         #expect(FileMateStore(fileURL: fixture.root.appendingPathComponent("mates.json")).mate(id: mate.id) == mate)
         #expect(manager.currentResponseTask == nil)
         #expect(manager.agentRuns.isEmpty)
@@ -260,7 +267,7 @@ struct MateCreationCommandTests {
         #expect(manager.currentResponseTask == nil)
         #expect(manager.agentRuns.isEmpty)
         #expect(manager.routines.isEmpty)
-        #expect(mate.folderPath == nil)
+        #expect(mate.folderPath != nil)
         manager.updateCurrentDraft("Review just this small function")
         manager.openMate(id: manager.mateDirectory.defaultMateID)
         manager.openMate(id: mate.id)

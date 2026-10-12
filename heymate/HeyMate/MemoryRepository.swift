@@ -64,6 +64,11 @@ nonisolated protocol MemoryRepository: AnyObject {
     /// Replaces the text of one record and persists. Empty or whitespace-only
     /// text is refused. An unknown id leaves the store unchanged.
     func update(id: UUID, text: String)
+    /// Candidates that are not already stored. Same kind, and either the same
+    /// normalized text or one string contains the other while the shorter is
+    /// at least 80% as long as the longer. Does not write, and never deletes
+    /// a preference or project fact.
+    func proposedAppends(_ items: [MemoryItem], existing: [MemoryItem]) -> [MemoryItem]
 }
 
 /// JSON-file backed store (Application Support/heymate/memory.json in prod).
@@ -144,6 +149,63 @@ final class FileMemoryRepository: MemoryRepository {
         }
         items[index].text = trimmed
         persist()
+    }
+
+    func proposedAppends(_ items: [MemoryItem], existing: [MemoryItem]) -> [MemoryItem] {
+        Self.proposedAppends(items, existing: existing)
+    }
+
+    /// Filters a proposed batch against what is already stored, and against
+    /// earlier rows in the same batch. Blank text is dropped. Preferences and
+    /// project facts already in `existing` are left untouched — this function
+    /// only decides which candidates are new.
+    nonisolated static func proposedAppends(_ items: [MemoryItem], existing: [MemoryItem]) -> [MemoryItem] {
+        var accepted: [MemoryItem] = []
+        for candidate in items {
+            let text = candidate.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { continue }
+            let alreadyHeld = existing.contains { stored in
+                stored.kind == candidate.kind && textsAreSameMemory(candidate.text, stored.text)
+            }
+            if alreadyHeld { continue }
+            let alreadyAccepted = accepted.contains { prior in
+                prior.kind == candidate.kind && textsAreSameMemory(candidate.text, prior.text)
+            }
+            if alreadyAccepted { continue }
+            if text == candidate.text {
+                accepted.append(candidate)
+            } else {
+                accepted.append(MemoryItem(
+                    id: candidate.id,
+                    kind: candidate.kind,
+                    text: text,
+                    createdAt: candidate.createdAt,
+                    mateID: candidate.mateID
+                ))
+            }
+        }
+        return accepted
+    }
+
+    /// Lowercased, with runs of whitespace folded to a single space.
+    nonisolated static func normalizedMemoryText(_ text: String) -> String {
+        text.lowercased()
+            .split { $0.isWhitespace }
+            .joined(separator: " ")
+    }
+
+    /// Same memory when the normalized texts match, or one contains the other
+    /// and the shorter is at least 80% as long as the longer. A short fragment
+    /// inside a longer fact is a different memory.
+    nonisolated static func textsAreSameMemory(_ lhs: String, _ rhs: String) -> Bool {
+        let left = normalizedMemoryText(lhs)
+        let right = normalizedMemoryText(rhs)
+        guard !left.isEmpty, !right.isEmpty else { return false }
+        if left == right { return true }
+        let shorter = left.count <= right.count ? left : right
+        let longer = left.count <= right.count ? right : left
+        guard longer.contains(shorter) else { return false }
+        return Double(shorter.count) / Double(longer.count) >= 0.80
     }
 
     // MARK: - Production location

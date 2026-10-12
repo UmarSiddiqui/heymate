@@ -198,8 +198,8 @@ struct DesktopConnectorScopeMenu: View {
         }
         .buttonStyle(.plain)
         .pointerCursor()
-        .help("Choose which connected apps this chat can use")
-        .accessibilityLabel("Apps for this chat: \(compactTitle)")
+        .help("Integrations every agent can use")
+        .accessibilityLabel("Integrations: \(compactTitle)")
         .popover(isPresented: $isShowingPicker, arrowEdge: .top) {
             ConnectorScopePickerPanel(
                 items: connectedItems,
@@ -216,9 +216,9 @@ struct DesktopConnectorScopeMenu: View {
     private var menu: some View {
         Menu {
             if connectedItems.isEmpty {
-                Text("No connected apps")
+                Text("No integrations connected")
             } else {
-                Section("Use in this chat") {
+                Section("On for every agent") {
                     // Toggles, so the menu shows a native checkmark for each
                     // app that's on; Label images don't render in macOS menus.
                     ForEach(connectedItems, id: \.id) { item in
@@ -231,26 +231,26 @@ struct DesktopConnectorScopeMenu: View {
             }
 
             Divider()
-            Button(connectedItems.isEmpty ? "Connect apps…" : "Manage apps…") {
+            Button(connectedItems.isEmpty ? "Connect integrations…" : "Manage integrations…") {
                 companionManager.openDesktopWindow(section: .connectors)
             }
         } label: {
             DesktopChatControlLabel(
                 symbolName: "app.connected.to.app.below.fill",
-                title: enabledCount == 1 ? "1 app" : "\(enabledCount) apps",
-                detail: "Connectors"
+                title: enabledCount == 1 ? "1 integration" : "\(enabledCount) integrations",
+                detail: "Integrations"
             )
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .help("Choose which connected apps this chat can use")
+        .help("Integrations every agent can use")
     }
 
-    /// "Apps · 3" when some are on, "Apps" when none, so the chip always
-    /// says what it is rather than only a count.
+    /// "Integrations · 3" when some are on, so the chip always says what it
+    /// is rather than only a count.
     private var compactTitle: String {
-        if connectedItems.isEmpty { return "Connect apps" }
-        return enabledCount == 0 ? "Apps" : "Apps · \(enabledCount)"
+        if connectedItems.isEmpty { return "Connect integrations" }
+        return enabledCount == 0 ? "Integrations" : "Integrations · \(enabledCount)"
     }
 
     private var connectedItems: [(id: String, name: String, logoSlug: String)] {
@@ -263,7 +263,7 @@ struct DesktopConnectorScopeMenu: View {
                     logoSlug: $0.id.lowercased()
                 )
             }
-        let composioItems = composioConnections.connectedSlugs.map { slug in
+        let composioItems = composioConnections.connectedSlugs.filter { $0.lowercased() != ComposioSessionStore.connectorID }.map { slug in
             let name = Self.readableName(composioConnections.records[slug]?.displayName ?? slug, slug: slug)
             return (
                 id: CompanionManager.chatConnectorSelectionID(forComposioSlug: slug),
@@ -307,7 +307,7 @@ private struct ConnectorScopePickerPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("Apps in this chat")
+                Text("Integrations")
                     .font(DS.Fonts.headline)
                     .foregroundColor(DS.Colors.textPrimary)
                 Spacer(minLength: 12)
@@ -325,7 +325,7 @@ private struct ConnectorScopePickerPanel: View {
             .padding(.bottom, 8)
 
             if items.isEmpty {
-                Text("No apps connected yet. Connect Gmail, Slack, GitHub and more, then pick which ones each chat can use.")
+                Text("Nothing connected yet. Connect Gmail, Slack, GitHub and more, and every agent can use them.")
                     .font(DS.Fonts.body)
                     .foregroundColor(DS.Colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -362,7 +362,7 @@ private struct ConnectorScopePickerPanel: View {
             }
 
             Divider()
-            Button(items.isEmpty ? "Connect apps…" : "Manage apps…", action: manage)
+            Button(items.isEmpty ? "Connect integrations…" : "Manage integrations…", action: manage)
                 .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
                 .padding(10)
         }
@@ -427,7 +427,7 @@ struct DesktopChatInspector: View {
                     inspectorSection("TOOLS") {
                         let active = companionManager.composioConnections.connectedSlugs
                         if active.isEmpty {
-                            Text("No connected apps")
+                            Text("No integrations connected")
                                 .foregroundColor(DS.Colors.textTertiary)
                         } else {
                             ForEach(active.prefix(6), id: \.self) { slug in

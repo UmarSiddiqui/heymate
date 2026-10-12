@@ -133,7 +133,7 @@ enum MateFace {
 
     static func assetName(for mate: Mate) -> String {
         if let chosen = storedAssetName(mate.faceAssetName) { return chosen }
-        if mate.name == Mate.defaultName { return legacyAssetNames[0] }
+        if mate.name == Mate.defaultName || mate.name == Mate.previousDefaultName { return legacyAssetNames[0] }
         return legacyAssetNames[index(for: mate.id)]
     }
 

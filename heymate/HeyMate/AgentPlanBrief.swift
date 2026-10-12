@@ -36,6 +36,10 @@ nonisolated enum AgentPlanBrief {
     person deciding — what you will change, which files, and anything you had \
     to assume. Short is fine. If the task is trivial, say so in one line and \
     give the one-line plan.
+
+    Do the independent part first. If a wrong guess would waste real work, \
+    put one short question in the plan. Never invent the user's facts or \
+    dummy data.
     """
 
     /// Appended when the user sent a plan back with an objection.

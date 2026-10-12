@@ -58,7 +58,7 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
         case .notch: return "Notch"
         case .accounts: return "AI & Accounts"
         case .agents: return "Agents & Control"
-        case .connections: return "Connections"
+        case .connections: return "Integrations"
         case .privacy: return "Privacy & Data"
         }
     }
@@ -79,7 +79,7 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
         case .agents:
             return "Agents that work on their own, and what HeyMate may do on this Mac."
         case .connections:
-            return "The apps and services HeyMate can reach for you."
+            return "The apps and services every agent can use, and the keys behind them."
         case .privacy:
             return "What HeyMate sees, what it keeps, and how to erase it."
         }
@@ -93,7 +93,7 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
         case .notch: return "rectangle.topthird.inset.filled"
         case .accounts: return "sparkles"
         case .agents: return "cursorarrow.click.2"
-        case .connections: return "app.connected.to.app.below.fill"
+        case .connections: return "puzzlepiece.extension"
         case .privacy: return "hand.raised"
         }
     }
@@ -274,7 +274,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .computerControl: return "Let HeyMate use this Mac"
         case .backgroundAppControl: return "Background app control"
         case .behaviorContract: return "Honesty and safety rules"
-        case .connectedApps: return "Connected apps"
+        case .connectedApps: return "Your integrations"
         case .composioKey: return "Composio API key"
         case .google: return "Google"
         case .excludedApps: return "Never capture these apps"
@@ -327,7 +327,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .voiceChat: return "voice conversation talk"
         case .otherEngines: return "opencode custom api server anthropic compatible endpoint"
         case .helperApps: return "cli codex claude opencode update helper"
-        case .agentSignIn: return "jobs terminal sign out account login"
+        case .agentSignIn: return "agents jobs terminal sign out account login"
         case .projectFolder: return "sandbox projects folder finder"
         case .computerControl: return "computer use accessibility automation click type control"
         case .backgroundAppControl: return "cua driver background"

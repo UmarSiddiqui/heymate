@@ -796,7 +796,7 @@ struct MateHomeView: View {
                 Image(systemName: DesktopSection.agents.symbolName)
                     .font(DS.Glyph.regular)
                 if !isCompactLayout {
-                    Text("Agents")
+                    Text("Activity")
                         .font(DS.Fonts.control)
                 }
                 if activeCount > 0 {
@@ -1090,6 +1090,18 @@ struct MateHomeView: View {
                             )
                     } else {
                         ChatMarkdownText(text: message.text)
+                        if let chrome = companionManager.harnessReplyChrome[message.id] {
+                            HarnessFollowUpRow(
+                                actions: chrome.nextActions,
+                                artifactPaths: chrome.artifactPaths,
+                                onAction: { phrase in
+                                    _ = companionManager.sendTypedMessage(phrase)
+                                },
+                                onOpenArtifact: { path in
+                                    NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                                }
+                            )
+                        }
                     }
                     HStack(spacing: 6) {
                         if !isUser {
@@ -1213,7 +1225,9 @@ struct MateHomeView: View {
                 )
                 .shadow(color: Color.black.opacity(isCompactLayout ? 0 : 0.16), radius: 18, y: 10)
             }
-            if companionManager.isSilentModeSuggestionVisible {
+            if let pending = companionManager.pendingDestructiveConfirmation {
+                destructiveWorkConfirm(pending)
+            } else if companionManager.isSilentModeSuggestionVisible {
                 silentModeSuggestion
             }
             else if companionManager.isStarNudgeVisible {
@@ -1564,6 +1578,28 @@ struct MateHomeView: View {
         }
     }
 
+    private func destructiveWorkConfirm(_ pending: PendingDestructiveWork) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("This would delete, overwrite, send, or spend. I'll only start it if you confirm.")
+                .font(DS.Fonts.micro)
+                .foregroundColor(DS.Colors.warningText)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 12) {
+                Button("Cancel") { companionManager.cancelPendingDestructiveWork() }
+                    .buttonStyle(.plain)
+                    .font(DS.Fonts.micro)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .pointerCursor()
+                Button("Do it") { companionManager.confirmPendingDestructiveWork() }
+                    .buttonStyle(.plain)
+                    .font(DS.Fonts.caption.weight(.semibold))
+                    .foregroundColor(DS.Colors.warningText)
+                    .pointerCursor()
+            }
+        }
+        .accessibilityIdentifier("destructive-work-confirm-\(pending.id.uuidString)")
+    }
+
     private func openCodeTrainingConfirm(_ notice: OpenCodeTrainingNotice) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(notice.detail)
@@ -1772,7 +1808,7 @@ struct MateHomeView: View {
                         .foregroundColor(run.status.needsUser ? DS.Colors.warningText : DS.Colors.textTertiary)
                 }
             }
-            Button("All jobs") { onOpenSection(.agents) }
+            Button("All activity") { onOpenSection(.agents) }
                 .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
         }
     }

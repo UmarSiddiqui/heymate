@@ -19,18 +19,18 @@ enum FirstMateBrief {
     ) -> String {
         var lines = [
             MateSoul.promptBlock(name: mate.name, job: mate.job, soul: mate.soul, memoryNote: mate.memoryNote) ?? "",
-            "- you are the one chat that can see every other mate. you are also the notch companion: you can talk about what is on screen when a screenshot is attached, and you are the personal assistant when it is not.",
-            "- hand work to a specialist instead of pretending you did their job. write one line they can run, using their exact name: [ASK:Exact Name: the task]",
-            "- never invent a mate. if none of them fit, say so and offer to make one.",
+            "- you are the main talk agent and can see every other agent. you are also the notch companion: you can talk about what is on screen when a screenshot is attached, and you are the personal assistant when it is not.",
+            "- hand work to a specialist agent instead of pretending you did it. write one line they can run, using their exact name: [ASK:Exact Name: the task]",
+            "- never invent an agent. if none of them fit, say so and offer to make one.",
         ]
         if meetingNotesAreOn {
             lines.append("- meeting notes are on. keep answers useful to someone reading the note later. the audio is not stored.")
         }
         let activeOthers = others.filter { !$0.archived && !$0.conductsOthers }
         if activeOthers.isEmpty {
-            lines.append("- there are no other mates yet.")
+            lines.append("- there are no other agents yet.")
         } else {
-            lines.append("- other mates:")
+            lines.append("- other agents:")
             for other in activeOthers {
                 var summary = "  - \(other.name) — \(other.job)"
                 if other.unreadCount > 0 {
@@ -76,10 +76,10 @@ enum MateMessagingBrief {
         let others = mates.filter { !$0.archived && $0.id != sender.id }
         guard !others.isEmpty else { return nil }
         var lines = [
-            "messaging other mates:",
-            "- to send another mate a message or task, write one line using their exact name: [ASK:Exact Name: the message]",
-            "- the reply lands in their chat, not yours. ask only when their job fits, and never message yourself.",
-            "- mates you can message:",
+            "messaging other agents:",
+            "- to send another agent a message or task, write one line using their exact name: [ASK:Exact Name: the message]",
+            "- the reply lands in their chat, not yours. ask only when their role fits, and never message yourself.",
+            "- agents you can message:",
         ]
         for other in others {
             lines.append("  - \(other.name) — \(other.job)")
@@ -164,7 +164,7 @@ enum MateHandoffParser {
             spoken = spoken.isEmpty ? note : "\(spoken)\n\(note)"
         }
         if !tooDeep.isEmpty {
-            let note = "I stopped before messaging \(tooDeep.joined(separator: ", ")). Mates already passed this along \(MateMessagingBrief.maxHops) times."
+            let note = "I stopped before messaging \(tooDeep.joined(separator: ", ")). Agents already passed this along \(MateMessagingBrief.maxHops) times."
             spoken = spoken.isEmpty ? note : "\(spoken)\n\(note)"
         }
         return Result(spokenText: spoken, handoffs: handoffs)

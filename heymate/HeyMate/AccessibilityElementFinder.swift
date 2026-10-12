@@ -25,6 +25,10 @@ struct AccessibleElement: Equatable, Sendable {
     let role: String
     /// Best human label found across title, description, and value.
     let label: String
+    /// Raw AX title, when present.
+    let title: String?
+    /// Raw AX description, when present.
+    let description: String?
     /// Frame in AppKit global coordinates (origin bottom-left), ready to
     /// hand to the cursor overlay without further conversion.
     let frame: CGRect
@@ -225,14 +229,18 @@ enum AccessibilityElementFinder {
               frame.width >= minimumInteractiveSide,
               frame.height >= minimumInteractiveSide else { return nil }
 
-        let label = [
-            copyAttribute(element, kAXTitleAttribute as String) as? String,
-            copyAttribute(element, kAXDescriptionAttribute as String) as? String,
-            copyAttribute(element, kAXValueAttribute as String) as? String,
-            copyAttribute(element, kAXHelpAttribute as String) as? String
-        ]
-        .compactMap { $0 }
-        .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let title = (copyAttribute(element, kAXTitleAttribute as String) as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let description = (copyAttribute(element, kAXDescriptionAttribute as String) as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = (copyAttribute(element, kAXValueAttribute as String) as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let help = (copyAttribute(element, kAXHelpAttribute as String) as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let label = [title, description, value, help]
+            .compactMap { $0 }
+            .first { !$0.isEmpty }
 
         guard let label, !label.isEmpty else { return nil }
 
@@ -241,6 +249,8 @@ enum AccessibilityElementFinder {
         return AccessibleElement(
             role: role,
             label: label,
+            title: title?.isEmpty == true ? nil : title,
+            description: description?.isEmpty == true ? nil : description,
             frame: frame,
             isEnabled: isEnabled,
             applicationName: applicationName

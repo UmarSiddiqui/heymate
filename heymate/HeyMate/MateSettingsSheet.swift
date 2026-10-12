@@ -51,7 +51,7 @@ struct MateSettingsSheet: View {
         _name = State(initialValue: mate.name)
         _job = State(initialValue: mate.job)
         _soul = State(initialValue: mate.soul)
-        _memoryNote = State(initialValue: mate.memoryNote)
+        _memoryNote = State(initialValue: MateWorkspaceMemory.displayNote(for: mate))
         _selectedFace = State(initialValue: MateFace.selectionToken(for: mate))
         _faceTint = State(initialValue: mate.faceTint ?? "")
         _faceHair = State(initialValue: mate.faceHair ?? MateFaceHair.none.rawValue)
@@ -195,8 +195,8 @@ struct MateSettingsSheet: View {
 
     // MARK: What this mate knows and does
 
-    /// The mate's own note is edited here and saved with Save. Long-term
-    /// memories are shared by every mate, so they open on their own page.
+    /// Notes for this mate live in their folder. This field edits that text
+    /// and saves it with Save. Memories shared by every mate open on their own page.
     private var memorySection: some View {
         VStack(alignment: .leading, spacing: 8) {
             sectionLabel("Memory")

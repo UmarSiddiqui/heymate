@@ -45,8 +45,9 @@ enum ComputerUseError: LocalizedError {
     case accessibilityPermissionMissing
     case approvalRequired
     case approvalMismatch
-    case credentialEntryRefused
-    case elementNotFound(String)
+        case credentialEntryRefused
+        case protectedAction(String)
+        case elementNotFound(String)
     case applicationNotFound(String)
     case unsupportedKeyCombination(String)
 
@@ -60,6 +61,8 @@ enum ComputerUseError: LocalizedError {
             return "That approval was for a different action."
         case .credentialEntryRefused:
             return "I won't type passwords, keys, or tokens. Please enter that yourself."
+        case .protectedAction(let reason):
+            return reason
         case .elementNotFound(let label):
             return "I couldn't find “\(label)” in the current window."
         case .applicationNotFound(let name):
@@ -191,6 +194,16 @@ final class ComputerUseExecutor {
         guard AccessibilityElementFinder.isAccessibilityTrusted else {
             throw ComputerUseError.accessibilityPermissionMissing
         }
+        if let denial = ComputerUseElementPicker.denialReasonIfBlocked(title: label, description: nil) {
+            throw ComputerUseError.protectedAction(denial)
+        }
+        if let element = AccessibilityElementFinder.bestMatch(for: label),
+           let denial = ComputerUseElementPicker.denialReasonIfBlocked(
+            title: element.title ?? element.label,
+            description: element.description
+           ) {
+            throw ComputerUseError.protectedAction(denial)
+        }
 
         // Preferred path: the element presses itself. No pointer movement,
         // no synthesized events, works off-screen and unfocused.
@@ -205,6 +218,12 @@ final class ComputerUseExecutor {
         }
         guard element.isEnabled else {
             return ComputerUseOutcome(summary: "“\(element.label)” is disabled right now.", payload: nil)
+        }
+        if let denial = ComputerUseElementPicker.denialReasonIfBlocked(
+            title: element.title ?? element.label,
+            description: element.description
+        ) {
+            throw ComputerUseError.protectedAction(denial)
         }
         try await synthesizeClick(at: CGPoint(x: element.frame.midX, y: element.frame.midY),
                                   clickCount: 1,

@@ -314,8 +314,11 @@ struct NotchSurfaceRoot: View {
             Spacer().frame(height: occludedTopInset)
             ComputerUseApprovalCard(
                 request: pendingRequest,
-                onApprove: { computerUseCoordinator.approvePendingRequest() },
-                onDeny: { computerUseCoordinator.denyPendingRequest() }
+                offersConversationGrant: computerUseCoordinator.conversationID != nil,
+                onDeny: { computerUseCoordinator.denyPendingRequest() },
+                onGrant: { scope in
+                    computerUseCoordinator.approvePendingRequest(scope: scope)
+                }
             )
             .padding(.horizontal, 14)
             .padding(.top, 10)
@@ -578,5 +581,44 @@ struct NotchChatView: View {
             onClose: onClose,
             shouldFocusComposerOnAppear: shouldFocusComposerOnAppear
         )
+    }
+}
+
+/// Next-action chips and artifact paths under a finished mate reply.
+/// The notch chat and the desktop chat share this row.
+struct HarnessFollowUpRow: View {
+    let actions: [String]
+    let artifactPaths: [String]
+    let onAction: (String) -> Void
+    let onOpenArtifact: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !actions.isEmpty {
+                HStack(alignment: .center, spacing: 6) {
+                    ForEach(Array(actions.enumerated()), id: \.offset) { _, action in
+                        Button(action) { onAction(action) }
+                            .buttonStyle(.plain)
+                            .font(DS.Fonts.caption)
+                            .foregroundColor(DS.Colors.textPrimary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Capsule(style: .continuous).fill(DS.Colors.surface2))
+                            .pointerCursor()
+                    }
+                }
+            }
+            ForEach(Array(artifactPaths.enumerated()), id: \.offset) { _, path in
+                Button {
+                    onOpenArtifact(path)
+                } label: {
+                    Label(URL(fileURLWithPath: path).lastPathComponent, systemImage: "doc")
+                        .font(DS.Fonts.caption)
+                        .foregroundColor(DS.Colors.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+            }
+        }
     }
 }

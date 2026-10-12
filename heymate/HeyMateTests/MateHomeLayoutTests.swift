@@ -29,9 +29,9 @@ struct MateHomeLayoutTests {
 
     @Test func sidebarIsChatAppsAndSettings() {
         #expect(DesktopSection.sidebarSections == [.connectors, .settings])
-        #expect(DesktopSection.connectors.displayName == "Apps")
+        #expect(DesktopSection.connectors.displayName == "Integrations")
         #expect(DesktopSection.connectors.rawValue == "connectors")
-        #expect(DesktopSection.agents.displayName == "Agents")
+        #expect(DesktopSection.agents.displayName == "Activity")
     }
 
     @Test func notchAppsAndPrivacyDeepLinksLandOnSettingsTabs() {

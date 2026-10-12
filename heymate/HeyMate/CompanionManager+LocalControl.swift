@@ -249,10 +249,10 @@ extension CompanionManager {
         let takenNames = mateDirectory.mates.filter { !$0.archived }.map(\.name)
         let name = name ?? MateNameGenerator.name(for: job, existingNames: takenNames)
         guard !mateDirectory.mateStore.isNameTaken(name) else {
-            return .error(409, "A mate named \(name) already exists")
+            return .error(409, "An agent named \(name) already exists")
         }
         guard let mate = createMate(name: name, job: job, opensChat: false) else {
-            return .error(500, "Could not create the mate")
+            return .error(500, "Could not create the agent")
         }
         // Creating a mate does not create workspace files. The folder is
         // assigned when file work starts or the user explicitly creates it.

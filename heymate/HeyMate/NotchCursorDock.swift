@@ -73,9 +73,9 @@ struct NotchCursorDock: View {
 
     private func compactTitle(for phase: CursorDockPhase) -> String {
         switch phase {
-        case .docked: return "Undock"
+        case .docked: return "Show buddy"
         case .launching: return "Launching"
-        case .deployed: return "Dock"
+        case .deployed: return "Park buddy"
         case .returning: return "Docking"
         }
     }
@@ -400,7 +400,7 @@ struct NotchModelPickerPanel: View {
                         .fill(DS.Colors.surface2)
                 )
 
-                Text("Higher effort thinks longer before answering. Applies to Talk and agent jobs.")
+                Text("Higher effort thinks longer before answering. Applies to Talk and agents.")
                     .font(DS.Fonts.micro)
                     .foregroundColor(DS.Colors.textTertiary)
                     .lineLimit(2)

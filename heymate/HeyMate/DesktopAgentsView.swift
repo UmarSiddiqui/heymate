@@ -51,7 +51,7 @@ struct DesktopAgentsView: View {
 
     var body: some View {
         DesktopPage(
-            title: "Agents",
+            title: "Activity",
             subtitle: subtitleText,
             accessory: AnyView(
                 DesktopComposerModelButton(companionManager: companionManager)
@@ -769,6 +769,12 @@ struct DesktopAgentsView: View {
                     .lineLimit(selectedRunID == run.id ? nil : 2)
             }
 
+            if run.stoppedQuickly, run.status == .cancelled {
+                Text("Stopped quickly, so this run did not count.")
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.textTertiary)
+            }
+
             if selectedRunID == run.id {
                 agentConversation(for: run, projectColor: projectColor)
             }
@@ -1122,6 +1128,11 @@ struct DesktopAgentsView: View {
             } else if !run.status.isTerminal {
                 Button("Cancel") { runIDPendingCancel = run.id }
                     .buttonStyle(DSSecondaryButtonStyle())
+            } else if run.status == .failed, !run.sessionIdentifier.isEmpty {
+                Button("Retry") {
+                    _ = companionManager.agentLauncher.retryFailedRun(runID: run.id)
+                }
+                .buttonStyle(DSPrimaryButtonStyle())
             }
 
             // The session is what makes a takeover possible, and only the

@@ -268,10 +268,13 @@ struct ChatTurnNavigationTests {
         defer { fixture.cleanUp() }
         let mate = fixture.addMate(name: "Pixel", brain: .onDevice, exclusions: ["example-connector"])
         let chat = fixture.addChat(mateID: mate.id)
+        let globalExclusions = fixture.manager.chatConnectorExclusions
         fixture.manager.openChat(id: chat.id)
         #expect(fixture.manager.activeMateID == mate.id)
         #expect(fixture.manager.selectedBrain == .onDevice)
-        #expect(fixture.manager.chatConnectorExclusions == ["example-connector"])
+        // Integrations are global, so an agent's old saved choices are ignored.
+        #expect(fixture.manager.chatConnectorExclusions == globalExclusions)
+        #expect(!fixture.manager.chatConnectorExclusions.contains("example-connector"))
     }
 
     @Test func talkAnswersAsHeyMateEvenWithAMateChatOpen() async throws {
@@ -680,7 +683,7 @@ struct ChatTurnNavigationTests {
             #expect(run.executor == .codex)
             #expect(run.chatOwner == AgentChatOwner(mateID: worker.id, chatID: workerChat.id))
             #expect(run.status == .failed)
-            #expect(!FileManager.default.fileExists(atPath: run.workspaceURL.path))
+            #expect(fixture.runUsesMateFolder(run, mateID: worker.id))
         } else {
             #expect(manager.agentRunStore.loadAll().isEmpty)
         }
@@ -792,7 +795,7 @@ struct ChatTurnNavigationTests {
         #expect(run.executor == receivingBrain.executor)
         #expect(run.chatOwner == AgentChatOwner(mateID: worker.id, chatID: workerChat.id))
         #expect(run.status == .failed)
-        #expect(!FileManager.default.fileExists(atPath: run.workspaceURL.path))
+        #expect(fixture.runUsesMateFolder(run, mateID: worker.id))
         #expect(manager.currentChat == visibleChat)
         #expect(manager.backgroundRoutineSession == nil)
         #expect(manager.activeRoutineTurn == nil)
@@ -824,7 +827,7 @@ struct ChatTurnNavigationTests {
         let run = try #require(manager.agentRunStore.loadAll().first)
         #expect(run.executor == .openCode)
         #expect(run.chatOwner == AgentChatOwner(mateID: worker.id, chatID: workerChat.id))
-        #expect(!FileManager.default.fileExists(atPath: run.workspaceURL.path))
+        #expect(fixture.runUsesMateFolder(run, mateID: worker.id))
         if delivery != "foreground" { #expect(manager.currentChat == visibleChat) }
     }
 
@@ -938,6 +941,13 @@ struct ChatTurnNavigationTests {
             _ = manager.mateDirectory.upsertMate(mate)
             manager.syncMatePublications()
             return mate
+        }
+
+        /// Mate work runs in the mate's own folder, which outlives a failed
+        /// job; only sandbox runs are cleaned up.
+        func runUsesMateFolder(_ run: AgentRun, mateID: UUID) -> Bool {
+            guard let folder = manager.mates.first(where: { $0.id == mateID })?.folderPath else { return false }
+            return run.workspaceURL.standardizedFileURL.path == URL(fileURLWithPath: folder).standardizedFileURL.path
         }
 
         func addChat(mateID: UUID) -> ChatSession {

@@ -152,6 +152,8 @@ nonisolated struct AgentRun: Codable, Equatable, Identifiable {
     /// Private answer prose. Never included in receipts, metadata journals,
     /// telemetry, or activity logs. Nil for older jobs and missing answers.
     var privateFinalResult: String? = nil
+    /// Set when the user stops the job within `AgentRunRecovery.quickStopThreshold`.
+    var stoppedQuickly: Bool = false
 
     var finalAnswer: String? {
         if let privateFinalResult, AgentFinalResult.hasUsableAnswer(privateFinalResult) {
@@ -263,6 +265,7 @@ extension AgentRun {
         chatOwner = try container.decodeIfPresent(AgentChatOwner.self, forKey: .chatOwner)
         chatResultDeliveryKey = try container.decodeIfPresent(String.self, forKey: .chatResultDeliveryKey)
         privateFinalResult = try container.decodeIfPresent(String.self, forKey: .privateFinalResult)
+        stoppedQuickly = try container.decodeIfPresent(Bool.self, forKey: .stoppedQuickly) ?? false
     }
 
     mutating func appendActivity(

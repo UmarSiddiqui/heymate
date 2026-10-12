@@ -39,6 +39,19 @@ nonisolated enum HeyMateMCPServer {
         "heymate_create_mate"
     ]
 
+    /// heymate_* tools still only point, speak, and screenshot. An agent that
+    /// needs a click, keystroke, drag, or typed text cannot do it through
+    /// these tools. It should finish the rest of its work and emit
+    /// COMPUTER_USE_REQUEST. `ComputerUseCoordinator` returns this same text
+    /// when the user refuses that input.
+    static let computerUseInputRefusal = """
+    No to that input. Finish the rest of the work without clicking, typing, dragging, or sending. If you still need the Mac to do that part, end your reply with this block:
+
+    <COMPUTER_USE_REQUEST>
+    one sentence: the action you still need
+    </COMPUTER_USE_REQUEST>
+    """
+
     /// How Claude Code names an MCP tool once the server is loaded.
     ///
     /// These have to be allow-listed explicitly: `--permission-mode acceptEdits`
@@ -331,7 +344,7 @@ nonisolated enum HeyMateMCPServer {
         inputSchema: {
           type: "object",
           properties: {
-            name: { type: "string", description: "Optional. Must be unique among the user's mates." },
+            name: { type: "string", description: "Optional. Must be unique among the user's agents." },
             job: { type: "string", description: "What this agent does, in one sentence." }
           },
           required: ["job"]

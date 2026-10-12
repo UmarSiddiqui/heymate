@@ -116,6 +116,45 @@ struct UISnapshotTests {
         )
     }
 
+    @Test(.enabled(if: outputDirectory != nil))
+    func integrationsPage() throws {
+        let manager = Self.sampleManager()
+        try Self.render(
+            DesktopConnectorsView(
+                store: manager.connectorStore,
+                runtime: manager.connectorRuntime,
+                composioConnections: manager.composioConnections,
+                composioToolkitDirectory: manager.composioToolkitDirectory
+            )
+            .background(DS.Colors.background),
+            size: CGSize(width: 1000, height: 720),
+            dark: true,
+            name: "integrations"
+        )
+    }
+
+    @Test(.enabled(if: outputDirectory != nil))
+    func notchHome() throws {
+        let manager = Self.sampleManager()
+        let size = CGSize(width: NotchLayoutMath.expandedWidth, height: NotchLayoutMath.expandedHeight + 38)
+        let transition = NotchSurfaceTransitionModel()
+        transition.showWithoutAnimation()
+        try Self.render(
+            NotchExpandedView(
+                companionManager: manager,
+                occludedTopInset: 0,
+                layoutSize: size,
+                hardwareNotchWidth: 200,
+                transitionModel: transition,
+                onClose: {}
+            )
+            .background(Color.black),
+            size: size,
+            dark: true,
+            name: "notch-home"
+        )
+    }
+
     // MARK: Fixtures
 
     static func sampleManager() -> CompanionManager {

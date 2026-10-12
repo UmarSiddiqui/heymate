@@ -152,3 +152,185 @@ struct AccessibilityMatchScoreTests {
         #expect(AccessibilityElementFinder.normalize("Envoyér") == AccessibilityElementFinder.normalize("envoyer"))
     }
 }
+
+@MainActor
+@Suite(.serialized)
+struct ComputerUseConsentTests {
+
+    @Test func readOnlyActionSkipsApproval() async throws {
+        let harness = try ConsentHarness()
+        defer { harness.cleanUp() }
+
+        let result = await harness.coordinator.perform(
+            .screenshot(displayIndex: nil),
+            statedReason: "look"
+        )
+
+        #expect(result == ConsentHarness.executedSummary)
+        #expect(harness.coordinator.pendingRequest == nil)
+        #expect(harness.executor.executionCount == 1)
+    }
+
+    @Test func onceGrantDoesNotPersistToTheNextAction() async throws {
+        let harness = try ConsentHarness()
+        defer { harness.cleanUp() }
+        let click = ComputerUseAction.clickElement(label: "Send")
+
+        let first = harness.begin(click, reason: "send it")
+        #expect(await harness.waitUntilPending())
+        harness.coordinator.approvePendingRequest()
+        #expect(await first.value == ConsentHarness.executedSummary)
+        #expect(harness.defaults.bool(forKey: ComputerUseCoordinator.alwaysAllowPreferenceKey) == false)
+
+        let second = harness.begin(click, reason: "send it again")
+        #expect(await harness.waitUntilPending())
+        harness.coordinator.denyPendingRequest()
+        #expect(await second.value == ComputerUseCoordinator.inputRefusalMessage)
+    }
+
+    @Test func conversationGrantPersistsForTheSameConversation() async throws {
+        let harness = try ConsentHarness()
+        defer { harness.cleanUp() }
+        let chat = UUID()
+        harness.coordinator.conversationID = chat
+        let click = ComputerUseAction.clickElement(label: "Send")
+
+        let first = harness.begin(click, reason: "send it")
+        #expect(await harness.waitUntilPending())
+        harness.coordinator.approvePendingRequest(scope: .conversation)
+        #expect(await first.value == ConsentHarness.executedSummary)
+
+        let sameChat = harness.begin(.typeText("hello"), reason: "type the greeting")
+        #expect(await sameChat.value == ConsentHarness.executedSummary)
+        #expect(harness.coordinator.pendingRequest == nil)
+        #expect(harness.executor.executionCount == 2)
+
+        harness.coordinator.conversationID = UUID()
+        let otherChat = harness.begin(click, reason: "send it elsewhere")
+        #expect(await harness.waitUntilPending())
+        harness.coordinator.denyPendingRequest()
+        _ = await otherChat.value
+
+        harness.coordinator.conversationID = nil
+        let noChat = harness.begin(.openApplication(name: "Safari"), reason: "open it")
+        #expect(await harness.waitUntilPending())
+        harness.coordinator.approvePendingRequest(scope: .conversation)
+        #expect(await noChat.value == ConsentHarness.executedSummary)
+
+        let stillAsks = harness.begin(click, reason: "no chat to remember")
+        #expect(await harness.waitUntilPending())
+        harness.coordinator.denyPendingRequest()
+        _ = await stillAsks.value
+    }
+
+    @Test func alwaysPreferenceSkipsTheCardWhileEnabled() async throws {
+        let harness = try ConsentHarness()
+        defer { harness.cleanUp() }
+        let click = ComputerUseAction.clickElement(label: "Send")
+
+        let first = harness.begin(click, reason: "send it")
+        #expect(await harness.waitUntilPending())
+        harness.coordinator.approvePendingRequest(scope: .always)
+        #expect(await first.value == ConsentHarness.executedSummary)
+        #expect(harness.defaults.bool(forKey: ComputerUseCoordinator.alwaysAllowPreferenceKey))
+
+        let second = harness.begin(.pressKeyCombination("cmd+s"), reason: "save")
+        #expect(await second.value == ConsentHarness.executedSummary)
+        #expect(harness.coordinator.pendingRequest == nil)
+        #expect(harness.executor.executionCount == 2)
+    }
+
+    @Test func deniedInputReturnsComputerUseRequest() async throws {
+        let harness = try ConsentHarness()
+        defer { harness.cleanUp() }
+
+        let task = harness.begin(.typeText("hello"), reason: "say hello")
+        #expect(await harness.waitUntilPending())
+        harness.coordinator.denyPendingRequest()
+
+        let result = await task.value
+        #expect(result == HeyMateMCPServer.computerUseInputRefusal)
+        #expect(result.contains("<COMPUTER_USE_REQUEST>"))
+        #expect(result.contains("</COMPUTER_USE_REQUEST>"))
+        #expect(harness.executor.executionCount == 0)
+        #expect(harness.coordinator.pendingRequest == nil)
+    }
+
+    @Test func disabledMasterSwitchStillBlocks() async throws {
+        let harness = try ConsentHarness()
+        defer { harness.cleanUp() }
+        harness.defaults.set(true, forKey: ComputerUseCoordinator.alwaysAllowPreferenceKey)
+        harness.coordinator.conversationID = UUID()
+        harness.coordinator.isEnabled = false
+
+        let result = await harness.coordinator.perform(
+            .clickElement(label: "Send"),
+            statedReason: "send it"
+        )
+
+        #expect(result == "Computer control is switched off. Turn it on in Settings if you want me to click things.")
+        #expect(harness.coordinator.pendingRequest == nil)
+        #expect(harness.executor.executionCount == 0)
+    }
+}
+
+@MainActor
+private final class RecordingComputerUseExecutor: ComputerUseExecuting {
+    var onWillSynthesizeInput: ((CGPoint) -> Void)?
+    private(set) var executionCount = 0
+
+    func execute(
+        _ request: ComputerUseRequest,
+        approval: ComputerUseApprovalToken?
+    ) async throws -> ComputerUseOutcome {
+        executionCount += 1
+        if request.action.risk > .readOnly {
+            guard let approval, approval.requestID == request.id else {
+                throw ComputerUseError.approvalRequired
+            }
+        }
+        return ComputerUseOutcome(summary: ConsentHarness.executedSummary, payload: nil)
+    }
+}
+
+@MainActor
+private struct ConsentHarness {
+    static let executedSummary = "executed"
+
+    let suiteName: String
+    let defaults: UserDefaults
+    let executor: RecordingComputerUseExecutor
+    let coordinator: ComputerUseCoordinator
+
+    init() throws {
+        suiteName = "heymate.computerUseConsent.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        let executor = RecordingComputerUseExecutor()
+        let coordinator = ComputerUseCoordinator(userDefaults: defaults, executor: executor)
+        coordinator.isEnabled = true
+        coordinator.accessibilityTrustCheck = { true }
+        self.defaults = defaults
+        self.executor = executor
+        self.coordinator = coordinator
+    }
+
+    func cleanUp() {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    func begin(_ action: ComputerUseAction, reason: String) -> Task<String, Never> {
+        let coordinator = coordinator
+        return Task { @MainActor in
+            await coordinator.perform(action, statedReason: reason)
+        }
+    }
+
+    func waitUntilPending() async -> Bool {
+        for _ in 0..<100 {
+            if coordinator.pendingRequest != nil { return true }
+            await Task.yield()
+        }
+        return coordinator.pendingRequest != nil
+    }
+}

@@ -263,7 +263,7 @@ struct DetachedAgentRunReducerTests {
         #expect(replayed == reduced)
     }
 
-    @Test func handedOffStateAndEventClearSessionOwnership() throws {
+    @Test func handedOffStateAndEventDiscardQueuedFollowUpsButKeepSession() throws {
         let run = makeRun()
         let stateHandoff = try DetachedAgentRunReducer.reduce(
             run: run,
@@ -281,7 +281,7 @@ struct DetachedAgentRunReducerTests {
             stateHandoff.latestAction
                 == "Handed off to Terminal — you are driving this session now"
         )
-        #expect(stateHandoff.sessionIdentifier.isEmpty)
+        #expect(stateHandoff.sessionIdentifier == "owned-session")
         #expect(stateHandoff.queuedFollowUpInstructions.isEmpty)
         #expect(stateHandoff.undoEntryIdentifier == run.undoEntryIdentifier)
 
@@ -301,7 +301,7 @@ struct DetachedAgentRunReducerTests {
             journal: fixture.journal.records()
         )
         #expect(eventHandoff.status == .cancelled)
-        #expect(eventHandoff.sessionIdentifier.isEmpty)
+        #expect(eventHandoff.sessionIdentifier == "owned-session")
         #expect(eventHandoff.queuedFollowUpInstructions.isEmpty)
         #expect(eventHandoff.pid == nil)
     }

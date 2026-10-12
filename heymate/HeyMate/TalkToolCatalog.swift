@@ -4,11 +4,12 @@
 //
 //  What the Talk model can call mid-answer, beyond text.
 //
-//  Four local actions are always available — start a timer, set a
-//  reminder, open an app, change the volume — plus one entry per tool
-//  every connected MCP connector currently exposes through
-//  `ConnectorRuntime`. One catalog so the system prompt's "connected
-//  tools" list, the JSON schema sent to the model, and
+//  Local actions are always available — start a timer, set a reminder,
+//  open an app, change the volume, and four session choices (start mate
+//  work, message a mate, answer a mate, ask on the fast or deep path) —
+//  plus one entry per tool every connected MCP connector currently
+//  exposes through `ConnectorRuntime`. One catalog so the system prompt's
+//  "connected tools" list, the JSON schema sent to the model, and
 //  `CompanionManager`'s dispatcher all agree on what a tool name means.
 //
 //  Nothing here executes anything. Dispatch and the connector approval
@@ -40,10 +41,14 @@ enum TalkToolCatalog {
     static let setReminderToolName = "set_reminder"
     static let openApplicationToolName = "open_app"
     static let setSystemVolumeToolName = "set_volume"
+    static let startMateWorkToolName = HarnessToolName.startMateWork.rawValue
+    static let sendToMateToolName = HarnessToolName.sendToMate.rawValue
+    static let answerRequestToolName = HarnessToolName.answerRequest.rawValue
+    static let askDeeperToolName = HarnessToolName.askDeeper.rawValue
 
-    /// Every tool available this turn: the four local actions, always
-    /// present, plus one per tool from every connector `ConnectorRuntime`
-    /// currently has a live MCP session for.
+    /// Every tool available this turn: the local actions, always present,
+    /// plus one per tool from every connector `ConnectorRuntime` currently
+    /// has a live MCP session for.
     @MainActor
     static func availableTools(connectorRuntime: ConnectorRuntime) -> [TalkTool] {
         var tools = localTools
@@ -132,6 +137,46 @@ enum TalkToolCatalog {
                 description: "Set the system output volume.",
                 inputSchemaJSON: """
                 {"type":"object","properties":{"percent":{"type":"integer","description":"0 to 100"}},"required":["percent"]}
+                """
+            ),
+            origin: .local
+        ),
+        TalkTool(
+            toolDefinition: AssistantToolDefinition(
+                name: startMateWorkToolName,
+                description: "Start durable work on a named agent. Creates an agent only when new_name is set and no agent already matches.",
+                inputSchemaJSON: """
+                {"type":"object","properties":{"agent":{"type":"string","description":"Existing agent name"},"task":{"type":"string","description":"What the agent should do"},"new_name":{"type":"string","description":"Name to create when no agent matches"}},"required":["task"]}
+                """
+            ),
+            origin: .local
+        ),
+        TalkTool(
+            toolDefinition: AssistantToolDefinition(
+                name: sendToMateToolName,
+                description: "Send a follow-up to an agent that is already running, or to an agent that already exists.",
+                inputSchemaJSON: """
+                {"type":"object","properties":{"agent":{"type":"string"},"message":{"type":"string"}},"required":["agent","message"]}
+                """
+            ),
+            origin: .local
+        ),
+        TalkTool(
+            toolDefinition: AssistantToolDefinition(
+                name: answerRequestToolName,
+                description: "Answer a question an agent is waiting on.",
+                inputSchemaJSON: """
+                {"type":"object","properties":{"agent":{"type":"string"},"answer":{"type":"string"}},"required":["agent","answer"]}
+                """
+            ),
+            origin: .local
+        ),
+        TalkTool(
+            toolDefinition: AssistantToolDefinition(
+                name: askDeeperToolName,
+                description: "Choose the fast text path when this turn has no images, or the configured brain when it does.",
+                inputSchemaJSON: """
+                {"type":"object","properties":{"task":{"type":"string","description":"The question to answer. Omit to use the user's words."}},"required":[]}
                 """
             ),
             origin: .local

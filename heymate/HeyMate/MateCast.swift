@@ -31,6 +31,69 @@ enum MateCast {
         hasCompletedOnboarding && activeMateCount <= 1 && !alreadyOffered
     }
 
+    /// Three mates from the four profile-interview answers (identity, apps, boundaries, this week).
+    /// Returns nothing when every answer is empty.
+    static func proposals(
+        fromProfileAnswers answers: [String],
+        packID: String = MateFace.packs[0].id,
+        existingNames: [String]
+    ) -> [MateCastProposal] {
+        var padded = Array(answers.prefix(4))
+        while padded.count < 4 {
+            padded.append("")
+        }
+        let trimmed = padded.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard trimmed.contains(where: { !$0.isEmpty }) else { return [] }
+
+        let identity = cleaned(padded[0], fallback: "my day-to-day work")
+        let apps = cleaned(padded[1], fallback: "the apps I use")
+        let boundary = cleaned(padded[2], fallback: "take risky actions")
+        let thisWeek = cleaned(padded[3], fallback: "what I want done this week")
+        let boundarySoul = "Never \(boundary) without me asking first."
+
+        let pack = MateFace.packs.first { $0.id == packID } ?? MateFace.packs[0]
+        let faces = pack.faces.map(\.assetName)
+        guard !faces.isEmpty else { return [] }
+
+        let roles: [(job: String, soul: String, hair: String, outfit: String)] = [
+            (
+                "Help me stay on top of \(identity)",
+                "You know \(identity). \(boundarySoul) Be specific and wait when you are unsure.",
+                MateFaceHair.tuft.rawValue,
+                MateFaceOutfit.collar.rawValue
+            ),
+            (
+                "Work with me in \(apps)",
+                "You live in \(apps) with me. \(boundarySoul) Ask before leaving those apps.",
+                MateFaceHair.band.rawValue,
+                MateFaceOutfit.scarf.rawValue
+            ),
+            (
+                "Keep \(thisWeek) moving this week",
+                "You track \(thisWeek). \(boundarySoul) Report progress in short updates.",
+                MateFaceHair.hood.rawValue,
+                MateFaceOutfit.collar.rawValue
+            ),
+        ]
+
+        var names = existingNames
+        return roles.enumerated().map { index, role in
+            let name = MateNameGenerator.name(for: role.job, existingNames: names)
+            names.append(name)
+            let tint = MateFace.tintSwatches[index % MateFace.tintSwatches.count]
+            let face = faces[index % faces.count]
+            return MateCastProposal(
+                name: name,
+                job: role.job,
+                soul: role.soul,
+                faceAssetName: face,
+                faceTint: tint,
+                faceHair: role.hair,
+                faceOutfit: role.outfit
+            )
+        }
+    }
+
     static func proposals(from answers: MateCastAnswers, existingNames: [String]) -> [MateCastProposal] {
         let skill = cleaned(answers.skill, fallback: "the software I'm learning")
         let style = cleaned(answers.style, fallback: "patient and specific")

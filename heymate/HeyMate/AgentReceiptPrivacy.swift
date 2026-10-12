@@ -56,7 +56,7 @@ nonisolated enum AgentReceiptPrivacy {
         let safe = redactAbsolutePaths(in: redactSecrets(in: value))
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard safe.utf8.count > AgentFinalResult.maximumAnswerBytes else { return safe }
-        let notice = "\n\n[Result truncated at 32 KiB. Ask the mate for a shorter answer or a specific section.]"
+        let notice = "\n\n[Result truncated at 32 KiB. Ask the agent for a shorter answer or a specific section.]"
         let bytes = safe.utf8.prefix(AgentFinalResult.maximumAnswerBytes - notice.utf8.count)
         // Drop an incomplete trailing UTF-8 scalar rather than inserting an
         // invalid byte or exceeding the artifact's byte limit.

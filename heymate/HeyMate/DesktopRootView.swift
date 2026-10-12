@@ -44,8 +44,8 @@ enum DesktopSection: String, CaseIterable, Identifiable, Hashable {
     var displayName: String {
         switch self {
         case .chat: return "Chat"
-        case .agents: return "Agents"
-        case .connectors: return "Apps"
+        case .agents: return "Activity"
+        case .connectors: return "Integrations"
         case .notch: return "Notch Apps"
         case .skills: return "Skills"
         case .memory: return "Memory"
@@ -58,7 +58,7 @@ enum DesktopSection: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .chat: return "bubble.left.and.bubble.right"
         case .agents: return "checklist"
-        case .connectors: return "app.connected.to.app.below.fill"
+        case .connectors: return "puzzlepiece.extension"
         case .notch: return "rectangle.topthird.inset.filled"
         case .skills: return "wand.and.stars"
         case .memory: return "brain"

@@ -55,7 +55,7 @@ nonisolated enum SlashCommand: String, CaseIterable, Identifiable {
         case .help: return "List these commands"
         case .chat: return "Open the chat window"
         case .agents: return "Open agent runs"
-        case .connectors: return "Open connectors"
+        case .connectors: return "Open integrations"
         case .skills: return "Open skills"
         case .memory: return "Open what HeyMate remembers"
         case .privacy: return "Open privacy and excluded apps"

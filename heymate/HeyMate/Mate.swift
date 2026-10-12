@@ -36,14 +36,19 @@ nonisolated struct Mate: Equatable, Identifiable {
     var conductsOthers: Bool = false
     /// `AgentBrain` raw value for this mate. Nil keeps the app-wide brain.
     var brainRawValue: String? = nil
-    /// Chat connector ids this mate turns off. Nil keeps the app-wide set.
+    /// Legacy per-agent integration choices. Integrations are global now;
+    /// kept only so older files still decode.
     var connectorExclusionIDs: [String]? = nil
 
-    static let defaultName = "First Mate"
-    static let defaultJob = "The one chat that runs the others"
+    static let defaultName = "HeyMate"
+    static let defaultJob = "Talks with you and hands work to your agents"
+    /// The stock name and role before the main agent was called HeyMate again.
+    static let previousDefaultName = "First Mate"
+    static let previousDefaultJob = "The one chat that runs the others"
+    static let previousFirstMateSoul = "Calm, precise, and a little warm. You are the personal assistant and the notch companion. You see every other mate and you hand them work instead of pretending you did it yourself."
     static let legacyDefaultName = "HeyMate"
     static let legacyDefaultJob = "General chat"
-    static let firstMateSoul = "Calm, precise, and a little warm. You are the personal assistant and the notch companion. You see every other mate and you hand them work instead of pretending you did it yourself."
+    static let firstMateSoul = "Calm, precise, and a little warm. You are the personal assistant and the notch companion. You see every other agent and you hand them work instead of pretending you did it yourself."
 
     static func deletionWarning(replacesWithFreshHeyMate: Bool) -> String {
         var text = "Their chats and routines go away. Files in their folder stay."
