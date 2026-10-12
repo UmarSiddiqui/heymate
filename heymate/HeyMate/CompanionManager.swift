@@ -898,11 +898,20 @@ final class CompanionManager: ObservableObject {
     /// the model, or the key from Settings and the next question should use
     /// them.
     private var customAPIClient: any VisionConversationClient {
-        AnthropicMessagesClient(
-            endpoint: CustomAPIConfiguration.baseURL,
-            model: CustomAPIConfiguration.model,
-            apiKey: CustomAPIConfiguration.apiKey()
-        )
+        switch CustomAPIConfiguration.format {
+        case .anthropic:
+            return AnthropicMessagesClient(
+                endpoint: CustomAPIConfiguration.baseURL,
+                model: CustomAPIConfiguration.model,
+                apiKey: CustomAPIConfiguration.apiKey()
+            )
+        case .openAI:
+            return OpenAIChatClient(
+                endpoint: CustomAPIConfiguration.baseURL,
+                model: CustomAPIConfiguration.model,
+                apiKey: CustomAPIConfiguration.apiKey()
+            )
+        }
     }
 
     /// Routes the sentences `VoiceRouter` cannot settle for free. Uses the
@@ -2807,8 +2816,12 @@ final class CompanionManager: ObservableObject {
 
         // Screen Recording alone still leaves the content picker; ask for it
         // once per launch, as soon as it can succeed.
-        if hasScreenRecordingPermission && !hasScreenContentPermission && !hasAttemptedScreenContentAutoRequest {
+        // Once ever, not once per launch: a declined picker must not come back
+        // every time HeyMate opens.
+        if hasScreenRecordingPermission && !hasScreenContentPermission && !hasAttemptedScreenContentAutoRequest
+            && !UserDefaults.standard.bool(forKey: Self.screenContentAskedKey) {
             hasAttemptedScreenContentAutoRequest = true
+            UserDefaults.standard.set(true, forKey: Self.screenContentAskedKey)
             requestScreenContentPermission()
         }
         if !before.all && allPermissionsGranted {
@@ -2827,8 +2840,12 @@ final class CompanionManager: ObservableObject {
             HeyMateAnalytics.track(.permissionGranted("input_monitoring"))
             SharedKeyboardTap.shared.reinstall()
         }
-        guard hasAccessibilityPermission, !granted, !hasAttemptedInputMonitoringRequest else { return }
+        // Ask once, ever. After that the Permissions list is the way back,
+        // so HeyMate does not reopen System Settings on every launch.
+        guard hasAccessibilityPermission, !granted, !hasAttemptedInputMonitoringRequest,
+              !PermissionGuide.hasAsked(.inputMonitoring) else { return }
         hasAttemptedInputMonitoringRequest = true
+        PermissionGuide.markAsked(.inputMonitoring)
         HeyMateLog.log("🔑 Input Monitoring is off — asking for it so the keyboard shortcuts work")
         MacPermissions.requestInputMonitoringPermission()
     }
@@ -2845,6 +2862,7 @@ final class CompanionManager: ObservableObject {
     }
 
     private static let screenContentGrantKey = "hasScreenContentPermission"
+    private static let screenContentAskedKey = "heymate.permissionAsked.screenContent"
 
     /// Input Monitoring as of the last permission poll, so a new grant can
     /// rebuild the keyboard tap that was created without it.
@@ -3828,7 +3846,11 @@ final class CompanionManager: ObservableObject {
                 proxyURL: CustomAPIConfiguration.baseURL,
                 apiKey: CustomAPIConfiguration.apiKey()
             )
-            let decision = await self.voiceIntentClassifier.classify(transcript)
+            // The classifier speaks the Anthropic format only. An OpenAI-compatible
+            // endpoint takes the same no-classifier path as an outage.
+            let decision = CustomAPIConfiguration.format == .anthropic
+                ? await self.voiceIntentClassifier.classify(transcript)
+                : nil
             guard !Task.isCancelled, self.ownsCurrentResponse(completion) else { return }
             guard self.conversationBrainForTurn == brain,
                   (brain != .openCode && explicitExecutor != .openCode) || modelKey == OpenCodeTrainingPolicy.modelKey(

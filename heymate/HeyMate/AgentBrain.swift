@@ -32,7 +32,7 @@ nonisolated enum AgentBrain: String, CaseIterable, Hashable, Codable {
     case claudeCode
     /// Any provider you have configured in `opencode`.
     case openCode
-    /// Your own Anthropic-compatible endpoint and key.
+    /// Your own Anthropic- or OpenAI-compatible endpoint and key.
     case customAPI
     /// Apple Intelligence on this Mac. No subscription spend.
     case onDevice
@@ -66,7 +66,7 @@ nonisolated enum AgentBrain: String, CaseIterable, Hashable, Codable {
         case .openCode:
             return "Whatever providers you have signed in to opencode. Free models say so before they can train on a chat."
         case .customAPI:
-            return "Your own Anthropic-compatible endpoint and key. You pay per token."
+            return "Your own Anthropic- or OpenAI-compatible endpoint and key. You pay per token."
         case .onDevice:
             return "Apple Intelligence on this Mac. Private, and it does not spend a ChatGPT or Claude plan."
         }
@@ -122,11 +122,56 @@ nonisolated enum AgentBrain: String, CaseIterable, Hashable, Codable {
 ///
 /// The URL is a preference; the key is a credential and lives in the Keychain
 /// with every other secret this app holds — never in UserDefaults.
+/// Which wire format the custom endpoint speaks.
+nonisolated enum CustomAPIFormat: String, CaseIterable, Identifiable {
+    /// Anthropic Messages (`/v1/messages`).
+    case anthropic
+    /// OpenAI Chat Completions (`/v1/chat/completions`): OpenAI, OpenRouter,
+    /// Groq, LM Studio, Ollama, vLLM and most local servers.
+    case openAI
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .anthropic: return "Anthropic-compatible"
+        case .openAI: return "OpenAI-compatible"
+        }
+    }
+
+    var example: String {
+        switch self {
+        case .anthropic: return "https://api.anthropic.com/v1/messages"
+        case .openAI: return "https://api.openai.com/v1"
+        }
+    }
+
+    /// A best guess from the URL, used until the person picks one.
+    static func guess(from url: String) -> CustomAPIFormat {
+        let text = url.lowercased()
+        if text.contains("/messages") || text.contains("anthropic.com") { return .anthropic }
+        let openAIHints = ["chat/completions", "openai.com", "openrouter.ai", "groq.com", "together.xyz",
+                           "deepseek.com", "mistral.ai", "x.ai", ":11434", ":1234", "/v1"]
+        if openAIHints.contains(where: text.contains) { return .openAI }
+        return .anthropic
+    }
+}
+
 nonisolated enum CustomAPIConfiguration {
 
     static let keychainIdentifier = "heymate.customAPI"
     private static let baseURLKey = "customAPIBaseURL"
     private static let modelKey = "customAPIModel"
+    private static let formatKey = "customAPIFormat"
+
+    /// The format the person picked, or a guess from the URL.
+    static var format: CustomAPIFormat {
+        get {
+            UserDefaults.standard.string(forKey: formatKey).flatMap(CustomAPIFormat.init(rawValue:))
+                ?? CustomAPIFormat.guess(from: baseURL)
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: formatKey) }
+    }
 
     /// Anthropic's own Messages endpoint, so the field has a working example
     /// in it rather than a placeholder nobody can guess.

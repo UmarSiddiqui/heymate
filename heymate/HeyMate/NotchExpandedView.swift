@@ -618,40 +618,13 @@ private struct NotchHomeTab: View {
 
     private var permissionsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            NotchSectionHeader(title: "Permissions")
-
             if !companionManager.hasAccessibilityPermission || !companionManager.hasScreenRecordingPermission {
                 NotchAppDropTile(
                     missingAccessibility: !companionManager.hasAccessibilityPermission,
                     missingScreenRecording: !companionManager.hasScreenRecordingPermission
                 )
             }
-
-            NotchPermissionRow(
-                label: "Microphone",
-                iconName: "mic",
-                isGranted: companionManager.hasMicrophonePermission,
-                grantAction: requestMicrophonePermission
-            )
-            NotchPermissionRow(
-                label: "Accessibility",
-                iconName: "hand.raised",
-                isGranted: companionManager.hasAccessibilityPermission,
-                subtitle: companionManager.hasAccessibilityPermission
-                    ? nil
-                    : "Drag HeyMate.app into the list if it isn't there",
-                grantAction: { MacPermissions.requestAccessibilityPermission() }
-            )
-            NotchPermissionRow(
-                label: "Screen Recording",
-                iconName: "rectangle.dashed.badge.record",
-                isGranted: companionManager.hasScreenRecordingPermission,
-                subtitle: companionManager.hasScreenRecordingPermission
-                    ? "Only takes a screenshot when you use the hotkey"
-                    : "Grant once — signed builds keep this after rebuilds",
-                grantAction: { MacPermissions.requestScreenRecordingPermission() }
-            )
-
+            PermissionChecklist(compact: true)
             Button("Why these permissions?") {
                 if let url = URL(string: SupportLinks.permissionsPageURLString) {
                     NSWorkspace.shared.open(url)
@@ -661,15 +634,6 @@ private struct NotchHomeTab: View {
             .font(DS.Fonts.caption)
             .foregroundColor(.secondary)
             .pointerCursor()
-        }
-    }
-
-    private func requestMicrophonePermission() {
-        let status = AVCaptureDevice.authorizationStatus(for: .audio)
-        if status == .notDetermined {
-            AVCaptureDevice.requestAccess(for: .audio) { _ in }
-        } else if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
-            NSWorkspace.shared.open(url)
         }
     }
 
@@ -1714,59 +1678,6 @@ private struct NotchToggleRow: View {
                 .tint(DS.Colors.accent)
                 .scaleEffect(0.8)
         }
-    }
-}
-
-
-private struct NotchPermissionRow: View {
-    let label: String
-    let iconName: String
-    let isGranted: Bool
-    var subtitle: String? = nil
-    let grantAction: () -> Void
-    var secondaryTitle: String? = nil
-    var secondaryAction: (() -> Void)? = nil
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 8) {
-            Image(systemName: iconName)
-                .font(DS.Glyph.regular)
-                .foregroundColor(isGranted ? DS.Colors.textTertiary : DS.Colors.warningText)
-                .frame(width: 16)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(label)
-                    .font(DS.Fonts.headline)
-                    .foregroundColor(DS.Colors.textPrimary)
-                if let subtitle {
-                    Text(subtitle)
-                        .font(DS.Fonts.micro)
-                        .foregroundColor(DS.Colors.textTertiary)
-                }
-            }
-
-            Spacer()
-
-            if isGranted {
-                HStack(spacing: 4) {
-                    DSStatusDot(color: DS.Colors.success)
-                    Text("Granted")
-                        .font(DS.Fonts.caption)
-                        .foregroundColor(DS.Colors.success)
-                }
-            } else {
-                HStack(spacing: 6) {
-                    Button("Grant", action: grantAction)
-                        .dsCapsuleButtonStyle(.primary)
-
-                    if let secondaryTitle, let secondaryAction {
-                        Button(secondaryTitle, action: secondaryAction)
-                            .dsCapsuleButtonStyle(.secondary)
-                    }
-                }
-            }
-        }
-        .padding(.vertical, 4)
     }
 }
 

@@ -45,7 +45,7 @@ extension AgentBrain {
 
 // MARK: - Custom API
 
-/// The Anthropic-compatible server HeyMate talks to when "Custom API" is
+/// The Anthropic- or OpenAI-compatible server HeyMate talks to when "Custom API" is
 /// the engine. The address and model save as you type; the key is never
 /// shown again after saving.
 struct CustomAPISettingsRows: View {
@@ -54,6 +54,7 @@ struct CustomAPISettingsRows: View {
     @State private var baseURL = CustomAPIConfiguration.baseURL
     @State private var model = CustomAPIConfiguration.model
     @State private var hasAPIKey = CustomAPIConfiguration.hasAPIKey
+    @State private var format = CustomAPIConfiguration.format
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -63,8 +64,19 @@ struct CustomAPISettingsRows: View {
                     .settingsRowInsets()
             }
 
+            SettingsRow("API format", subtitle: "Most local servers and OpenRouter, Groq, or Ollama speak the OpenAI format.") {
+                Picker("API format", selection: $format) {
+                    ForEach(CustomAPIFormat.allCases) { option in
+                        Text(option.title).tag(option)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .fixedSize()
+            }
+            SettingsDivider()
             SettingsRow("Server address") {
-                TextField("https://…", text: $baseURL)
+                TextField(format.example, text: $baseURL)
                     .settingsFieldChrome(isMonospaced: true)
                     .frame(width: DS.SettingsLayout.fieldMinWidth)
                     .accessibilityLabel("Custom API server address")
@@ -93,11 +105,12 @@ struct CustomAPISettingsRows: View {
                     hasAPIKey = CustomAPIConfiguration.hasAPIKey
                 }
             )
-            SettingsInlineHelp("Works with any Anthropic-compatible server; you pay that provider per use. The key is kept in a private file only your Mac account can read, never in preferences.")
+            SettingsInlineHelp("Works with any Anthropic-compatible or OpenAI-compatible server; you pay that provider per use. For OpenAI-compatible servers a base URL ending in /v1 is enough. The key is kept in a private file only your Mac account can read, never in preferences.")
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .settingsRowContentInsets()
         }
         .onChange(of: baseURL) { _, newValue in CustomAPIConfiguration.baseURL = newValue }
+        .onChange(of: format) { _, newValue in CustomAPIConfiguration.format = newValue }
         .onChange(of: model) { _, newValue in CustomAPIConfiguration.model = newValue }
     }
 }
