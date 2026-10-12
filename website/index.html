@@ -36,7 +36,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/site.css?v=8">
+  <link rel="stylesheet" href="css/site.css?v=10">
   <script>document.documentElement.classList.add("js")</script>
   <script type="application/ld+json">
   {
@@ -157,43 +157,51 @@
 
         </div>
         <!-- Interactive demo. Recreated interface, not a recording. -->
-        <div class="screen" role="img" aria-label="Illustration: HeyMate opens from the notch and points through making a chart in a spreadsheet, one step at a time.">
+        <div class="screen" role="img" aria-label="Illustration: HeyMate listens from the notch, then its pointer walks through cutting the intro out of a video, one step at a time.">
           <div class="display" data-demo>
-            <div class="menubar" aria-hidden="true"><span>Numbers</span><span>File</span><span>Edit</span><span>Insert</span><span>Table</span><span class="clock">Mon 9:41</span></div>
+            <div class="menubar" aria-hidden="true"><span>Cut</span><span>File</span><span>Edit</span><span>Clip</span><span>View</span><span class="clock">Mon 9:41</span></div>
             <div class="notch" aria-hidden="true">
+              <div class="notch-wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
               <div class="notch-body">
                 <div class="notch-row">
                   <span class="notch-face"><svg viewBox="0 0 16 16"><path fill="#5fd39d" d="M2 1l12 6.2-5.3 1.4L6.3 14z"/></svg></span>
-                  <span class="notch-step">step 1 of 3</span>
+                  <span class="notch-step">step 1 of 4</span>
                 </div>
-                <p class="notch-say">First, select the sales numbers in column B.</p>
-                <div class="notch-wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-                <div class="notch-dots"><i class="on"></i><i></i><i></i></div>
+                <p class="notch-say">First, click where the talking starts on the timeline.</p>
+                <div class="notch-dots"><i class="on"></i><i></i><i></i><i></i></div>
               </div>
             </div>
             <div class="app" aria-hidden="true">
               <div class="app-bar">
                 <span class="lights"><i></i><i></i><i></i></span>
-                <span class="app-title">Q3 sales</span>
-                <span class="tool">Table</span>
-                <span class="tool" data-tool="chart">Chart</span>
-                <span class="tool optional">Text</span>
-                <span class="tool optional">Shape</span>
+                <span class="app-title">launch-video.mov</span>
+                <span class="tool" data-tool="split">Split</span>
+                <span class="tool optional">Title</span>
+                <span class="tool optional">Speed</span>
+                <span class="tool">Export</span>
               </div>
-              <div class="sheet-grid">
-                <div class="h"></div><div class="h">A</div><div class="h">B</div><div class="h">C</div><div class="h wide">D</div><div class="h wide">E</div>
-                <div class="h">1</div><div>Month</div><div>Sales</div><div>Goal</div><div class="wide"></div><div class="wide"></div>
-                <div class="h">2</div><div>July</div><div data-col="b">12,400</div><div>11,000</div><div class="wide"></div><div class="wide"></div>
-                <div class="h">3</div><div>August</div><div data-col="b">14,950</div><div>12,000</div><div class="wide"></div><div class="wide"></div>
-                <div class="h">4</div><div>September</div><div data-col="b">17,300</div><div>13,000</div><div class="wide"></div><div class="wide"></div>
-                <div class="h">5</div><div></div><div></div><div></div><div class="wide"></div><div class="wide"></div>
-                <div class="h">6</div><div></div><div></div><div></div><div class="wide"></div><div class="wide"></div>
+              <div class="editor">
+                <div class="viewer">
+                  <div class="frame frame-intro"><b>MY CHANNEL</b><span>logo spin · 0:05</span></div>
+                  <div class="frame frame-talk"><i class="person"></i><span class="caption">“Okay, here's the new feature.”</span></div>
+                  <span class="timecode" data-timecode>00:00:00</span>
+                </div>
+                <div class="timeline">
+                  <div class="ruler"><span>0:00</span><span>0:05</span><span>0:10</span><span>0:15</span><span>0:20</span></div>
+                  <div class="track video">
+                    <div class="clip clip-intro" data-clip="intro">Intro</div>
+                    <div class="clip clip-talk">Talking</div>
+                    <div class="clip clip-broll">B-roll</div>
+                    <span class="spot" data-spot></span>
+                  </div>
+                  <div class="track audio"><div class="clip clip-audio"></div></div>
+                  <span class="playhead" data-playhead></span>
+                </div>
               </div>
-              <div class="chart"><i style="height:55%"></i><i style="height:72%"></i><i style="height:92%"></i></div>
             </div>
             <div class="pointer" aria-hidden="true">
               <svg viewBox="0 0 26 26"><path fill="#5fd39d" stroke="#0e0e0f" stroke-width="1.5" stroke-linejoin="round" d="M3 2l20 10.4-8.6 2.3L10.2 24z"/></svg>
-              <span class="pointer-tip">Drag from here</span>
+              <span class="pointer-tip"><span class="tip-step">1 / 4</span><span class="tip-say">First, click where the talking starts on the timeline.</span></span>
             </div>
           </div>
         </div>
@@ -502,7 +510,7 @@
 
   <script src="js/config.js"></script>
   <script src="js/main.js?v=3"></script>
-  <script src="js/notch.js?v=3"></script>
+  <script src="js/notch.js?v=6"></script>
   <script src="js/play.js?v=4"></script>
   <script src="js/downloads.js"></script>
 </body>
