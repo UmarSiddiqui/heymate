@@ -37,33 +37,39 @@
 
   document.querySelectorAll("[data-copy]").forEach(function (el) {
     var text = el.getAttribute("data-copy") || el.textContent.trim();
-    el.setAttribute("role", "button");
-    el.setAttribute("tabindex", "0");
-    el.setAttribute("title", "Copy");
+    var isButton = el.tagName === "BUTTON";
+    if (!isButton) {
+      el.setAttribute("role", "button");
+      el.setAttribute("tabindex", "0");
+      el.setAttribute("title", "Copy");
+    }
     el.setAttribute("aria-label", "Copy command: " + text);
+    function label(word) { if (isButton) el.textContent = word; }
 
     function copy() {
       track(el.getAttribute("data-copy-event") || "command_copy");
       if (!navigator.clipboard || !navigator.clipboard.writeText) {
-        el.classList.add("copy-failed");
-        setTimeout(function () { el.classList.remove("copy-failed"); }, 1600);
+        el.classList.add("copy-failed"); label("Select it");
+        setTimeout(function () { el.classList.remove("copy-failed"); label("Copy"); }, 1600);
         announceCopy("Clipboard is not available. Select the command text and copy it manually.");
         return;
       }
       navigator.clipboard.writeText(text).then(function () {
-        el.classList.add("copied");
-        setTimeout(function () { el.classList.remove("copied"); }, 1600);
+        el.classList.add("copied"); label("Copied");
+        setTimeout(function () { el.classList.remove("copied"); label("Copy"); }, 1600);
         announceCopy("Copied: " + text);
       }, function () {
-        el.classList.add("copy-failed");
-        setTimeout(function () { el.classList.remove("copy-failed"); }, 1600);
+        el.classList.add("copy-failed"); label("Select it");
+        setTimeout(function () { el.classList.remove("copy-failed"); label("Copy"); }, 1600);
         announceCopy("Copy was blocked. Select the command text and copy it manually.");
       });
     }
     el.addEventListener("click", copy);
-    el.addEventListener("keydown", function (event) {
-      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); copy(); }
-    });
+    if (!isButton) {
+      el.addEventListener("keydown", function (event) {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); copy(); }
+      });
+    }
   });
 
   var nav = document.querySelector(".nav");

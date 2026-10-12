@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>HeyMate — Learn your software. One step at a time.</title>
-  <meta name="description" content="Learn desktop apps and websites with spoken, step-by-step screen guidance. HeyMate points to the next action and waits while you try it. Free and open source. Available for macOS, using your Claude or ChatGPT plan through official CLIs.">
+  <meta name="description" content="Learn desktop apps and websites with spoken, step-by-step screen guidance, and hand longer work to agents that ask before they act. The open-source alternative to HeyClicky—bring your own Claude, ChatGPT (Codex), or OpenCode subscription. Free and MIT licensed for macOS; HeyMate does not meter model use. Provider limits and optional paid connectors still apply.">
   <meta name="google-site-verification" content="CjCO8XWw8H-uTbvhHXEwjUFCiFF00sF6dp6ox-USDFA">
-  <meta name="keywords" content="HeyMate, Mac AI assistant, MacBook notch app, AI voice assistant for Mac, Claude Code, Codex, OpenCode, AI coding agent, screen-aware AI, push to talk, open source macOS app">
+  <meta name="keywords" content="HeyMate, HeyClicky alternative, Mac AI assistant, MacBook notch app, AI voice assistant for Mac, Claude Code, Codex, OpenCode, AI agents, screen-aware AI, push to talk, open source macOS app">
   <meta name="author" content="Umar Siddiqui">
   <meta name="robots" content="index, follow, max-image-preview:large, max-video-preview:-1">
   <meta property="og:site_name" content="HeyMate">
   <meta property="og:title" content="HeyMate — Learn your software. One step at a time.">
-  <meta property="og:description" content="Step-by-step help with desktop apps and websites. HeyMate explains the next step and points to it while you learn. Free and open source. Available for macOS.">
+  <meta property="og:description" content="Step-by-step help with desktop apps and websites, and agents that ask before they act. Open-source alternative to HeyClicky—bring your own Claude, ChatGPT (Codex), or OpenCode subscription. Free and MIT licensed on macOS; provider limits still apply.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://getheymate.vercel.app/">
   <meta property="og:image" content="https://getheymate.vercel.app/assets/img/og-teaching-v2.png">
@@ -26,21 +26,17 @@
   <link rel="canonical" href="https://getheymate.vercel.app/">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="HeyMate — Learn your software. One step at a time.">
-  <meta name="twitter:description" content="Spoken, step-by-step guidance for desktop apps and websites. Free and open source. Available for macOS, using the official Claude Code and Codex CLIs.">
+  <meta name="twitter:description" content="Spoken, step-by-step guidance for desktop apps and websites, plus agents that ask before they act. Open-source HeyClicky alternative—your existing Claude, ChatGPT (Codex), or OpenCode subscription. Free, MIT licensed, macOS.">
   <meta name="twitter:image" content="https://getheymate.vercel.app/assets/img/og-teaching-v2.png">
   <meta name="twitter:image:alt" content="HeyMate. Learn your software. One step at a time. Desktop apps and websites. Free and open source. Available for macOS.">
   <link rel="alternate" type="text/plain" title="LLM summary" href="/llms.txt">
-  <meta name="theme-color" content="#f5f5f7">
+  <meta name="theme-color" content="#f3f3f2">
   <link rel="icon" href="assets/img/icon/favicon-32.png" type="image/png">
   <link rel="apple-touch-icon" href="assets/img/icon/apple-touch.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/tokens.css">
-  <link rel="stylesheet" href="css/base.css">
-  <link rel="stylesheet" href="css/components.css">
-  <link rel="stylesheet" href="css/sections.css">
-  <link rel="stylesheet" href="css/motion.css">
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/site.css?v=7">
   <script>document.documentElement.classList.add("js")</script>
   <script type="application/ld+json">
   {
@@ -50,12 +46,12 @@
         "@type": "SoftwareApplication",
         "@id": "https://getheymate.vercel.app/#app",
         "name": "HeyMate",
-        "description": "Free, open-source software for spoken, step-by-step guidance in desktop apps and websites. Currently available for macOS. Ask how to do a task, follow the pointer, and continue when ready. Also supports named mates and coding agents that plan before approved execution.",
+        "description": "Open-source alternative to HeyClicky for macOS: spoken, step-by-step guidance in desktop apps and websites, and agents that plan before they act. Bring your own AI—your Claude, ChatGPT (Codex), or OpenCode subscription does the work. HeyMate is free and MIT licensed and does not meter model use; provider limits and optional paid connectors still apply.",
         "url": "https://getheymate.vercel.app/",
         "downloadUrl": "https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg",
         "installUrl": "https://github.com/UmarSiddiqui/heymate/releases/latest",
         "image": "https://getheymate.vercel.app/assets/img/og-teaching-v2.png",
-        "screenshot": "https://getheymate.vercel.app/assets/img/og.jpg",
+        "screenshot": "https://getheymate.vercel.app/assets/screens/v3/agent-chat.webp",
         "operatingSystem": "macOS 14.2 or later",
         "applicationCategory": "UtilitiesApplication",
         "applicationSubCategory": "AI assistant",
@@ -66,13 +62,12 @@
         "codeRepository": "https://github.com/UmarSiddiqui/heymate",
         "author": { "@type": "Person", "name": "Umar Siddiqui", "url": "https://github.com/UmarSiddiqui" },
         "featureList": [
-          "Lives in the MacBook notch with Home, Apps, and Agents pages",
+          "Open-source alternative to HeyClicky; bring your own Claude, ChatGPT (Codex), or OpenCode subscription—HeyMate does not meter model use",
           "Step-by-step screen guidance with spoken explanations and a pointer",
-          "Cursor companion that points at what it is talking about",
-          "Claude Code, Codex, and OpenCode agents with a read-only plan and approval gate",
-          "Undo snapshots and a background runner that survives quitting",
-          "Mates with personality prompts, saved notes, workspaces, and scheduled routines",
-          "Apple-native, CLI, MCP, and Composio connectors",
+          "Lives in the MacBook notch; works on Macs without one",
+          "Agents drafted from one sentence, with habits and limits saved in their own AGENTS.md",
+          "Agents plan first and wait for approval; undo snapshots for local files",
+          "Integrations shared by every agent: Apple apps, local command-line tools, MCP servers, and Composio web apps",
           "Local chat history and credentials, with provider connections you configure"
         ],
         "sameAs": ["https://github.com/UmarSiddiqui/heymate"]
@@ -80,19 +75,15 @@
       {
         "@type": "VideoObject",
         "name": "Meet HeyMate: 41-second illustrated tour",
-        "description": "An animated tour with recreated UI: HeyMate teaches a task step by step, answers questions about anything on screen, and runs on the AI you bring: a Claude or ChatGPT sign-in, OpenCode, your own API key, or local models.",
+        "description": "An animated tour with recreated UI: HeyMate teaches a task step by step, answers questions about anything on screen, and runs on the AI you bring.",
         "thumbnailUrl": "https://getheymate.vercel.app/assets/video/meet-heymate-poster.jpg",
         "contentUrl": "https://getheymate.vercel.app/assets/video/heymate-meet-v2.mp4",
-        "embedUrl": "https://getheymate.vercel.app/#demo",
+        "embedUrl": "https://getheymate.vercel.app/#tour",
         "uploadDate": "2026-10-11",
         "duration": "PT42S",
         "about": { "@id": "https://getheymate.vercel.app/#app" }
       },
-      {
-        "@type": "WebSite",
-        "name": "HeyMate",
-        "url": "https://getheymate.vercel.app/"
-      }
+      { "@type": "WebSite", "name": "HeyMate", "url": "https://getheymate.vercel.app/" }
     ]
   }
   </script>
@@ -112,359 +103,359 @@
   </script>
 </head>
 <body>
-  <a class="skip" href="#overview">Skip to content</a>
+  <a class="skip" href="#main">Skip to content</a>
+
   <header class="nav">
-    <a class="brand" href="#overview">
-      <img src="assets/img/icon/favicon-32.png" alt="" width="20" height="20">
-      HeyMate
-    </a>
-    <nav class="nav-links" aria-label="Primary">
-      <a href="#overview">Overview</a>
-      <a href="#mates">Mates</a>
-      <a href="#agents">Agents</a>
-      <a href="#privacy">Privacy</a>
-      <a href="#changelog">What's new</a>
-      <a data-github href="https://github.com/UmarSiddiqui/heymate" target="_blank" rel="noopener">GitHub</a>
-    </nav>
-    <a class="btn btn-pill nav-cta" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download free</a>
-    <button class="menu-btn" type="button" aria-expanded="false" aria-controls="sheet">Menu</button>
+    <div class="wrap nav-inner">
+      <a class="brand" href="#main"><img src="assets/img/icon/favicon-32.png" alt="" width="22" height="22">HeyMate</a>
+      <nav class="nav-links" aria-label="Primary">
+        <a href="#walkthrough">How it works</a>
+        <a href="#ai">Your AI</a>
+        <a href="#agents">Agents</a>
+        <a href="#integrations">Integrations</a>
+        <a href="#privacy">Privacy</a>
+        <a href="#changelog">What's new</a>
+        <a data-github href="https://github.com/UmarSiddiqui/heymate" target="_blank" rel="noopener">GitHub</a>
+      </nav>
+      <a class="btn" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download</a>
+      <button class="menu-btn" type="button" aria-expanded="false" aria-controls="sheet">Menu</button>
+    </div>
     <div class="nav-sheet" id="sheet">
-      <a href="#overview">Overview</a>
-      <a href="#mates">Mates</a>
+      <a href="#walkthrough">How it works</a>
+      <a href="#ai">Your AI</a>
       <a href="#agents">Agents</a>
+      <a href="#integrations">Integrations</a>
       <a href="#privacy">Privacy</a>
       <a href="#changelog">What's new</a>
       <a data-github href="https://github.com/UmarSiddiqui/heymate">GitHub</a>
-      <a data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download free</a>
+      <a data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download for Mac</a>
     </div>
   </header>
 
-  <main id="overview">
+  <main id="main">
     <section class="hero">
-      <div class="wrap center hero-reveal">
-        <p class="eyebrow">macOS · Free · Bring your own AI</p>
-        <h1>Learn your software.<br>One step at a time.</h1>
-        <p class="sub lede">Get step-by-step help in desktop apps and websites. Your mate points, explains, and waits while you try it. Free and open source. Bring your own AI: your Claude or ChatGPT plan, an API key, or a local model.</p>
-        <div class="cta-row center">
-          <a class="btn" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download free</a>
-          <a class="link" href="#demo">Watch the demo ›</a>
-        </div>
-        <p class="caption download-count" data-download-count hidden></p>
-      </div>
-      <!-- Screens: real HeyMate captures with demo data, composed at 3024x1964 (MacBook Pro 14") -->
       <div class="wrap">
-        <div class="stage hero-device">
-          <div class="device device-lg">
-            <div class="device-screen" style="background-image:url('assets/screens/hero.webp')"></div>
-            <img class="device-frame" src="assets/img/macbook-pro-14-silver.webp" alt="MacBook Pro showing HeyMate offering a standing order from the notch above a First Mate chat">
+        <div class="hero-copy">
+          <h1>Learn your software.<br><span class="h1-sub">One step at a time.</span></h1>
+          <div>
+            <p class="lede">HeyMate lives in your Mac's notch. Ask how to do something in the app or website in front of you, and it explains out loud, points at the next click, and waits while you try it.</p>
+            <p class="ask-line">Hold <kbd data-key>⌃</kbd><kbd data-key>⌥</kbd> and ask.</p>
+            <p class="try-hint" data-try-hint>Try it here: hold <b>Control + Option</b> on your keyboard, or press and hold the keys above. Then click what the pointer shows.</p>
+            <p class="byo-line"><span class="label">bring your own ai</span> Runs on the Claude, ChatGPT, or OpenCode plan you already have. No HeyMate subscription.</p>
+          </div>
+          <div class="hero-actions">
+            <a class="btn" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">
+              <svg class="apple" viewBox="0 0 14 17" aria-hidden="true"><path fill="currentColor" d="M11.6 9c0-2.1 1.7-3.1 1.8-3.2-1-1.4-2.5-1.6-3-1.7-1.3-.1-2.5.8-3.2.8-.7 0-1.7-.7-2.8-.7C2.9 4.2 1.6 5 .9 6.3c-1.5 2.6-.4 6.4 1 8.5.7 1 1.5 2.2 2.6 2.1 1-.1 1.4-.7 2.7-.7 1.2 0 1.6.7 2.7.7 1.1 0 1.8-1 2.5-2.1.8-1.2 1.1-2.3 1.1-2.4-.1 0-2.2-.8-2.2-3.4zM9.6 2.8c.6-.7 1-1.7.9-2.7-.9 0-1.9.6-2.6 1.3-.6.6-1.1 1.6-.9 2.6 1 .1 2-.5 2.6-1.2z"/></svg>
+              Download for Mac
+            </a>
+            <a class="text-link" href="#tour">Watch the 41-second tour</a>
+            <p class="small">Free and open source (MIT). The open-source alternative to HeyClicky. macOS 14.2 or later.</p>
+            <p class="small" data-download-count hidden></p>
+          </div>
+
+        </div>
+        <!-- Interactive demo. Recreated interface, not a recording. -->
+        <div class="screen" role="img" aria-label="Illustration: HeyMate opens from the notch and points through making a chart in a spreadsheet, one step at a time.">
+          <div class="display" data-demo>
+            <div class="menubar" aria-hidden="true"><span>Numbers</span><span>File</span><span>Edit</span><span>Insert</span><span>Table</span><span class="clock">Mon 9:41</span></div>
+            <div class="notch" aria-hidden="true">
+              <div class="notch-body">
+                <div class="notch-row">
+                  <span class="notch-face"><svg viewBox="0 0 16 16"><path fill="#5fd39d" d="M2 1l12 6.2-5.3 1.4L6.3 14z"/></svg></span>
+                  <span class="notch-step">step 1 of 3</span>
+                </div>
+                <p class="notch-say">First, select the sales numbers in column B.</p>
+                <div class="notch-wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+                <div class="notch-dots"><i class="on"></i><i></i><i></i></div>
+              </div>
+            </div>
+            <div class="app" aria-hidden="true">
+              <div class="app-bar">
+                <span class="lights"><i></i><i></i><i></i></span>
+                <span class="app-title">Q3 sales</span>
+                <span class="tool">Table</span>
+                <span class="tool" data-tool="chart">Chart</span>
+                <span class="tool optional">Text</span>
+                <span class="tool optional">Shape</span>
+              </div>
+              <div class="sheet-grid">
+                <div class="h"></div><div class="h">A</div><div class="h">B</div><div class="h">C</div><div class="h wide">D</div><div class="h wide">E</div>
+                <div class="h">1</div><div>Month</div><div>Sales</div><div>Goal</div><div class="wide"></div><div class="wide"></div>
+                <div class="h">2</div><div>July</div><div data-col="b">12,400</div><div>11,000</div><div class="wide"></div><div class="wide"></div>
+                <div class="h">3</div><div>August</div><div data-col="b">14,950</div><div>12,000</div><div class="wide"></div><div class="wide"></div>
+                <div class="h">4</div><div>September</div><div data-col="b">17,300</div><div>13,000</div><div class="wide"></div><div class="wide"></div>
+                <div class="h">5</div><div></div><div></div><div></div><div class="wide"></div><div class="wide"></div>
+                <div class="h">6</div><div></div><div></div><div></div><div class="wide"></div><div class="wide"></div>
+              </div>
+              <div class="chart"><i style="height:55%"></i><i style="height:72%"></i><i style="height:92%"></i></div>
+            </div>
+            <div class="pointer" aria-hidden="true">
+              <svg viewBox="0 0 26 26"><path fill="#5fd39d" stroke="#0e0e0f" stroke-width="1.5" stroke-linejoin="round" d="M3 2l20 10.4-8.6 2.3L10.2 24z"/></svg>
+              <span class="pointer-tip">Drag from here</span>
+            </div>
           </div>
         </div>
-        <p class="caption center">Requires macOS 14.2 or later. Works on Macs with or without a notch.</p>
       </div>
     </section>
 
-    <section class="film" id="demo">
-      <div class="wrap center reveal">
-        <p class="eyebrow">41-second illustrated tour</p>
-        <h2>Meet HeyMate.</h2>
-      </div>
+    <section class="section" id="walkthrough">
       <div class="wrap">
+        <div class="section-head">
+          <h2 class="reveal">You do the clicking. It does the explaining.</h2>
+          <p class="lede reveal">Open any desktop app or website and ask “walk me through this.” Use something without private content for your first try.</p>
+        </div>
+        <ol class="steps">
+          <li class="reveal"><span class="label">ask</span><h3>Say what you want to do.</h3><p>Hold <kbd>⌃</kbd><kbd>⌥</kbd> and ask out loud, or type into the notch.</p></li>
+          <li class="reveal"><span class="label">plan</span><h3>It looks, then lays out the steps.</h3><p>HeyMate reads the screen you're on and tells you how many steps it will take.</p></li>
+          <li class="reveal"><span class="label">point</span><h3>The pointer shows the next click.</h3><p>One step at a time, explained in plain words while you do it.</p></li>
+          <li class="reveal"><span class="label">check</span><h3>It looks again before moving on.</h3><p>Click the target or say “next.” A fresh look at the screen decides the following step.</p></li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="section" id="ai">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 class="reveal">Bring your own AI. Pay us nothing.</h2>
+          <p class="lede reveal">Sign in with the plan you already pay for, and that subscription does the work. HeyMate adds no fee and never meters your use. Your provider's own limits still apply.</p>
+        </div>
+        <ul class="brains">
+          <li class="reveal"><span class="tile"><img src="assets/img/logos/claude.svg" alt="" width="22" height="22" loading="lazy"></span><b>Claude</b><span>Sign in with your Claude plan. HeyMate uses the official Claude Code CLI.</span></li>
+          <li class="reveal"><span class="tile"><img src="assets/img/logos/openai.svg" alt="" width="22" height="22" loading="lazy"></span><b>ChatGPT</b><span>Sign in with your ChatGPT plan through the official Codex CLI.</span></li>
+          <li class="reveal"><span class="tile"><img src="assets/img/logos/opencode.svg" alt="" width="22" height="22" loading="lazy"></span><b>OpenCode</b><span>Free, local, or any provider OpenCode supports.</span></li>
+          <li class="reveal"><span class="tile mono" aria-hidden="true">API</span><b>Your API key</b><span>Any Anthropic-compatible or OpenAI-compatible server, including local ones.</span></li>
+          <li class="reveal"><span class="tile"><img src="assets/img/logos/apple.svg" alt="" width="22" height="22" loading="lazy"></span><b>Apple Intelligence</b><span>On supported Macs running macOS 26. Text only.</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section" id="agents">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 class="reveal">HeyMate talks. Your agents do the work.</h2>
+          <p class="lede reveal">Questions stay with HeyMate. Anything longer goes to an agent that works in its own folder, plans first, and waits for your yes.</p>
+        </div>
+        <div class="duo">
+          <article class="reveal">
+            <div class="who"><b>HeyMate</b><span class="label">in the notch</span></div>
+            <p>The one you talk to. It sees the screen when you ask, answers out loud, and hands bigger jobs to the right agent.</p>
+            <ul>
+              <li><strong>Points while it explains.</strong> Walkthroughs for apps and websites.</li>
+              <li><strong>Remembers you.</strong> Saves facts and preferences you agree to keep.</li>
+              <li><strong>Quiet on calls.</strong> Mutes itself when another app is using the mic.</li>
+            </ul>
+          </article>
+          <article class="reveal">
+            <div class="who"><b>Agents</b><span class="label">in the background</span></div>
+            <p>Named helpers for ongoing work. Each one runs on Claude Code, Codex, or OpenCode with the account you already have.</p>
+            <ul>
+              <li><strong>Plan, then ask.</strong> Nothing changes until you approve the plan.</li>
+              <li><strong>Routines.</strong> “Every morning at 8” runs on its own and reports back.</li>
+              <li><strong>Undo.</strong> Snapshots of local files before an approved run.</li>
+            </ul>
+          </article>
+        </div>
+        <ul class="roster reveal" aria-label="Example agents">
+          <li><img src="assets/img/faces/v3/signalpointer.webp" alt="" width="56" height="56"><b>Inbox Ivy</b><span>Drafts replies to customers every morning</span></li>
+          <li><img src="assets/img/faces/v3/instrumentlens.webp" alt="" width="56" height="56"><b>Market Radar</b><span>Watches competitors' prices each Monday</span></li>
+          <li><img src="assets/img/faces/v3/marginquill.webp" alt="" width="56" height="56"><b>Builds</b><span>Ships small fixes to your side projects</span></li>
+          <li><img src="assets/img/faces/v3/signalcomet.webp" alt="" width="56" height="56"><b>Screen Guide</b><span>Teaches the app on screen, step by step</span></li>
+        </ul>
+        <figure class="window reveal" style="margin:0">
+          <div class="window-bar" aria-hidden="true"><i></i><i></i><i></i><span>HeyMate</span></div>
+          <img src="assets/screens/v3/agent-chat.webp" width="2360" height="1480" loading="lazy" alt="HeyMate's window. The agent Inbox Ivy reports: drafted 6 replies and saved them in Gmail, nothing sent; two need you, a refund request and a late order.">
+        </figure>
+        <p class="small" style="margin-top:12px">Rendered from the app with sample data.</p>
+      </div>
+    </section>
+
+    <section class="section" id="builder">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 class="reveal">Describe an agent in one sentence.</h2>
+          <p class="lede reveal">Your AI drafts the rest: a name, how it works, what it must ask you about first, and a first task. Change anything before you create it.</p>
+        </div>
+        <div class="builder">
+          <div class="first reveal">
+            <div class="drafter" data-drafter>
+              <p class="label">new agent</p>
+              <div class="drafter-input" aria-live="polite"><span data-draft-text>Pick a sentence below</span><i class="caret"></i></div>
+              <div class="drafter-chips" role="group" aria-label="Example descriptions">
+                <button type="button" data-draft="inbox">Draft replies to customer email every morning</button>
+                <button type="button" data-draft="radar">Watch competitors' prices and tell me what changed</button>
+                <button type="button" data-draft="tutor">Teach me Figma, one step at a time</button>
+              </div>
+              <div class="drafter-card" data-draft-card hidden>
+                <div class="drafter-head"><img data-draft-face src="assets/img/faces/v3/signalpointer.webp" alt="" width="52" height="52"><div><b data-draft-name></b><span data-draft-role></span></div></div>
+                <p class="label">how it works</p>
+                <ul data-draft-habits></ul>
+                <p class="label">asks you before</p>
+                <ul class="asks" data-draft-asks></ul>
+              </div>
+            </div>
+            <p class="arrow-note">drafted by your own AI</p>
+            <p class="lede">The habits are saved in the agent's own <code>AGENTS.md</code>, so Claude Code and Codex follow them on every run, and HeyMate does too.</p>
+          </div>
+          <figure class="then reveal">
+            <p class="label" style="margin-bottom:12px">in the app</p>
+            <div class="window"><img src="assets/screens/v3/builder-review.webp" width="1080" height="1314" loading="lazy" alt="The drafted agent, Inbox Ivy. How it works: read new customer email each morning, save drafts in Gmail and never send them, lead with anything urgent. Asks you before: sending any email, offering refunds or discounts."></div>
+          </figure>
+        </div>
+        <div class="faces reveal"><p class="label">pick a face, or use your own picture</p><div class="faces-row"><img src="assets/img/faces/v3/signalpointer.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/signalcomet.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/signalorbit.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/instrumentlens.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/instrumentbell.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/instrumentfork.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/marginquill.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/marginseal.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/marginboat.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/cuteguy.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/cutegirl.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/animeguy.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/animegirl.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/styledguy.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/styledgirl.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/robot.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/orb.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/lilac.webp" alt="" width="48" height="48" loading="lazy"></div></div>
+      </div>
+    </section>
+
+    <section class="section" id="integrations">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 class="reveal">Connect an app once. Every agent can use it.</h2>
+          <p class="lede reveal">Integrations are shared across HeyMate and all your agents. Turn one off and it's off everywhere.</p>
+        </div>
+        <label class="finder reveal"><span class="visually-hidden">Search integrations</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+          <input type="search" placeholder="Does it work with…? Try Gmail, Notion, Docker" data-finder autocomplete="off">
+        </label>
+        <p class="finder-miss" data-finder-miss hidden>Not in this list? Composio covers hundreds more web apps, and any MCP server works too.</p>
+        <div class="directory">
+          <section class="reveal">
+            <h3>On your Mac</h3>
+            <p>Work right away. No account or key.</p>
+            <ul class="tiles"><li><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v14H4zM4 10h16M8 3v4M16 3v4"/></svg></span>Calendar</li><li><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7h11M9 12h11M9 17h11"/><circle cx="5" cy="7" r="1.2"/><circle cx="5" cy="12" r="1.2"/><circle cx="5" cy="17" r="1.2"/></svg></span>Reminders</li><li><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18H6zM9 8h6M9 12h6M9 16h4"/></svg></span>Notes</li><li><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18v12H3z"/><path d="M3 7l9 6 9-6"/></svg></span>Mail</li><li><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg></span>Messages</li><li><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="9" r="3.5"/><path d="M5 20c1.2-3.5 4-5 7-5s5.8 1.5 7 5"/></svg></span>Contacts</li><li><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4-8 4-8-4zM4 12l8 4 8-4M4 17l8 4 8-4"/></svg></span>Shortcuts</li><li><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7l2 2h9v11H3z"/></svg></span>Files</li><li><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/></svg></span>Music</li><li><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg></span>Maps</li></ul>
+          </section>
+          <section class="reveal">
+            <h3>On the web</h3>
+            <p>Sign in once through Composio, with a free key. Hundreds more than shown.</p>
+            <ul class="tiles"><li><span class="tile"><img src="assets/img/logos/gmail.svg" alt="" width="20" height="20" loading="lazy"></span>Gmail</li><li><span class="tile"><img src="assets/img/logos/googlecalendar.svg" alt="" width="20" height="20" loading="lazy"></span>Google Calendar</li><li><span class="tile"><img src="assets/img/logos/googledrive.svg" alt="" width="20" height="20" loading="lazy"></span>Google Drive</li><li><span class="tile"><img src="assets/img/logos/googledocs.svg" alt="" width="20" height="20" loading="lazy"></span>Google Docs</li><li><span class="tile"><img src="assets/img/logos/googlesheets.svg" alt="" width="20" height="20" loading="lazy"></span>Google Sheets</li><li><span class="tile"><img src="assets/img/logos/slack.svg" alt="" width="20" height="20" loading="lazy"></span>Slack</li><li><span class="tile"><img src="assets/img/logos/notion.svg" alt="" width="20" height="20" loading="lazy"></span>Notion</li><li><span class="tile"><img src="assets/img/logos/linear.svg" alt="" width="20" height="20" loading="lazy"></span>Linear</li><li><span class="tile"><img src="assets/img/logos/jira.svg" alt="" width="20" height="20" loading="lazy"></span>Jira</li><li><span class="tile"><img src="assets/img/logos/hubspot.svg" alt="" width="20" height="20" loading="lazy"></span>HubSpot</li><li><span class="tile"><img src="assets/img/logos/figma.svg" alt="" width="20" height="20" loading="lazy"></span>Figma</li><li><span class="tile"><img src="assets/img/logos/discord.svg" alt="" width="20" height="20" loading="lazy"></span>Discord</li><li><span class="tile"><img src="assets/img/logos/youtube.svg" alt="" width="20" height="20" loading="lazy"></span>YouTube</li></ul>
+          </section>
+          <section class="reveal">
+            <h3>Your own tools</h3>
+            <p>Command-line tools already signed in on this Mac, plus any MCP server.</p>
+            <ul class="tiles"><li><span class="tile"><img src="assets/img/logos/github.svg" alt="" width="20" height="20" loading="lazy"></span>GitHub CLI</li><li><span class="tile"><img src="assets/img/logos/git.svg" alt="" width="20" height="20" loading="lazy"></span>git</li><li><span class="tile"><img src="assets/img/logos/docker.svg" alt="" width="20" height="20" loading="lazy"></span>Docker</li><li><span class="tile"><img src="assets/img/logos/vercel.svg" alt="" width="20" height="20" loading="lazy"></span>Vercel</li><li><span class="tile"><img src="assets/img/logos/supabase.svg" alt="" width="20" height="20" loading="lazy"></span>Supabase</li><li><span class="tile"><img src="assets/img/logos/stripe.svg" alt="" width="20" height="20" loading="lazy"></span>Stripe</li><li><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5v14"/></svg></span>MCP servers</li></ul>
+          </section>
+        </div>
+        <p class="rule-note reveal"><span class="label">the rule</span><span>Reading runs quietly. Anything that sends, deletes, or pays asks you first, every time.</span></p>
+      </div>
+    </section>
+
+
+    <section class="section film" id="tour">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 class="reveal">Meet HeyMate in 41 seconds.</h2>
+          <p class="lede reveal">An illustrated tour: a chart taught step by step, a question about the screen, and the AI you bring.</p>
+        </div>
         <div class="film-frame reveal">
-          <video class="film-landscape" controls preload="none" playsinline poster="assets/video/meet-heymate-poster.jpg" aria-label="Illustrated tour: HeyMate teaches a spreadsheet chart step by step, answers questions about anything on screen, and connects to the AI you bring" aria-describedby="demo-disclosure">
+          <video class="film-landscape" controls preload="none" playsinline poster="assets/video/meet-heymate-poster.jpg" aria-label="Illustrated tour: HeyMate teaches a spreadsheet chart step by step, answers questions about anything on screen, and connects to the AI you bring" aria-describedby="tour-note">
             <source src="assets/video/heymate-meet-v2.mp4" type="video/mp4">
           </video>
-          <video class="film-vertical" controls preload="none" playsinline poster="assets/video/meet-heymate-vertical-poster.jpg" aria-label="Illustrated tour, vertical cut: HeyMate teaches a spreadsheet chart step by step, answers questions about anything on screen, and connects to the AI you bring" aria-describedby="demo-disclosure">
+          <video class="film-vertical" controls preload="none" playsinline poster="assets/video/meet-heymate-vertical-poster.jpg" aria-label="Illustrated tour, vertical cut" aria-describedby="tour-note">
             <source src="assets/video/heymate-meet-vertical.mp4" type="video/mp4">
           </video>
         </div>
-        <p class="caption center wrap-narrow" id="demo-disclosure" style="margin-top:14px"><strong>Illustrated tour.</strong> Recreated interface and example conversations, not a screen recording. Bring your own AI: your Claude or ChatGPT plan, OpenCode, your own API key, or local models. Screen guidance needs a vision-capable model. Music: <a href="https://soundcloud.com/peyruis">Show Me by Peyruis</a>, <a href="https://creativecommons.org/licenses/by/3.0/">CC BY 3.0</a>.</p>
+        <p class="small" id="tour-note">Recreated interface and example conversations, not a screen recording. Screen guidance needs a vision-capable model. Music: <a href="https://soundcloud.com/peyruis">Show Me by Peyruis</a>, <a href="https://creativecommons.org/licenses/by/3.0/">CC BY 3.0</a>.</p>
       </div>
     </section>
 
-    <section class="band">
-      <div class="wrap center reveal">
-        <h2>Try a task you want to learn.</h2>
-        <p class="sub">Open a desktop app or website, hold Control + Option, and ask: “Walk me through this, one step at a time.” HeyMate shows a plan, points to the first action, and checks the screen again when you click the target or say “next.”</p>
-      </div>
-    </section>
-
-    <section class="story" id="notch" data-story>
-      <div class="story-sticky">
-        <div>
-          <article class="beat on">
-            <p class="eyebrow">Collapsed</p>
-            <h3>Out of the way.</h3>
-            <p class="sub" style="margin-top:12px">It folds into the camera housing while you work. Hover to peek, click to open.</p>
-          </article>
-          <article class="beat">
-            <p class="eyebrow">Home</p>
-            <h3>One glance, everything ready.</h3>
-            <p class="sub" style="margin-top:12px">Ask HeyMate, see your last agent, or jump to Agents, Skills, and Settings.</p>
-          </article>
-          <article class="beat">
-            <p class="eyebrow">Apps</p>
-            <h3>Small apps for the space you never used.</h3>
-            <p class="sub" style="margin-top:12px">Everything you'd want from a notch app: Now Playing with album art and a live visualizer, a File Shelf with AirDrop, your next event, battery, volume and brightness HUDs, Bluetooth devices, and a camera mirror. Plus focus timers, clipboard history, and downloads. Turn on only what you want.</p>
-          </article>
-        </div>
-        <div class="stage" style="margin-top:0">
-          <!-- IMG-03 collapsed pill, tucked into the MacBook notch -->
-          <div class="panel on">
-            <div class="device">
-              <div class="device-screen" style="background-image:url('assets/screens/collapsed.webp')"></div>
-              <img class="device-frame" src="assets/img/macbook-pro-14-silver.webp" alt="MacBook Pro, collapsed notch">
-            </div>
-          </div>
-          <div class="panel">
-            <div class="device">
-              <div class="device-screen" style="background-image:url('assets/screens/home.webp')"></div>
-              <img class="device-frame" src="assets/img/macbook-pro-14-silver.webp" alt="MacBook Pro, notch home">
-            </div>
-          </div>
-          <div class="panel">
-            <div class="device">
-              <div class="device-screen" style="background-image:url('assets/screens/apps.webp')"></div>
-              <img class="device-frame" src="assets/img/macbook-pro-14-silver.webp" alt="MacBook Pro, notch apps">
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="pillars">
+    <section class="section" id="privacy">
       <div class="wrap">
-        <h2 class="center reveal">Help that stays close to your work.</h2>
-        <div class="grid-3">
-          <article class="card reveal">
-            <!-- IMG-06: loop from marketing/demo-video (clip-vision) -->
-            <div class="card-clip">
-              <video data-autoloop muted loop playsinline preload="none" poster="assets/video/clip-vision-poster-v2.jpg" aria-label="HeyMate's cursor flies to the process hogging the CPU in Activity Monitor and says what to close">
-                <source src="assets/video/clip-vision-v2.mp4" type="video/mp4">
-              </video>
-            </div>
-            <h3>Learn by doing.</h3>
-            <p>Hold <kbd>⌃</kbd><kbd>⌥</kbd> and ask how to use the desktop app or website in front of you. Hear the explanation and follow the pointer. During a walkthrough, HeyMate captures fresh screen context between steps. You can correct a step or stop at any time.</p>
-          </article>
-          <article class="card reveal">
-            <!-- IMG-07 -->
-            <div class="chips">
-              <span class="chip"><span class="dot"></span>claude</span>
-              <span class="chip"><span class="dot"></span>codex</span>
-              <span class="chip"><span class="dot"></span>opencode</span>
-            </div>
-            <h3>It runs on your subscription.</h3>
-            <p>Sign in through the official Claude Code or Codex CLI. HeyMate adds no subscription fee. Your provider's plan limits still apply; optional API and voice services can have their own charges.</p>
-          </article>
-          <article class="card reveal">
-            <!-- IMG-08: loop from marketing/demo-video (clip-agents) -->
-            <div class="card-clip">
-              <video data-autoloop muted loop playsinline preload="none" poster="assets/video/clip-agents-poster.jpg" aria-label="An agent's plan is approved, runs, and finishes with an undo snapshot">
-                <source src="assets/video/clip-agents.mp4" type="video/mp4">
-              </video>
-            </div>
-            <h3>It asks before it acts.</h3>
-            <p>Coding agents show a read-only plan before execution. Approved jobs get workspace snapshots for undo, and connected tools have approval rules for external actions. Undo covers local files, not messages already sent or remote changes.</p>
-          </article>
+        <div class="section-head">
+          <h2 class="reveal">Know what it can see.</h2>
+          <p class="lede reveal">The screen is captured when you ask, and between walkthrough steps. Routines and approved agents can run in the background.</p>
         </div>
+        <div class="facts">
+          <article class="reveal"><h3>On your disk</h3><p>Chats, memory, agents, and routines live in <code>~/Library/Application Support/heymate/</code>. Chat history keeps no screenshots or audio.</p></article>
+          <article class="reveal"><h3>Your keys stay here</h3><p>Credentials are stored on this Mac and used only with the services you connect. Questions and screen context go to the AI you picked.</p></article>
+          <article class="reveal"><h3>Skips what's private</h3><p>Password managers and System Settings are never captured by default.</p></article>
+          <article class="reveal"><h3>Hidden on calls</h3><p>One switch hides the notch and pointer from screen shares.</p></article>
+        </div>
+        <div class="perms">
+          <h3 class="reveal">What you allow, and what it unlocks</h3>
+          <p class="reveal">One <strong>Allow all</strong> during setup. Each line in Settings › Privacy &amp; Data says whether it's on, and HeyMate never asks again on its own.</p>
+          <ul><li class="reveal"><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span><b>Microphone</b><span class="can">HeyMate hears you while you hold ⌃⌥</span></li><li class="reveal"><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"/></svg></span><b>Speech Recognition</b><span class="can">HeyMate turns your voice into text</span></li><li class="reveal"><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v12H3zM8 21h8M12 17v4"/></svg></span><b>Screen Recording</b><span class="can">HeyMate sees your screen when you ask</span></li><li class="reveal"><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3l12 6-5 1.5L9.5 16z"/><path d="M14 14l5 5"/></svg></span><b>Accessibility</b><span class="can">HeyMate points, clicks, and types for you</span></li><li class="reveal"><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h18v11H3z"/><path d="M7 11h1M11 11h1M15 11h1M8 15h8"/></svg></span><b>Input Monitoring</b><span class="can">HeyMate hears ⌃⌥ in every app</span></li><li class="reveal"><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></span><b>Notifications</b><span class="can">HeyMate tells you when an agent finishes</span></li><li class="reveal"><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v14H4zM4 10h16M8 3v4M16 3v4"/></svg></span><b>Calendar</b><span class="can">HeyMate reads and adds events</span></li><li class="reveal"><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7h11M9 12h11M9 17h11"/><circle cx="5" cy="7" r="1.2"/><circle cx="5" cy="12" r="1.2"/><circle cx="5" cy="17" r="1.2"/></svg></span><b>Reminders</b><span class="can">HeyMate reads and adds reminders</span></li><li class="reveal"><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="9" r="3.5"/><path d="M5 20c1.2-3.5 4-5 7-5s5.8 1.5 7 5"/></svg></span><b>Contacts</b><span class="can">HeyMate looks up people you mention</span></li></ul>
+        </div>
+        <p class="links-row"><a class="text-link" href="privacy.html">Read the privacy notes</a><a class="text-link" href="permissions.html">Every permission, explained</a></p>
       </div>
     </section>
 
-    <section class="pad" id="mates">
-      <div class="wrap split">
-        <div class="reveal">
-          <p class="eyebrow">Mates</p>
-          <h2>A familiar mate for each job.</h2>
-          <p class="sub" style="margin-top:20px">Create a patient design tutor from the Mates view. Choose a name, a job, a personality, and a face. Give your mate a workspace and, when useful, a routine. Start with one clear job and shape how it helps you.</p>
-          <ul class="bullets">
-            <li><strong>Personality and notes.</strong> Set a personality prompt and saved notes for each mate.</li>
-            <li><strong>Routines.</strong> Daily at 9, or every 4 hours. Results land in the mate's chat, even while you're elsewhere.</li>
-            <li><strong>Faces.</strong> Twenty built-in, or drop in your own.</li>
-          </ul>
-        </div>
-        <!-- IMG-09 -->
-        <div class="reveal">
-          <div class="device">
-            <div class="device-screen" style="background-image:url('assets/screens/mates.webp')"></div>
-            <img class="device-frame" src="assets/img/macbook-pro-14-silver.webp" alt="HeyMate window with the Comments mate's morning digest, its memory, and its daily 8:30 routine">
-          </div>
-        </div>
-      </div>
-      <!-- IMG-10 -->
+    <section class="section" id="changelog">
       <div class="wrap">
-        <div class="faces" aria-label="Twenty built-in mate faces">
-          <img src="assets/img/faces/lilac.jpg" alt="Lilac">
-          <img src="assets/img/faces/peach.jpg" alt="Peach">
-          <img src="assets/img/faces/sky.jpg" alt="Sky">
-          <img src="assets/img/faces/butter.jpg" alt="Butter">
-          <img src="assets/img/faces/mint.jpg" alt="Mint">
-          <img src="assets/img/faces/blush.jpg" alt="Blush">
-          <img src="assets/img/faces/indigo.jpg" alt="Indigo">
-          <img src="assets/img/faces/star.jpg" alt="Star">
-          <img src="assets/img/faces/crescent.jpg" alt="Crescent">
-          <img src="assets/img/faces/coral.jpg" alt="Coral">
-          <img src="assets/img/faces/cloud.jpg" alt="Cloud">
-          <img src="assets/img/faces/amber.jpg" alt="Amber">
-          <img src="assets/img/faces/cute-guy.jpg" alt="Cute guy">
-          <img src="assets/img/faces/cute-girl.jpg" alt="Cute girl">
-          <img src="assets/img/faces/anime-guy.jpg" alt="Anime guy">
-          <img src="assets/img/faces/anime-girl.jpg" alt="Anime girl">
-          <img src="assets/img/faces/styled-guy.jpg" alt="Styled guy">
-          <img src="assets/img/faces/styled-girl.jpg" alt="Styled girl">
-          <img src="assets/img/faces/robot.jpg" alt="Robot">
-          <img src="assets/img/faces/orb.jpg" alt="Orb">
+        <div class="section-head">
+          <h2 class="reveal">What's new.</h2>
+          <p class="lede reveal">HeyMate updates itself. Here's what the latest releases changed.</p>
         </div>
-      </div>
-    </section>
-
-    <section class="connect">
-      <div class="wrap center">
-        <h2 class="reveal">Plugs into the apps you already use.</h2>
-        <p class="sub lede reveal">Apple Calendar, Reminders, Notes, Mail and Messages out of the box. Your local <span class="code">gh</span>, <span class="code">git</span>, <span class="code">docker</span>, <span class="code">kubectl</span>, <span class="code">vercel</span>, <span class="code">supabase</span> and <span class="code">stripe</span> CLIs with your own logins. Any MCP server. And <span data-count="1400">1,400+</span> more through Composio, with your own free key.</p>
-      </div>
-      <!-- IMG-11 -->
-      <div class="marquee" style="margin-top:56px">
-        <div class="marquee-track">
-          <span class="word">Calendar</span><span class="word">Reminders</span><span class="word">Notes</span><span class="word">Mail</span><span class="word">Messages</span><span class="word">Shortcuts</span><span class="word">GitHub</span><span class="word">Git</span><span class="word">Docker</span><span class="word">Kubernetes</span><span class="word">AWS</span><span class="word">Vercel</span>
-          <span class="word">Calendar</span><span class="word">Reminders</span><span class="word">Notes</span><span class="word">Mail</span><span class="word">Messages</span><span class="word">Shortcuts</span><span class="word">GitHub</span><span class="word">Git</span><span class="word">Docker</span><span class="word">Kubernetes</span><span class="word">AWS</span><span class="word">Vercel</span>
-        </div>
-      </div>
-      <div class="marquee reverse">
-        <div class="marquee-track">
-          <span class="word">Supabase</span><span class="word">Stripe</span><span class="word">Notion</span><span class="word">Slack</span><span class="word">Gmail</span><span class="word">YouTube</span><span class="word">Linear</span><span class="word">Figma</span><span class="word">Postgres</span><span class="word">Playwright</span><span class="word">MCP</span>
-          <span class="word">Supabase</span><span class="word">Stripe</span><span class="word">Notion</span><span class="word">Slack</span><span class="word">Gmail</span><span class="word">YouTube</span><span class="word">Linear</span><span class="word">Figma</span><span class="word">Postgres</span><span class="word">Playwright</span><span class="word">MCP</span>
-        </div>
-      </div>
-      <!-- IMG-12 -->
-      <div class="wrap">
-        <div class="stage reveal" style="margin-top:64px">
-          <div class="device device-lg">
-            <div class="device-screen" style="background-image:url('assets/screens/tools.webp')"></div>
-            <img class="device-frame" src="assets/img/macbook-pro-14-silver.webp" alt="HeyMate Tools: Gmail, GitHub and Google Calendar connected, more apps one click away">
-          </div>
-        </div>
-        <div class="card callout reveal">
-          <div class="q" style="font-weight:600">Connect YouTube to HeyMate</div>
-          <p class="d" style="color:var(--fg-2);font-size:15px;margin-top:6px">You're on youtube.com. Connect it, and later questions can use it. Read only until you say yes.</p>
-        </div>
-        <p class="caption center">Read-only calls run quietly. Anything that sends, deletes, or pays asks first.</p>
-      </div>
-    </section>
-
-    <section class="agents" id="agents">
-      <div class="wrap">
-        <p class="eyebrow">Coding agents</p>
-        <h2>Real work. With a leash.</h2>
-        <p class="sub" style="max-width:760px">"HeyMate agent, add dark mode to this project." HeyMate opens a sandbox in <span class="code" style="background:#fff;color:#1d1d1f;border-color:rgba(0,0,0,.12)">~/Projects/heymate</span>, has Claude Code or Codex draft a plan, and shows you the plan before a single file changes. Approve it, walk away, and it keeps running even if you quit.</p>
-        <div class="agents-visual">
-          <!-- IMG-13 -->
-          <div class="device">
-            <div class="device-screen" style="background-image:url('assets/screens/agents.webp')"></div>
-            <img class="device-frame" src="assets/img/macbook-pro-14-silver.webp" alt="HeyMate Agents: a Claude Code plan waiting for approval above a finished job with its completion receipt">
-          </div>
-          <!-- IMG-14 -->
-          <div class="diagram" style="margin-top:0">
-            <article><em>01</em><h3 style="font-size:22px;margin-top:8px">Plan</h3><p style="color:#424245;font-size:15px">Read-only inspection.</p></article>
-            <article><em>02</em><h3 style="font-size:22px;margin-top:8px">Approve</h3><p style="color:#424245;font-size:15px">You see the diff of intent.</p></article>
-            <article><em>03</em><h3 style="font-size:22px;margin-top:8px">Run</h3><p style="color:#424245;font-size:15px">Background runner, undo snapshots, Terminal takeover anytime.</p></article>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="privacy" id="privacy">
-      <div class="wrap center">
-        <h2 class="reveal">Know what your mate can see.</h2>
-        <p class="sub lede reveal">Screen context is used for active interactions that need it, including new captures between walkthrough steps. Enabled routines, standing orders, and approved jobs can run in the background.</p>
-        <div class="facts" style="text-align:left">
-          <article class="fact reveal"><strong>On your disk.</strong><p>Chat history, memory, mates, and routines live in ~/Library/Application Support/heymate/. HeyMate chat history does not contain screenshot or audio bytes.</p></article>
-          <article class="fact reveal"><strong>On your Mac.</strong><p>Credentials are stored locally and used with services you connect. Questions and screen context go to your selected AI provider.</p></article>
-          <article class="fact reveal"><strong>Capture controls.</strong><p>Password managers and System Settings are excluded by default. Some integrations use temporary screenshot files; see the privacy notes.</p></article>
-          <article class="fact reveal"><strong>Invisible on calls.</strong><p>One switch hides the notch and cursor from screen shares.</p></article>
-        </div>
-        <div class="stage reveal" style="margin-top:56px">
-          <div class="device device-lg">
-            <div class="device-screen" style="background-image:url('assets/screens/privacy.webp')"></div>
-            <img class="device-frame" src="assets/img/macbook-pro-14-silver.webp" alt="HeyMate Privacy settings: apps that are never captured, and what leaves this Mac">
-          </div>
-        </div>
-        <p style="margin-top:28px"><a class="link" href="privacy.html">Read the privacy notes ›</a> &nbsp; <a class="link" href="permissions.html">Every permission, explained ›</a></p>
-      </div>
-    </section>
-
-    <section class="whatsnew" id="changelog">
-      <div class="wrap center">
-        <h2 class="reveal">What's new.</h2>
-        <p class="sub lede reveal">HeyMate checks for updates on its own. Here's what the latest releases changed.</p>
         <!-- Latest three releases. Keep in sync with changelog.html (newest first). -->
         <ol class="releases">
           <li class="release reveal">
+            <div class="release-meta"><span class="release-version">1.0.48</span><time class="release-date" datetime="2026-10-12">Oct 12, 2026</time></div>
+            <ul>
+              <li><strong>Make an agent from one sentence.</strong> Your own AI drafts its name, habits, what it must ask you first, and a first task. Change anything before you create it.</li>
+              <li><strong>Just HeyMate and your agents.</strong> The main chat is HeyMate again, everyone else is an agent, and running work lives in Activity.</li>
+              <li><strong>Allow all, once.</strong> Every permission in one list that says what it unlocks. HeyMate never blocks you if one is off.</li>
+              <li><strong>Any OpenAI-compatible API,</strong> and updates that install themselves.</li>
+            </ul>
+          </li>
+          <li class="release reveal">
             <div class="release-meta"><span class="release-version">1.0.46</span><time class="release-date" datetime="2026-10-12">Oct 12, 2026</time></div>
             <ul>
-              <li><strong>Safer on the web.</strong> Web pages you visit can no longer reach HeyMate's built-in local server, so a site can't make HeyMate speak, take a screenshot, or add a mate behind your back.</li>
-              <li><strong>Every release is checked by hand.</strong> New versions are now approved before they're signed and published, and the build signs HeyMate before running any outside tools.</li>
+              <li><strong>Safer on the web.</strong> Web pages you visit can no longer reach HeyMate's built-in local server, so a site can't make HeyMate speak, take a screenshot, or add an agent behind your back.</li>
+              <li><strong>Every release is checked by hand.</strong> New versions are now approved before they're signed and published.</li>
             </ul>
           </li>
           <li class="release reveal">
             <div class="release-meta"><span class="release-version">1.0.44</span><time class="release-date" datetime="2026-10-12">Oct 12, 2026</time></div>
             <ul>
-              <li><strong>Chats and Agents, side by side.</strong> The window's sidebar now has two tabs: Chats for your own conversations with HeyMate, and Agents for everyone else. New chat always starts fresh with HeyMate.</li>
-              <li><strong>Meet a cast.</strong> Answer a few questions and HeyMate suggests three agents for the work you do, each with its own face. New face packs (Signal, Margin, and Instrument) join the originals, and your existing agents keep the faces they have.</li>
-              <li><strong>Talk to a working agent from the notch.</strong> Mates are now called agents everywhere, and you can send one a follow-up from the notch while it's still working.</li>
-            </ul>
-          </li>
-          <li class="release reveal">
-            <div class="release-meta"><span class="release-version">1.0.42</span><time class="release-date" datetime="2026-10-12">Oct 12, 2026</time></div>
-            <ul>
-              <li><strong>The window hangs from the notch.</strong> HeyMate's window now drops out of the notch on a narrow neck and folds away when you switch apps. Detach it to get a normal window, and attach it back with one click.</li>
-              <li><strong>An inbox for your mates.</strong> The sidebar shows each mate's latest message and when it arrived. Each mate has a profile with a big portrait, its routines, and its files as thumbnails, and an empty chat leads with a big Hold to talk button.</li>
-              <li><strong>Dictation learns your words.</strong> Fix a word HeyMate typed for you and it hears that word right next time. Learned words are listed, and can be cleared, in Settings › Talk &amp; Voice.</li>
-              <li><strong>Pick a voice by ear.</strong> Choose from ten on-device voices by tapping to hear each one, and set how fast HeyMate talks (0.75× to 1.5×).</li>
-              <li><strong>Small things that add up.</strong> Esc stops a reply, talking keeps working when you switch microphones or AirPods connect, screenshots no longer pick HeyMate's invisible overlay, jobs play a sound when they start, need you, or finish, and shortcuts show as key caps.</li>
+              <li><strong>Chats and Agents, side by side.</strong> The sidebar has two tabs: Chats for your conversations with HeyMate, and Agents for everyone else.</li>
+              <li><strong>New face packs.</strong> Signal, Margin, and Instrument join the originals.</li>
             </ul>
           </li>
         </ol>
-        <p style="margin-top:28px"><a class="link" href="changelog.html">Full changelog ›</a></p>
+        <p class="links-row"><a class="text-link" href="changelog.html">Full changelog</a></p>
       </div>
     </section>
 
-    <section class="setup">
+    <section class="section" id="install">
       <div class="wrap">
-        <h2 class="center reveal">Your first walkthrough starts here.</h2>
-        <div class="steps">
-          <article class="step reveal">
-            <h3>Install HeyMate</h3>
-            <p>Download the DMG below, or inspect the installer before running this command in Terminal.</p>
-            <p class="code" data-copy="curl -fsSL https://getheymate.vercel.app/install.sh | bash" data-copy-event="install_copy">curl -fsSL getheymate.vercel.app/install.sh | bash</p>
-            <p class="caption">Or with Homebrew:</p>
-            <p class="code" data-copy data-copy-event="brew_copy">brew install umarsiddiqui/tap/heymate</p>
-            <p class="caption">Or <a data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">download the DMG</a>. Current builds are self-signed and not notarized by Apple. If macOS blocks the first launch, review the app and use System Settings &gt; Privacy &amp; Security &gt; Open Anyway if you choose to proceed.</p>
-            <p class="caption">It will ask for Microphone, Accessibility, and Screen Recording. <a href="permissions.html">Here's exactly why</a>.</p>
-          </article>
-          <article class="step reveal">
-            <h3>Bring the AI you already have.</h3>
-            <p>Claude or ChatGPT: click sign in and finish in your browser. HeyMate sets up the rest. Or use OpenCode with free, local, or other models, or your own API key for an Anthropic-compatible server.</p>
-            <p class="caption">Apple Intelligence is an optional text-only brain on supported Macs running macOS 26 or later. It cannot see the screen. Screen guidance needs a vision-capable provider.</p>
-          </article>
-          <article class="step reveal">
-            <h3>Hold <kbd>⌃</kbd><kbd>⌥</kbd> and say hey.</h3>
-            <p>Open a desktop app or website and ask “Walk me through this, one step at a time.” Use a sample task without private content for your first try.</p>
-          </article>
+        <div class="section-head">
+          <h2 class="reveal">Install in one line.</h2>
+          <p class="lede reveal">It asks for Microphone, Accessibility, and Screen Recording. <a class="text-link" href="permissions.html">Here's exactly why.</a></p>
         </div>
-        <p class="caption center">HeyMate is free under the MIT license. Provider limits and optional service charges apply. The <a href="install.sh">installer</a> replaces /Applications/HeyMate.app and removes its quarantine attribute; this does not provide Apple notarization.</p>
-        <p class="caption center">Suggestions, bugs, or trouble installing? Email me at <a href="mailto:umarsiddiqui3037+heymate@gmail.com?subject=HeyMate">umarsiddiqui3037+heymate@gmail.com</a> or <a href="https://github.com/UmarSiddiqui/heymate/issues/new/choose">open an issue</a>.</p>
+        <div class="install">
+          <article class="reveal recommended">
+            <span class="badge">Recommended</span>
+            <span class="label">terminal · about 20 seconds</span>
+            <h3>Paste one line</h3>
+            <p>Open Terminal, paste this, press Return. It installs the latest HeyMate into Applications and opens it, with no “Open Anyway” trip to System Settings. <a class="text-link" href="install.sh">Read the script first</a> if you like.</p>
+            <div class="cmdline"><code><span class="prompt" aria-hidden="true">$</span>curl -fsSL https://getheymate.vercel.app/install.sh | bash</code><button class="copy-btn" type="button" data-copy="curl -fsSL https://getheymate.vercel.app/install.sh | bash" data-copy-event="install_copy">Copy</button></div>
+          </article>
+          <div class="install-cmds">
+            <article class="reveal">
+              <span class="label">homebrew</span>
+              <h3>Already use Homebrew?</h3>
+              <div class="cmdline"><code><span class="prompt" aria-hidden="true">$</span>brew install umarsiddiqui/tap/heymate</code><button class="copy-btn" type="button" data-copy="brew install umarsiddiqui/tap/heymate" data-copy-event="brew_copy">Copy</button></div>
+            </article>
+            <article class="reveal">
+              <span class="label">download</span>
+              <h3>Prefer a DMG?</h3>
+              <p>Drag HeyMate into Applications. Builds are self-signed, not notarized by Apple, so the first launch needs Open Anyway in Privacy &amp; Security.</p>
+              <a class="text-link" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download HeyMate.dmg</a>
+            </article>
+          </div>
+        </div>
+        <div class="fine">
+          <p class="small">HeyMate is free under the MIT license. Provider limits and optional service charges apply.</p>
+          <p class="small">Ideas, bugs, or trouble installing? Email <a href="mailto:umarsiddiqui3037+heymate@gmail.com?subject=HeyMate">umarsiddiqui3037+heymate@gmail.com</a> or <a data-github href="https://github.com/UmarSiddiqui/heymate">open an issue on GitHub</a>.</p>
+        </div>
       </div>
     </section>
 
     <section class="finale">
-      <div class="wrap center">
-        <!-- IMG-15 -->
-        <img class="mark" src="assets/img/icon/icon-192.png" alt="">
+      <div class="wrap">
         <h2>Say hey.</h2>
-        <div class="cta-row center">
-          <a class="btn" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download free</a>
-          <a class="link" data-github href="https://github.com/UmarSiddiqui/heymate" target="_blank" rel="noopener">View on GitHub ›</a>
+        <div class="hero-actions">
+          <a class="btn" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download for Mac</a>
+          <a class="btn btn-quiet" data-github href="https://github.com/UmarSiddiqui/heymate" target="_blank" rel="noopener">View on GitHub</a>
         </div>
-        <p class="caption">macOS 14.2+ · Apple silicon and Intel · No account required</p>
+        <p class="small" style="margin-top:18px">macOS 14.2+ · Apple silicon and Intel · No account required</p>
       </div>
     </section>
   </main>
@@ -472,22 +463,20 @@
   <footer class="footer">
     <div class="wrap footer-grid">
       <div>
-        <p class="wordmark">HEYMATE</p>
-        <p class="caption" style="margin-top:8px">Made for the Mac.</p>
-        <p class="caption" style="margin-top:4px">Inspired by <a href="https://github.com/TheBoredTeam/boring.notch">Boring Notch</a>.</p>
+        <a class="brand" href="#main"><img src="assets/img/icon/favicon-32.png" alt="" width="22" height="22">HeyMate</a>
+        <p style="margin-top:10px">Made for the Mac. Inspired by <a href="https://github.com/TheBoredTeam/boring.notch">Boring Notch</a>.</p>
       </div>
       <div>
-        <h4>Product</h4>
+        <h4>product</h4>
         <ul>
-          <li><a href="#overview">Overview</a></li>
-          <li><a href="#mates">Mates</a></li>
+          <li><a href="#walkthrough">How it works</a></li>
           <li><a href="#agents">Agents</a></li>
-          <li><a href="#privacy">Privacy</a></li>
+          <li><a href="#integrations">Integrations</a></li>
           <li><a href="changelog.html">Changelog</a></li>
         </ul>
       </div>
       <div>
-        <h4>Developers</h4>
+        <h4>developers</h4>
         <ul>
           <li><a data-github href="https://github.com/UmarSiddiqui/heymate">GitHub</a></li>
           <li><a href="https://github.com/UmarSiddiqui/heymate/blob/main/README.md">README</a></li>
@@ -496,7 +485,7 @@
         </ul>
       </div>
       <div>
-        <h4>Legal</h4>
+        <h4>legal</h4>
         <ul>
           <li><a href="privacy.html">Privacy</a></li>
           <li><a href="permissions.html">Permissions</a></li>
@@ -505,13 +494,14 @@
       </div>
     </div>
     <div class="wrap">
-      <p class="legal">© 2026 HeyMate. Not affiliated with Apple, Anthropic, or OpenAI. Claude, ChatGPT, and macOS are trademarks of their respective owners.</p>
+      <p class="legal">© 2026 HeyMate. Not affiliated with Apple, Anthropic, OpenAI, or HeyClicky. Claude, ChatGPT, and macOS are trademarks of their respective owners.</p>
     </div>
   </footer>
 
   <script src="js/config.js"></script>
-  <script src="js/main.js"></script>
-  <script src="js/sticky.js"></script>
+  <script src="js/main.js?v=3"></script>
+  <script src="js/notch.js?v=3"></script>
+  <script src="js/play.js?v=4"></script>
   <script src="js/downloads.js"></script>
 </body>
 </html>

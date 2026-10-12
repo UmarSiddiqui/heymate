@@ -14,11 +14,11 @@ Working launch plan, updated 11 October 2026. Published work is recorded below; 
 
 ## Lead with a useful task
 
-**Positioning:** Learn your software. One step at a time.
+**Positioning:** Learn your software. One step at a time. HeyMate is the open-source alternative to HeyClicky. Bring your own AI: your existing Claude, ChatGPT (Codex), or OpenCode subscription does the work. HeyMate is free and MIT licensed; we do not meter your model use. Provider limits and optional paid connectors still apply.
 
-**One sentence:** HeyMate gives spoken, step-by-step guidance while you learn desktop apps and websites. Free and open source, currently available for macOS.
+**One sentence:** HeyMate gives spoken, step-by-step guidance while you learn desktop apps and websites—the open-source alternative to HeyClicky on macOS, using the AI subscription you already have.
 
-**First audience:** People using macOS who want to learn a creative tool, everyday desktop app, or website. macOS is the current host platform; the teaching scope is software, including the web. Start with one observable result, such as removing a background from a sample logo in Photopea. Coding agents and notch utilities can support the story after the main benefit is clear.
+**First audience:** People using macOS who want to learn a creative tool, everyday desktop app, or website, including those looking for an open-source, bring-your-own-AI companion in the HeyClicky category. macOS is the current host platform; the teaching scope is software, including the web. Start with one observable result, such as removing a background from a sample logo in Photopea. Coding agents and notch utilities can support the story after the main benefit is clear.
 
 **Promise to prove:** A person can finish the task and repeat it without asking again. Treat this as a product goal until real tests establish it. Do not claim superiority over HeyClicky, OpenClicky, ChatGPT, or every notch app from a feature checklist.
 
