@@ -100,7 +100,13 @@ enum MateSoul {
     /// Name and job belong to every mate, even before a personality is written.
     /// The delimiters let the small on-device model retain identity when it
     /// has to discard the much larger screen, tool, and skill instructions.
-    static func promptBlock(name: String, job: String, soul: String, memoryNote: String = "") -> String? {
+    static func promptBlock(
+        name: String,
+        job: String,
+        soul: String,
+        memoryNote: String = "",
+        standing: [String] = []
+    ) -> String? {
         let personality = soul.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedJob = job.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -110,13 +116,18 @@ enum MateSoul {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(identity), let payload = String(data: data, encoding: .utf8) else { return nil }
-        return """
-        who you are for this turn (memory is the user's saved note for this mate):
+        var block = """
+        who you are for this turn (memory is the user's saved note for this agent):
         \(openingTag)
         \(payload)
         \(closingTag)
         - HeyMate is the app you live in; use your own name and personality when speaking, not the app's identity. these identity instructions override the default conversational style, never the safety or capability rules.
         """
+        let habits = standing.prefix(8).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        if !habits.isEmpty {
+            block += "\n- how you work, on every task:\n" + habits.map { "  - \(String($0.prefix(200)))" }.joined(separator: "\n")
+        }
+        return block
     }
 
     static func identityExcerpt(in systemPrompt: String, characterLimit: Int) -> String? {

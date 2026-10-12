@@ -64,6 +64,33 @@ nonisolated enum MateWorkspaceMemory {
         return storedMemoryNote(for: notes)
     }
 
+    /// The agent's habits, one per line, without the bullet. Empty when the
+    /// section still holds the blank placeholder.
+    static func standingLines(in folder: URL) -> [String] {
+        guard let standing = readParsed(in: folder).standing else { return [] }
+        return standing
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.hasPrefix("- ") || $0.hasPrefix("* ") }
+            .map { String($0.dropFirst(2)).trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    static func standingLines(for mate: Mate) -> [String] {
+        guard let path = mate.folderPath else { return [] }
+        return standingLines(in: URL(fileURLWithPath: path, isDirectory: true))
+    }
+
+    /// Rewrites the Standing preferences section and keeps the notes.
+    static func replaceStanding(_ lines: [String], for mate: Mate, in folder: URL) {
+        let cleaned = lines
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let standing = cleaned.isEmpty ? standingPlaceholder : cleaned.map { "- \($0)" }.joined(separator: "\n")
+        let notes = datedNotes(from: mate.memoryNote, now: Date())
+        _ = try? write(mate: mate, folder: folder, notes: notes, preserveExistingNotes: true, standingOverride: standing)
+    }
+
     static func notesBody(in folder: URL) -> String? {
         let url = folder.appendingPathComponent(agentsFileName)
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
@@ -157,7 +184,8 @@ nonisolated enum MateWorkspaceMemory {
         mate: Mate,
         folder: URL,
         notes fallbackNotes: String,
-        preserveExistingNotes: Bool
+        preserveExistingNotes: Bool,
+        standingOverride: String? = nil
     ) throws -> String {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -169,7 +197,7 @@ nonisolated enum MateWorkspaceMemory {
             withIntermediateDirectories: true
         )
         let existing = readParsed(in: folder)
-        let standing = existing.standing ?? standingPlaceholder
+        let standing = standingOverride ?? existing.standing ?? standingPlaceholder
         let notes: String
         if preserveExistingNotes, let current = existing.notes, storedMemoryNote(for: current) != "" {
             notes = current

@@ -1758,7 +1758,8 @@ final class CompanionManager: ObservableObject {
                 name: mate.name,
                 job: mate.job,
                 soul: mate.soul,
-                memoryNote: MateWorkspaceMemory.displayNote(for: mate)
+                memoryNote: MateWorkspaceMemory.displayNote(for: mate),
+                standing: MateWorkspaceMemory.standingLines(for: mate)
             ),
             MateMessagingBrief.promptBlock(sender: mate, mates: mateDirectory.mates),
             MateAgentBrief.promptBlock(mate: mate, runsCanOperateApps: runsCanOperateApps)
@@ -5195,6 +5196,18 @@ extension CompanionManager {
         )
         guidedClickLandedDuringTurn = false
         return HarnessTurnNotes.userMessage(notes: notes, transcript: transcript)
+    }
+
+    /// The quickest text model on the selected brain, for drafting an agent.
+    /// Nil when OpenCode still needs its training consent: drafting must not
+    /// send the person's description before they agreed to that.
+    func agentDraftingClient() -> (any VisionConversationClient)? {
+        if let conversationClientOverride { return conversationClientOverride }
+        if selectedBrain == .openCode {
+            let key = OpenCodeTrainingPolicy.modelKey(providerID: openCodeProviderID, modelID: openCodeModelID)
+            guard OpenCodeTrainingConsent.isAcknowledged(key) else { return nil }
+        }
+        return fastTextConversationClient(brain: selectedBrain)
     }
 
     fileprivate func fastTextConversationClient(brain: AgentBrain) -> any VisionConversationClient {

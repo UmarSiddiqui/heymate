@@ -73,7 +73,14 @@ extension CompanionManager: MateRoutineRunning {
     }
 
     @discardableResult
-    func createMate(name: String, job: String, soul: String = "", opensChat: Bool = true) -> Mate? {
+    func createMate(
+        name: String,
+        job: String,
+        soul: String = "",
+        opensChat: Bool = true,
+        faceAssetName: String? = nil,
+        starter: MateStarterSuggestion? = nil
+    ) -> Mate? {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedJob = job.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty, !trimmedJob.isEmpty else { return nil }
@@ -92,10 +99,13 @@ extension CompanionManager: MateRoutineRunning {
             folderPath: nil,
             soul: soul
         )
-        guard mateDirectory.upsertMate(mate) else { return nil }
+        var created = mate
+        created.faceAssetName = faceAssetName
+        guard mateDirectory.upsertMate(created) else { return nil }
         ensureMateFolder(id: mate.id)
-        let saved = mateDirectory.mates.first { $0.id == mate.id } ?? mate
-        let firstChat = MateFirstMoment.chat(for: saved)
+        let saved = mateDirectory.mates.first { $0.id == mate.id } ?? created
+        var firstChat = MateFirstMoment.chat(for: saved)
+        if let starter { firstChat.firstMoment?.starter = starter }
         if rememberConversationsEnabled { chatHistoryStore.upsert(firstChat) }
         syncMatePublications()
         if opensChat {

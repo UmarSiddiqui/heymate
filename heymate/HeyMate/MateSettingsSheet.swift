@@ -30,6 +30,10 @@ struct MateSettingsSheet: View {
     @State private var faceTint: String
     @State private var faceHair: String
     @State private var faceOutfit: String
+    @State private var howItWorks: [String]
+    @State private var asksFirst: [String]
+    @State private var isShowingLook = false
+    @State private var isDraftingHabits = false
     @State private var isImportingPicture = false
     @State private var isConfirmingDelete = false
     @State private var errorText: String?
@@ -56,6 +60,9 @@ struct MateSettingsSheet: View {
         _faceTint = State(initialValue: mate.faceTint ?? "")
         _faceHair = State(initialValue: mate.faceHair ?? MateFaceHair.none.rawValue)
         _faceOutfit = State(initialValue: mate.faceOutfit ?? MateFaceOutfit.none.rawValue)
+        let habits = companionManager.agentHabits(for: mate)
+        _howItWorks = State(initialValue: habits.howItWorks)
+        _asksFirst = State(initialValue: habits.asksFirst)
     }
 
     var body: some View {
@@ -77,7 +84,7 @@ struct MateSettingsSheet: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
         }
-        .frame(width: 440)
+        .frame(width: 520)
         .frame(minHeight: 360, idealHeight: 640, maxHeight: 760)
         .confirmationDialog(
             "Delete \(mate.name)?",
@@ -112,74 +119,35 @@ struct MateSettingsSheet: View {
     }
 
     private var profileFields: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Edit \(mate.name)")
-                .font(DS.Fonts.hero)
-                .foregroundColor(DS.Colors.textPrimary)
+        VStack(alignment: .leading, spacing: 18) {
+            identityHeader
 
-            sectionLabel("Picture")
-            if MateFaceStore.fileURL(for: selectedFace) != nil {
-                HStack(spacing: 10) {
-                    MateFaceView(mate: preview(selectedFace), size: 40)
-                        .overlay {
-                            Circle().stroke(DS.Colors.textPrimary, lineWidth: 2)
-                        }
-                    Text("Your picture")
-                        .font(DS.Fonts.headline)
-                        .foregroundColor(DS.Colors.textPrimary)
-                }
+            if isShowingLook {
+                lookPanel
             }
-            // The whole sheet scrolls now, so the face grid lays out flat
-            // instead of nesting a second scroll view.
-            ForEach(MateFace.packs) { pack in
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(pack.name)
-                        .font(DS.Fonts.headline)
-                        .foregroundColor(DS.Colors.textPrimary)
-                    Text(pack.summary)
-                        .font(DS.Fonts.caption)
-                        .foregroundColor(DS.Colors.textTertiary)
-                    LazyVGrid(
-                        columns: Array(repeating: GridItem(.fixed(44), spacing: 8), count: 6),
-                        alignment: .leading,
-                        spacing: 8
-                    ) {
-                        ForEach(pack.faces) { face in
-                            Button {
-                                selectedFace = face.assetName
-                            } label: {
-                                MateFaceView(mate: preview(face.assetName), size: 40)
-                                    .overlay {
-                                        Circle().stroke(
-                                            selectedFace == face.assetName ? DS.Colors.textPrimary : Color.clear,
-                                            lineWidth: 2
-                                        )
-                                    }
-                            }
-                            .buttonStyle(.plain)
-                            .pointerCursor()
-                            .accessibilityLabel("\(pack.name), \(face.label)")
-                        }
-                    }
-                }
+
+            labeled("Personality", hint: "How it talks and behaves") {
+                TextField("Clear and brief", text: $soul, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(2...5)
             }
-            lookControls
-            Button("Use your own picture") { isImportingPicture = true }
-                .buttonStyle(.plain)
-                .font(DS.Fonts.headline)
-                .foregroundColor(DS.Colors.textSecondary)
-                .pointerCursor()
-
-            sectionLabel("Details")
-            TextField("Name", text: $name)
-                .textFieldStyle(.roundedBorder)
-            TextField("What they do, in one sentence", text: $job)
-                .textFieldStyle(.roundedBorder)
-
-            sectionLabel("Soul")
-            TextField("How this agent sounds and behaves", text: $soul, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
-                .lineLimit(3...6)
+            if howItWorks.isEmpty && asksFirst.isEmpty {
+                draftHabitsRow
+            }
+            AgentHabitList(
+                title: "How it works",
+                hint: "Habits it keeps on every task",
+                placeholder: "Lead with the result",
+                items: $howItWorks,
+                limit: AgentDrafter.maxHowItWorks
+            )
+            AgentHabitList(
+                title: "Asks you before",
+                hint: "Never done without your yes",
+                placeholder: "Sending email",
+                items: $asksFirst,
+                limit: AgentDrafter.maxAsksFirst
+            )
 
             memorySection
             routinesSection
@@ -190,6 +158,128 @@ struct MateSettingsSheet: View {
                     .font(DS.Fonts.caption)
                     .foregroundColor(DS.Colors.destructiveText)
             }
+        }
+    }
+
+    /// Face, name and role together, the way the agent appears everywhere
+    /// else. The face opens the look controls instead of leading the sheet.
+    private var identityHeader: some View {
+        HStack(alignment: .center, spacing: 14) {
+            Button {
+                withAnimation(DS.Animation.controlSpring) { isShowingLook.toggle() }
+            } label: {
+                MateFaceView(mate: preview(selectedFace), size: 64, expression: .idle)
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: isShowingLook ? "chevron.up.circle.fill" : "pencil.circle.fill")
+                            .font(.system(size: 18))
+                            .foregroundStyle(DS.Colors.textPrimary, DS.Colors.surface3)
+                    }
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .help(isShowingLook ? "Hide the look" : "Change the look")
+            .accessibilityLabel(isShowingLook ? "Hide the look" : "Change the look")
+            VStack(alignment: .leading, spacing: 6) {
+                TextField("Name", text: $name)
+                    .textFieldStyle(.plain)
+                    .font(DS.Fonts.hero)
+                    .foregroundColor(DS.Colors.textPrimary)
+                TextField("What it does for you", text: $job, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(DS.Fonts.bodyLarge)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .lineLimit(1...2)
+            }
+        }
+    }
+
+    private var lookPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if MateFaceStore.fileURL(for: selectedFace) != nil {
+                HStack(spacing: 10) {
+                    MateFaceView(mate: preview(selectedFace), size: 40)
+                        .overlay { Circle().stroke(DS.Colors.textPrimary, lineWidth: 2) }
+                    Text("Your picture")
+                        .font(DS.Fonts.headline)
+                        .foregroundColor(DS.Colors.textPrimary)
+                }
+            }
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.fixed(44), spacing: 8), count: 8),
+                alignment: .leading,
+                spacing: 8
+            ) {
+                ForEach(MateFace.packs.flatMap(\.faces)) { face in
+                    Button {
+                        selectedFace = face.assetName
+                    } label: {
+                        MateFaceView(mate: preview(face.assetName), size: 40)
+                            .overlay {
+                                Circle().stroke(
+                                    selectedFace == face.assetName ? DS.Colors.textPrimary : Color.clear,
+                                    lineWidth: 2
+                                )
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+                    .help(face.label)
+                    .accessibilityLabel(face.label)
+                }
+            }
+            lookControls
+            Button("Use your own picture") { isImportingPicture = true }
+                .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                .fill(DS.Colors.surface1)
+        )
+    }
+
+    /// Older agents were made before habits existed. One click asks the AI
+    /// to suggest them from the role, and nothing saves until Save.
+    private var draftHabitsRow: some View {
+        HStack(spacing: 10) {
+            Text("No habits yet. HeyMate can suggest them from the role.")
+                .font(DS.Fonts.body)
+                .foregroundColor(DS.Colors.textSecondary)
+            Spacer(minLength: 8)
+            if isDraftingHabits {
+                ProgressView().controlSize(.small)
+            }
+            Button("Draft habits") { draftHabits() }
+                .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)
+                .disabled(isDraftingHabits || job.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+    }
+
+    private func draftHabits() {
+        isDraftingHabits = true
+        let description = [job, soul].filter { !$0.isEmpty }.joined(separator: ". ")
+        Task { @MainActor in
+            let result = await companionManager.draftAgent(description: description)
+            isDraftingHabits = false
+            howItWorks = result.draft.howItWorks
+            asksFirst = result.draft.asksFirst
+            if soul.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                soul = result.draft.personality
+            }
+        }
+    }
+
+    private func labeled<Content: View>(_ title: String, hint: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(title)
+                    .font(DS.Fonts.headline)
+                    .foregroundColor(DS.Colors.textPrimary)
+                Text(hint)
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.textTertiary)
+            }
+            content()
         }
     }
 
@@ -245,7 +335,7 @@ struct MateSettingsSheet: View {
                 sheetLink("Manage skills", systemImage: "wand.and.stars") {
                     open(.skills)
                 }
-                sheetLink("See jobs", systemImage: DesktopSection.agents.symbolName) {
+                sheetLink("See activity", systemImage: DesktopSection.agents.symbolName) {
                     open(.agents)
                 }
             }
@@ -288,12 +378,6 @@ struct MateSettingsSheet: View {
 
     private var lookControls: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionLabel("Look")
-            Text("The picture is the starting look. Color, hair, and outfit sit on top, and the face reacts while you talk.")
-                .font(DS.Fonts.caption)
-                .foregroundColor(DS.Colors.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-            MateFaceView(mate: preview(selectedFace), size: 72, expression: .idle)
             HStack(spacing: 8) {
                 tintButton(hex: "")
                 ForEach(MateFace.tintSwatches, id: \.self) { hex in
@@ -367,6 +451,10 @@ struct MateSettingsSheet: View {
         }
         if memoryNote != mate.memoryNote {
             companionManager.updateMateMemory(id: mate.id, note: memoryNote)
+        }
+        let saved = companionManager.agentHabits(for: mate)
+        if saved.howItWorks != howItWorks || saved.asksFirst != asksFirst {
+            companionManager.saveAgentHabits(id: mate.id, howItWorks: howItWorks, asksFirst: asksFirst)
         }
         dismiss()
     }

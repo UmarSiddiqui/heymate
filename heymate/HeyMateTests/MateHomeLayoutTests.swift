@@ -132,16 +132,6 @@ struct MateHomeLayoutTests {
         #expect(MateFaceExpression.live(.thinking) == .thinking)
         #expect(MateFaceExpression.live(.speaking) == .speaking)
         #expect(MateFaceExpression.live(.idle) == .idle)
-        let cast = MateCast.proposals(
-            from: MateCastAnswers(skill: "Photopea", style: "Patient", project: "a logo", packID: "signal"),
-            existingNames: ["First Mate"]
-        )
-        #expect(cast.count == 3)
-        #expect(Set(cast.map(\.name)).count == 3)
-        #expect(cast.allSatisfy { $0.faceTint.isEmpty == false })
-        #expect(cast.allSatisfy { MateFace.pack(containing: $0.faceAssetName)?.id == "signal" })
-        #expect(MateCast.shouldOffer(hasCompletedOnboarding: true, activeMateCount: 1, alreadyOffered: false))
-        #expect(MateCast.shouldOffer(hasCompletedOnboarding: true, activeMateCount: 2, alreadyOffered: false) == false)
     }
 
     @Test func longChatsShowTheNewestPageUntilEarlierIsAskedFor() {

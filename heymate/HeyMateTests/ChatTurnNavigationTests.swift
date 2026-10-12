@@ -263,6 +263,29 @@ struct ChatTurnNavigationTests {
         #expect(await secondTask.value == true)
     }
 
+    @Test func builderDraftsWithTheAIThenCreatesTheAgent() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        let drafting = Task { await manager.draftAgent(description: "reply to customer email") }
+        try await fixture.client.waitForRequest()
+        #expect(fixture.client.requests[0].systemPrompt == AgentDrafter.systemPrompt)
+        fixture.client.finish(text: """
+        {"name":"Inbox Ivy","role":"Draft replies to customer email","personality":"Warm and brief.",
+         "how_it_works":["Lead with the draft"],"asks_first":["Sending email"],
+         "first_task":"Draft replies to today's customer emails","integrations":[]}
+        """)
+        let result = await drafting.value
+        #expect(result.usedModel)
+        let mate = try #require(manager.createAgent(from: result.draft, faceAssetName: "MateFaceSignalPointer"))
+        #expect(mate.name == "Inbox Ivy")
+        #expect(mate.soul == "Warm and brief.")
+        #expect(mate.faceAssetName == "MateFaceSignalPointer")
+        #expect(manager.agentHabits(for: mate).asksFirst == ["Sending email"])
+        #expect(manager.currentChat.firstMoment?.starter?.prompt == "Draft replies to today's customer emails")
+        #expect(fixture.client.requests.count == 1)
+    }
+
     @Test func openingSavedChatAppliesItsMatesPreferences() throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
