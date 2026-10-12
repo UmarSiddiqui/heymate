@@ -5,7 +5,9 @@
 # HeyMate
 
 **Learn your software. One step at a time.**<br>
-Ask how to do something in a desktop app or website. HeyMate points to the next step, explains it out loud, and waits while you try it. Free and open source, currently available for macOS. Works with your Claude or ChatGPT plan through their official CLIs.
+Ask how to do something in a desktop app or website. HeyMate points to the next step, explains it out loud, and waits while you try it. Currently available for macOS.
+
+The open-source alternative to HeyClicky. Bring your own AI: your existing Claude, ChatGPT (Codex), or OpenCode subscription does the work. HeyMate is free and MIT licensed; we do not meter your model use. Provider limits and optional paid connectors still apply.
 
 [![Latest release](https://img.shields.io/github/v/release/UmarSiddiqui/heymate?label=download&color=3380FF&style=flat-square)](https://github.com/UmarSiddiqui/heymate/releases/latest)
 [![Release build](https://img.shields.io/github/actions/workflow/status/UmarSiddiqui/heymate/release.yml?branch=main&label=build&style=flat-square)](https://github.com/UmarSiddiqui/heymate/actions/workflows/release.yml)
@@ -40,7 +42,7 @@ Screen guidance needs a vision-capable provider. The optional Apple Intelligence
 ## Why HeyMate
 
 - **Help with desktop apps and websites.** Spoken explanations and a cursor that points at the control being discussed. Screen context is captured during active interactions that need it, including each step of a walkthrough.
-- **Use your existing plan.** Claude Code, Codex, or OpenCode with your own sign-in. HeyMate is free; provider usage limits and optional paid services still apply.
+- **Bring your own AI.** Sign in through the official Claude Code, Codex, or OpenCode CLI with the subscription or models you already pay for. HeyMate adds no subscription fee and does not meter your model use. Provider limits and optional paid connectors still apply.
 - **Keep control of coding work.** Agents show a read-only plan before execution. Approved jobs get workspace snapshots for undo; external actions are subject to their tool's approval policy. Undo cannot reverse a sent message or an external service change.
 
 <p align="center">
