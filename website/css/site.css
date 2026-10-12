@@ -227,9 +227,6 @@ code, .cmd { font-family: var(--mono); font-size: 0.88em; }
 .pointer.flip-x .pointer-tip { left: auto; right: 4px; }
 .pointer.flip-y .pointer-tip { top: auto; bottom: 6px; }
 .pointer.away { opacity: 0; }
-/* The notch stays a notch. It only wakes up to listen. */
-.notch { transition: width 0.4s var(--ease); }
-.is-listening .notch { width: 230px; }
 .notch-body { display: none; }
 @media (max-width: 640px) {
   .display { aspect-ratio: auto; height: 380px; }
@@ -449,14 +446,6 @@ kbd[data-key].down { transform: translateY(2px); border-bottom-width: 1px; backg
 .try-hint { margin-top: 10px; font-size: 14px; color: var(--mist); max-width: 46ch; }
 .try-hint b { color: var(--graphite); font-weight: 600; }
 .try-hint.used { color: var(--signal); }
-.notch-wave { display: none; position: absolute; right: 20px; top: 40px; height: 18px; align-items: center; gap: 3px; }
-.notch-wave i { width: 3px; height: 6px; border-radius: 2px; background: var(--signal-bright); animation: wave 0.9s ease-in-out infinite; }
-.notch-wave i:nth-child(2) { animation-delay: 0.1s; } .notch-wave i:nth-child(3) { animation-delay: 0.2s; }
-.notch-wave i:nth-child(4) { animation-delay: 0.3s; } .notch-wave i:nth-child(5) { animation-delay: 0.2s; }
-.notch-wave i:nth-child(6) { animation-delay: 0.1s; } .notch-wave i:nth-child(7) { animation-delay: 0s; }
-@keyframes wave { 0%, 100% { height: 5px; } 50% { height: 18px; } }
-.is-listening .notch-wave { display: flex; }
-.notch-wave { top: 6px; right: auto; left: 50%; transform: translateX(-50%); }
 .pointer { transition: left 1s var(--ease), top 1s var(--ease), opacity 0.3s; }
 .clickable { cursor: pointer; position: relative; }
 .tool.clickable { animation: ping 1.6s ease-out infinite; }
@@ -502,8 +491,7 @@ kbd[data-key].down { transform: translateY(2px); border-bottom-width: 1px; backg
 .tile { transition: transform 0.2s var(--ease), box-shadow 0.2s; }
 
 @media (prefers-reduced-motion: reduce) {
-  .notch-wave i, .tool.clickable { animation: none; }
-  .drafter-card li, .drafter-card .drafter-head { transition: none; }
+    .drafter-card li, .drafter-card .drafter-head { transition: none; }
 }
 
 /* What each permission unlocks. */
@@ -540,3 +528,13 @@ kbd[data-key].down { transform: translateY(2px); border-bottom-width: 1px; backg
   .fun-word > span, .fun:hover .fun-word > span { animation: none; }
   .fun-squiggle path { animation: none; stroke-dashoffset: 0; }
 }
+
+/* The notch stays a notch: a quiet "…" while HeyMate is listening or guiding. */
+.notch-typing { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; gap: 5px; opacity: 0; transition: opacity 0.3s; }
+.notch-typing i { width: 5px; height: 5px; border-radius: 50%; background: #f4f4f2; animation: notch-dot 1.2s ease-in-out infinite; }
+.notch-typing i:nth-child(2) { animation-delay: 0.15s; }
+.notch-typing i:nth-child(3) { animation-delay: 0.3s; }
+.display.busy .notch-typing { opacity: 1; }
+.is-listening .notch-typing i { background: var(--signal-bright); }
+@keyframes notch-dot { 0%, 60%, 100% { transform: none; opacity: 0.45; } 30% { transform: translateY(-3px); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .notch-typing i { animation: none; opacity: 0.8; } }

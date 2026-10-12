@@ -11,7 +11,6 @@
   var say = display.querySelector(".notch-say");
   var stepLabel = display.querySelector(".notch-step");
   var dots = display.querySelectorAll(".notch-dots i");
-  var wave = display.querySelector(".notch-wave");
   var pointer = display.querySelector(".pointer");
   var tip = display.querySelector(".pointer-tip");
   var tipStep = tip.querySelector(".tip-step");
@@ -98,6 +97,7 @@
     say.textContent = step.say;
     tipStep.textContent = (i + 1) + " / " + steps.length;
     tipSay.textContent = step.say;
+    display.classList.add("busy");
     pointer.classList.remove("away");
     dots.forEach(function (d, n) { d.classList.toggle("on", n <= i); });
     display.querySelectorAll(".clickable").forEach(function (el) { el.classList.remove("clickable"); });
@@ -116,6 +116,7 @@
       else if (index === steps.length) schedule(function () { driven = false; tick(); }, 5200);
     } else {
       pointer.classList.add("away");
+      display.classList.remove("busy");
       schedule(function () {
         reset();
         index = 0;
@@ -139,7 +140,7 @@
     driven = true;
     clearTimeout(timer);
     reset();
-    display.classList.add("is-listening");
+    display.classList.add("is-listening", "busy");
     pointer.classList.remove("away");
     stepLabel.textContent = "listening";
     say.textContent = "“How do I cut the boring intro out of this?”";
@@ -204,5 +205,4 @@
     var current = steps[Math.max(0, index - 1)];
     if (current) aim(current.target());
   });
-  void wave;
 })();
