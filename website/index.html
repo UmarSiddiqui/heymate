@@ -36,7 +36,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/site.css">
+  <link rel="stylesheet" href="css/site.css?v=5">
   <script>document.documentElement.classList.add("js")</script>
   <script type="application/ld+json">
   {
@@ -139,7 +139,8 @@
           <h1>Learn your software.<br><span class="h1-sub">One step at a time.</span></h1>
           <div>
             <p class="lede">HeyMate lives in your Mac's notch. Ask how to do something in the app or website in front of you, and it explains out loud, points at the next click, and waits while you try it.</p>
-            <p class="ask-line">Hold <kbd>⌃</kbd><kbd>⌥</kbd> and ask.</p>
+            <p class="ask-line">Hold <kbd data-key>⌃</kbd><kbd data-key>⌥</kbd> and ask.</p>
+            <p class="try-hint" data-try-hint>Try it here: hold <b>Control + Option</b> on your keyboard, or press and hold the keys above. Then click what the pointer shows.</p>
             <p class="byo-line"><span class="label">bring your own ai</span> Runs on the Claude, ChatGPT, or OpenCode plan you already have. No HeyMate subscription.</p>
           </div>
           <div class="hero-actions">
@@ -164,6 +165,7 @@
                   <span class="notch-step">step 1 of 3</span>
                 </div>
                 <p class="notch-say">First, select the sales numbers in column B.</p>
+                <div class="notch-wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
                 <div class="notch-dots"><i class="on"></i><i></i><i></i></div>
               </div>
             </div>
@@ -218,11 +220,11 @@
           <p class="lede reveal">Sign in with the plan you already pay for, and that subscription does the work. HeyMate adds no fee and never meters your use. Your provider's own limits still apply.</p>
         </div>
         <ul class="brains">
-          <li class="reveal"><b>Claude</b><span>Sign in with your Claude plan. HeyMate uses the official Claude Code CLI.</span><span class="label">sees the screen</span></li>
-          <li class="reveal"><b>ChatGPT</b><span>Sign in with your ChatGPT plan through the official Codex CLI.</span><span class="label">sees the screen</span></li>
-          <li class="reveal"><b>OpenCode</b><span>Free, local, or any provider OpenCode supports.</span><span class="label">depends on model</span></li>
-          <li class="reveal"><b>Your API key</b><span>Any Anthropic-compatible server.</span><span class="label">depends on model</span></li>
-          <li class="reveal"><b>Apple Intelligence</b><span>On supported Macs running macOS 26. Text only.</span><span class="label">no screen</span></li>
+          <li class="reveal"><span class="tile"><img src="assets/img/logos/claude.svg" alt="" width="22" height="22" loading="lazy"></span><b>Claude</b><span>Sign in with your Claude plan. HeyMate uses the official Claude Code CLI.</span><span class="label">sees the screen</span></li>
+          <li class="reveal"><span class="tile mono" aria-hidden="true">GPT</span><b>ChatGPT</b><span>Sign in with your ChatGPT plan through the official Codex CLI.</span><span class="label">sees the screen</span></li>
+          <li class="reveal"><span class="tile"><img src="assets/img/logos/opencode.svg" alt="" width="22" height="22" loading="lazy"></span><b>OpenCode</b><span>Free, local, or any provider OpenCode supports.</span><span class="label">depends on model</span></li>
+          <li class="reveal"><span class="tile mono" aria-hidden="true">API</span><b>Your API key</b><span>Any Anthropic-compatible or OpenAI-compatible server, including local ones.</span><span class="label">depends on model</span></li>
+          <li class="reveal"><span class="tile"><img src="assets/img/logos/apple.svg" alt="" width="22" height="22" loading="lazy"></span><b>Apple Intelligence</b><span>On supported Macs running macOS 26. Text only.</span><span class="label">no screen</span></li>
         </ul>
       </div>
     </section>
@@ -253,6 +255,12 @@
             </ul>
           </article>
         </div>
+        <ul class="roster reveal" aria-label="Example agents">
+          <li><img src="assets/img/faces/v3/signalpointer.webp" alt="" width="56" height="56"><b>Inbox Ivy</b><span>Drafts replies to customers every morning</span></li>
+          <li><img src="assets/img/faces/v3/instrumentlens.webp" alt="" width="56" height="56"><b>Market Radar</b><span>Watches competitors' prices each Monday</span></li>
+          <li><img src="assets/img/faces/v3/marginquill.webp" alt="" width="56" height="56"><b>Builds</b><span>Ships small fixes to your side projects</span></li>
+          <li><img src="assets/img/faces/v3/signalcomet.webp" alt="" width="56" height="56"><b>Screen Guide</b><span>Teaches the app on screen, step by step</span></li>
+        </ul>
         <figure class="window reveal" style="margin:0">
           <div class="window-bar" aria-hidden="true"><i></i><i></i><i></i><span>HeyMate</span></div>
           <img src="assets/screens/v3/agent-chat.webp" width="2360" height="1480" loading="lazy" alt="HeyMate's window. The agent Inbox Ivy reports: drafted 6 replies and saved them in Gmail, nothing sent; two need you, a refund request and a late order.">
@@ -268,15 +276,32 @@
           <p class="lede reveal">Your AI drafts the rest: a name, how it works, what it must ask you about first, and a first task. Change anything before you create it.</p>
         </div>
         <div class="builder">
-          <figure class="first reveal">
-            <div class="window"><img src="assets/screens/v3/builder-describe.webp" width="1080" height="720" loading="lazy" alt="The New agent sheet. The description reads: Every morning, read my inbox and draft replies to customers."></div>
+          <div class="first reveal">
+            <div class="drafter" data-drafter>
+              <p class="label">new agent</p>
+              <div class="drafter-input" aria-live="polite"><span data-draft-text>Pick a sentence below</span><i class="caret"></i></div>
+              <div class="drafter-chips" role="group" aria-label="Example descriptions">
+                <button type="button" data-draft="inbox">Draft replies to customer email every morning</button>
+                <button type="button" data-draft="radar">Watch competitors' prices and tell me what changed</button>
+                <button type="button" data-draft="tutor">Teach me Figma, one step at a time</button>
+              </div>
+              <div class="drafter-card" data-draft-card hidden>
+                <div class="drafter-head"><img data-draft-face src="assets/img/faces/v3/signalpointer.webp" alt="" width="52" height="52"><div><b data-draft-name></b><span data-draft-role></span></div></div>
+                <p class="label">how it works</p>
+                <ul data-draft-habits></ul>
+                <p class="label">asks you before</p>
+                <ul class="asks" data-draft-asks></ul>
+              </div>
+            </div>
             <p class="arrow-note">drafted by your own AI</p>
             <p class="lede">The habits are saved in the agent's own <code>AGENTS.md</code>, so Claude Code and Codex follow them on every run, and HeyMate does too.</p>
-          </figure>
+          </div>
           <figure class="then reveal">
+            <p class="label" style="margin-bottom:12px">in the app</p>
             <div class="window"><img src="assets/screens/v3/builder-review.webp" width="1080" height="1314" loading="lazy" alt="The drafted agent, Inbox Ivy. How it works: read new customer email each morning, save drafts in Gmail and never send them, lead with anything urgent. Asks you before: sending any email, offering refunds or discounts."></div>
           </figure>
         </div>
+        <div class="faces reveal"><p class="label">pick a face, or use your own picture</p><div class="faces-row"><img src="assets/img/faces/v3/signalpointer.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/signalcomet.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/signalorbit.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/instrumentlens.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/instrumentbell.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/instrumentfork.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/marginquill.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/marginseal.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/marginboat.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/cuteguy.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/cutegirl.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/animeguy.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/animegirl.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/styledguy.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/styledgirl.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/robot.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/orb.webp" alt="" width="48" height="48" loading="lazy"><img src="assets/img/faces/v3/lilac.webp" alt="" width="48" height="48" loading="lazy"></div></div>
       </div>
     </section>
 
@@ -286,21 +311,26 @@
           <h2 class="reveal">Connect an app once. Every agent can use it.</h2>
           <p class="lede reveal">Integrations are shared across HeyMate and all your agents. Turn one off and it's off everywhere.</p>
         </div>
+        <label class="finder reveal"><span class="visually-hidden">Search integrations</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+          <input type="search" placeholder="Does it work with…? Try Gmail, Notion, Docker" data-finder autocomplete="off">
+        </label>
+        <p class="finder-miss" data-finder-miss hidden>Not in this list? Composio covers hundreds more web apps, and any MCP server works too.</p>
         <div class="directory">
           <section class="reveal">
             <h3>On your Mac</h3>
             <p>Work right away. No account or key.</p>
-            <ul><li>Calendar</li><li>Reminders</li><li>Notes</li><li>Mail</li><li>Messages</li><li>Contacts</li><li>Shortcuts</li><li>Files</li><li>Music</li><li>Maps</li></ul>
+            <ul class="tiles"><li><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v14H4zM4 10h16M8 3v4M16 3v4"/></svg></span>Calendar</li><li><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7h11M9 12h11M9 17h11"/><circle cx="5" cy="7" r="1.2"/><circle cx="5" cy="12" r="1.2"/><circle cx="5" cy="17" r="1.2"/></svg></span>Reminders</li><li><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18H6zM9 8h6M9 12h6M9 16h4"/></svg></span>Notes</li><li><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18v12H3z"/><path d="M3 7l9 6 9-6"/></svg></span>Mail</li><li><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg></span>Messages</li><li><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="9" r="3.5"/><path d="M5 20c1.2-3.5 4-5 7-5s5.8 1.5 7 5"/></svg></span>Contacts</li><li><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4-8 4-8-4zM4 12l8 4 8-4M4 17l8 4 8-4"/></svg></span>Shortcuts</li><li><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7l2 2h9v11H3z"/></svg></span>Files</li><li><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/></svg></span>Music</li><li><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg></span>Maps</li></ul>
           </section>
           <section class="reveal">
             <h3>On the web</h3>
-            <p>Sign in once through Composio, with a free key.</p>
-            <ul><li>Gmail</li><li>Google Drive</li><li>Slack</li><li>Notion</li><li>GitHub</li><li>Linear</li><li>Outlook</li><li>HubSpot</li><li>YouTube</li><li>and more</li></ul>
+            <p>Sign in once through Composio, with a free key. Hundreds more than shown.</p>
+            <ul class="tiles"><li><span class="tile"><img src="assets/img/logos/gmail.svg" alt="" width="20" height="20" loading="lazy"></span>Gmail</li><li><span class="tile"><img src="assets/img/logos/googlecalendar.svg" alt="" width="20" height="20" loading="lazy"></span>Google Calendar</li><li><span class="tile"><img src="assets/img/logos/googledrive.svg" alt="" width="20" height="20" loading="lazy"></span>Google Drive</li><li><span class="tile"><img src="assets/img/logos/googledocs.svg" alt="" width="20" height="20" loading="lazy"></span>Google Docs</li><li><span class="tile"><img src="assets/img/logos/googlesheets.svg" alt="" width="20" height="20" loading="lazy"></span>Google Sheets</li><li><span class="tile"><img src="assets/img/logos/notion.svg" alt="" width="20" height="20" loading="lazy"></span>Notion</li><li><span class="tile"><img src="assets/img/logos/linear.svg" alt="" width="20" height="20" loading="lazy"></span>Linear</li><li><span class="tile"><img src="assets/img/logos/jira.svg" alt="" width="20" height="20" loading="lazy"></span>Jira</li><li><span class="tile"><img src="assets/img/logos/hubspot.svg" alt="" width="20" height="20" loading="lazy"></span>HubSpot</li><li><span class="tile"><img src="assets/img/logos/figma.svg" alt="" width="20" height="20" loading="lazy"></span>Figma</li><li><span class="tile"><img src="assets/img/logos/discord.svg" alt="" width="20" height="20" loading="lazy"></span>Discord</li><li><span class="tile"><img src="assets/img/logos/youtube.svg" alt="" width="20" height="20" loading="lazy"></span>YouTube</li></ul>
           </section>
           <section class="reveal">
             <h3>Your own tools</h3>
-            <p>What's already signed in on this Mac.</p>
-            <ul><li class="cmd">gh</li><li class="cmd">git</li><li class="cmd">docker</li><li class="cmd">vercel</li><li>MCP servers</li><li>Google via gogcli</li></ul>
+            <p>Command-line tools already signed in on this Mac, plus any MCP server.</p>
+            <ul class="tiles"><li><span class="tile"><img src="assets/img/logos/github.svg" alt="" width="20" height="20" loading="lazy"></span>GitHub CLI</li><li><span class="tile"><img src="assets/img/logos/git.svg" alt="" width="20" height="20" loading="lazy"></span>git</li><li><span class="tile"><img src="assets/img/logos/docker.svg" alt="" width="20" height="20" loading="lazy"></span>Docker</li><li><span class="tile"><img src="assets/img/logos/vercel.svg" alt="" width="20" height="20" loading="lazy"></span>Vercel</li><li><span class="tile"><img src="assets/img/logos/supabase.svg" alt="" width="20" height="20" loading="lazy"></span>Supabase</li><li><span class="tile"><img src="assets/img/logos/stripe.svg" alt="" width="20" height="20" loading="lazy"></span>Stripe</li><li><span class="tile glyph"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5v14"/></svg></span>MCP servers</li></ul>
           </section>
         </div>
         <p class="rule-note reveal"><span class="label">the rule</span><span>Reading runs quietly. Anything that sends, deletes, or pays asks you first, every time.</span></p>
@@ -380,28 +410,30 @@
     <section class="section" id="install">
       <div class="wrap">
         <div class="section-head">
-          <h2 class="reveal">Install it three ways.</h2>
+          <h2 class="reveal">Install in one line.</h2>
           <p class="lede reveal">It asks for Microphone, Accessibility, and Screen Recording. <a class="text-link" href="permissions.html">Here's exactly why.</a></p>
         </div>
         <div class="install">
-          <article class="reveal">
-            <span class="label">download</span>
-            <h3>The DMG</h3>
-            <p>Open it and drag HeyMate into Applications. Builds are self-signed, not notarized by Apple. If macOS blocks the first launch, use Open Anyway in Privacy &amp; Security.</p>
-            <a class="btn" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg" style="margin-top:auto;align-self:flex-start">Download for Mac</a>
+          <article class="reveal recommended">
+            <span class="badge">Recommended</span>
+            <span class="label">terminal · about 20 seconds</span>
+            <h3>Paste one line</h3>
+            <p>Open Terminal, paste this, press Return. It installs the latest HeyMate into Applications and opens it, with no “Open Anyway” trip to System Settings. <a class="text-link" href="install.sh">Read the script first</a> if you like.</p>
+            <div class="cmdline"><code><span class="prompt" aria-hidden="true">$</span>curl -fsSL https://getheymate.vercel.app/install.sh | bash</code><button class="copy-btn" type="button" data-copy="curl -fsSL https://getheymate.vercel.app/install.sh | bash" data-copy-event="install_copy">Copy</button></div>
           </article>
-          <article class="reveal">
-            <span class="label">homebrew</span>
-            <h3>One command</h3>
-            <p>Installs the latest release and keeps it in Homebrew's list.</p>
-            <p class="copy" data-copy data-copy-event="brew_copy">brew install umarsiddiqui/tap/heymate</p>
-          </article>
-          <article class="reveal">
-            <span class="label">terminal</span>
-            <h3>The install script</h3>
-            <p><a class="text-link" href="install.sh">Read it first</a>. It replaces /Applications/HeyMate.app and clears the quarantine flag.</p>
-            <p class="copy" data-copy="curl -fsSL https://getheymate.vercel.app/install.sh | bash" data-copy-event="install_copy">curl -fsSL getheymate.vercel.app/install.sh | bash</p>
-          </article>
+          <div class="install-cmds">
+            <article class="reveal">
+              <span class="label">homebrew</span>
+              <h3>Already use Homebrew?</h3>
+              <div class="cmdline"><code><span class="prompt" aria-hidden="true">$</span>brew install umarsiddiqui/tap/heymate</code><button class="copy-btn" type="button" data-copy="brew install umarsiddiqui/tap/heymate" data-copy-event="brew_copy">Copy</button></div>
+            </article>
+            <article class="reveal">
+              <span class="label">download</span>
+              <h3>Prefer a DMG?</h3>
+              <p>Drag HeyMate into Applications. Builds are self-signed, not notarized by Apple, so the first launch needs Open Anyway in Privacy &amp; Security.</p>
+              <a class="text-link" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download HeyMate.dmg</a>
+            </article>
+          </div>
         </div>
         <div class="fine">
           <p class="small">HeyMate is free under the MIT license. Provider limits and optional service charges apply.</p>
@@ -461,8 +493,9 @@
   </footer>
 
   <script src="js/config.js"></script>
-  <script src="js/main.js"></script>
-  <script src="js/notch.js"></script>
+  <script src="js/main.js?v=3"></script>
+  <script src="js/notch.js?v=3"></script>
+  <script src="js/play.js?v=4"></script>
   <script src="js/downloads.js"></script>
 </body>
 </html>

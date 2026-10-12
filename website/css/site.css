@@ -265,9 +265,9 @@ code, .cmd { font-family: var(--mono); font-size: 0.88em; }
 .directory section + section { padding-left: 26px; border-left: 1px solid var(--rule); }
 .directory h3 { font-size: 18px; }
 .directory p { margin-top: 6px; color: var(--graphite); font-size: 15px; }
-.directory ul { margin: 18px 0 0; padding: 0; list-style: none; columns: 2; column-gap: 18px; }
-.directory li { padding: 6px 0; font-size: 15px; break-inside: avoid; }
-.directory .cmd { color: var(--graphite); }
+.directory ul { margin: 18px 0 0; padding: 0; list-style: none; }
+.tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+.tiles li { display: flex; align-items: center; gap: 10px; font-size: 15px; min-width: 0; }
 .rule-note { margin-top: 40px; padding: 18px 22px; border-radius: 12px; background: var(--sheet); border: 1px solid var(--rule); display: flex; gap: 14px; align-items: baseline; }
 .rule-note .label { color: var(--signal); flex: none; }
 @media (max-width: 900px) {
@@ -322,17 +322,19 @@ code, .cmd { font-family: var(--mono); font-size: 0.88em; }
 @media (max-width: 720px) { .release { grid-template-columns: 1fr; gap: 12px; } }
 
 /* Install. */
-.install { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.install { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 16px; }
+.install-cmds { display: grid; gap: 16px; min-width: 0; }
+.install article { min-width: 0; }
+.install .recommended { border: 2px solid var(--ink); padding: 28px; gap: 14px; }
+.install .recommended h3 { font-size: 28px; }
+.install .recommended .cmdline { margin-top: 8px; }
+.install .recommended .cmdline code { font-size: 14px; }
+.badge { align-self: flex-start; font: 700 12px/1 var(--text); color: var(--ink); background: var(--signal-bright); padding: 6px 10px; border-radius: 999px; }
+.install-cmds .cmdline { margin-top: 4px; }
+
 .install article { background: var(--sheet); border: 1px solid var(--rule); border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 12px; }
 .install .label { color: var(--signal); }
 .install p { color: var(--graphite); font-size: 15px; }
-.copy {
-  display: block; margin-top: auto; padding: 12px 14px; border-radius: 10px; background: var(--housing); color: #e9e9e7;
-  font: 500 13px/1.4 var(--mono); word-break: break-all; cursor: copy; position: relative;
-}
-.copy::after { content: "copy"; position: absolute; right: 10px; top: 12px; font-size: 11px; color: #8d8d92; }
-.copy.copied::after { content: "copied"; color: var(--signal-bright); }
-.copy.copy-failed::after { content: "select it"; color: #f1a10d; }
 @media (max-width: 900px) { .install { grid-template-columns: 1fr; } }
 .fine { margin-top: 28px; display: grid; gap: 8px; }
 
@@ -355,4 +357,114 @@ code, .cmd { font-family: var(--mono); font-size: 0.88em; }
 @media (prefers-reduced-motion: reduce) {
   .js .reveal { opacity: 1; transform: none; transition: none; }
   .notch, .notch-body, .pointer, .chart, .tool { transition: none !important; }
+}
+
+/* App-style tiles for logos and glyphs. */
+.tile {
+  flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 9px;
+  background: var(--sheet); box-shadow: 0 0 0 1px var(--rule), 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+.tile img { width: 20px; height: 20px; }
+.tile.glyph svg { width: 19px; height: 19px; fill: none; stroke: var(--ink); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.tile.mono { font: 700 11px/1 var(--mono); color: var(--ink); letter-spacing: -0.02em; }
+.brains li { grid-template-columns: 44px 220px 1fr auto; }
+.brains .tile { width: 44px; height: 44px; border-radius: 11px; }
+.brains .tile img { width: 24px; height: 24px; }
+@media (max-width: 720px) { .brains li { grid-template-columns: 44px 1fr; } .brains li > span:not(.tile) { grid-column: 2; } }
+
+/* Example agents. */
+.roster { margin: 0 0 40px; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.roster li { display: grid; grid-template-columns: 56px 1fr; grid-template-rows: auto auto; column-gap: 12px; align-items: center; padding: 14px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 16px; }
+.roster img { grid-row: 1 / 3; width: 56px; height: 56px; border-radius: 50%; object-fit: cover; }
+.roster b { font: 700 16px/1.2 var(--display); letter-spacing: -0.01em; align-self: end; }
+.roster span { font-size: 13px; color: var(--graphite); line-height: 1.35; align-self: start; }
+@media (max-width: 960px) { .roster { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 520px) { .roster { grid-template-columns: 1fr; } }
+
+/* Face strip under the builder. */
+.faces { margin-top: 48px; }
+.faces .label { margin-bottom: 14px; }
+.faces-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.faces-row img { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 1px var(--rule); transition: transform 0.2s var(--ease); }
+.faces-row img:hover { transform: translateY(-3px) scale(1.06); }
+
+/* Install commands: code on the left, a real Copy button on the right. */
+.cmdline {
+  margin-top: auto; display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 14px;
+  border-radius: 12px; background: var(--housing); color: #e9e9e7;
+}
+.cmdline code { flex: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; font: 500 13px/1.6 var(--mono); padding: 4px 0; }
+.cmdline code::-webkit-scrollbar { display: none; }
+.cmdline .prompt { color: var(--signal-bright); margin-right: 8px; user-select: none; }
+.copy-btn {
+  flex: none; height: 32px; padding: 0 12px; border: 0; border-radius: 8px; cursor: pointer;
+  background: var(--housing-3); color: #f3f3f2; font: 600 13px/1 var(--text);
+}
+.copy-btn:hover { background: #3a3a3d; }
+.copy-btn.copied { background: var(--signal-bright); color: var(--ink); }
+.copy-btn.copy-failed { background: #f1a10d; color: var(--ink); }
+
+/* ---------- Interaction ---------- */
+/* Hero: the keys you can hold, and the notch listening. */
+kbd[data-key] { cursor: pointer; user-select: none; transition: transform 0.08s, border-bottom-width 0.08s, background 0.15s; }
+kbd[data-key].down { transform: translateY(2px); border-bottom-width: 1px; background: var(--signal-wash); border-color: var(--signal-bright); }
+.try-hint { margin-top: 10px; font-size: 14px; color: var(--mist); max-width: 46ch; }
+.try-hint b { color: var(--graphite); font-weight: 600; }
+.try-hint.used { color: var(--signal); }
+.notch-wave { display: none; position: absolute; right: 20px; top: 40px; height: 18px; align-items: center; gap: 3px; }
+.notch-wave i { width: 3px; height: 6px; border-radius: 2px; background: var(--signal-bright); animation: wave 0.9s ease-in-out infinite; }
+.notch-wave i:nth-child(2) { animation-delay: 0.1s; } .notch-wave i:nth-child(3) { animation-delay: 0.2s; }
+.notch-wave i:nth-child(4) { animation-delay: 0.3s; } .notch-wave i:nth-child(5) { animation-delay: 0.2s; }
+.notch-wave i:nth-child(6) { animation-delay: 0.1s; } .notch-wave i:nth-child(7) { animation-delay: 0s; }
+@keyframes wave { 0%, 100% { height: 5px; } 50% { height: 18px; } }
+.is-listening .notch-wave { display: flex; }
+.is-listening .notch-dots, .is-listening .pointer { opacity: 0; }
+.pointer { transition: left 1s var(--ease), top 1s var(--ease), opacity 0.3s; }
+.clickable { cursor: pointer; position: relative; }
+.tool.clickable::after, .sheet-grid .clickable:first-of-type::after { content: none; }
+.tool.clickable { animation: ping 1.6s ease-out infinite; }
+@keyframes ping { 0% { box-shadow: 0 0 0 2px var(--signal-bright); } 70% { box-shadow: 0 0 0 9px rgba(95, 211, 157, 0); } 100% { box-shadow: 0 0 0 2px var(--signal-bright); } }
+.sheet-grid .clickable:hover { background: #d4ecdf; }
+
+/* Builder: a sentence becomes an agent. */
+.drafter { background: var(--sheet); border: 1px solid var(--rule); border-radius: 18px; padding: 20px; box-shadow: 0 30px 60px -40px rgba(0,0,0,.3); }
+.drafter-input { margin-top: 10px; min-height: 56px; padding: 14px 16px; border-radius: 12px; background: var(--paper); font: 500 17px/1.4 var(--text); color: var(--ink); }
+.drafter-input .caret { display: inline-block; width: 2px; height: 1.1em; margin-left: 2px; vertical-align: -0.15em; background: var(--signal); opacity: 0; }
+.drafter.typing .caret { opacity: 1; }
+.drafter.drafting .drafter-input::after { content: "  drafting…"; font: 500 12px var(--mono); color: var(--signal); }
+.drafter-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.drafter-chips button {
+  border: 1px solid var(--rule); background: var(--sheet); color: var(--graphite); border-radius: 999px;
+  padding: 8px 12px; font: 500 13px/1.2 var(--text); cursor: pointer; text-align: left;
+}
+.drafter-chips button:hover { color: var(--ink); border-color: var(--mist); }
+.drafter-chips button[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.drafter-card { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--rule); }
+.drafter-card .label { margin: 14px 0 8px; }
+.drafter-head { display: flex; gap: 12px; align-items: center; }
+.drafter-head img { width: 52px; height: 52px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 1px var(--rule); }
+.drafter-head b { display: block; font: 800 22px/1.1 var(--display); letter-spacing: -0.02em; }
+.drafter-head span { font-size: 14px; color: var(--graphite); }
+.drafter-card ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.drafter-card li { padding: 8px 12px; border-radius: 9px; background: var(--paper); font-size: 14px; opacity: 0; transform: translateY(6px); transition: opacity 0.35s, transform 0.35s var(--ease); }
+.drafter-card .asks li { background: var(--signal-wash); color: var(--signal); }
+.drafter-card.in li { opacity: 1; transform: none; }
+.drafter-card .drafter-head { opacity: 0; transition: opacity 0.35s; }
+.drafter-card.in .drafter-head { opacity: 1; }
+
+/* Integrations finder. */
+.finder { display: flex; align-items: center; gap: 10px; max-width: 520px; height: 48px; padding: 0 16px; margin-bottom: 28px; border-radius: 999px; background: var(--sheet); border: 1px solid var(--rule); }
+.finder:focus-within { border-color: var(--signal); box-shadow: 0 0 0 3px var(--signal-wash); }
+.finder svg { width: 18px; height: 18px; fill: none; stroke: var(--mist); stroke-width: 2; stroke-linecap: round; flex: none; }
+.finder input { flex: 1; min-width: 0; border: 0; background: none; font: 400 16px var(--text); color: var(--ink); outline: none; }
+.finder-miss { margin: -14px 0 24px; font-size: 15px; color: var(--signal); }
+.tiles li { transition: opacity 0.2s; }
+.directory.searching .tiles li.dim { opacity: 0.22; }
+.directory.searching .tiles li.hit .tile { box-shadow: 0 0 0 2px var(--signal-bright); }
+.tiles li:hover .tile { transform: translateY(-2px); }
+.tile { transition: transform 0.2s var(--ease), box-shadow 0.2s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .notch-wave i, .tool.clickable { animation: none; }
+  .drafter-card li, .drafter-card .drafter-head { transition: none; }
 }
