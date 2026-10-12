@@ -72,6 +72,15 @@ extension CompanionManager: MateRoutineRunning {
         syncMatePublications()
     }
 
+    /// A blank conversation with main HeyMate, leaving any open mate chat.
+    func startNewMainChat() {
+        let defaultID = mateDirectory.defaultMateID
+        if (activeMateID ?? defaultID) != defaultID {
+            openMate(id: defaultID)
+        }
+        startNewChat()
+    }
+
     @discardableResult
     func createMate(
         name: String,
