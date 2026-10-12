@@ -242,7 +242,7 @@ struct NotchPillView: View {
     // MARK: Compact trailing
 
     /// Right of the camera: the shortest possible words for what is going
-    /// on. Live meter while listening, one status word while busy, the
+    /// on. Live meter while listening, a typing "…" while busy, the
     /// activity's own label while idle, and a shortcut hint on bare hover.
     @ViewBuilder
     private var trailingSlot: some View {
@@ -257,7 +257,7 @@ struct NotchPillView: View {
                     themeColor: model.themeColor
                 )
             case .processing, .responding:
-                pillLabel(model.isAgentActive ? "agent" : busyWord)
+                NotchTypingDots()
             case .idle:
                 if let activity = model.activity {
                     pillLabel(activity.trailingText)
@@ -269,11 +269,6 @@ struct NotchPillView: View {
                 }
             }
         }
-    }
-
-    private var busyWord: String {
-        if model.voiceState == .processing { return "thinking" }
-        return model.isSilentModeEnabled ? "replying" : "speaking"
     }
 
     private func pillLabel(_ text: String) -> some View {
@@ -386,6 +381,43 @@ private struct NotchThinkingDot: View {
                 guard !accessibilityReduceMotion else { return }
                 withAnimation(.easeInOut(duration: 0.42).repeatForever(autoreverses: true)) {
                     isDim = true
+                }
+            }
+    }
+}
+
+/// Busy: a quiet "…" — three dots that hop in turn, like someone typing.
+/// Each dot runs its own repeatForever animation, so nothing re-renders
+/// SwiftUI while it plays, and it only exists while HeyMate is working.
+private struct NotchTypingDots: View {
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+
+    var body: some View {
+        HStack(spacing: 3.5) {
+            ForEach(0..<3, id: \.self) { index in
+                NotchTypingDot(delay: Double(index) * 0.15, isStill: accessibilityReduceMotion)
+            }
+        }
+        .padding(.horizontal, 4)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct NotchTypingDot: View {
+    let delay: Double
+    let isStill: Bool
+    @State private var isUp = false
+
+    var body: some View {
+        Circle()
+            .fill(DS.Colors.textPrimary)
+            .frame(width: 4, height: 4)
+            .opacity(isStill ? 0.8 : (isUp ? 1 : 0.4))
+            .offset(y: isStill ? 0 : (isUp ? -2 : 0.5))
+            .onAppear {
+                guard !isStill else { return }
+                withAnimation(.easeInOut(duration: 0.4).repeatForever(autoreverses: true).delay(delay)) {
+                    isUp = true
                 }
             }
     }
