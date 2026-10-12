@@ -14,9 +14,6 @@ enum MateProfileEdit {
         var job: String
         var soul: String
         var faceAssetName: String?
-        var faceTint: String? = nil
-        var faceHair: String? = nil
-        var faceOutfit: String? = nil
     }
 
     enum Failure: Equatable, Error {
@@ -37,24 +34,22 @@ enum MateProfileEdit {
 
         let soul = draft.soul.trimmingCharacters(in: .whitespacesAndNewlines)
         let face = MateFace.persistedName(draft.faceAssetName)
-        let tint = MateFace.storedTint(draft.faceTint)
-        let hair = MateFace.storedHair(draft.faceHair)
-        let outfit = MateFace.storedOutfit(draft.faceOutfit)
         var updated = mate
         let changed = updated.name != name
             || updated.job != job
             || updated.soul != soul
             || updated.faceAssetName != face
-            || updated.faceTint != tint
-            || updated.faceHair != hair
-            || updated.faceOutfit != outfit
+            || updated.faceTint != nil
+            || updated.faceHair != nil
+            || updated.faceOutfit != nil
         updated.name = name
         updated.job = job
         updated.soul = soul
         updated.faceAssetName = face
-        updated.faceTint = tint
-        updated.faceHair = hair
-        updated.faceOutfit = outfit
+        // Faces are a plain picture now; drop the old color and accessories.
+        updated.faceTint = nil
+        updated.faceHair = nil
+        updated.faceOutfit = nil
         if changed {
             updated.updatedAt = now
         }

@@ -53,29 +53,13 @@ final class FileMateStore {
         return true
     }
 
-    /// Removes a mate. Deleting the default promotes the most recently updated
-    /// active mate and makes them the conductor. If that leaves no active mate,
-    /// `makeDefaultMate` is seeded and archived mates stay. Unknown ids do nothing.
+    /// Removes an agent. The main HeyMate agent is permanent, so deleting
+    /// it, or an unknown id, does nothing and returns false.
     @discardableResult
     func delete(id: UUID) -> Bool {
-        guard catalog.mates.contains(where: { $0.id == id }) else { return false }
-        let deletedDefault = catalog.defaultMateID == id
+        guard id != catalog.defaultMateID,
+              catalog.mates.contains(where: { $0.id == id }) else { return false }
         catalog.mates.removeAll { $0.id == id }
-        let active = catalog.mates.filter { !$0.archived }
-        if active.isEmpty {
-            let seeded = Self.makeDefaultMate()
-            catalog.mates.append(seeded)
-            catalog.defaultMateID = seeded.id
-        } else if deletedDefault {
-            let promoted = active.max { lhs, rhs in
-                if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt < rhs.updatedAt }
-                return lhs.createdAt < rhs.createdAt
-            }
-            if let promoted, let index = catalog.mates.firstIndex(where: { $0.id == promoted.id }) {
-                catalog.defaultMateID = promoted.id
-                catalog.mates[index].conductsOthers = true
-            }
-        }
         persist()
         return true
     }
