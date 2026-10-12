@@ -14,11 +14,10 @@ import UniformTypeIdentifiers
 struct MateSettingsSheet: View {
     let mate: Mate
     @ObservedObject var companionManager: CompanionManager
-    var isLastNonArchivedMate: Bool
     /// Opens a desktop page (all memories, the skills library, Jobs) after
     /// the sheet closes.
     var onOpenSection: (DesktopSection) -> Void
-    var onSave: (String, String, String, String?, String?, String?, String?) -> String?
+    var onSave: (String, String, String, String?) -> String?
     var onDelete: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -27,9 +26,6 @@ struct MateSettingsSheet: View {
     @State private var soul: String
     @State private var memoryNote: String
     @State private var selectedFace: String
-    @State private var faceTint: String
-    @State private var faceHair: String
-    @State private var faceOutfit: String
     @State private var howItWorks: [String]
     @State private var asksFirst: [String]
     @State private var isShowingLook = false
@@ -41,14 +37,12 @@ struct MateSettingsSheet: View {
     init(
         mate: Mate,
         companionManager: CompanionManager,
-        isLastNonArchivedMate: Bool,
         onOpenSection: @escaping (DesktopSection) -> Void,
-        onSave: @escaping (String, String, String, String?, String?, String?, String?) -> String?,
+        onSave: @escaping (String, String, String, String?) -> String?,
         onDelete: @escaping () -> Void
     ) {
         self.mate = mate
         self.companionManager = companionManager
-        self.isLastNonArchivedMate = isLastNonArchivedMate
         self.onOpenSection = onOpenSection
         self.onSave = onSave
         self.onDelete = onDelete
@@ -57,9 +51,6 @@ struct MateSettingsSheet: View {
         _soul = State(initialValue: mate.soul)
         _memoryNote = State(initialValue: MateWorkspaceMemory.displayNote(for: mate))
         _selectedFace = State(initialValue: MateFace.selectionToken(for: mate))
-        _faceTint = State(initialValue: mate.faceTint ?? "")
-        _faceHair = State(initialValue: mate.faceHair ?? MateFaceHair.none.rawValue)
-        _faceOutfit = State(initialValue: mate.faceOutfit ?? MateFaceOutfit.none.rawValue)
         let habits = companionManager.agentHabits(for: mate)
         _howItWorks = State(initialValue: habits.howItWorks)
         _asksFirst = State(initialValue: habits.asksFirst)
@@ -74,8 +65,10 @@ struct MateSettingsSheet: View {
             }
             Rectangle().fill(DS.Colors.borderSubtle).frame(height: 1)
             HStack {
-                Button("Delete", role: .destructive) { isConfirmingDelete = true }
-                    .foregroundColor(DS.Colors.destructiveText)
+                if !mate.conductsOthers {
+                    Button("Delete", role: .destructive) { isConfirmingDelete = true }
+                        .foregroundColor(DS.Colors.destructiveText)
+                }
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Save") { save() }
@@ -97,7 +90,7 @@ struct MateSettingsSheet: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text(Mate.deletionWarning(replacesWithFreshHeyMate: isLastNonArchivedMate))
+            Text(Mate.deletionWarning)
         }
         .fileImporter(
             isPresented: $isImportingPicture,
@@ -177,8 +170,8 @@ struct MateSettingsSheet: View {
             }
             .buttonStyle(.plain)
             .pointerCursor()
-            .help(isShowingLook ? "Hide the look" : "Change the look")
-            .accessibilityLabel(isShowingLook ? "Hide the look" : "Change the look")
+            .help(isShowingLook ? "Hide pictures" : "Change picture")
+            .accessibilityLabel(isShowingLook ? "Hide pictures" : "Change picture")
             VStack(alignment: .leading, spacing: 6) {
                 TextField("Name", text: $name)
                     .textFieldStyle(.plain)
@@ -227,7 +220,6 @@ struct MateSettingsSheet: View {
                     .accessibilityLabel(face.label)
                 }
             }
-            lookControls
             Button("Use your own picture") { isImportingPicture = true }
                 .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
         }
@@ -376,76 +368,14 @@ struct MateSettingsSheet: View {
             .foregroundColor(DS.Colors.textTertiary)
     }
 
-    private var lookControls: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                tintButton(hex: "")
-                ForEach(MateFace.tintSwatches, id: \.self) { hex in
-                    tintButton(hex: hex)
-                }
-            }
-            chipRow(MateFaceHair.allCases.map { ($0.rawValue, $0.label) }, selection: $faceHair)
-            chipRow(MateFaceOutfit.allCases.map { ($0.rawValue, $0.label) }, selection: $faceOutfit)
-        }
-    }
-
-    private func tintButton(hex: String) -> some View {
-        let selected = faceTint == hex
-        return Button {
-            faceTint = hex
-        } label: {
-            Circle()
-                .fill(hex.isEmpty ? DS.Colors.surface3 : (MateFace.color(hex: hex) ?? DS.Colors.surface3))
-                .frame(width: 22, height: 22)
-                .overlay {
-                    Circle().stroke(selected ? DS.Colors.textPrimary : Color.clear, lineWidth: 2)
-                }
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
-        .accessibilityLabel(hex.isEmpty ? "No color" : "Color \(hex)")
-    }
-
-    private func chipRow(_ items: [(String, String)], selection: Binding<String>) -> some View {
-        HStack(spacing: 6) {
-            ForEach(items, id: \.0) { item in
-                Button {
-                    selection.wrappedValue = item.0
-                } label: {
-                    Text(item.1)
-                        .font(DS.Fonts.caption)
-                        .foregroundColor(DS.Colors.textPrimary)
-                        .padding(.horizontal, 8)
-                        .frame(height: 24)
-                        .background(
-                            Capsule().fill(selection.wrappedValue == item.0 ? DS.Colors.surface4 : DS.Colors.surface2)
-                        )
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
-            }
-        }
-    }
-
     private func preview(_ asset: String) -> Mate {
         var copy = mate
         copy.faceAssetName = asset
-        copy.faceTint = faceTint.isEmpty ? nil : faceTint
-        copy.faceHair = faceHair
-        copy.faceOutfit = faceOutfit
         return copy
     }
 
     private func save() {
-        if let error = onSave(
-            name,
-            job,
-            soul,
-            selectedFace,
-            faceTint.isEmpty ? nil : faceTint,
-            faceHair,
-            faceOutfit
-        ) {
+        if let error = onSave(name, job, soul, selectedFace) {
             errorText = error
             return
         }

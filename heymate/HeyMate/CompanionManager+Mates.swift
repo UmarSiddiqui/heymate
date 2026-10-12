@@ -72,15 +72,6 @@ extension CompanionManager: MateRoutineRunning {
         syncMatePublications()
     }
 
-    /// A blank conversation with main HeyMate, leaving any open mate chat.
-    func startNewMainChat() {
-        let defaultID = mateDirectory.defaultMateID
-        if (activeMateID ?? defaultID) != defaultID {
-            openMate(id: defaultID)
-        }
-        startNewChat()
-    }
-
     @discardableResult
     func createMate(
         name: String,
@@ -292,6 +283,7 @@ extension CompanionManager: MateRoutineRunning {
     @discardableResult
     func deleteMate(id: UUID) -> Bool {
         guard mateDirectory.mates.contains(where: { $0.id == id }) else { return false }
+        guard id != mateDirectory.defaultMateID else { return false }
         let openChatBelongs = (currentChat.mateID ?? mateDirectory.defaultMateID) == id
         let viewingDeletedMate = openChatBelongs || activeMateID == id
         let routineBelongs = activeRoutineTurn?.mateID == id
@@ -380,10 +372,7 @@ extension CompanionManager: MateRoutineRunning {
         name: String,
         job: String,
         soul: String,
-        faceAssetName: String?,
-        faceTint: String? = nil,
-        faceHair: String? = nil,
-        faceOutfit: String? = nil
+        faceAssetName: String?
     ) -> String? {
         guard let mate = mateDirectory.mates.first(where: { $0.id == id }) else {
             return "That agent is gone."
@@ -394,10 +383,7 @@ extension CompanionManager: MateRoutineRunning {
                 name: name,
                 job: job,
                 soul: soul,
-                faceAssetName: faceAssetName,
-                faceTint: faceTint,
-                faceHair: faceHair,
-                faceOutfit: faceOutfit
+                faceAssetName: faceAssetName
             ),
             to: mate,
             now: Date(),

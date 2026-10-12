@@ -181,8 +181,8 @@ struct UISnapshotTests {
         )
         try Self.render(
             MateSettingsSheet(
-                mate: manager.mates[0], companionManager: manager, isLastNonArchivedMate: false,
-                onOpenSection: { _ in }, onSave: { _, _, _, _, _, _, _ in nil }, onDelete: {}
+                mate: manager.mates[0], companionManager: manager,
+                onOpenSection: { _ in }, onSave: { _, _, _, _ in nil }, onDelete: {}
             ),
             size: CGSize(width: 520, height: 720), dark: true, name: "agent-edit"
         )

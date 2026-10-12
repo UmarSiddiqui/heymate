@@ -9,7 +9,6 @@
 //
 
 import AppKit
-import Combine
 import SwiftUI
 
 struct MateFaceChoice: Equatable, Identifiable {
@@ -142,68 +141,8 @@ enum MateFace {
         return abs(total) % legacyAssetNames.count
     }
 
-    static let tintSwatches = ["7C5CFF", "E24B4B", "E8A317", "2F9E8F", "3D7EFF", "F4E4D4"]
-
-    static func storedTint(_ raw: String?) -> String? {
-        guard let raw, tintSwatches.contains(raw) else { return nil }
-        return raw
-    }
-
-    static func storedHair(_ raw: String?) -> String? {
-        guard let raw, MateFaceHair(rawValue: raw) != nil, raw != MateFaceHair.none.rawValue else { return nil }
-        return raw
-    }
-
-    static func storedOutfit(_ raw: String?) -> String? {
-        guard let raw, MateFaceOutfit(rawValue: raw) != nil, raw != MateFaceOutfit.none.rawValue else { return nil }
-        return raw
-    }
-
-    static func color(hex: String?) -> Color? {
-        guard let hex, hex.count == 6, let value = Int(hex, radix: 16) else { return nil }
-        return Color(
-            red: Double((value >> 16) & 0xFF) / 255,
-            green: Double((value >> 8) & 0xFF) / 255,
-            blue: Double(value & 0xFF) / 255
-        )
-    }
-
     static func pack(containing assetName: String) -> MateFacePack? {
         packs.first { pack in pack.faces.contains { $0.assetName == assetName } }
-    }
-}
-
-enum MateFaceHair: String, CaseIterable, Identifiable {
-    case none
-    case tuft
-    case band
-    case hood
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .none: return "None"
-        case .tuft: return "Tuft"
-        case .band: return "Band"
-        case .hood: return "Hood"
-        }
-    }
-}
-
-enum MateFaceOutfit: String, CaseIterable, Identifiable {
-    case none
-    case collar
-    case scarf
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .none: return "None"
-        case .collar: return "Collar"
-        case .scarf: return "Scarf"
-        }
     }
 }
 
@@ -229,41 +168,14 @@ enum MateFaceExpression: Equatable {
         }
     }
 
-    var watchesPointer: Bool {
-        switch self {
-        case .idle, .listening: return true
-        case .still, .thinking, .speaking: return false
-        }
-    }
 }
 
-final class MateFaceGaze: ObservableObject {
-    @Published var offset: CGSize = .zero
-    var monitor: Any?
-
-    func stop() {
-        if let monitor {
-            NSEvent.removeMonitor(monitor)
-        }
-        monitor = nil
-        offset = .zero
-    }
-}
-
+/// A plain picture in a circle. The ring shows when the agent you are
+/// talking to is listening or thinking; nothing else moves.
 struct MateFaceView: View {
     let mate: Mate
     var size: CGFloat = 28
     var expression: MateFaceExpression = .still
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @StateObject private var gazeModel = MateFaceGaze()
-    @State private var blinkClosed = false
-    @State private var pulse = false
-
-    private var animates: Bool { expression != .still && !reduceMotion }
-    private var tint: Color? { MateFace.color(hex: mate.faceTint) }
-    private var hair: MateFaceHair { MateFaceHair(rawValue: mate.faceHair ?? "") ?? .none }
-    private var outfit: MateFaceOutfit { MateFaceOutfit(rawValue: mate.faceOutfit ?? "") ?? .none }
 
     var body: some View {
         faceImage
@@ -273,35 +185,10 @@ struct MateFaceView: View {
             .frame(width: size * cropScale, height: size * cropScale)
             .frame(width: size, height: size)
             .clipShape(Circle())
-            .overlay { tintWash }
-            .overlay { lid }
-            .overlay { hairShape }
-            .overlay { outfitShape }
-            .scaleEffect(x: 1, y: blinkClosed && animates ? 0.92 : pulseScale)
-            .offset(animates && expression.watchesPointer ? gazeModel.offset : .zero)
             .overlay {
                 Circle().stroke(ringColor, lineWidth: expression == .still ? 0.6 : 1.4)
             }
             .accessibilityHidden(true)
-            .onAppear { startGaze(); startPulse() }
-            .onDisappear { stopGaze() }
-            .onChange(of: expression) { _, _ in
-                startGaze()
-                startPulse()
-            }
-            .task(id: blinkKey) { await blinkLoop() }
-    }
-
-    private var blinkKey: String { "\(expression)-\(reduceMotion)" }
-
-    private var pulseScale: CGFloat {
-        guard animates, pulse else { return 1 }
-        switch expression {
-        case .thinking: return 1.05
-        case .speaking: return 1.07
-        case .listening: return 1.03
-        case .idle, .still: return 1
-        }
     }
 
     private var ringColor: Color {
@@ -310,107 +197,6 @@ struct MateFaceView: View {
         case .listening, .speaking: return DS.Colors.accent
         case .thinking: return DS.Colors.warning
         }
-    }
-
-    @ViewBuilder private var tintWash: some View {
-        if let tint {
-            Circle().fill(tint).blendMode(.softLight).opacity(0.9)
-        }
-    }
-
-    @ViewBuilder private var lid: some View {
-        if blinkClosed && animates {
-            Capsule()
-                .fill(Color.black.opacity(0.55))
-                .frame(width: size * 0.62, height: size * 0.08)
-                .offset(y: -size * 0.06)
-        }
-    }
-
-    @ViewBuilder private var hairShape: some View {
-        let color = tint ?? Color.white.opacity(0.85)
-        switch hair {
-        case .none:
-            EmptyView()
-        case .tuft:
-            HStack(spacing: size * 0.04) {
-                Capsule().frame(width: size * 0.12, height: size * 0.22)
-                Capsule().frame(width: size * 0.12, height: size * 0.28)
-            }
-            .foregroundStyle(color)
-            .offset(y: -size * 0.34)
-        case .band:
-            Capsule()
-                .fill(color)
-                .frame(width: size * 0.7, height: size * 0.12)
-                .offset(y: -size * 0.22)
-        case .hood:
-            Circle()
-                .trim(from: 0.5, to: 1)
-                .stroke(color, lineWidth: size * 0.08)
-                .frame(width: size * 0.78, height: size * 0.78)
-                .offset(y: -size * 0.08)
-        }
-    }
-
-    @ViewBuilder private var outfitShape: some View {
-        let color = (tint ?? Color.white).opacity(0.9)
-        switch outfit {
-        case .none:
-            EmptyView()
-        case .collar:
-            RoundedRectangle(cornerRadius: 2, style: .continuous)
-                .fill(color)
-                .frame(width: size * 0.46, height: size * 0.16)
-                .offset(y: size * 0.38)
-        case .scarf:
-            Capsule()
-                .fill(color)
-                .frame(width: size * 0.72, height: size * 0.1)
-                .offset(y: size * 0.3)
-        }
-    }
-
-    private func startPulse() {
-        pulse = false
-        guard animates, expression == .thinking || expression == .speaking || expression == .listening else { return }
-        let duration = expression == .speaking ? 0.28 : 0.7
-        withAnimation(.easeInOut(duration: duration).repeatForever(autoreverses: true)) {
-            pulse = true
-        }
-    }
-
-    private func blinkLoop() async {
-        blinkClosed = false
-        guard animates, expression == .idle || expression == .listening else { return }
-        while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(expression == .listening ? 2.4 : 3.6))
-            if Task.isCancelled { return }
-            blinkClosed = true
-            try? await Task.sleep(for: .milliseconds(110))
-            blinkClosed = false
-        }
-    }
-
-    private func startGaze() {
-        stopGaze()
-        guard animates, expression.watchesPointer else { return }
-        let travel = min(size * 0.08, 4)
-        gazeModel.monitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged]) { event in
-            if let window = event.window ?? NSApp.keyWindow {
-                let point = window.mouseLocationOutsideOfEventStream
-                let width = max(window.frame.width, 1)
-                let height = max(window.frame.height, 1)
-                let nx = (point.x / width) - 0.5
-                let ny = (point.y / height) - 0.5
-                gazeModel.offset = CGSize(width: nx * travel * 2, height: -ny * travel * 2)
-            }
-            return event
-        }
-    }
-
-    private func stopGaze() {
-        gazeModel.stop()
     }
 
     private var faceImage: Image {
