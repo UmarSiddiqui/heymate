@@ -17,7 +17,18 @@ final class HeyMateLaunchTests: XCTestCase {
 
     @MainActor
     func testAppLaunchesStaysRunningAndQuits() throws {
+        // A UI test launches the real app outside the unit-test host, so it
+        // would otherwise load the user's real mates and data and apply the
+        // active mate's brain to their real preferences. The scratch root
+        // sends every data path to a throwaway folder (see
+        // HeyMateDataDirectory) and restores preferences when the app exits.
+        let scratchRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("heymate-ui-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratchRoot, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: scratchRoot) }
+
         let app = XCUIApplication()
+        app.launchEnvironment["HEYMATE_TEST_DATA_ROOT"] = scratchRoot.path
         app.launch()
 
         let isUp = app.wait(for: .runningForeground, timeout: 10) || app.state == .runningBackground
