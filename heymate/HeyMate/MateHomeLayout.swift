@@ -194,7 +194,12 @@ nonisolated struct MateRailPreview: Equatable {
             .compactMap { $0.messages.last }
             .max { $0.createdAt < $1.createdAt }
         guard let latest else { return MateRailPreview(text: mate.job, date: nil) }
-        let flattened = latest.text
+        // Replies are Markdown; a one-line preview shows the words, not the marks.
+        let plain = (try? AttributedString(
+            markdown: latest.text,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        )).map { String($0.characters) } ?? latest.text
+        let flattened = plain
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }

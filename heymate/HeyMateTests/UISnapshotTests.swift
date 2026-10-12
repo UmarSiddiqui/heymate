@@ -188,6 +188,58 @@ struct UISnapshotTests {
         )
     }
 
+    /// Light renders for the website. Sample data only; nothing from this Mac.
+    @Test(.enabled(if: outputDirectory != nil))
+    func websiteShots() throws {
+        let manager = Self.sampleManager()
+        // Made-up people only: these images are published.
+        manager.mates[0].name = "Inbox Ivy"
+        manager.mates[0].job = "Draft replies to customer email every morning"
+        manager.mates[0].soul = "Warm and brief. Writes like you, not like a help desk."
+        manager.mates[0].faceAssetName = "MateFaceSignalPointer"
+        var chat = manager.savedChats[0]
+        chat.messages[0].text = "Draft replies to today's customer emails and tell me which ones need me."
+        chat.messages[1].text = "Drafted **6 replies** and saved them in Gmail. Nothing was sent.\n\nTwo need you: **Dana** wants a refund on an annual plan, and **Jules** is asking about a late order. I left both as drafts with a suggested answer."
+        manager.savedChats[0] = chat
+        manager.currentChat = chat
+        try Self.render(
+            MateHomeView(companionManager: manager, isCompactLayout: false, onOpenSection: { _ in }),
+            size: CGSize(width: 1180, height: 740), dark: false, name: "site-agent-chat"
+        )
+        try Self.render(
+            AgentBuilderSheet(companionManager: manager, initialDescription: "Every morning, read my inbox and draft replies to customers"),
+            size: CGSize(width: 540, height: 360), dark: false, name: "site-builder-describe"
+        )
+        try Self.render(
+            AgentBuilderSheet(companionManager: manager, initialDraft: Self.sampleDraft),
+            size: CGSize(width: 540, height: 760), dark: false, name: "site-builder-review"
+        )
+        try Self.render(
+            DesktopConnectorsView(
+                store: manager.connectorStore,
+                runtime: manager.connectorRuntime,
+                composioConnections: manager.composioConnections,
+                composioToolkitDirectory: manager.composioToolkitDirectory
+            )
+            .background(DS.Colors.background),
+            size: CGSize(width: 1000, height: 640), dark: false, name: "site-integrations", settle: 4
+        )
+    }
+
+    static let sampleDraft = AgentDraft(
+        name: "Inbox Ivy",
+        role: "Draft replies to customer email every morning",
+        personality: "Warm and brief. Writes like you, not like a help desk.",
+        howItWorks: [
+            "Read new customer email each morning before 9",
+            "Save drafts in Gmail, never send them",
+            "Lead the summary with anything urgent or angry"
+        ],
+        asksFirst: ["Sending any email", "Offering refunds or discounts"],
+        firstTask: "Draft replies to today's customer emails and tell me which ones need me",
+        integrations: ["Gmail", "Notion"]
+    )
+
     // MARK: Fixtures
 
     static func sampleManager() -> CompanionManager {
@@ -233,7 +285,7 @@ struct UISnapshotTests {
 
     // MARK: Rendering
 
-    static func render<V: View>(_ view: V, size: CGSize, dark: Bool, name: String) throws {
+    static func render<V: View>(_ view: V, size: CGSize, dark: Bool, name: String, settle: TimeInterval = 0.8) throws {
         guard let directory = outputDirectory else { return }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
@@ -244,7 +296,7 @@ struct UISnapshotTests {
         window.contentView = hosting
         window.layoutIfNeeded()
         // Let onAppear, tasks and animations settle.
-        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+        RunLoop.main.run(until: Date().addingTimeInterval(settle))
         hosting.layoutSubtreeIfNeeded()
         hosting.display()
 

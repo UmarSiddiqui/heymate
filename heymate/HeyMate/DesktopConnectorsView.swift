@@ -122,8 +122,7 @@ struct DesktopConnectorsView: View {
     }
 
     private var connectedSummary: String {
-        let connectedCount = store.connectionStates.values.filter(\.isConnected).count
-            + composioConnections.connectedSlugs.count
+        let connectedCount = connectedItems.count
         if connectedCount == 0 {
             return "Connect once and every agent can use it. Calendar, Reminders, Notes, and the other Mac apps need no setup."
         }
