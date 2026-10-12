@@ -201,29 +201,14 @@ struct MateStoreTests {
         #expect(store.loadAll().count == 1)
     }
 
-    @Test func deleteDefaultPromotesAnother() {
+    @Test func deletingTheMainAgentIsRefused() {
         let directory = makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = FileMateStore(fileURL: directory.appendingPathComponent("mates.json"))
         let seeded = store.loadAll()[0]
         let now = Date()
-        let olderID = UUID()
-        let newerID = UUID()
-        let archivedID = UUID()
         #expect(store.upsert(Mate(
-            id: olderID,
-            name: "Older",
-            job: "Earlier",
-            pinned: false,
-            archived: false,
-            unreadCount: 0,
-            createdAt: now.addingTimeInterval(-30),
-            updatedAt: now.addingTimeInterval(-20),
-            memoryNote: "",
-            folderPath: nil
-        )))
-        #expect(store.upsert(Mate(
-            id: newerID,
+            id: UUID(),
             name: "Newer",
             job: "Later",
             pinned: false,
@@ -234,37 +219,12 @@ struct MateStoreTests {
             memoryNote: "",
             folderPath: nil
         )))
-        #expect(store.upsert(Mate(
-            id: archivedID,
-            name: "Shelved",
-            job: "Paused",
-            pinned: false,
-            archived: true,
-            unreadCount: 0,
-            createdAt: now,
-            updatedAt: now.addingTimeInterval(40),
-            memoryNote: "",
-            folderPath: nil
-        )))
-        #expect(store.delete(id: seeded.id))
-        #expect(store.mate(id: seeded.id) == nil)
-        #expect(store.defaultMateID == newerID)
-        #expect(store.mate(id: newerID)?.conductsOthers == true)
-        #expect(store.mate(id: archivedID)?.archived == true)
-    }
-
-    @Test func deleteLastMateSeedsAFreshDefault() {
-        let directory = makeDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let store = FileMateStore(fileURL: directory.appendingPathComponent("mates.json"))
-        let seededID = store.loadAll()[0].id
-        #expect(store.delete(id: seededID))
-        let mates = store.loadAll()
-        #expect(mates.count == 1)
-        #expect(mates[0].id != seededID)
-        #expect(mates[0].name == Mate.defaultName)
-        #expect(mates[0].conductsOthers)
-        #expect(store.defaultMateID == mates[0].id)
+        #expect(store.delete(id: seeded.id) == false)
+        #expect(store.mate(id: seeded.id) == seeded)
+        #expect(store.defaultMateID == seeded.id)
+        #expect(store.loadAll().count == 2)
+        let reloaded = FileMateStore(fileURL: directory.appendingPathComponent("mates.json"))
+        #expect(reloaded.mate(id: seeded.id) != nil)
     }
 
     @Test func deleteUnknownIdIsANoOp() {
@@ -275,35 +235,6 @@ struct MateStoreTests {
         #expect(store.delete(id: UUID()) == false)
         #expect(store.loadAll() == before)
         #expect(store.defaultMateID == before[0].id)
-    }
-
-    @Test func deleteLastActiveMateKeepsArchivedAndSeedsAFreshDefault() {
-        let directory = makeDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let store = FileMateStore(fileURL: directory.appendingPathComponent("mates.json"))
-        let seededID = store.loadAll()[0].id
-        let archivedID = UUID()
-        let now = Date()
-        #expect(store.upsert(Mate(
-            id: archivedID,
-            name: "Paused Scout",
-            job: "Waiting",
-            pinned: false,
-            archived: true,
-            unreadCount: 0,
-            createdAt: now,
-            updatedAt: now,
-            memoryNote: "",
-            folderPath: nil
-        )))
-        #expect(store.delete(id: seededID))
-        let mates = store.loadAll()
-        #expect(mates.contains { $0.id == archivedID && $0.archived })
-        let fresh = mates.first { !$0.archived }
-        #expect(fresh?.name == Mate.defaultName)
-        #expect(fresh?.id != seededID)
-        #expect(store.defaultMateID == fresh?.id)
-        #expect(mates.count == 2)
     }
 
     @Test func brainAndConnectorExclusionsRoundTrip() {

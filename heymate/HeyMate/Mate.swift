@@ -25,11 +25,10 @@ nonisolated struct Mate: Equatable, Identifiable {
     var soul: String = ""
     /// Chosen picture. Nil keeps the face that belongs to this mate.
     var faceAssetName: String? = nil
-    /// Optional color laid over the picture. Nil leaves the art as drawn.
+    /// Legacy face extras (color, hair, outfit). Still decoded so older
+    /// files load; nothing draws them and saving a profile clears them.
     var faceTint: String? = nil
-    /// A small shape at the top of the face: tuft, band, or hood.
     var faceHair: String? = nil
-    /// A small shape at the bottom of the face: collar or scarf.
     var faceOutfit: String? = nil
     /// The default mate. Sees the other mates and can hand them work.
     /// Specialists stay false even if they are renamed to the same words.
@@ -50,13 +49,7 @@ nonisolated struct Mate: Equatable, Identifiable {
     static let legacyDefaultJob = "General chat"
     static let firstMateSoul = "Calm, precise, and a little warm. You are the personal assistant and the notch companion. You see every other agent and you hand them work instead of pretending you did it yourself."
 
-    static func deletionWarning(replacesWithFreshHeyMate: Bool) -> String {
-        var text = "Their chats and routines go away. Files in their folder stay."
-        if replacesWithFreshHeyMate {
-            text += " A fresh \(defaultName) takes their place."
-        }
-        return text
-    }
+    static let deletionWarning = "Their chats and routines go away. Files in their folder stay."
 }
 
 extension Mate: Codable {
