@@ -278,7 +278,7 @@ enum ConnectorCatalog {
             transport: .localCLI,
             symbolName: "terminal",
             maximumRisk: .destructive,
-            capabilities: ["Run a coding job in a sandbox folder", "Attach to an existing repo with approval"],
+            capabilities: ["Run a coding agent in a sandbox folder", "Attach to an existing repo with approval"],
             requiredExecutableName: "opencode",
             installHint: "curl -fsSL https://opencode.ai/install | bash"
         ),

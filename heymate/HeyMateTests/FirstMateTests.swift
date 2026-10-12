@@ -238,8 +238,35 @@ struct MateRunReportTests {
     @Test func finishedAnswersBeforeSupplementaryFileCounts() {
         let text = MateRunReport.finished(summary: "Blogs added.", changedFileCount: 1)
         #expect(text.contains("1 file changed"))
-        #expect(text.hasPrefix("Job result\n\nBlogs added."))
+        #expect(text.hasPrefix("Result\n\nBlogs added."))
         #expect(!text.contains("schedule"))
+    }
+
+    @Test func finishedUsesSummaryAndCountsArtifacts() {
+        let summary = """
+        The long write-up stays out of the lead.
+        <SUMMARY>Blogs added.</SUMMARY>
+        <ARTIFACTS>
+        output/a.md
+        tmp/notes.txt
+        https://example.test/post
+        </ARTIFACTS>
+        """
+        let text = MateRunReport.finished(summary: summary, changedFileCount: 2)
+        #expect(text.hasPrefix("Result\n\nBlogs added."))
+        #expect(text.contains("2 artifacts."))
+        #expect(text.contains("2 files changed"))
+        #expect(!text.contains("The long write-up"))
+        #expect(!text.contains("tmp/notes"))
+        #expect(!text.contains("<SUMMARY>"))
+    }
+
+    @Test func finishedIgnoresAGenericSummaryWhenTheAnswerIsReal() {
+        let text = MateRunReport.finished(
+            summary: "Blogs added.\n<SUMMARY>Done</SUMMARY>",
+            changedFileCount: 0
+        )
+        #expect(text == "Result\n\nBlogs added.")
     }
 
     @Test func failureExplainsAndOffersRetry() {
@@ -283,7 +310,8 @@ struct MateAgentBriefTests {
         let block = MateAgentBrief.promptBlock(mate: mate)
         #expect(block.contains("[WORK:"))
         #expect(block.contains("/tmp/site"))
-        #expect(block.contains("never ask for approval, a path"))
+        #expect(block.contains("do not ask for a path"))
+        #expect(block.contains("ask once"))
         #expect(!block.contains("operate other mac apps"))
     }
 
@@ -296,5 +324,44 @@ struct MateAgentBriefTests {
         let block = MateAgentBrief.promptBlock(mate: mate, runsCanOperateApps: true)
         #expect(block.contains("operate other mac apps"))
         #expect(block.contains("never say app control is unavailable"))
+    }
+
+    @Test func briefAsksOnceAndNamesTheResultBlocks() {
+        let mate = Mate(
+            id: UUID(), name: "Web Smith", job: "website", pinned: false, archived: false,
+            unreadCount: 0, createdAt: Date(), updatedAt: Date(), memoryNote: "",
+            folderPath: "/tmp/site", conductsOthers: true
+        )
+        let block = MateAgentBrief.promptBlock(mate: mate, runsCanOperateApps: true)
+        #expect(block.contains("this chat cannot write files"))
+        #expect(block.contains("ask once"))
+        #expect(block.contains("never invent the user's facts"))
+        #expect(block.contains("confirm only before"))
+        #expect(block.contains("email is a draft"))
+        #expect(block.contains("output/"))
+        #expect(block.contains("tmp/"))
+        #expect(block.contains("<SUMMARY>"))
+        #expect(block.contains("<NEXT_ACTIONS>"))
+        #expect(block.contains("<ARTIFACTS>"))
+        #expect(block.contains("<ROUTINE>"))
+        #expect(block.contains("<COMPUTER_USE_REQUEST>"))
+        #expect(block.contains("[ASK:"))
+        #expect(AgentPlanBrief.planningContract.contains("do not attempt the work"))
+        #expect(AgentPlanBrief.planningContract.contains("Never invent the user's facts"))
+        #expect(AgentPlanBrief.replanContract.contains(AgentPlanBrief.planningContract))
+        #expect(AgentPlanBrief.followUpContract.contains(AgentPlanBrief.planningContract))
+        #expect(AgentPlanBrief.contract(for: .execute) == nil)
+        #expect(headlessAgentExecuteInstruction.contains(AgentFinalResult.marker))
+        #expect(headlessAgentExecuteInstruction.contains(headlessAgentBlockedMarker))
+        for tag in ["<SUMMARY>", "<NEXT_ACTIONS>", "<ARTIFACTS>", "<DONE_TITLE>", "<ROUTINE>", "<COMPUTER_USE_REQUEST>"] {
+            #expect(headlessAgentExecuteInstruction.contains(tag))
+        }
+        let contracts = [
+            AgentPlanBrief.planningContract,
+            AgentPlanBrief.replanContract,
+            AgentPlanBrief.followUpContract
+        ].joined(separator: "\n")
+        let combined = block.utf8.count + contracts.utf8.count
+        #expect(combined < 5 * 1_024)
     }
 }

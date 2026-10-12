@@ -38,11 +38,11 @@ nonisolated enum AgentTerminalTakeover {
         var explanation: String {
             switch self {
             case .sessionNotStartedYet:
-                return "This job hasn't reported its session yet. Give it a moment and try again."
+                return "This agent hasn't reported its session yet. Give it a moment and try again."
             case .runNotFound:
-                return "That job is no longer around."
+                return "That agent run is no longer around."
             case .processWouldNotStop:
-                return "HeyMate could not confirm the agent stopped, so Terminal was not opened. Cancel the job and try again."
+                return "HeyMate could not confirm the agent stopped, so Terminal was not opened. Stop the agent and try again."
             }
         }
     }
@@ -113,7 +113,7 @@ nonisolated enum AgentTerminalTakeover {
     /// silently killing their job and opening a window.
     static func takeoverDescription(for executor: HeadlessExecutor) -> String {
         "Stops HeyMate's \(executor.displayName) process and reopens the same session in Terminal, "
-            + "where you drive it yourself. HeyMate stops tracking the job from that point."
+            + "where you drive it yourself. HeyMate stops tracking that work from that point."
     }
 
     /// Opens Terminal on the job's session. Returns false when the AppleScript

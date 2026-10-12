@@ -99,13 +99,14 @@ protocol HeadlessCLIAdapter {
 /// in the session, so re-stating it would only give the model a chance to
 /// drift from the text the user actually approved.
 ///
-/// The second sentence exists because a CLI exits 0 whether or not the work
-/// got done: an agent refused a write says so in prose and still finishes
-/// cleanly. A fixed first-line marker is the one signal HeyMate can read
-/// without parsing free text.
+/// The blocked marker exists because a CLI exits 0 whether or not the work
+/// got done. A fixed first line is the signal HeyMate reads without parsing
+/// free text. Blocks after that answer are optional and never replace it.
 let headlessAgentBlockedMarker = "HEYMATE_BLOCKED:"
 
-let headlessAgentExecuteInstruction = "Execute the approved plan now. Do not expand its scope. Begin your final message with \(AgentFinalResult.marker) followed by the answer to the original request and the checks actually performed. For read-only questions, include the requested totals or findings even when no files changed. Never substitute a generic completion message or file-change count for the answer. Do not include credentials, private paths, account identifiers, or unrelated conversation. If any part of the plan could not be completed or verified, such as a permission refusal or a missing tool, begin your final message with \(headlessAgentBlockedMarker) and a one-line reason instead."
+let headlessAgentExecuteInstruction = """
+Execute the approved plan now. Do not expand its scope. Begin your final message with \(AgentFinalResult.marker) followed by the answer to the original request and the checks actually performed. For read-only questions, include the requested totals or findings even when no files changed. Never substitute a generic completion message or file-change count for the answer. Do not include credentials, private paths, account identifiers, or unrelated conversation. If any part of the plan could not be completed or verified, such as a permission refusal or a missing tool, begin your final message with \(headlessAgentBlockedMarker) and a one-line reason instead. After that answer, you may append any of these blocks and leave out the ones you do not need: <SUMMARY>one sentence</SUMMARY> <NEXT_ACTIONS>up to four imperative phrases, one per line</NEXT_ACTIONS> <ARTIFACTS>paths or http(s) URLs, one per line</ARTIFACTS> <DONE_TITLE>short title</DONE_TITLE> <ROUTINE>a JSON object with action create, update, pause, resume, or delete, and optional every_minutes, title, task, and new_title</ROUTINE> <COMPUTER_USE_REQUEST>what you would do on this Mac and why</COMPUTER_USE_REQUEST>.
+"""
 
 /// True when an agent's final message reports that it could not finish.
 func headlessAgentReportsBlocked(_ finalMessage: String) -> Bool {

@@ -175,13 +175,13 @@ struct DesktopMemoryView: View {
 
     private func memoryScopeLabel(_ item: MemoryItem) -> String {
         if let mateID = item.mateID {
-            let name = companionManager.mates.first { $0.id == mateID }?.name ?? "Deleted mate"
+            let name = companionManager.mates.first { $0.id == mateID }?.name ?? "Deleted agent"
             return "Only \(name)"
         }
         if item.kind == .sessionSummary {
             return "Older unassigned summary · kept here, not used in replies"
         }
-        return "Shared with all mates"
+        return "Shared with all agents"
     }
 
     private func saveEditingMemory(id: UUID) {

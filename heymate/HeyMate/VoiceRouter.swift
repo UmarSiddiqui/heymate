@@ -46,7 +46,11 @@ nonisolated enum VoiceRouter {
         let text = SpokenText.normalizedSpokenCommandText(SpokenText.normalizedCommandCandidate(from: transcript))
         let addressedAgent = AgentInvocation.explicitPrefixTask(transcript) != nil
 
-        if !addressedAgent && isSensitiveOrDestructiveAgentTaskRequest(text) { return .confirmDestructive }
+        if !addressedAgent && isSensitiveOrDestructiveAgentTaskRequest(text) {
+            // "Explain account terminology" mentions a sensitive word but asks
+            // for nothing to be done; only an instruction earns the confirm card.
+            return asksForAction(text) ? .confirmDestructive : .talk
+        }
         if addressedAgent { return .agent }
         if containsHybridForegroundCue(text) && containsHybridBackgroundCue(text) { return .hybrid }
         if isScreenQuestion(text) || isPerceptionQuestion(text) { return .talk }
@@ -90,6 +94,13 @@ nonisolated enum VoiceRouter {
         if Patterns.sensitiveTarget.matches(text) { return true }
         guard Patterns.destructiveVerb.matches(text) else { return false }
         return Patterns.broadScope.matches(text) || Patterns.destructibleTarget.matches(text)
+    }
+
+    /// An instruction, not a question: a work or destructive verb, and no
+    /// question opener at the start.
+    static func asksForAction(_ text: String) -> Bool {
+        guard !Patterns.questionOpener.matches(text) else { return false }
+        return Patterns.destructiveVerb.matches(text) || Patterns.workAction.matches(text)
     }
 
     static func containsHybridForegroundCue(_ text: String) -> Bool {

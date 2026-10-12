@@ -263,15 +263,41 @@ struct ChatTurnNavigationTests {
         #expect(await secondTask.value == true)
     }
 
+    @Test func builderDraftsWithTheAIThenCreatesTheAgent() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        let drafting = Task { await manager.draftAgent(description: "reply to customer email") }
+        try await fixture.client.waitForRequest()
+        #expect(fixture.client.requests[0].systemPrompt == AgentDrafter.systemPrompt)
+        fixture.client.finish(text: """
+        {"name":"Inbox Ivy","role":"Draft replies to customer email","personality":"Warm and brief.",
+         "how_it_works":["Lead with the draft"],"asks_first":["Sending email"],
+         "first_task":"Draft replies to today's customer emails","integrations":[]}
+        """)
+        let result = await drafting.value
+        #expect(result.usedModel)
+        let mate = try #require(manager.createAgent(from: result.draft, faceAssetName: "MateFaceSignalPointer"))
+        #expect(mate.name == "Inbox Ivy")
+        #expect(mate.soul == "Warm and brief.")
+        #expect(mate.faceAssetName == "MateFaceSignalPointer")
+        #expect(manager.agentHabits(for: mate).asksFirst == ["Sending email"])
+        #expect(manager.currentChat.firstMoment?.starter?.prompt == "Draft replies to today's customer emails")
+        #expect(fixture.client.requests.count == 1)
+    }
+
     @Test func openingSavedChatAppliesItsMatesPreferences() throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
         let mate = fixture.addMate(name: "Pixel", brain: .onDevice, exclusions: ["example-connector"])
         let chat = fixture.addChat(mateID: mate.id)
+        let globalExclusions = fixture.manager.chatConnectorExclusions
         fixture.manager.openChat(id: chat.id)
         #expect(fixture.manager.activeMateID == mate.id)
         #expect(fixture.manager.selectedBrain == .onDevice)
-        #expect(fixture.manager.chatConnectorExclusions == ["example-connector"])
+        // Integrations are global, so an agent's old saved choices are ignored.
+        #expect(fixture.manager.chatConnectorExclusions == globalExclusions)
+        #expect(!fixture.manager.chatConnectorExclusions.contains("example-connector"))
     }
 
     @Test func talkAnswersAsHeyMateEvenWithAMateChatOpen() async throws {
@@ -680,7 +706,7 @@ struct ChatTurnNavigationTests {
             #expect(run.executor == .codex)
             #expect(run.chatOwner == AgentChatOwner(mateID: worker.id, chatID: workerChat.id))
             #expect(run.status == .failed)
-            #expect(!FileManager.default.fileExists(atPath: run.workspaceURL.path))
+            #expect(fixture.runUsesMateFolder(run, mateID: worker.id))
         } else {
             #expect(manager.agentRunStore.loadAll().isEmpty)
         }
@@ -792,7 +818,7 @@ struct ChatTurnNavigationTests {
         #expect(run.executor == receivingBrain.executor)
         #expect(run.chatOwner == AgentChatOwner(mateID: worker.id, chatID: workerChat.id))
         #expect(run.status == .failed)
-        #expect(!FileManager.default.fileExists(atPath: run.workspaceURL.path))
+        #expect(fixture.runUsesMateFolder(run, mateID: worker.id))
         #expect(manager.currentChat == visibleChat)
         #expect(manager.backgroundRoutineSession == nil)
         #expect(manager.activeRoutineTurn == nil)
@@ -824,7 +850,7 @@ struct ChatTurnNavigationTests {
         let run = try #require(manager.agentRunStore.loadAll().first)
         #expect(run.executor == .openCode)
         #expect(run.chatOwner == AgentChatOwner(mateID: worker.id, chatID: workerChat.id))
-        #expect(!FileManager.default.fileExists(atPath: run.workspaceURL.path))
+        #expect(fixture.runUsesMateFolder(run, mateID: worker.id))
         if delivery != "foreground" { #expect(manager.currentChat == visibleChat) }
     }
 
@@ -938,6 +964,13 @@ struct ChatTurnNavigationTests {
             _ = manager.mateDirectory.upsertMate(mate)
             manager.syncMatePublications()
             return mate
+        }
+
+        /// Mate work runs in the mate's own folder, which outlives a failed
+        /// job; only sandbox runs are cleaned up.
+        func runUsesMateFolder(_ run: AgentRun, mateID: UUID) -> Bool {
+            guard let folder = manager.mates.first(where: { $0.id == mateID })?.folderPath else { return false }
+            return run.workspaceURL.standardizedFileURL.path == URL(fileURLWithPath: folder).standardizedFileURL.path
         }
 
         func addChat(mateID: UUID) -> ChatSession {

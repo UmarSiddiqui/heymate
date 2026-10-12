@@ -25,7 +25,7 @@ struct MateStoreTests {
         let store = FileMateStore(fileURL: directory.appendingPathComponent("mates.json"))
         let mates = store.loadAll()
         #expect(mates.count == 1)
-        #expect(mates[0].name == "First Mate")
+        #expect(mates[0].name == "HeyMate")
         #expect(mates[0].job == Mate.defaultJob)
         #expect(mates[0].conductsOthers)
         #expect(mates[0].pinned)
@@ -34,10 +34,10 @@ struct MateStoreTests {
 
         let reloaded = FileMateStore(fileURL: directory.appendingPathComponent("mates.json"))
         #expect(reloaded.defaultMateID == store.defaultMateID)
-        #expect(reloaded.loadAll().map(\.name) == ["First Mate"])
+        #expect(reloaded.loadAll().map(\.name) == ["HeyMate"])
     }
 
-    @Test func stockHeyMateBecomesFirstMate() {
+    @Test func stockHeyMateBecomesTheMainAgent() {
         let directory = makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let fileURL = directory.appendingPathComponent("mates.json")
@@ -60,10 +60,31 @@ struct MateStoreTests {
         try? data?.write(to: fileURL)
         let store = FileMateStore(fileURL: fileURL)
         let mate = store.loadAll()[0]
-        #expect(mate.name == "First Mate")
+        #expect(mate.name == Mate.defaultName)
+        #expect(mate.job == Mate.defaultJob)
         #expect(mate.conductsOthers)
         #expect(mate.pinned)
         #expect(mate.id == id)
+    }
+
+    @Test func stockFirstMateBecomesHeyMate() {
+        let directory = makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("mates.json")
+        let id = UUID()
+        let now = Date()
+        let stock = Mate(
+            id: id, name: "First Mate", job: "The one chat that runs the others",
+            pinned: true, archived: false, unreadCount: 0, createdAt: now, updatedAt: now,
+            memoryNote: "", folderPath: nil, soul: Mate.previousFirstMateSoul, conductsOthers: true
+        )
+        let data = try? JSONEncoder().encode(MateCatalogFile(defaultMateID: id, mates: [stock]))
+        try? data?.write(to: fileURL)
+        let mate = FileMateStore(fileURL: fileURL).loadAll()[0]
+        #expect(mate.name == "HeyMate")
+        #expect(mate.job == Mate.defaultJob)
+        #expect(mate.soul == Mate.firstMateSoul)
+        #expect(FileMateStore(fileURL: fileURL).loadAll()[0].name == "HeyMate")
     }
 
     @Test func renamedDefaultMateKeepsItsNameAndConducts() {

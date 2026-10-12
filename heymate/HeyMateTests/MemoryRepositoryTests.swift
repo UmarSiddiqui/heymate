@@ -414,6 +414,38 @@ struct MemoryRepositoryTests {
         #expect(recorded?.isEmpty == false)
         #expect(box.didPost)
     }
+
+    // MARK: - Proposed appends
+
+    @Test func proposedAppendsSkipsSameKindNearDuplicatesAndKeepsTheStore() {
+        let storeFileURL = makeTemporaryStoreFileURL()
+        defer { removeTemporaryFile(at: storeFileURL) }
+        let repository = FileMemoryRepository(fileURL: storeFileURL)
+
+        let existingPreference = makeItem(kind: .preference, text: "Prefers dark mode", minutesAfterEpochBase: 1)
+        let existingFact = makeItem(kind: .projectFact, text: "Northwind is the billing rewrite", minutesAfterEpochBase: 2)
+        repository.append(existingPreference)
+        repository.append(existingFact)
+        let before = repository.loadAll()
+
+        let sameWords = makeItem(kind: .preference, text: "prefers   dark mode", minutesAfterEpochBase: 3)
+        let nearDuplicate = makeItem(kind: .preference, text: "Prefers dark modes", minutesAfterEpochBase: 4)
+        let shortFragment = makeItem(kind: .projectFact, text: "Northwind", minutesAfterEpochBase: 5)
+        let fresh = makeItem(kind: .preference, text: "Wants replies in one sentence", minutesAfterEpochBase: 6)
+        let sameTextOtherKind = makeItem(kind: .projectFact, text: "Prefers dark mode", minutesAfterEpochBase: 7)
+        let repeatedFresh = makeItem(kind: .preference, text: "wants replies in one sentence", minutesAfterEpochBase: 8)
+
+        let proposed = repository.proposedAppends(
+            [sameWords, nearDuplicate, shortFragment, fresh, sameTextOtherKind, repeatedFresh],
+            existing: before
+        )
+
+        #expect(proposed.map(\.id) == [shortFragment.id, fresh.id, sameTextOtherKind.id])
+        #expect(repository.loadAll() == before)
+        #expect(before.filter { $0.kind == .preference }.count == 1)
+        #expect(FileMemoryRepository.textsAreSameMemory("use vim", "use vim now") == false)
+        #expect(FileMemoryRepository.textsAreSameMemory("Prefers dark mode", "Prefers dark modes"))
+    }
 }
 
 private nonisolated final class MemoryPersistNotificationBox: @unchecked Sendable {

@@ -2,21 +2,21 @@
 //  ComputerUseApprovalCard.swift
 //  HeyMate
 //
-//  "I'm about to do this. Yes or no?"
+//  "I'm about to do this. How far does the yes go?"
 //
-//  Deliberately austere. One sentence for the action, one for why, two
-//  buttons, and a risk stripe. No countdown, no default-highlighted
-//  Approve button that Return would trigger by accident, and no way to
-//  say "always allow" — a standing yes to synthesized input is the thing
-//  this card exists to prevent.
+//  Not now, this time, this chat, or always. Always is a standing yes to
+//  synthesized input, so it is never the Return key and never the button
+//  a stray keypress would hit. No countdown.
 //
 
 import SwiftUI
 
 struct ComputerUseApprovalCard: View {
     let request: ComputerUseRequest
-    let onApprove: () -> Void
+    /// Hidden when there is no conversation to attach a "this chat" yes to.
+    var offersConversationGrant = false
     let onDeny: () -> Void
+    let onGrant: (ComputerUseConsentScope) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -49,15 +49,25 @@ struct ComputerUseApprovalCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack(spacing: 8) {
-                Button("Not now", action: onDeny)
-                    .buttonStyle(DSSecondaryButtonStyle())
-                    .keyboardShortcut(.cancelAction)
+            VStack(alignment: .trailing, spacing: 8) {
+                HStack(spacing: 8) {
+                    Button("Not now", action: onDeny)
+                        .buttonStyle(DSSecondaryButtonStyle())
+                        .keyboardShortcut(.cancelAction)
 
-                Button("Do it", action: onApprove)
-                    .buttonStyle(DSPrimaryButtonStyle())
-                    // No .defaultAction: approving synthesized input should
-                    // take a deliberate click, not a stray Return keypress.
+                    Button("This time") { onGrant(.once) }
+                        .buttonStyle(DSPrimaryButtonStyle())
+                }
+                HStack(spacing: 8) {
+                    if offersConversationGrant {
+                        Button("This chat") { onGrant(.conversation) }
+                            .buttonStyle(DSSecondaryButtonStyle())
+                    }
+                    Button("Always") { onGrant(.always) }
+                        .buttonStyle(DSTertiaryButtonStyle())
+                    // No .defaultAction on Always — or on the other yeses.
+                    // A standing yes to synthesized input must be a click.
+                }
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
         }

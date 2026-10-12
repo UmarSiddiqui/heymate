@@ -37,10 +37,11 @@ struct DesktopConnectorsView: View {
 
     var body: some View {
         DesktopPage(
-            title: "Apps",
+            title: "Integrations",
             subtitle: connectedSummary,
             accessory: AnyView(searchField)
         ) {
+            connectedStrip
             if composioConnections.isConfigured {
                 composioSection
                 localSection
@@ -124,9 +125,65 @@ struct DesktopConnectorsView: View {
         let connectedCount = store.connectionStates.values.filter(\.isConnected).count
             + composioConnections.connectedSlugs.count
         if connectedCount == 0 {
-            return "Turn on the apps HeyMate may use. Calendar, Reminders, Notes, and the other Mac apps need no setup."
+            return "Connect once and every agent can use it. Calendar, Reminders, Notes, and the other Mac apps need no setup."
         }
-        return "\(connectedCount) connected. HeyMate can only reach what you turn on."
+        return "\(connectedCount) connected, shared by every agent. HeyMate can only reach what you turn on."
+    }
+
+    /// What is on right now, at a glance. Integrations are global, so this
+    /// is also the list every agent sees.
+    @ViewBuilder
+    private var connectedStrip: some View {
+        let items = connectedItems
+        if !items.isEmpty, searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                sectionHeader(title: "On for every agent", subtitle: "\(items.count) connected")
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 170), spacing: 8, alignment: .leading)],
+                    alignment: .leading,
+                    spacing: 8
+                ) {
+                    ForEach(items, id: \.id) { item in
+                        HStack(spacing: 7) {
+                            ComposioToolkitLogoView(
+                                toolkit: .logoOnly(slug: item.logoSlug, name: item.name),
+                                compactSize: 18
+                            )
+                            Text(item.name)
+                                .font(DS.Fonts.control)
+                                .foregroundColor(DS.Colors.textPrimary)
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                            Circle()
+                                .fill(DS.Colors.success)
+                                .frame(width: 6, height: 6)
+                                .accessibilityLabel("Connected")
+                        }
+                        .padding(.horizontal, 10)
+                        .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+                        .background(Capsule().fill(DS.Colors.surface2))
+                        .overlay(Capsule().stroke(DS.Colors.borderSubtle, lineWidth: 0.8))
+                    }
+                }
+            }
+        }
+    }
+
+    private var connectedItems: [(id: String, name: String, logoSlug: String)] {
+        let native = store.activeConnectors
+            .filter { $0.id != ComposioSessionStore.connectorID }
+            .map { (id: "connector:\($0.id)", name: $0.displayName, logoSlug: $0.id.lowercased()) }
+        // The sign-in service itself is plumbing, not an app anyone uses.
+        let web = composioConnections.connectedSlugs.filter { $0.lowercased() != ComposioSessionStore.connectorID }.map { slug in
+            (
+                id: "composio:\(slug)",
+                name: DesktopConnectorScopeMenu.readableName(
+                    composioConnections.records[slug]?.displayName ?? slug, slug: slug
+                ),
+                logoSlug: slug
+            )
+        }
+        return (native + web).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     private var searchField: some View {
@@ -134,7 +191,7 @@ struct DesktopConnectorsView: View {
             Image(systemName: "magnifyingglass")
                 .font(DS.Fonts.sectionLabel)
                 .foregroundColor(DS.Colors.textTertiary)
-            TextField("Search apps and tools", text: $searchText)
+            TextField("Search integrations", text: $searchText)
                 .textFieldStyle(.plain)
                 .font(DS.Fonts.body)
                 .frame(width: 180)
@@ -163,7 +220,7 @@ struct DesktopConnectorsView: View {
 
     private var composioSetupCard: some View {
         DesktopCard(
-            title: "More apps (optional)",
+            title: "More integrations (optional)",
             footnote: "Mac apps like Calendar and Notes never need this. It is only for web apps."
         ) {
             HStack(spacing: 12) {
@@ -198,7 +255,7 @@ struct DesktopConnectorsView: View {
             ProgressView("Loading apps…")
                 .controlSize(.small)
         } else if let failure = composioToolkitDirectory.loadFailureMessage {
-            DesktopEmptyState(symbolName: "exclamationmark.triangle", title: "Could not load apps", message: failure)
+            DesktopEmptyState(symbolName: "exclamationmark.triangle", title: "Could not load integrations", message: failure)
         } else if visibleComposioToolkits.isEmpty {
             DesktopEmptyState(
                 symbolName: "magnifyingglass",
@@ -207,7 +264,7 @@ struct DesktopConnectorsView: View {
             )
         } else {
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 250, maximum: 360), spacing: 10)],
+                columns: [GridItem(.adaptive(minimum: 250), spacing: 10)],
                 spacing: 10
             ) {
                 ForEach(visibleComposioToolkits) { toolkit in
@@ -292,7 +349,7 @@ struct DesktopConnectorsView: View {
                 googleAccountCard
 
                 LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 250, maximum: 360), spacing: 10)],
+                    columns: [GridItem(.adaptive(minimum: 250), spacing: 10)],
                     spacing: 10
                 ) {
                     ForEach(nativeApps) { connector in
@@ -400,7 +457,7 @@ struct DesktopConnectorsView: View {
 
             if !savedCustomServers.isEmpty {
                 LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 340, maximum: 420), spacing: 12)],
+                    columns: [GridItem(.adaptive(minimum: 340), spacing: 12)],
                     spacing: 12
                 ) {
                     ForEach(savedCustomServers) { connector in
@@ -423,7 +480,7 @@ struct DesktopConnectorsView: View {
             if !presetConnectors.isEmpty {
                 DisclosureGroup(isExpanded: $areMCPPresetsExpanded) {
                     LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 340, maximum: 420), spacing: 12)],
+                        columns: [GridItem(.adaptive(minimum: 340), spacing: 12)],
                         spacing: 12
                     ) {
                         ForEach(presetConnectors) { connector in
@@ -506,7 +563,7 @@ struct DesktopConnectorsView: View {
                 sectionHeader(title: title, subtitle: subtitle)
 
                 LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 340, maximum: 420), spacing: 12)],
+                    columns: [GridItem(.adaptive(minimum: 340), spacing: 12)],
                     spacing: 12
                 ) {
                     ForEach(connectors) { connector in

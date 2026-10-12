@@ -22,13 +22,13 @@ struct AgentUserNotifierTests {
             AgentNotificationPayload.make(
                 for: .approvalRequested(id: "tool-1", summary: "Allow writing Package.swift"),
                 runTitle: "Ship it"
-            )?.title == "Job needs approval"
+            )?.title == "Agent needs approval"
         )
         #expect(
             AgentNotificationPayload.make(for: .finished(summary: "All tests pass"), runTitle: "Ship it")
                 == AgentNotificationPayload(
                     kind: .finished,
-                    title: "Job finished",
+                    title: "Agent finished",
                     body: "All tests pass"
                 )
         )
@@ -36,7 +36,7 @@ struct AgentUserNotifierTests {
             AgentNotificationPayload.make(for: .failed(message: "Signed out"), runTitle: "Ship it")
                 == AgentNotificationPayload(
                     kind: .failed,
-                    title: "Job stopped",
+                    title: "Agent stopped",
                     body: "Signed out"
                 )
         )

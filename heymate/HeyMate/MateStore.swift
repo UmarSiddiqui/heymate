@@ -110,8 +110,9 @@ final class FileMateStore {
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
     }
 
-    /// The stock "HeyMate / General chat" seed becomes First Mate. A default
-    /// mate the user already renamed keeps that name and still conducts.
+    /// A stock default ("HeyMate / General chat" or "First Mate") becomes the
+    /// current main agent. One the user already renamed keeps that name and
+    /// still conducts.
     static func promoted(_ catalog: MateCatalogFile) -> MateCatalogFile {
         var catalog = catalog
         guard let index = catalog.mates.firstIndex(where: { $0.id == catalog.defaultMateID }) else {
@@ -119,10 +120,13 @@ final class FileMateStore {
         }
         var mate = catalog.mates[index]
         mate.conductsOthers = true
-        let stockName = normalized(mate.name) == normalized(Mate.legacyDefaultName)
-        let stockJob = normalized(mate.job) == normalized(Mate.legacyDefaultJob)
-        let untouchedSoul = mate.soul.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if stockName && stockJob && untouchedSoul {
+        let legacyStock = normalized(mate.name) == normalized(Mate.legacyDefaultName)
+            && normalized(mate.job) == normalized(Mate.legacyDefaultJob)
+            && mate.soul.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let previousStock = normalized(mate.name) == normalized(Mate.previousDefaultName)
+            && normalized(mate.job) == normalized(Mate.previousDefaultJob)
+            && [Mate.previousFirstMateSoul, ""].contains(mate.soul.trimmingCharacters(in: .whitespacesAndNewlines))
+        if legacyStock || previousStock {
             mate.name = Mate.defaultName
             mate.job = Mate.defaultJob
             mate.soul = Mate.firstMateSoul

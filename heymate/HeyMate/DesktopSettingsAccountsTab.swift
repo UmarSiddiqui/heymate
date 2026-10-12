@@ -247,7 +247,7 @@ struct DesktopSettingsAccountsTab: View {
     private var claudeModelSection: some View {
         SettingsSection(
             "Claude model",
-            footer: "Models come from the Claude app on this Mac. Talk and agent jobs use the model and effort you pick."
+            footer: "Models come from the Claude app on this Mac. Talk and agents use the model and effort you pick."
         ) {
             SettingsRow(SettingsItem.model.title, item: .model) {
                 HStack(spacing: DS.Spacing.xs) {
@@ -310,7 +310,7 @@ struct DesktopSettingsAccountsTab: View {
     private var codexModelSection: some View {
         SettingsSection(
             "ChatGPT model",
-            footer: "Models come from your ChatGPT sign-in. Quick typed questions use a fast model; screen questions and agent jobs use the one you pick."
+            footer: "Models come from your ChatGPT sign-in. Quick typed questions use a fast model; screen questions and agents use the one you pick."
         ) {
             if companionManager.codexModels.isEmpty {
                 SettingsRow(

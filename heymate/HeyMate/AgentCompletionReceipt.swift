@@ -253,8 +253,8 @@ nonisolated enum AgentCompletionReceipt {
             outcome = hasResult
                 ? "The executor reported a final answer. View it in HeyMate; private result text is omitted from this receipt."
                 : AgentFinalResult.missingMessage
-        case .failed: outcome = "The job reported an error. View details privately in HeyMate."
-        case .cancelled: outcome = "The job was cancelled or handed off. No completed outcome is recorded here."
+        case .failed: outcome = "The agent reported an error. View details privately in HeyMate."
+        case .cancelled: outcome = "The agent was cancelled or handed off. No completed outcome is recorded here."
         default: outcome = "No completed outcome is recorded yet."
         }
         let startDate = run.startedAt ?? run.createdAt
@@ -263,7 +263,7 @@ nonisolated enum AgentCompletionReceipt {
         var lines = [
             "# HeyMate completion receipt",
             "",
-            "## Agent job result",
+            "## Agent result",
             "",
             "- Result: \(run.status == .succeeded && !hasResult ? "Process ended; result unavailable" : statusLabel(for: run.status))",
             "- Duration: \(durationLabel(max(0, endDate.timeIntervalSince(startDate))))",

@@ -5,8 +5,8 @@ import Foundation
 /// the preferred marker: Claude's result or the last post-tool answer works.
 nonisolated struct AgentFinalResult {
     static let marker = "HEYMATE_RESULT:"
-    static let missingMessage = "The job ended without a final result. Its outcome could not be verified."
-    static let availableSummary = "Final answer available in this job and its originating chat."
+    static let missingMessage = "The agent ended without a final result. Its outcome could not be verified."
+    static let availableSummary = "Final answer available in this agent's activity and its chat."
     static let blockedSummary = "The agent reported that it could not finish the task."
     static let maximumAnswerBytes = 32 * 1_024
 
@@ -47,6 +47,21 @@ nonisolated struct AgentFinalResult {
 
     var outcome: Outcome {
         reportedFailure ? .failed : candidate ?? .missing
+    }
+
+    /// Text selected as the answer, including any trailing blocks. Empty when
+    /// the job failed or no answer was selected. `AgentReplyBlocks` reads this
+    /// from the app target; this file stays free of that type because the
+    /// agent runner compiles it on its own.
+    var answerText: String {
+        switch outcome {
+        case .reported(let text):
+            return text
+        case .blocked(let text):
+            return text
+        case .missing, .failed:
+            return ""
+        }
     }
 
     static func hasUsableAnswer(_ text: String) -> Bool {

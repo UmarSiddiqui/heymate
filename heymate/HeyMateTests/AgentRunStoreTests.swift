@@ -424,7 +424,7 @@ struct HeadlessAgentLauncherTests {
         #expect(harness.undoLedger.latestReadyEntry()?.runID == runID)
     }
 
-    @Test func terminalTakeoverClearsSessionOwnershipAndQueuedFollowUps() async throws {
+    @Test func terminalTakeoverKeepsSessionAndDiscardsQueuedFollowUps() async throws {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("launcher-takeover-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
@@ -460,12 +460,12 @@ struct HeadlessAgentLauncherTests {
 
         let handedOffRun = try #require(store.run(id: run.id))
         #expect(handedOffRun.status == .cancelled)
-        #expect(handedOffRun.sessionIdentifier.isEmpty)
+        #expect(handedOffRun.sessionIdentifier == "owned-session")
         #expect(handedOffRun.queuedFollowUpInstructions.isEmpty)
-        #expect(!launcher.canSendFollowUp(runID: run.id))
+        #expect(launcher.canSendFollowUp(runID: run.id))
 
         let reloadedRun = try #require(FileAgentRunStore(fileURL: storeFileURL).run(id: run.id))
-        #expect(reloadedRun.sessionIdentifier.isEmpty)
+        #expect(reloadedRun.sessionIdentifier == "owned-session")
         #expect(reloadedRun.queuedFollowUpInstructions.isEmpty)
     }
 

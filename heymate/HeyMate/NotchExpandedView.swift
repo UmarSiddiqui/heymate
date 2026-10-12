@@ -25,8 +25,8 @@ enum NotchExpandedTab: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .home: return "Home"
-        case .apps: return "Apps"
-        case .agents: return "Agents"
+        case .apps: return "Tools"
+        case .agents: return "Activity"
         }
     }
 
@@ -545,17 +545,21 @@ private struct NotchHomeTab: View {
                     }
                     .frame(width: (viewport.size.width - 12) * 0.48)
 
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            NotchTrayStrip(
-                                activityCenter: companionManager.notchActivityCenter,
-                                onOpenDesktop: { section in
-                                    companionManager.openDesktopWindow(section: section)
-                                }
-                            )
-                            NotchMatesPeek(companionManager: companionManager)
-                            doorsRow
+                    // The doors stay pinned under the scrolling list, so a
+                    // long agents list can never push them out of the card.
+                    VStack(alignment: .leading, spacing: 8) {
+                        ScrollView(.vertical, showsIndicators: false) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                NotchTrayStrip(
+                                    activityCenter: companionManager.notchActivityCenter,
+                                    onOpenDesktop: { section in
+                                        companionManager.openDesktopWindow(section: section)
+                                    }
+                                )
+                                NotchMatesPeek(companionManager: companionManager)
+                            }
                         }
+                        doorsRow
                     }
                     .frame(maxWidth: .infinity)
                 }
@@ -807,16 +811,14 @@ private struct NotchHomeTab: View {
     /// this row is the door.
     private var doorsRow: some View {
         VStack(alignment: .leading, spacing: 7) {
-            DSSectionLabel(title: "Jump to")
-
-            // One row of compact doors under the mates peek.
+            // One row of compact doors under the agents list.
             HStack(spacing: 6) {
                 NotchDoorTile(
-                    title: "Agents",
+                    title: "Activity",
                     subtitle: agentsDoorSubtitle,
                     systemName: "sparkles",
                     key: "1",
-                    help: "See the agents and the work they are doing",
+                    help: "See what your agents are working on",
                     isCompact: true
                 ) {
                     companionManager.shouldRevealAgentsTab = true
@@ -832,14 +834,14 @@ private struct NotchHomeTab: View {
                     companionManager.openDesktopWindow(section: .chat)
                 }
                 NotchDoorTile(
-                    title: "Skills",
-                    subtitle: "How it answers",
-                    systemName: "wand.and.stars",
+                    title: "Integrations",
+                    subtitle: "Gmail, Slack, more",
+                    systemName: "puzzlepiece.extension",
                     key: "3",
-                    help: "Markdown files that shape how HeyMate answers",
+                    help: "Apps every agent can use",
                     isCompact: true
                 ) {
-                    companionManager.openDesktopWindow(section: .skills)
+                    companionManager.openDesktopWindow(section: .connectors)
                 }
                 NotchDoorTile(
                     title: "Settings",
@@ -885,9 +887,14 @@ private struct NotchHomeTab: View {
     private var recentAgentRow: some View {
         if isComposerHero {
             VStack(alignment: .leading, spacing: 6) {
-                DSSectionLabel(title: "Last job")
+                DSSectionLabel(title: "Latest from your agents")
                 if let latestRun = companionManager.agentRuns.max(by: { $0.createdAt < $1.createdAt }) {
-                    NotchRecentAgentRow(run: latestRun) {
+                    NotchRecentAgentRow(
+                        run: latestRun,
+                        agentName: latestRun.chatOwner.flatMap { owner in
+                            companionManager.mates.first { $0.id == owner.mateID }?.name
+                        }
+                    ) {
                         companionManager.shouldRevealAgentsTab = true
                     }
                 } else {
@@ -919,6 +926,8 @@ private struct NotchHomeTab: View {
 
 private struct NotchRecentAgentRow: View {
     let run: AgentRun
+    /// Who did the work. Nil for older runs that no agent owns.
+    let agentName: String?
     let onOpen: () -> Void
 
     @State private var isHovering = false
@@ -928,7 +937,7 @@ private struct NotchRecentAgentRow: View {
             HStack(spacing: 9) {
                 DSStatusDot(color: DS.Colors.agentStatus(run.status))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(run.title)
+                    Text(agentName ?? run.title)
                         .font(DS.Fonts.control)
                         .foregroundColor(DS.Colors.textPrimary)
                         .lineLimit(1)
@@ -949,12 +958,13 @@ private struct NotchRecentAgentRow: View {
         .buttonStyle(.plain)
         .pointerCursor()
         .onHover { isHovering = $0 }
-        .help("Open on the Agents tab")
+        .help("Open in Activity")
     }
 
     private var detail: String {
         let when = RelativeDateTimeFormatter().localizedString(for: run.createdAt, relativeTo: Date())
-        return "\(statusWord) · \(when)"
+        let status = "\(statusWord) · \(when)"
+        return agentName == nil ? status : "\(status) · \(run.title)"
     }
 
     private var statusWord: String {
@@ -1236,7 +1246,7 @@ private struct NotchAgentsTab: View {
         // The engine is named on the bottom bar's chip, so this card is just
         // the prompt field and the folder option.
         VStack(alignment: .leading, spacing: 10) {
-            DSSectionLabel(title: "New job")
+            DSSectionLabel(title: "Ask an agent")
 
             HStack(spacing: 8) {
                 TextField("Describe work for an agent", text: $sandboxPromptText)
@@ -1256,8 +1266,8 @@ private struct NotchAgentsTab: View {
                 .buttonStyle(.plain)
                 .pointerCursor()
                 .disabled(sandboxPromptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .help("Start job")
-                .accessibilityLabel("Start job")
+                .help("Send to an agent")
+                .accessibilityLabel("Send to an agent")
                 .padding(.trailing, 4)
             }
             .padding(.vertical, 4)
@@ -1326,7 +1336,7 @@ private struct NotchAgentsTab: View {
             VStack(spacing: 10) {
                 BuddyMark(size: .standard, color: DS.Colors.accent)
                     .padding(.top, 20)
-                Text("No jobs yet")
+                Text("No agent work yet")
                     .font(DS.Fonts.titleCompact)
                     .foregroundColor(DS.Colors.textPrimary)
                 Text("Say “HeyMate agent, …” or start one here.")

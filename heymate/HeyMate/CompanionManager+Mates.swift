@@ -82,7 +82,14 @@ extension CompanionManager: MateRoutineRunning {
     }
 
     @discardableResult
-    func createMate(name: String, job: String, soul: String = "", opensChat: Bool = true) -> Mate? {
+    func createMate(
+        name: String,
+        job: String,
+        soul: String = "",
+        opensChat: Bool = true,
+        faceAssetName: String? = nil,
+        starter: MateStarterSuggestion? = nil
+    ) -> Mate? {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedJob = job.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty, !trimmedJob.isEmpty else { return nil }
@@ -101,15 +108,20 @@ extension CompanionManager: MateRoutineRunning {
             folderPath: nil,
             soul: soul
         )
-        guard mateDirectory.upsertMate(mate) else { return nil }
-        let firstChat = MateFirstMoment.chat(for: mate)
+        var created = mate
+        created.faceAssetName = faceAssetName
+        guard mateDirectory.upsertMate(created) else { return nil }
+        ensureMateFolder(id: mate.id)
+        let saved = mateDirectory.mates.first { $0.id == mate.id } ?? created
+        var firstChat = MateFirstMoment.chat(for: saved)
+        if let starter { firstChat.firstMoment?.starter = starter }
         if rememberConversationsEnabled { chatHistoryStore.upsert(firstChat) }
         syncMatePublications()
         if opensChat {
             openMate(id: mate.id)
             currentChat = firstChat
         }
-        return mate
+        return saved
     }
 
     /// Starts the approval-gated agent run a mate asked for with `[WORK: ...]`.
@@ -228,14 +240,14 @@ extension CompanionManager: MateRoutineRunning {
 
     func ensureMateFolder(id: UUID) {
         guard let mate = mateDirectory.mates.first(where: { $0.id == id }) else { return }
-        if let existing = mate.folderPath, FileManager.default.fileExists(atPath: existing) {
-            return
+        if mate.folderPath == nil || !FileManager.default.fileExists(atPath: mate.folderPath ?? "") {
+            guard let folder = try? MateWorkspace.ensureFolder(
+                for: mate,
+                projectsRoot: MateWorkspace.projectsRoot()
+            ) else { return }
+            mateDirectory.updateFolderPath(id: id, path: folder.path)
         }
-        guard let folder = try? MateWorkspace.ensureFolder(
-            for: mate,
-            projectsRoot: MateWorkspace.projectsRoot()
-        ) else { return }
-        mateDirectory.updateFolderPath(id: id, path: folder.path)
+        refreshMateWorkspaceMemory(id: id)
         syncMatePublications()
     }
 
@@ -328,27 +340,11 @@ extension CompanionManager: MateRoutineRunning {
         syncMatePublications()
     }
 
-    func persistConnectorExclusionsOnActiveMate() {
-        guard !MatePreferenceWriteBack.isApplying else { return }
-        let id = mateDirectory.activeMateID
-        guard var mate = mateDirectory.mates.first(where: { $0.id == id }) else { return }
-        if let existing = mate.connectorExclusionIDs, Set(existing) == chatConnectorExclusions {
-            return
-        }
-        mate.connectorExclusionIDs = chatConnectorExclusions.sorted()
-        mate.updatedAt = Date()
-        guard mateDirectory.upsertMate(mate) else { return }
-        syncMatePublications()
-    }
-
     func applyStoredPreferences(of mate: Mate) {
         MatePreferenceWriteBack.isApplying = true
         defer { MatePreferenceWriteBack.isApplying = false }
         if let raw = mate.brainRawValue, let brain = AgentBrain(rawValue: raw), selectedBrain != brain {
             setSelectedBrain(brain)
-        }
-        if let ids = mate.connectorExclusionIDs {
-            replaceChatConnectorExclusions(Set(ids))
         }
     }
 
@@ -363,7 +359,18 @@ extension CompanionManager: MateRoutineRunning {
     }
 
     func updateMateMemory(id: UUID, note: String) {
-        mateDirectory.updateMemoryNote(id: id, note: note)
+        guard let mate = mateDirectory.mates.first(where: { $0.id == id }) else { return }
+        let stored: String
+        if let path = mate.folderPath, FileManager.default.fileExists(atPath: path) {
+            stored = MateWorkspaceMemory.replaceNotes(
+                note,
+                for: mate,
+                in: URL(fileURLWithPath: path, isDirectory: true)
+            )
+        } else {
+            stored = note
+        }
+        mateDirectory.updateMemoryNote(id: id, note: stored)
         syncMatePublications()
     }
 
@@ -406,8 +413,20 @@ extension CompanionManager: MateRoutineRunning {
             if previousFace != updated.faceAssetName {
                 MateFaceStore.deleteIfCustom(previousFace)
             }
+            refreshMateWorkspaceMemory(id: updated.id)
             syncMatePublications()
             return nil
+        }
+    }
+
+    /// Rewrites AGENTS.md from the mate when their folder already exists.
+    private func refreshMateWorkspaceMemory(id: UUID) {
+        guard let mate = mateDirectory.mates.first(where: { $0.id == id }),
+              let path = mate.folderPath,
+              FileManager.default.fileExists(atPath: path) else { return }
+        let body = MateWorkspaceMemory.sync(mate: mate, folder: URL(fileURLWithPath: path, isDirectory: true))
+        if mate.memoryNote != body {
+            mateDirectory.updateMemoryNote(id: id, note: body)
         }
     }
 

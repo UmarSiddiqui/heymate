@@ -16,7 +16,7 @@ enum LocalDataErase {
 
     /// Shown after erase. Mate and agent stores keep their lists in memory
     /// and have no safe rebuild from the UI, so a restart finishes the job.
-    static let restartNote = "Quit and reopen HeyMate to finish erasing mates and agents."
+    static let restartNote = "Quit and reopen HeyMate to finish erasing agents and their work."
 
     static let confirmationMessage = """
     This erases mates, chats, routines, memories, agent run history, standing order markdown files in the app's standing-orders folder, behavior contract edits (the file will be re-seeded), connector connection records and their keychain secrets, Composio API key, and custom API key. Project folders under ~/Projects are not deleted.

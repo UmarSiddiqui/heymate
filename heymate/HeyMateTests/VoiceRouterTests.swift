@@ -62,6 +62,15 @@ struct VoiceRouterTests {
         #expect(VoiceRouter.decide("agent, delete the leftover folder") == .agent)
     }
 
+    /// A sensitive word alone is a topic, not an instruction.
+    @Test func questionsAboutSensitiveThingsAreTalk() {
+        #expect(VoiceRouter.decide("Explain account terminology.") == .talk)
+        #expect(VoiceRouter.decide("what is an api key") == .talk)
+        #expect(VoiceRouter.decide("how do I reset my password") == .talk)
+        #expect(VoiceRouter.decide("reset my password") == .confirmDestructive)
+        #expect(VoiceRouter.decide("update the production database") == .confirmDestructive)
+    }
+
     /// Checked before the screen-question shortcut: this sentence satisfies
     /// both, and the background half is the part that would be lost.
     @Test func hybridIsObservedNotAutoLaunched() {

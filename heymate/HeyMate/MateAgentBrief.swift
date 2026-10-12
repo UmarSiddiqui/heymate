@@ -3,26 +3,24 @@
 //  HeyMate
 //
 //  The shared agent behaviour every mate inherits. A mate's soul sets how it
-//  sounds; this sets what it does: act instead of ask, and when the work
-//  needs files or tools, start an approval-gated run instead of refusing.
+//  sounds; this sets what it does: start an approval-gated run for file work,
+//  ask once when a guess would waste work, and keep teaching in this chat.
 //
 
 import Foundation
 
 enum MateAgentBrief {
     static func promptBlock(mate: Mate, runsCanOperateApps: Bool = false) -> String {
-        let workspace = mate.folderPath.map { "your files live in \($0)." }
-            ?? "your files live in your own workspace folder."
+        let workspace = mate.folderPath.map { "their files live in \($0)." }
+            ?? "their files live in their own workspace folder."
         var lines = [
-            "how you work, as an agent and not a chatbot:",
-            "- this chat window cannot read or write files, and it is not your workspace. \(workspace) you never need the user to tell you where they are.",
-            "- when the user asks you to create or change files or run commands for them, start an agent run by ending your reply with exactly one line: [WORK: the complete task, with every detail the run needs]",
-            "- a run plans first and shows the user the plan for approval before it changes anything, so you never ask for approval, a path, or confirmation yourself for that run. let the run produce its execution plan instead of duplicating it in chat.",
-            "- when the user asks you to do file work, never say you are read-only, empty, or unable to write, and never substitute drafted file contents for the requested action. the run does the writing.",
-            "- when starting a run, keep the handoff to at most two sentences: what the run will do, then the [WORK: ...] line. the result comes back to the user without them asking again.",
-            "- when the user asks to learn, understand, or do something themselves (\"teach me\", \"show me how\", \"walk me through\"), teach directly in this chat. for screen walkthroughs follow the [PLAN: ...] and [STEP:n] instructions, guide only the current step, then wait for their progress. multiple teaching steps do not require a [WORK: ...] run or a handoff to another mate.",
-            "- when no file or command work is needed, answer directly and briefly. ask a question only when a wrong guess would waste real work, and ask one.",
-            "- for anything current or that you are not sure of, search the web with the tools you have instead of guessing or telling the user to look it up.",
+            "how you work:",
+            "- this chat cannot write files. \(workspace) when they ask you to create or change files or run commands, end with exactly one line: [WORK: the complete task, with every detail the run needs]. that starts an approval-gated run. the run plans first and shows the plan before it changes anything, so you do not ask for a path or a second approval, and you never say you are unable to write.",
+            "- when the user asks to learn, understand, or do something themselves (\"teach me\", \"show me how\", \"walk me through\"), teach directly in this chat. for screen walkthroughs follow the [PLAN: ...] and [STEP:n] instructions, guide only the current step, then wait for their progress.",
+            "- do the independent part first. ask once: one short set of questions, and only when a wrong guess would waste real work. never invent the user's facts or dummy data.",
+            "- confirm only before you delete or archive, overwrite something they did not ask for, send email, or spend money. email is a draft until they approve the exact draft.",
+            "- put deliverables in output/ and scratch in tmp/.",
+            "- the final message leads with the result. after the answer you may append <SUMMARY>, <NEXT_ACTIONS>, <ARTIFACTS>, <ROUTINE>, and <COMPUTER_USE_REQUEST>. leave out a block you do not need.",
         ]
         if runsCanOperateApps {
             // Without this the chat model only sees its own tools and answers
@@ -34,7 +32,7 @@ enum MateAgentBrief {
             lines.append("- for email, calendar, and other services listed as connected apps, use those tools directly in this chat. they answer in seconds; a run is slower and needs the user's approval.")
         }
         if mate.conductsOthers {
-            lines.append("- for a specialist's execution job, hand it over with [ASK: ...] instead of [WORK: ...]. keep a requested teaching walkthrough in this chat.")
+            lines.append("- for a specialist agent's execution work, hand it over with [ASK: ...] instead of [WORK: ...]. keep a requested teaching walkthrough in this chat.")
         }
         return lines.joined(separator: "\n")
     }
@@ -57,7 +55,7 @@ enum MateWorkGate {
     static func reminder(for run: AgentRun) -> String {
         run.status == .planning
             ? "I'm still writing the plan for that. You'll see it here in a moment, and nothing changes until you approve it."
-            : "That plan is still waiting for you. Approve it below or in Jobs and I'll start, or dismiss it and ask again."
+            : "That plan is still waiting for you. Approve it below or in Activity and I'll start, or dismiss it and ask again."
     }
 }
 
@@ -102,16 +100,27 @@ enum MateRunReport {
         let body = AgentReceiptPrivacy.safeResult(plan)
         var text = "Step 1 of 2 · plan ready. Nothing has changed yet."
         if !body.isEmpty { text += "\n\n\(body)" }
-        text += "\n\nApprove the plan below or in Jobs, and I'll do it."
+        text += "\n\nApprove the plan below or in Activity, and I'll do it."
         return text
     }
 
     static func finished(summary: String, changedFileCount: Int?) -> String {
-        let trimmed = AgentReceiptPrivacy.privateAnswer(summary)
-        var text = AgentFinalResult.hasUsableAnswer(trimmed)
-            ? "Job result\n\n\(trimmed)" : AgentFinalResult.missingMessage
+        let blocks = AgentReplyBlocks.extract(from: summary)
+        let summaryLead = blocks.presentedSummary
+            .map { AgentReceiptPrivacy.privateAnswer($0) }
+            .flatMap { AgentFinalResult.hasUsableAnswer($0) ? $0 : nil }
+        let spoken = AgentReceiptPrivacy.privateAnswer(blocks.spokenText)
+        let spokenLead = AgentFinalResult.hasUsableAnswer(spoken) ? spoken : nil
+        let lead = summaryLead ?? spokenLead
+        var text = lead.map { "Result\n\n\($0)" } ?? AgentFinalResult.missingMessage
+        if lead != nil {
+            let artifactCount = blocks.presentedArtifacts.count
+            if artifactCount > 0 {
+                text += "\n\(artifactCount) artifact\(artifactCount == 1 ? "" : "s")."
+            }
+        }
         if let changedFileCount, changedFileCount > 0 {
-            text += "\n\(changedFileCount) file\(changedFileCount == 1 ? "" : "s") changed. You can undo this from Jobs."
+            text += "\n\(changedFileCount) file\(changedFileCount == 1 ? "" : "s") changed. You can undo this from Activity."
         }
         return text
     }
@@ -123,7 +132,7 @@ enum MateRunReport {
 
     static func cancelled(summary: String) -> String {
         summary.hasPrefix("Handed off to Terminal")
-            ? "This job was handed off to Terminal. HeyMate has no final result yet."
-            : "This job was cancelled. It did not report a completed result."
+            ? "This work was handed off to Terminal. HeyMate has no final result yet."
+            : "This work was cancelled. It did not report a completed result."
     }
 }

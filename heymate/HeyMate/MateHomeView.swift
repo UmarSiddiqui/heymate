@@ -25,7 +25,8 @@ struct MateHomeView: View {
     @AppStorage(MateRailTab.storageKey) private var railTabRawValue = MateRailTab.defaultTab.rawValue
     @State private var isDrawerOpen = false
     @State private var isShowingNewMate = false
-    @State private var isShowingCast = false
+    /// What the builder opens with, when a suggestion started it.
+    @State private var builderSeed = ""
     @State private var typedMessageInput = ""
     @State private var imageAttachments: [ChatImageAttachment] = []
     @State private var isShowingImageImporter = false
@@ -77,25 +78,8 @@ struct MateHomeView: View {
             }
         }
         .background(CelestialAtmosphere())
-        .onAppear {
-            if MateCast.shouldOffer(
-                hasCompletedOnboarding: companionManager.hasCompletedOnboarding,
-                activeMateCount: companionManager.mates.filter { !$0.archived }.count,
-                alreadyOffered: UserDefaults.standard.bool(forKey: MateHomeView.castOfferedKey)
-            ) {
-                isShowingCast = true
-            }
-        }
-        .sheet(isPresented: $isShowingCast, onDismiss: markCastOffered) {
-            MateCastSheet(
-                existingNames: companionManager.mates.map(\.name),
-                onCreate: addCast
-            )
-        }
-        .sheet(isPresented: $isShowingNewMate) {
-            NewMateSheet { name, job in
-                companionManager.createMate(name: name, job: job) != nil
-            }
+        .sheet(isPresented: $isShowingNewMate, onDismiss: { builderSeed = "" }) {
+            AgentBuilderSheet(companionManager: companionManager, initialDescription: builderSeed)
         }
         .sheet(item: $settingsMate) { mate in
             MateSettingsSheet(
@@ -263,15 +247,6 @@ struct MateHomeView: View {
                 .keyboardShortcut("n", modifiers: [.command, .shift])
                 .help("New agent (⇧⌘N)")
                 .accessibilityLabel("New agent")
-                Button {
-                    isShowingCast = true
-                } label: {
-                    Image(systemName: "person.3")
-                        .font(DS.Glyph.regular)
-                }
-                .dsToolbarIconButtonStyle()
-                .help("Meet a cast")
-                .accessibilityLabel("Meet a cast")
             }
             .padding(.horizontal, 12)
             .padding(.top, 10)
@@ -533,7 +508,8 @@ struct MateHomeView: View {
 
     private func suggestedRow(_ suggestion: AgentSuggestion) -> some View {
         Button {
-            addSuggestion(suggestion)
+            builderSeed = suggestion.job
+            isShowingNewMate = true
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: "plus.circle")
@@ -561,21 +537,6 @@ struct MateHomeView: View {
         .accessibilityLabel("Add \(suggestion.name)")
     }
 
-    private func addSuggestion(_ suggestion: AgentSuggestion) {
-        guard let mate = companionManager.createMate(
-            name: suggestion.name,
-            job: suggestion.job,
-            soul: suggestion.soul
-        ) else { return }
-        _ = companionManager.updateMateProfile(
-            id: mate.id,
-            name: mate.name,
-            job: mate.job,
-            soul: suggestion.soul,
-            faceAssetName: suggestion.faceAssetName
-        )
-    }
-
     private func liveFace(_ mate: Mate, size: CGFloat) -> some View {
         MateFaceView(
             mate: mate,
@@ -584,37 +545,6 @@ struct MateHomeView: View {
         )
     }
 
-    private func addCast(_ members: [MateCastProposal]) {
-        var created: Mate?
-        for member in members {
-            guard let mate = companionManager.createMate(
-                name: member.name,
-                job: member.job,
-                soul: member.soul,
-                opensChat: false
-            ) else { continue }
-            _ = companionManager.updateMateProfile(
-                id: mate.id,
-                name: mate.name,
-                job: mate.job,
-                soul: member.soul,
-                faceAssetName: member.faceAssetName,
-                faceTint: member.faceTint,
-                faceHair: member.faceHair,
-                faceOutfit: member.faceOutfit
-            )
-            created = mate
-        }
-        if let created {
-            companionManager.openMate(id: created.id)
-        }
-    }
-
-    private static let castOfferedKey = "heymate.castOffered"
-
-    private func markCastOffered() {
-        UserDefaults.standard.set(true, forKey: Self.castOfferedKey)
-    }
 
     private var archivedRail: [Mate] {
         let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1030,7 +960,7 @@ struct MateHomeView: View {
                 Image(systemName: DesktopSection.agents.symbolName)
                     .font(DS.Glyph.regular)
                 if !isCompactLayout {
-                    Text("Agents")
+                    Text("Activity")
                         .font(DS.Fonts.control)
                 }
                 if activeCount > 0 {
@@ -1324,6 +1254,18 @@ struct MateHomeView: View {
                             )
                     } else {
                         ChatMarkdownText(text: message.text)
+                        if let chrome = companionManager.harnessReplyChrome[message.id] {
+                            HarnessFollowUpRow(
+                                actions: chrome.nextActions,
+                                artifactPaths: chrome.artifactPaths,
+                                onAction: { phrase in
+                                    _ = companionManager.sendTypedMessage(phrase)
+                                },
+                                onOpenArtifact: { path in
+                                    NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                                }
+                            )
+                        }
                     }
                     HStack(spacing: 6) {
                         if !isUser {
@@ -1447,7 +1389,9 @@ struct MateHomeView: View {
                 )
                 .shadow(color: Color.black.opacity(isCompactLayout ? 0 : 0.16), radius: 18, y: 10)
             }
-            if companionManager.isSilentModeSuggestionVisible {
+            if let pending = companionManager.pendingDestructiveConfirmation {
+                destructiveWorkConfirm(pending)
+            } else if companionManager.isSilentModeSuggestionVisible {
                 silentModeSuggestion
             }
             else if companionManager.isStarNudgeVisible {
@@ -1798,6 +1742,28 @@ struct MateHomeView: View {
         }
     }
 
+    private func destructiveWorkConfirm(_ pending: PendingDestructiveWork) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("This would delete, overwrite, send, or spend. I'll only start it if you confirm.")
+                .font(DS.Fonts.micro)
+                .foregroundColor(DS.Colors.warningText)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 12) {
+                Button("Cancel") { companionManager.cancelPendingDestructiveWork() }
+                    .buttonStyle(.plain)
+                    .font(DS.Fonts.micro)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .pointerCursor()
+                Button("Do it") { companionManager.confirmPendingDestructiveWork() }
+                    .buttonStyle(.plain)
+                    .font(DS.Fonts.caption.weight(.semibold))
+                    .foregroundColor(DS.Colors.warningText)
+                    .pointerCursor()
+            }
+        }
+        .accessibilityIdentifier("destructive-work-confirm-\(pending.id.uuidString)")
+    }
+
     private func openCodeTrainingConfirm(_ notice: OpenCodeTrainingNotice) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(notice.detail)
@@ -2006,7 +1972,7 @@ struct MateHomeView: View {
                         .foregroundColor(run.status.needsUser ? DS.Colors.warningText : DS.Colors.textTertiary)
                 }
             }
-            Button("All jobs") { onOpenSection(.agents) }
+            Button("All activity") { onOpenSection(.agents) }
                 .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
         }
     }
@@ -2277,52 +2243,6 @@ struct MateHomeView: View {
             filesActionError = nil
         } else {
             filesActionError = "Those files could not be moved to the Trash."
-        }
-    }
-}
-
-private struct NewMateSheet: View {
-    var onCreate: (String, String) -> Bool
-    @Environment(\.dismiss) private var dismiss
-    @State private var name = ""
-    @State private var job = ""
-    @State private var errorText: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("New agent")
-                .font(DS.Fonts.hero)
-            TextField("Name", text: $name)
-                .textFieldStyle(.roundedBorder)
-            TextField("What they do, in one sentence", text: $job)
-                .textFieldStyle(.roundedBorder)
-            if let errorText {
-                Text(errorText)
-                    .font(DS.Fonts.caption)
-                    .foregroundColor(DS.Colors.destructiveText)
-            }
-            HStack {
-                Button("Cancel") { dismiss() }
-                Spacer()
-                Button("Create") { create() }
-                    .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(20)
-        .frame(width: 360)
-    }
-
-    private func create() {
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedJob = job.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty, !trimmedJob.isEmpty else {
-            errorText = "An agent needs a name and what it does."
-            return
-        }
-        if onCreate(trimmedName, trimmedJob) {
-            dismiss()
-        } else {
-            errorText = "That name is already taken."
         }
     }
 }

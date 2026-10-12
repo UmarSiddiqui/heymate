@@ -33,7 +33,7 @@ struct SettingsAgentsPane: View {
     var body: some View {
         SettingsPage(tab: .agents, navigation: navigation) {
             SettingsSection(
-                "Agent jobs",
+                "Agents",
                 footer: "Signing in opens Terminal with the AI app's own sign-in. HeyMate never sees your password."
             ) {
                 AgentSignInRows(companionManager: companionManager)
@@ -128,11 +128,11 @@ struct SettingsAgentsPane: View {
         if cuaDriverSetup.phase == .installing { return "Installing Cua's driver. macOS will ask for permissions for CuaDriver." }
         switch cuaDriverSetup.installation {
         case .missing:
-            return "Approved jobs work in other apps without taking your cursor."
+            return "Approved agents work in other apps without taking your cursor."
         case .outdated(_, let version):
             return "Cua driver \(version) is too old for HeyMate. Update to keep background app control."
         case .ready(_, let version):
-            return "Cua driver \(version). Approved jobs can operate apps in the background."
+            return "Cua driver \(version). Approved agents can operate apps in the background."
         }
     }
 

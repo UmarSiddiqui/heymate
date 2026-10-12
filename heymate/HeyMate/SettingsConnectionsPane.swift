@@ -29,11 +29,11 @@ struct SettingsConnectionsPane: View {
             SettingsSection {
                 SettingsRow(
                     SettingsItem.connectedApps.title,
-                    subtitle: "Gmail, Slack, Calendar, and more. HeyMate can read and act in the apps you connect; anything it sends asks you first.",
-                    systemImage: "app.connected.to.app.below.fill",
+                    subtitle: "Gmail, Slack, Calendar, and more. Every agent can read and act in what you connect; anything it sends asks you first.",
+                    systemImage: "puzzlepiece.extension",
                     item: .connectedApps
                 ) {
-                    Button("Open Apps") {
+                    Button("Open Integrations") {
                         companionManager.openDesktopWindow(section: .connectors)
                     }
                     .dsCapsuleButtonStyle(.secondary)

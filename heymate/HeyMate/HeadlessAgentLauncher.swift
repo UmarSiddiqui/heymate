@@ -288,7 +288,7 @@ final class HeadlessAgentLauncher {
             // Without a session there is nothing to resume, and re-prompting
             // from scratch would execute work the user never read.
             apply(
-                .failed(message: "Lost the planning session — start this job again."),
+                .failed(message: "Lost the planning session — start this agent again."),
                 to: runID
             )
             return
@@ -324,7 +324,7 @@ final class HeadlessAgentLauncher {
         } catch {
             try? undoLedger.discardPrepared(entryID: undoEntry.id)
             _ = store.update(id: runID) { current in
-                current.latestAction = "Could not save the approved job safely"
+                current.latestAction = "Could not save the approved work safely"
                 current.error = error.localizedDescription
             }
             onRunsChanged?()
@@ -361,6 +361,17 @@ final class HeadlessAgentLauncher {
     ///
     /// Returns false when the job cannot be continued, which the caller shows
     /// rather than silently starting a fresh, context-free job.
+    /// Resume a failed job in the same CLI session. The follow-up leg carries
+    /// a retry note in the task text sent to the agent.
+    @discardableResult
+    func retryFailedRun(runID: UUID) -> Bool {
+        guard let run = store.run(id: runID), run.status == .failed else { return false }
+        return sendFollowUp(
+            runID: runID,
+            instruction: AgentRunRecovery.followUpInstruction(for: run.prompt)
+        )
+    }
+
     @discardableResult
     func sendFollowUp(runID: UUID, instruction: String) -> Bool {
         let trimmedInstruction = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -495,11 +506,19 @@ final class HeadlessAgentLauncher {
     }
 
     private func finishCancellation(runID: UUID) {
+        let finishedAt = Date()
         _ = store.update(id: runID) { current in
             guard !current.status.isTerminal else { return }
             current.status = .cancelled
             current.latestAction = "Cancelled"
-            current.finishedAt = Date()
+            current.finishedAt = finishedAt
+            if AgentRunRecovery.didStopQuickly(
+                startedAt: current.startedAt,
+                createdAt: current.createdAt,
+                finishedAt: finishedAt
+            ) {
+                current.stoppedQuickly = true
+            }
             current.pid = nil
             current.pendingApprovalID = ""
             current.error = ""
@@ -589,9 +608,6 @@ final class HeadlessAgentLauncher {
             current.finishedAt = Date()
             current.pid = nil
             current.pendingApprovalID = ""
-            // Session now belongs exclusively to Terminal. Keeping this value
-            // would make `canSendFollowUp` offer a second driver for it.
-            current.sessionIdentifier = ""
             if !current.queuedFollowUpInstructions.isEmpty {
                 current.queuedFollowUpInstructions.removeAll()
                 current.appendActivity(kind: .status, text: "Queued follow-ups discarded")
@@ -1393,7 +1409,8 @@ final class HeadlessAgentLauncher {
         while clock.now < deadline {
             _ = refreshDetachedRun(runID: runID, allowMissingStateWhileSpawned: true)
             if let run = store.run(id: runID), run.status.isTerminal {
-                return run.status == .cancelled && run.sessionIdentifier.isEmpty
+                return run.status == .cancelled
+                    && run.latestAction.hasPrefix("Handed off to Terminal")
             }
             try? await clock.sleep(for: .milliseconds(100))
         }
@@ -1843,6 +1860,7 @@ final class HeadlessAgentLauncher {
     }
 
     static func title(from prompt: String) -> String {
+        let prompt = HarnessTurnNotes.transcript(fromUserMessage: prompt)
         let firstLine = prompt.split(whereSeparator: \.isNewline).first.map(String.init) ?? prompt
         let trimmed = firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return "Agent" }

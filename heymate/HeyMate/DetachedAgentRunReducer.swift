@@ -124,7 +124,7 @@ nonisolated enum DetachedAgentRunReducer {
                 updatedAt: state.updatedAt,
                 to: &run
             )
-            clearSessionOwnership(of: &run)
+            discardQueuedFollowUpsAfterHandoff(of: &run)
         }
     }
 
@@ -189,7 +189,7 @@ nonisolated enum DetachedAgentRunReducer {
                 updatedAt: record.emittedAt,
                 to: &run
             )
-            clearSessionOwnership(of: &run)
+            discardQueuedFollowUpsAfterHandoff(of: &run)
 
         case .ready, .output, .sessionIdentified, .heartbeat:
             break
@@ -288,6 +288,13 @@ nonisolated enum DetachedAgentRunReducer {
             run.status = .cancelled
             run.latestAction = terminalSummary ?? latestSummary ?? "Cancelled"
             run.error = ""
+            if AgentRunRecovery.didStopQuickly(
+                startedAt: run.startedAt,
+                createdAt: run.createdAt,
+                finishedAt: updatedAt
+            ) {
+                run.stoppedQuickly = true
+            }
             finish(&run, at: updatedAt)
         }
     }
@@ -298,8 +305,7 @@ nonisolated enum DetachedAgentRunReducer {
         run.pendingApprovalID = ""
     }
 
-    private static func clearSessionOwnership(of run: inout AgentRun) {
-        run.sessionIdentifier = ""
+    private static func discardQueuedFollowUpsAfterHandoff(of run: inout AgentRun) {
         run.queuedFollowUpInstructions.removeAll()
         run.pendingApprovalID = ""
     }

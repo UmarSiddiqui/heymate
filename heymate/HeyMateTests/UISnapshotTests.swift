@@ -116,6 +116,78 @@ struct UISnapshotTests {
         )
     }
 
+    @Test(.enabled(if: outputDirectory != nil))
+    func integrationsPage() throws {
+        let manager = Self.sampleManager()
+        try Self.render(
+            DesktopConnectorsView(
+                store: manager.connectorStore,
+                runtime: manager.connectorRuntime,
+                composioConnections: manager.composioConnections,
+                composioToolkitDirectory: manager.composioToolkitDirectory
+            )
+            .background(DS.Colors.background),
+            size: CGSize(width: 1000, height: 720),
+            dark: true,
+            name: "integrations"
+        )
+    }
+
+    @Test(.enabled(if: outputDirectory != nil))
+    func notchHome() throws {
+        let manager = Self.sampleManager()
+        let size = CGSize(width: NotchLayoutMath.expandedWidth, height: NotchLayoutMath.expandedHeight + 38)
+        let transition = NotchSurfaceTransitionModel()
+        transition.showWithoutAnimation()
+        try Self.render(
+            NotchExpandedView(
+                companionManager: manager,
+                occludedTopInset: 0,
+                layoutSize: size,
+                hardwareNotchWidth: 200,
+                transitionModel: transition,
+                onClose: {}
+            )
+            .background(Color.black),
+            size: size,
+            dark: true,
+            name: "notch-home"
+        )
+    }
+
+    @Test(.enabled(if: outputDirectory != nil))
+    func agentBuilder() throws {
+        let manager = Self.sampleManager()
+        try Self.render(
+            AgentBuilderSheet(companionManager: manager, initialDescription: "Every morning, read my inbox and draft replies to customers"),
+            size: CGSize(width: 540, height: 360), dark: true, name: "builder-describe"
+        )
+        let draft = AgentDraft(
+            name: "Inbox Ivy",
+            role: "Draft replies to customer email every morning",
+            personality: "Warm and brief. Writes like you, not like a help desk.",
+            howItWorks: [
+                "Read new customer email each morning before 9",
+                "Save drafts in Gmail, never send them",
+                "Lead the summary with anything urgent or angry"
+            ],
+            asksFirst: ["Sending any email", "Offering refunds or discounts"],
+            firstTask: "Draft replies to today's customer emails and tell me which ones need me",
+            integrations: ["Gmail", "Notion"]
+        )
+        try Self.render(
+            AgentBuilderSheet(companionManager: manager, initialDraft: draft),
+            size: CGSize(width: 540, height: 720), dark: true, name: "builder-review"
+        )
+        try Self.render(
+            MateSettingsSheet(
+                mate: manager.mates[0], companionManager: manager, isLastNonArchivedMate: false,
+                onOpenSection: { _ in }, onSave: { _, _, _, _, _, _, _ in nil }, onDelete: {}
+            ),
+            size: CGSize(width: 520, height: 720), dark: true, name: "agent-edit"
+        )
+    }
+
     // MARK: Fixtures
 
     static func sampleManager() -> CompanionManager {

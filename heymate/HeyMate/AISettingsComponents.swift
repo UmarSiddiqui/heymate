@@ -58,7 +58,7 @@ struct CustomAPISettingsRows: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if companionManager.selectedBrain.talkNeedsSeparateVisionEndpoint {
-                SettingsInlineHelp("\(companionManager.selectedBrain.displayName) runs your agent jobs. Answering “what's on my screen” needs a fast vision server, which \(companionManager.selectedBrain.displayName) can't be — set one here or screen questions stay unanswered.")
+                SettingsInlineHelp("\(companionManager.selectedBrain.displayName) runs your agents. Answering “what's on my screen” needs a fast vision server, which \(companionManager.selectedBrain.displayName) can't be — set one here or screen questions stay unanswered.")
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .settingsRowInsets()
             }
@@ -279,8 +279,8 @@ struct AgentSignInRows: View {
                 SettingsRow(
                     SettingsItem.agentSignIn.title,
                     subtitle: companionManager.selectedBrain == .onDevice
-                        ? "On this Mac answers chat. Coding jobs still need Claude, ChatGPT, or OpenCode — pick one under AI & Accounts."
-                        : "Pick Claude, ChatGPT, or OpenCode under AI & Accounts to run agent jobs.",
+                        ? "On this Mac answers chat. Agents still need Claude, ChatGPT, or OpenCode — pick one under AI & Accounts."
+                        : "Pick Claude, ChatGPT, or OpenCode under AI & Accounts to run agents.",
                     systemImage: "person.badge.key",
                     item: .agentSignIn
                 )
@@ -315,7 +315,7 @@ struct AgentSignInRows: View {
             }
             Button("Cancel", role: .cancel) { executorPendingSignOut = nil }
         } message: {
-            Text("Terminal opens and signs this Mac out of the account. Agent jobs stop working until you sign in again.")
+            Text("Terminal opens and signs this Mac out of the account. Agents stop working until you sign in again.")
         }
     }
 

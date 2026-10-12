@@ -84,6 +84,43 @@ struct AgentFinalResultTests {
         #expect(bounded.contains("Result truncated at 32 KiB"))
         #expect(!bounded.contains("�"))
     }
+
+    @Test func markedAnswerKeepsTheSelectionAndExposesBlocks() {
+        let answer = """
+        2 files and 1 folder.
+        <SUMMARY>Counted the sample workspace.</SUMMARY>
+        <NEXT_ACTIONS>
+        Open the folder
+        </NEXT_ACTIONS>
+        <ARTIFACTS>
+        output/count.txt
+        tmp/scratch.txt
+        </ARTIFACTS>
+        """
+        var result = AgentFinalResult()
+        result.consume(.text("HEYMATE_RESULT: \(answer)"))
+        #expect(result.outcome == .reported(answer))
+        #expect(result.answerText == answer)
+        #expect(result.replyBlocks.spokenText == "2 files and 1 folder.")
+        #expect(result.replyBlocks.presentedSummary == "Counted the sample workspace.")
+        #expect(result.replyBlocks.presentedNextActions == ["Open the folder"])
+        #expect(result.replyBlocks.presentedArtifacts == ["output/count.txt"])
+    }
+
+    @Test func blockedAnswerStillExposesBlocksAndALaterToolClearsThem() {
+        var result = AgentFinalResult()
+        result.consume(.text("HEYMATE_BLOCKED: no permission to read the folder\n<SUMMARY>Could not count the folder.</SUMMARY>"))
+        guard case .blocked(let reason) = result.outcome else {
+            Issue.record("Expected a blocked result")
+            return
+        }
+        #expect(reason.hasPrefix("no permission to read the folder"))
+        #expect(result.replyBlocks.presentedSummary == "Could not count the folder.")
+        #expect(result.replyBlocks.spokenText == "no permission to read the folder")
+        result.consume(.tool(summary: "Another check"))
+        #expect(result.outcome == .missing)
+        #expect(result.replyBlocks == AgentReplyBlocks.extract(from: ""))
+    }
 }
 
 struct AgentPrivateResultStoreTests {

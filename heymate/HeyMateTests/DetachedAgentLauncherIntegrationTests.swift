@@ -830,6 +830,6 @@ struct DetachedAgentLauncherIntegrationTests {
         }
         #expect(command.contains("detached-session"))
         #expect(harness.store.run(id: harness.runID)?.status == .cancelled)
-        #expect(harness.store.run(id: harness.runID)?.sessionIdentifier.isEmpty == true)
+        #expect(harness.store.run(id: harness.runID)?.sessionIdentifier == "detached-session")
     }
 }
