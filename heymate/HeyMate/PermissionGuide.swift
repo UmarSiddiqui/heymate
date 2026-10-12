@@ -142,6 +142,27 @@ final class PermissionGuide: ObservableObject {
     private var skipRequested = false
     private var pollTask: Task<Void, Never>?
 
+    /// Reads every permission that can be checked without waiting, so a
+    /// "can't hear you" line never flashes before the first refresh.
+    init() {
+        granted = Set(HeyMatePermission.allCases.filter { $0 != .notifications && Self.syncStatus($0) })
+        Task { await refresh() }
+    }
+
+    private static func syncStatus(_ permission: HeyMatePermission) -> Bool {
+        switch permission {
+        case .microphone: return AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        case .speech: return SFSpeechRecognizer.authorizationStatus() == .authorized
+        case .accessibility: return MacPermissions.hasAccessibilityPermission()
+        case .inputMonitoring: return MacPermissions.hasInputMonitoringPermission()
+        case .screenRecording: return MacPermissions.screenRecordingLooksGranted()
+        case .calendar: return EKEventStore.authorizationStatus(for: .event) == .fullAccess
+        case .reminders: return EKEventStore.authorizationStatus(for: .reminder) == .fullAccess
+        case .contacts: return CNContactStore.authorizationStatus(for: .contacts) == .authorized
+        case .notifications: return false
+        }
+    }
+
     func isGranted(_ permission: HeyMatePermission) -> Bool { granted.contains(permission) }
 
     func allGranted(_ list: [HeyMatePermission]) -> Bool { list.allSatisfy(granted.contains) }
@@ -261,19 +282,9 @@ final class PermissionGuide: ObservableObject {
     // MARK: Status
 
     static func status(_ permission: HeyMatePermission) async -> Bool {
-        switch permission {
-        case .microphone: return AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-        case .speech: return SFSpeechRecognizer.authorizationStatus() == .authorized
-        case .accessibility: return MacPermissions.hasAccessibilityPermission()
-        case .inputMonitoring: return MacPermissions.hasInputMonitoringPermission()
-        case .screenRecording: return MacPermissions.screenRecordingLooksGranted()
-        case .notifications:
-            let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
-            return status == .authorized || status == .provisional
-        case .calendar: return EKEventStore.authorizationStatus(for: .event) == .fullAccess
-        case .reminders: return EKEventStore.authorizationStatus(for: .reminder) == .fullAccess
-        case .contacts: return CNContactStore.authorizationStatus(for: .contacts) == .authorized
-        }
+        guard permission == .notifications else { return syncStatus(permission) }
+        let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+        return status == .authorized || status == .provisional
     }
 
     // MARK: Asking once

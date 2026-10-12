@@ -54,4 +54,13 @@ struct SupportLinksTests {
         #expect(urls["request-a-feature"]?.query == "template=feature.yml")
         #expect(SupportLinks.destinations.contains { $0.url.path.hasSuffix("/discussions") } == false)
     }
+
+    /// Updates install on their own and quietly; the running app's Info.plist
+    /// is the one Sparkle reads.
+    @Test func updatesCheckDownloadAndInstallWithoutAsking() {
+        let info = Bundle.main.infoDictionary ?? [:]
+        #expect(info["SUEnableAutomaticChecks"] as? Bool == true)
+        #expect(info["SUAutomaticallyUpdate"] as? Bool == true)
+        #expect((info["SUScheduledCheckInterval"] as? Int ?? 0) <= 86_400)
+    }
 }

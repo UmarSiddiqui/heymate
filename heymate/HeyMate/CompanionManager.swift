@@ -2711,7 +2711,9 @@ final class CompanionManager: ObservableObject {
         // if the old "Show in notch" toggle had been turned off. Assign AFTER
         // start() so the controller already holds `self` when it places panels.
         showNotchCompanion = true
-        if !hasCompletedOnboarding || !allPermissionsGranted {
+        // Only first-run setup opens the notch by itself. A missing
+        // permission later is a note in the notch, not a takeover.
+        if !hasCompletedOnboarding {
             notchCompanionController.expandPinned()
         }
         // Catalogs load immediately. When an update is due, they reload after

@@ -261,7 +261,6 @@ struct NotchExpandedView: View {
     private var doorsRowIsVisible: Bool {
         selectedTab == .home
             && companionManager.hasCompletedOnboarding
-            && companionManager.allPermissionsGranted
     }
 
     /// Tools only. Status and collapse moved to the header's right wing.
@@ -351,14 +350,14 @@ struct NotchExpandedView: View {
     }
 
     private var statusDotColor: Color {
-        if !companionManager.hasCompletedOnboarding || !companionManager.allPermissionsGranted {
+        if !companionManager.hasCompletedOnboarding {
             return DS.Colors.warning
         }
         return DS.Colors.voiceStatus(companionManager.voiceState)
     }
 
     private var headerStatusText: String {
-        if !companionManager.hasCompletedOnboarding || !companionManager.allPermissionsGranted {
+        if !companionManager.hasCompletedOnboarding {
             return "Setup"
         }
         switch companionManager.voiceState {
@@ -478,9 +477,17 @@ private struct NotchHomeTab: View {
 
     @State private var typedMessageInput = ""
     @FocusState private var isComposerFocused: Bool
+    @ObservedObject private var permissionGuide = PermissionGuide.shared
+    /// Set once the person has seen the permission list and moved on, with
+    /// or without granting everything. HeyMate never blocks on it again.
+    @AppStorage("heymate.onboarding.permissionsReviewed") private var permissionsReviewed = false
 
     private var needsSetup: Bool {
-        !companionManager.hasCompletedOnboarding || !companionManager.allPermissionsGranted
+        !companionManager.hasCompletedOnboarding
+    }
+
+    private var permissionsStepDone: Bool {
+        permissionsReviewed || companionManager.allPermissionsGranted
     }
 
     /// Idle with no agent running: the status card has gone quiet, so the
@@ -501,7 +508,7 @@ private struct NotchHomeTab: View {
                         .frame(maxWidth: .infinity, alignment: .topLeading)
 
                         VStack(alignment: .leading, spacing: 10) {
-                            if !companionManager.allPermissionsGranted {
+                            if !permissionsStepDone {
                                 permissionsSection
                             } else if !companionManager.hasCompletedOnboarding {
                                 // Permissions done: which subscription runs
@@ -539,6 +546,7 @@ private struct NotchHomeTab: View {
                             NotchStatusCard(companionManager: companionManager)
                             NotchSubscriptionSignInBanner(signIn: companionManager.subscriptionSignIn)
                             typedMessageInputRow
+                            missingPermissionNote
                             ContextualConnectorSuggestionBanner(companionManager: companionManager)
                             recentAgentRow
                         }
@@ -570,12 +578,42 @@ private struct NotchHomeTab: View {
         }
     }
 
+    // MARK: Missing permissions
+
+    /// One line when a core permission is off. HeyMate keeps working; the
+    /// line says what is missing and offers to turn it all on.
+    @ViewBuilder
+    private var missingPermissionNote: some View {
+        let missing = HeyMatePermission.core.filter { !permissionGuide.isGranted($0) }
+        if let first = missing.first {
+            HStack(spacing: 8) {
+                Image(systemName: first.systemImage)
+                    .font(DS.Glyph.small)
+                    .foregroundColor(DS.Colors.warningText)
+                Text(missing.count == 1 ? first.offText : "\(first.offText), and \(missing.count - 1) more")
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .lineLimit(2)
+                Spacer(minLength: 4)
+                Button(permissionGuide.isAllowingAll ? "Allowing…" : "Allow all") {
+                    Task { await permissionGuide.allowAll(includeExtras: false) }
+                }
+                .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)
+                .disabled(permissionGuide.isAllowingAll)
+            }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 7)
+            .dsSurface(.row)
+            .onAppear { permissionGuide.startWatching() }
+        }
+    }
+
     // MARK: Setup
 
     @ViewBuilder
     private var setupCopySection: some View {
-        if companionManager.allPermissionsGranted {
-            Text("Permissions are done. Pick the AI you already pay for, then hit Start to meet HeyMate. The on-device voice is optional; you can get it later in Settings.")
+        if permissionsStepDone {
+            Text("Permissions are set. Pick the AI you already pay for, then hit Start to meet HeyMate. The on-device voice is optional; you can get it later in Settings.")
                 .font(DS.Fonts.body)
                 .foregroundColor(DS.Colors.textSecondary)
         } else if companionManager.hasCompletedOnboarding {
@@ -625,6 +663,14 @@ private struct NotchHomeTab: View {
                 )
             }
             PermissionChecklist(compact: true)
+            HStack {
+                Button(companionManager.allPermissionsGranted ? "Continue" : "Continue for now") {
+                    permissionsReviewed = true
+                }
+                .dsCapsuleButtonStyle(companionManager.allPermissionsGranted ? .primary : .secondary)
+                Spacer()
+            }
+            .help("You can turn the rest on later in Settings › Privacy & Data")
             Button("Why these permissions?") {
                 if let url = URL(string: SupportLinks.permissionsPageURLString) {
                     NSWorkspace.shared.open(url)
@@ -639,7 +685,7 @@ private struct NotchHomeTab: View {
 
     @ViewBuilder
     private var startButton: some View {
-        if !companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
+        if !companionManager.hasCompletedOnboarding && permissionsStepDone {
             NotchOnboardingStartButton(
                 companionManager: companionManager,
                 signIn: companionManager.subscriptionSignIn
