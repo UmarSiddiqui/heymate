@@ -12,7 +12,7 @@ import SwiftUI
 
 @MainActor
 final class OnboardingWindowController: NSObject, NSWindowDelegate {
-    private static let contentSize = CGSize(width: 640, height: 600)
+    private static let contentSize = CGSize(width: 640, height: 680)
 
     private weak var companionManager: CompanionManager?
     private var window: NSWindow?
@@ -89,6 +89,8 @@ struct OnboardingRootView: View {
             header
                 .padding(.top, 14)
                 .padding(.horizontal, 20)
+            OnboardingVoiceDownloadLine(isOnVoiceStep: tour.step == .voice)
+                .padding(.top, 6)
 
             ZStack {
                 stepView(tour.step)
@@ -101,7 +103,7 @@ struct OnboardingRootView: View {
             footer
                 .padding(.bottom, 26)
         }
-        .frame(width: 640, height: 600)
+        .frame(width: 640, height: 680)
         .background(DS.Colors.background)
         .preferredColorScheme(.dark)
     }
@@ -194,6 +196,8 @@ struct OnboardingRootView: View {
         switch step {
         case .hello:
             OnboardingHelloStep()
+        case .voice:
+            OnboardingVoiceStep(tour: tour)
         case .permissions:
             OnboardingStepFrame(title: "A few permissions", subtitle: "One at a time. Each one says what it's for.") {
                 PermissionWalkthrough(onFinish: { tour.permissionsFinished() })
@@ -553,7 +557,7 @@ struct OnboardingRevealStep: View {
     var body: some View {
         VStack(spacing: 18) {
             Spacer(minLength: 16)
-            OnboardingFace(size: 92)
+            OnboardingFace(size: 72)
             Text(tour.heardName.map { "You're all set, \($0)." } ?? "You're all set.")
                 .font(.system(size: 28, weight: .semibold))
                 .foregroundColor(DS.Colors.textPrimary)
@@ -562,6 +566,7 @@ struct OnboardingRevealStep: View {
                 .foregroundColor(DS.Colors.textSecondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
+            OnboardingRevealVoicePicker(tour: tour)
             if !tour.createdMateNames.isEmpty {
                 VStack(spacing: 8) {
                     Text("New mates, made from what you told me")
@@ -583,4 +588,165 @@ struct OnboardingRevealStep: View {
             Spacer(minLength: 0)
         }
     }
+}
+
+// MARK: - Voice
+
+/// "How should I sound?": the Mac voice now, the on-device voice after a
+/// download, or no voice at all.
+struct OnboardingVoiceStep: View {
+    @ObservedObject var tour: OnboardingTour
+    @ObservedObject private var store = OnDeviceVoiceModelStore.shared
+
+    var body: some View {
+        OnboardingStepFrame(
+            title: "How should I sound?",
+            subtitle: store.speakState.isInstalled
+                ? "My on-device voice is ready. Tap a voice to hear it."
+                : "Right now I use your Mac's built-in voice. Download my on-device voice and I'll sound like a person. It runs privately on this Mac."
+        ) {
+            if store.speakState.isInstalled {
+                OnDeviceVoiceGrid()
+                    .frame(maxWidth: 560)
+            } else {
+                HStack(alignment: .top, spacing: 12) {
+                    choiceCard(
+                        title: "Mac voice",
+                        detail: "Works now. A bit robotic.",
+                        symbol: "desktopcomputer",
+                        isSelected: !tour.prefersTyping && !store.isDownloading,
+                        sample: .mac,
+                        onDownload: nil
+                    )
+                    if store.isSupportedOnThisMac {
+                        choiceCard(
+                            title: "On-device voice",
+                            detail: "Natural, free, private. " + OnDeviceVoiceModelStore.approximateDownloadSizeDescription.capitalizedFirst + ".",
+                            symbol: "sparkles",
+                            isSelected: store.isDownloading,
+                            sample: .onDevice,
+                            onDownload: store.isDownloading ? nil : { tour.downloadOnDeviceVoice() }
+                        )
+                    }
+                }
+                .frame(maxWidth: 520)
+            }
+
+            Button {
+                tour.setPrefersTyping(!tour.prefersTyping)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: tour.prefersTyping ? "checkmark.square.fill" : "square")
+                        .foregroundColor(tour.prefersTyping ? DS.Colors.accent : DS.Colors.textTertiary)
+                    Text("I'd rather type. No voice.")
+                        .foregroundColor(DS.Colors.textSecondary)
+                }
+                .font(DS.Fonts.body)
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .help("HeyMate stays quiet and you type. You can change this in Settings › Talk & Voice.")
+        }
+    }
+
+    private func choiceCard(
+        title: String,
+        detail: String,
+        symbol: String,
+        isSelected: Bool,
+        sample: OnboardingTour.VoiceSample,
+        onDownload: (() -> Void)?
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: symbol)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(isSelected ? DS.Colors.accent : DS.Colors.textSecondary)
+                Text(title)
+                    .font(DS.Fonts.headline)
+                    .foregroundColor(DS.Colors.textPrimary)
+            }
+            Text(detail)
+                .font(DS.Fonts.caption)
+                .foregroundColor(DS.Colors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            HStack(spacing: 8) {
+                Button {
+                    if sample == .mac { tour.playMacSample() } else { tour.playOnDeviceSample() }
+                } label: {
+                    Label(tour.playingSample == sample ? "Playing…" : "Hear it",
+                          systemImage: tour.playingSample == sample ? "waveform" : "play.fill")
+                }
+                .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)
+                if let onDownload {
+                    Button("Download", action: onDownload)
+                        .dsCapsuleButtonStyle(.primary, height: DS.ControlSize.small)
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(DS.Colors.surface2.opacity(isSelected ? 1 : 0.6))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(isSelected ? DS.Colors.accent : DS.Colors.borderSubtle, lineWidth: isSelected ? 2 : 1)
+        )
+    }
+}
+
+/// While the on-device voice downloads, a thin line under the header on
+/// every step, so it's clear it keeps going.
+struct OnboardingVoiceDownloadLine: View {
+    let isOnVoiceStep: Bool
+    @ObservedObject private var store = OnDeviceVoiceModelStore.shared
+
+    var body: some View {
+        Group {
+            if store.isDownloading {
+                HStack(spacing: 8) {
+                    Text(isOnVoiceStep ? "Downloading my voice. Keep going, it finishes in the background." : "Downloading my voice…")
+                        .font(DS.Fonts.caption)
+                        .foregroundColor(DS.Colors.textTertiary)
+                    if let progress = store.combinedProgress {
+                        ProgressView(value: progress)
+                            .progressViewStyle(.linear)
+                            .frame(width: 120)
+                        Text("\(Int(progress * 100))%")
+                            .font(DS.Fonts.caption.monospacedDigit())
+                            .foregroundColor(DS.Colors.textTertiary)
+                    } else {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+            } else if let failure = store.lastFailureMessage {
+                Text("Voice download stopped: \(failure)")
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.warningText)
+                    .lineLimit(1)
+            }
+        }
+        .frame(height: 18)
+    }
+}
+
+/// On the last page: pick a voice once the download has landed.
+struct OnboardingRevealVoicePicker: View {
+    @ObservedObject var tour: OnboardingTour
+    @ObservedObject private var store = OnDeviceVoiceModelStore.shared
+
+    var body: some View {
+        if store.speakState.isInstalled && !tour.prefersTyping {
+            OnDeviceVoiceGrid()
+                .frame(maxWidth: 560)
+                .padding(.top, 4)
+        }
+    }
+}
+
+private extension String {
+    var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
 }

@@ -7,18 +7,20 @@
 //  pick their AI, talk into the mic, answer a few questions, ask about
 //  their screen. HeyMate narrates each step out loud.
 //
-//      hello → permissions → your AI → mic check → talk (your name)
+//      hello → voice → permissions → your AI → mic check → talk (your name)
 //            → interview → point → circle → type → reveal
 //
 //  Progress is saved per step, so quitting partway resumes there next
 //  launch. Skip ends the tour from anywhere; nothing here blocks HeyMate.
 //
 
+import AVFoundation
 import Combine
 import SwiftUI
 
 enum OnboardingStep: String, CaseIterable, Identifiable {
     case hello
+    case voice
     case permissions
     case ai
     case mic
@@ -47,6 +49,13 @@ final class OnboardingTour: ObservableObject {
     @Published private(set) var lastAnswer: String?
     @Published private(set) var hasMarkedRegion = false
     @Published var typedAnswer = ""
+    /// Chose "just type" on the voice step: the tour stops talking, and
+    /// silent mode comes on when it ends.
+    @Published private(set) var prefersTyping = UserDefaults.standard.bool(forKey: OnboardingTour.prefersTypingKey)
+    /// Which sample is playing on the voice step.
+    @Published private(set) var playingSample: VoiceSample?
+
+    enum VoiceSample { case mac, onDevice }
 
     let micCheck = OnboardingMicCheck()
     let companionManager: CompanionManager
@@ -56,6 +65,10 @@ final class OnboardingTour: ObservableObject {
 
     static let progressKey = "heymate.onboarding.tourStep"
     static let nameKey = "heymate.onboarding.preferredName"
+    static let prefersTypingKey = "heymate.onboarding.prefersTyping"
+
+    private var samplePlayer: AVAudioPlayer?
+    private let macVoice = MacOSSpeechSynthesizerClient()
 
     private var stepTask: Task<Void, Never>?
     private var watchers: Set<AnyCancellable> = []
@@ -112,10 +125,11 @@ final class OnboardingTour: ObservableObject {
         leaveStep()
         UserDefaults.standard.removeObject(forKey: Self.progressKey)
         companionManager.finishWelcomeTour(openingHome: openingHome)
-        if openingHome {
+        if prefersTyping { companionManager.isSilentModeEnabled = true }
+        if openingHome && !prefersTyping {
             let greeting = heardName.map { "You're all set, \($0). I'm up in the notch whenever you need me." }
                 ?? "You're all set. I'm up in the notch whenever you need me."
-            companionManager.speakLine(greeting)
+            speak(greeting)
         }
         onFinish?()
     }
@@ -144,6 +158,7 @@ final class OnboardingTour: ObservableObject {
         watchers.removeAll()
         companionManager.onboardingTranscriptSink = nil
         companionManager.stopSpeaking()
+        stopSamples()
         micCheck.stop()
     }
 
@@ -154,7 +169,14 @@ final class OnboardingTour: ObservableObject {
         }
     }
 
+    /// Fire-and-forget line; silent when the person chose typing.
+    private func speak(_ line: String) {
+        guard !prefersTyping else { return }
+        companionManager.speakLine(line)
+    }
+
     private func say(_ line: String) async {
+        guard !prefersTyping else { return }
         await companionManager.speakAndWait(line)
     }
 
@@ -170,6 +192,18 @@ final class OnboardingTour: ObservableObject {
         case .hello:
             markDone()
             await say("Hey, I'm HeyMate. I live up in your notch and help with whatever's on your screen. Let me show you around.")
+
+        case .voice:
+            markDone()
+            let store = OnDeviceVoiceModelStore.shared
+            store.refreshInstalledState()
+            if store.speakState.isInstalled {
+                await say("Pick the voice you like. Tap one to hear it.")
+            } else if store.isSupportedOnThisMac {
+                await say("Right now I sound like this, a bit robotic. Download my on-device voice and I'll sound much better. Or we can just type.")
+            } else {
+                await say("This is my Mac voice. You can keep it, or we can just type.")
+            }
 
         case .permissions:
             // The walkthrough moves on by itself through `permissionsFinished`.
@@ -234,7 +268,7 @@ final class OnboardingTour: ObservableObject {
                 .sink { [weak self] count in
                     guard let self, count > startCount, !self.isStepDone else { return }
                     self.markDone("That's the one.")
-                    self.companionManager.speakLine("There it is. Type anything, any time.")
+                    self.speak("There it is. Type anything, any time.")
                 }
                 .store(in: &watchers)
             await say("Not in the mood to talk? Tap the key twice, quickly, and type instead.")
@@ -247,6 +281,57 @@ final class OnboardingTour: ObservableObject {
             } else {
                 await say("That's the tour. I made you \(mates.count) mates from what you told me. They're waiting in the sidebar.")
             }
+        }
+    }
+
+    // MARK: Voice
+
+    func playMacSample() {
+        stopSamples()
+        playingSample = .mac
+        Task { [weak self] in
+            guard let self else { return }
+            try? await self.macVoice.speakText("Hi, I'm HeyMate. This is my built-in Mac voice.")
+            while self.macVoice.isPlaying { try? await Task.sleep(for: .milliseconds(120)) }
+            if self.playingSample == .mac { self.playingSample = nil }
+        }
+    }
+
+    func playOnDeviceSample() {
+        stopSamples()
+        guard let url = Bundle.main.url(forResource: "OnDeviceVoiceSample", withExtension: "m4a"),
+              let player = try? AVAudioPlayer(contentsOf: url) else { return }
+        samplePlayer = player
+        playingSample = .onDevice
+        player.play()
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(player.duration + 0.2))
+            if self?.playingSample == .onDevice { self?.playingSample = nil }
+        }
+    }
+
+    private func stopSamples() {
+        samplePlayer?.stop()
+        samplePlayer = nil
+        macVoice.stopPlayback()
+        playingSample = nil
+    }
+
+    /// Starts the download and lets the tour go on; it keeps running in the
+    /// background and switches HeyMate to the new voice when it lands.
+    func downloadOnDeviceVoice() {
+        setPrefersTyping(false)
+        let store = OnDeviceVoiceModelStore.shared
+        guard !store.isDownloading else { return }
+        Task { await store.downloadAll() }
+    }
+
+    func setPrefersTyping(_ typing: Bool) {
+        prefersTyping = typing
+        UserDefaults.standard.set(typing, forKey: Self.prefersTypingKey)
+        if typing {
+            stopSamples()
+            companionManager.stopSpeaking()
         }
     }
 
@@ -281,7 +366,7 @@ final class OnboardingTour: ObservableObject {
         }
         markDone(name.map { "Hi, \($0)." } ?? "Heard you.")
         companionManager.onboardingTranscriptSink = nil
-        companionManager.speakLine(name.map { "Nice to meet you, \($0)!" } ?? "Got it, I can hear you!")
+        speak(name.map { "Nice to meet you, \($0)!" } ?? "Got it, I can hear you!")
     }
 
     // MARK: Point and circle
