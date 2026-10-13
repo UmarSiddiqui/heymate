@@ -97,6 +97,8 @@ enum HeyMateAnalytics {
         case onboardingReplayed
         case onboardingVideoCompleted
         case onboardingDemoTriggered
+        case onboardingSkipped
+        case onboardingStepViewed(step: String)
         case permissionGranted(String)
         case allPermissionsGranted
         case pushToTalkStarted
@@ -113,6 +115,8 @@ enum HeyMateAnalytics {
             case .onboardingReplayed: return "onboarding_replayed"
             case .onboardingVideoCompleted: return "onboarding_video_completed"
             case .onboardingDemoTriggered: return "onboarding_demo_triggered"
+            case .onboardingSkipped: return "onboarding_skipped"
+            case .onboardingStepViewed: return "onboarding_step_viewed"
             case .permissionGranted: return "permission_granted"
             case .allPermissionsGranted: return "all_permissions_granted"
             case .pushToTalkStarted: return "push_to_talk_started"
@@ -127,13 +131,14 @@ enum HeyMateAnalytics {
         var properties: [String: Any]? {
             switch self {
             case .appOpened(let version): return ["app_version": version]
+            case .onboardingStepViewed(let step): return ["step": step]
             case .permissionGranted(let permission): return ["permission": permission]
             case .userMessageSent(let count), .aiResponseReceived(let count):
                 return ["character_count": count]
             case .elementPointed(let summary): return summary.analyticsProperties
             case .error(let summary): return summary.analyticsProperties
             case .onboardingStarted, .onboardingReplayed, .onboardingVideoCompleted,
-                 .onboardingDemoTriggered, .allPermissionsGranted,
+                 .onboardingDemoTriggered, .onboardingSkipped, .allPermissionsGranted,
                  .pushToTalkStarted, .pushToTalkReleased:
                 return nil
             }

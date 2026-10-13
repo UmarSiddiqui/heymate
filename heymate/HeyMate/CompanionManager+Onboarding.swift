@@ -2,11 +2,13 @@
 //  CompanionManager+Onboarding.swift
 //  HeyMate
 //
-//  The first-run introduction. Once the cursor's welcome line has played,
-//  HeyMate looks at the screen and points at something real (the "it can
-//  see my screen" moment), then types out how to start talking.
+//  The first-run introduction. New installs get the welcome tour window
+//  (OnboardingWindow.swift); this file holds the CompanionManager side of
+//  it: opening and finishing the tour, answering a question about the
+//  screen in one shot, and speaking a line and waiting for it.
 //
-//      welcome (CompanionCursorView) → demo point → talk prompt → fades out
+//  The older cursor-only introduction (welcome line → demo point → talk
+//  prompt) still plays when the cursor is shown with `playingWelcome`.
 //
 
 import AppKit
@@ -23,20 +25,97 @@ extension CompanionManager {
 
     // MARK: - Entry points
 
-    /// From the sign-in screen's Start button: the first ever run.
-    func triggerOnboarding() {
+    /// Opens the welcome tour. A first run starts at the beginning, or
+    /// where a quit left it; `restart` starts over (Settings › Replay).
+    func openWelcomeTour(restart: Bool = false) {
         NotificationCenter.default.post(name: .heyMateDismissPanel, object: nil)
-        // From now on the cursor appears at launch instead of the Start button.
-        hasCompletedOnboarding = true
-        HeyMateAnalytics.track(.onboardingStarted)
-        showCursorOverlay(playingWelcome: true)
+        HeyMateAnalytics.track(restart ? .onboardingReplayed : .onboardingStarted)
+        onboardingWindowController.show(restart: restart)
     }
 
-    /// From Settings: the same introduction again.
-    func replayOnboarding() {
-        NotificationCenter.default.post(name: .heyMateDismissPanel, object: nil)
-        HeyMateAnalytics.track(.onboardingReplayed)
-        showCursorOverlay(playingWelcome: true)
+    /// Kept for callers of the old setup card: both now open the tour.
+    func triggerOnboarding() { openWelcomeTour() }
+    func replayOnboarding() { openWelcomeTour(restart: true) }
+
+    /// The tour's last step, or Skip. From here on the cursor appears at
+    /// launch and the tour doesn't open by itself again.
+    func finishWelcomeTour(openingHome: Bool) {
+        onboardingTranscriptSink = nil
+        hasCompletedOnboarding = true
+        HeyMateAnalytics.track(.onboardingVideoCompleted)
+        if allPermissionsGranted && isCursorCompanionEnabled && !isOverlayVisible {
+            showCursorOverlay()
+        }
+        if openingHome { openDesktopWindow(section: .chat) }
+    }
+
+    // MARK: - Speaking
+
+    /// Says `line` in HeyMate's voice and returns once it has finished, so
+    /// the tour can wait for its own narration. Gives up after `timeout`.
+    func speakAndWait(_ line: String, timeout: Duration = .seconds(12)) async {
+        guard !line.isEmpty else { return }
+        do {
+            try await voiceSynthesisClient.speakText(line)
+        } catch {
+            HeyMateLog.log("⚠️ Welcome tour TTS failed: \(error.localizedDescription)")
+            return
+        }
+        let deadline = ContinuousClock.now + timeout
+        while voiceSynthesisClient.isPlaying, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(120))
+        }
+    }
+
+    func stopSpeaking() {
+        voiceSynthesisClient.stopPlayback()
+    }
+
+    // MARK: - One-shot screen answers
+
+    /// Answers `request` about the cursor's screen in one sentence, flies
+    /// the cursor to what it is about, and says the answer. Used by the
+    /// welcome tour so a practice question never turns into an agent job.
+    /// With `aboutSelection`, the region the person marked is the subject.
+    /// Returns what was said, or nil when nothing could be answered.
+    func answerTourQuestion(_ request: String, aboutSelection: Bool) async -> String? {
+        guard !isFrontmostAppScreenExcluded else {
+            HeyMateLog.log("🛡️ Welcome tour: frontmost app excluded — skipping capture")
+            return nil
+        }
+        do {
+            CaptureAudit.shared.recordCaptureAttempt(context: CaptureAudit.Context.onboardingDemoInteraction)
+            guard let screen = try await ScreenCapture.allScreens().first(where: \.isCursorScreen) else { return nil }
+            let label = screen.label
+                + " (image dimensions: \(screen.screenshotWidthInPixels)x\(screen.screenshotHeightInPixels) pixels)"
+            var prompt = request
+            if aboutSelection, let selection = spatialSelectionPromptFragment() {
+                prompt += "\n\n" + selection
+            }
+            let (reply, _) = try await activeConversationClient.analyzeImageStreaming(
+                images: [(data: screen.imageData, label: label)],
+                systemPrompt: CompanionPrompts.welcomeTourAnswer,
+                conversationHistory: [],
+                userPrompt: prompt,
+                onTextChunk: { _ in }
+            )
+            let parsed = Self.parsePointingCoordinates(from: reply)
+            let spoken = parsed.spokenText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let pixel = parsed.coordinate {
+                pointingTarget = CursorPointingTarget(
+                    location: globalPoint(forScreenshotPixel: pixel, in: screen),
+                    displayFrame: screen.displayFrame,
+                    caption: spoken.isEmpty ? nil : spoken
+                )
+            }
+            if aboutSelection { clearSpatialSelection() }
+            guard !spoken.isEmpty else { return nil }
+            await speakAndWait(spoken)
+            return spoken
+        } catch {
+            HeyMateLog.log("⚠️ Welcome tour answer failed: \(error)")
+            return nil
+        }
     }
 
     /// Called by the cursor once its welcome line has faded.
