@@ -24,6 +24,8 @@ struct MateHomeView: View {
     @State private var chatPendingDelete: ChatSession?
     @AppStorage(MateRailTab.storageKey) private var railTabRawValue = MateRailTab.defaultTab.rawValue
     @State private var isDrawerOpen = false
+    /// Jobs whose plan is open in the chat's job strip.
+    @State private var expandedPlanRunIDs: Set<UUID> = []
     @State private var isShowingNewMate = false
     /// What the builder opens with, when a suggestion started it.
     @State private var builderSeed = ""
@@ -823,7 +825,6 @@ struct MateHomeView: View {
                 .help("Switch agent")
             }
             Spacer(minLength: 8)
-            jobsButton
             // On desktop, main HeyMate's chats live in the rail's Chats tab,
             // so history here is only for a mate's own past chats.
             if showsChatHistoryButton {
@@ -944,50 +945,6 @@ struct MateHomeView: View {
             .accessibilityLabel(isDrawerOpen ? "Hide \(activeMate?.name ?? Mate.defaultName)'s profile" : "Show \(activeMate?.name ?? Mate.defaultName)'s profile")
         }
         .padding(.top, 6)
-    }
-
-    /// The way into Jobs: the work mates are doing over time. The count is
-    /// everything still running or waiting on you, across all mates, and it
-    /// turns amber when something is blocked on your approval.
-    private var jobsButton: some View {
-        let runs = companionManager.agentRuns
-        let activeCount = MateJobs.activeCount(in: runs)
-        let needsYou = MateJobs.needsYouCount(in: runs) > 0
-        return Button {
-            onOpenSection(.agents)
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: DesktopSection.agents.symbolName)
-                    .font(DS.Glyph.regular)
-                if !isCompactLayout {
-                    Text("Activity")
-                        .font(DS.Fonts.control)
-                }
-                if activeCount > 0 {
-                    Text("\(activeCount)")
-                        .font(DS.Fonts.caption.weight(.semibold))
-                        .foregroundColor(needsYou ? DS.Colors.warningText : DS.Colors.textSecondary)
-                        .padding(.horizontal, 5)
-                        .frame(minWidth: 16, minHeight: 16)
-                        .background(
-                            Capsule().fill(needsYou ? DS.Colors.warning.opacity(0.18) : DS.Colors.surface3)
-                        )
-                }
-            }
-            .padding(.horizontal, isCompactLayout ? 4 : 8)
-            .frame(height: 28)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
-        .help(jobsHelp(activeCount: activeCount, needsYou: needsYou))
-        .accessibilityLabel(jobsHelp(activeCount: activeCount, needsYou: needsYou))
-    }
-
-    private func jobsHelp(activeCount: Int, needsYou: Bool) -> String {
-        if needsYou { return "Agents: something needs your approval" }
-        if activeCount > 0 { return "Agents: \(activeCount) in progress" }
-        return "Agents: work they do over time"
     }
 
     private var headerTitles: some View {
@@ -1431,26 +1388,20 @@ struct MateHomeView: View {
     }
 
     /// Unfinished jobs sit just above the composer, in the chat that asked
-    /// for them: a plan waiting on you gets its Approve right here, and
-    /// running work shows its live step. Finished jobs report back as chat
-    /// messages, so they need no row.
+    /// for them. This is the only place a job lives in the window: a plan
+    /// waiting on you opens right here to be read and approved, and running
+    /// work shows its live step. Finished jobs report back as chat messages,
+    /// so they need no row. Jobs that need you come first and are never
+    /// hidden behind a "more" link, since nowhere else lists them.
     @ViewBuilder
     private var mateJobsStrip: some View {
-        let unfinished = activeMateJobs.filter { !$0.status.isTerminal }
-        let limit = isCompactLayout ? 1 : 3
+        let unfinished = activeMateJobs
+            .filter { !$0.status.isTerminal }
+            .sorted { $0.status.needsUser && !$1.status.needsUser }
         if !unfinished.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
-                ForEach(unfinished.prefix(limit)) { run in
+                ForEach(unfinished) { run in
                     mateJobRow(run)
-                }
-                if unfinished.count > limit {
-                    Button("\(unfinished.count - limit) more in Agents") {
-                        onOpenSection(.agents)
-                    }
-                    .buttonStyle(.plain)
-                    .font(DS.Fonts.control)
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .pointerCursor()
                 }
             }
             .frame(maxWidth: MateHomeLayout.readingMeasure, alignment: .leading)
@@ -1461,49 +1412,75 @@ struct MateHomeView: View {
     }
 
     private func mateJobRow(_ run: AgentRun) -> some View {
-        HStack(spacing: 8) {
-            Group {
+        let showsPlan = run.status == .awaitingPlanApproval
+            && !run.planText.isEmpty
+            && expandedPlanRunIDs.contains(run.id)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Group {
+                    switch run.status {
+                    case .awaitingPlanApproval:
+                        Image(systemName: "checklist")
+                    case .waitingForApproval:
+                        Image(systemName: "hand.raised.fill")
+                    default:
+                        ProgressView().controlSize(.small)
+                    }
+                }
+                .font(DS.Glyph.small)
+                .foregroundColor(run.status.needsUser ? DS.Colors.warningText : DS.Colors.textSecondary)
+                .frame(width: 18, height: 18)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(run.title)
+                        .font(DS.Fonts.headline)
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .lineLimit(1)
+                    Text(mateJobDetail(run))
+                        .font(DS.Fonts.caption)
+                        .foregroundColor(run.status.needsUser ? DS.Colors.warningText : DS.Colors.textTertiary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 6)
                 switch run.status {
                 case .awaitingPlanApproval:
-                    Image(systemName: "checklist")
+                    if !run.planText.isEmpty {
+                        Button(showsPlan ? "Hide plan" : "Read plan") {
+                            if showsPlan {
+                                expandedPlanRunIDs.remove(run.id)
+                            } else {
+                                expandedPlanRunIDs.insert(run.id)
+                            }
+                        }
+                        .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
+                    }
+                    Button("Approve plan") { companionManager.approveAgentPlan(runID: run.id) }
+                        .dsCapsuleButtonStyle(.primary, height: DS.ControlSize.small)
+                        .help("Let this agent make the changes its plan describes")
+                    Button("Dismiss") { companionManager.dismissAgentPlan(runID: run.id) }
+                        .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
                 case .waitingForApproval:
-                    Image(systemName: "hand.raised.fill")
+                    Button("Allow") { companionManager.approveAgent(runID: run.id) }
+                        .dsCapsuleButtonStyle(.primary, height: DS.ControlSize.small)
+                    Button("Deny") { companionManager.denyAgent(runID: run.id) }
+                        .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
                 default:
-                    ProgressView().controlSize(.small)
+                    Button("Stop") { companionManager.cancelAgent(runID: run.id) }
+                        .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
+                        .help("Stop this work")
                 }
             }
-            .font(DS.Glyph.small)
-            .foregroundColor(run.status.needsUser ? DS.Colors.warningText : DS.Colors.textSecondary)
-            .frame(width: 18, height: 18)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(run.title)
-                    .font(DS.Fonts.headline)
-                    .foregroundColor(DS.Colors.textPrimary)
-                    .lineLimit(1)
-                Text(mateJobDetail(run))
-                    .font(DS.Fonts.caption)
-                    .foregroundColor(run.status.needsUser ? DS.Colors.warningText : DS.Colors.textTertiary)
-                    .lineLimit(1)
+            if showsPlan {
+                ScrollView {
+                    Text(run.planText)
+                        .font(DS.Fonts.body)
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 220)
+                .padding(9)
+                .dsSurface(.inset)
             }
-            Spacer(minLength: 6)
-            switch run.status {
-            case .awaitingPlanApproval:
-                Button("Approve plan") { companionManager.approveAgentPlan(runID: run.id) }
-                    .dsCapsuleButtonStyle(.primary, height: DS.ControlSize.small)
-                    .help("Let this agent make the changes its plan describes")
-            case .waitingForApproval:
-                Button("Allow") { companionManager.approveAgent(runID: run.id) }
-                    .dsCapsuleButtonStyle(.primary, height: DS.ControlSize.small)
-                Button("Deny") { companionManager.denyAgent(runID: run.id) }
-                    .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
-            default:
-                EmptyView()
-            }
-            Button(run.status == .awaitingPlanApproval ? "Review" : "Open") {
-                onOpenSection(.agents)
-            }
-            .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
-            .help("Open this work in Agents")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
@@ -1972,8 +1949,6 @@ struct MateHomeView: View {
                         .foregroundColor(run.status.needsUser ? DS.Colors.warningText : DS.Colors.textTertiary)
                 }
             }
-            Button("All activity") { onOpenSection(.agents) }
-                .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
         }
     }
 

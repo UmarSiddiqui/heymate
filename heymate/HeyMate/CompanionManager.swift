@@ -2689,7 +2689,9 @@ final class CompanionManager: ObservableObject {
         bindChatShortcutTransitions()
         bindDoubleTapShortcuts()
         startNotchActivityCenter()
-        startStandingOrders()
+        // Standing orders are off: the Activity page was the only place to
+        // see, approve, or delete them, and rules nobody can see must not
+        // fire. The engine stays so they can come back with a home.
         mateRoutineScheduler.start()
         startComputerUseCursorBridge()
         contextualConnectorSuggestionMonitor.start()
@@ -3643,7 +3645,7 @@ final class CompanionManager: ObservableObject {
                 ? "Silent mode on. Your Talk shortcut opens this box, and replies stay on screen."
                 : "Silent mode off. Talk listens and answers out loud again."
 
-        case .chat, .agents, .connectors, .skills, .memory, .privacy, .settings, .notch:
+        case .chat, .connectors, .skills, .memory, .privacy, .settings, .notch:
             // Handled by the desktopSection branch above.
             break
         }
