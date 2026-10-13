@@ -31,7 +31,6 @@ import SwiftUI
 
 enum DesktopSection: String, CaseIterable, Identifiable, Hashable {
     case chat
-    case agents
     case connectors
     case notch
     case skills
@@ -44,7 +43,6 @@ enum DesktopSection: String, CaseIterable, Identifiable, Hashable {
     var displayName: String {
         switch self {
         case .chat: return "Chat"
-        case .agents: return "Activity"
         case .connectors: return "Integrations"
         case .notch: return "Notch Apps"
         case .skills: return "Skills"
@@ -57,7 +55,6 @@ enum DesktopSection: String, CaseIterable, Identifiable, Hashable {
     var symbolName: String {
         switch self {
         case .chat: return "bubble.left.and.bubble.right"
-        case .agents: return "checklist"
         case .connectors: return "puzzlepiece.extension"
         case .notch: return "rectangle.topthird.inset.filled"
         case .skills: return "wand.and.stars"
@@ -314,8 +311,6 @@ struct DesktopRootView: View {
     /// on a section the user has nothing to do in is noise.
     private func badgeCount(for section: DesktopSection) -> Int {
         switch section {
-        case .agents:
-            return MateJobs.activeCount(in: companionManager.agentRuns)
         case .connectors:
             return companionManager.connectorStore.records.values.filter {
                 $0.lastErrorMessage != nil && $0.isEnabled
@@ -332,8 +327,6 @@ struct DesktopRootView: View {
         switch selectedSection {
         case .chat:
             Color.clear
-        case .agents:
-            DesktopAgentsView(companionManager: companionManager)
         case .connectors:
             DesktopConnectorsView(
                 store: companionManager.connectorStore,

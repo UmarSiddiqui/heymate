@@ -24,14 +24,12 @@ struct MateHomeLayoutTests {
     @Test func workspacePagesAreNotPeersOfMates() {
         #expect(MateHomeLayout.workspaceSections.contains(.chat) == false)
         #expect(MateHomeLayout.workspaceSections == [.connectors, .settings])
-        #expect(MateHomeLayout.workspaceSections.contains(.agents) == false)
     }
 
     @Test func sidebarIsChatAppsAndSettings() {
         #expect(DesktopSection.sidebarSections == [.connectors, .settings])
         #expect(DesktopSection.connectors.displayName == "Integrations")
         #expect(DesktopSection.connectors.rawValue == "connectors")
-        #expect(DesktopSection.agents.displayName == "Activity")
     }
 
     @Test func notchAppsAndPrivacyDeepLinksLandOnSettingsTabs() {
@@ -39,12 +37,10 @@ struct MateHomeLayoutTests {
         #expect(DesktopSection.notch.settingsTab == "notch")
         #expect(DesktopSection.privacy.landingSection == .settings)
         #expect(DesktopSection.privacy.settingsTab == "privacy")
-        #expect(DesktopSection.agents.landingSection == .agents)
         #expect(DesktopSection.settings.settingsTab == nil)
     }
 
     @Test func offSidebarPagesCarryTheirOwnWayBack() {
-        #expect(DesktopSection.agents.isOffSidebarPage)
         #expect(DesktopSection.skills.isOffSidebarPage)
         #expect(DesktopSection.memory.isOffSidebarPage)
         #expect(DesktopSection.notch.isOffSidebarPage == false)

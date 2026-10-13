@@ -13,12 +13,12 @@ import SwiftUI
 
 // MARK: - Tabs
 
-/// Primary surfaces in the expanded card. Apps owns ambient notch tools;
-/// Agents lists headless jobs.
+/// Primary surfaces in the expanded card. Apps owns ambient notch tools.
+/// Agent jobs have no tab of their own: unfinished ones show on Home, and
+/// each belongs to the mate chat that asked for it.
 enum NotchExpandedTab: String, CaseIterable, Identifiable {
     case home
     case apps
-    case agents
 
     var id: String { rawValue }
 
@@ -26,7 +26,6 @@ enum NotchExpandedTab: String, CaseIterable, Identifiable {
         switch self {
         case .home: return "Home"
         case .apps: return "Tools"
-        case .agents: return "Activity"
         }
     }
 
@@ -34,7 +33,6 @@ enum NotchExpandedTab: String, CaseIterable, Identifiable {
         switch self {
         case .home: return "house"
         case .apps: return "square.grid.2x2"
-        case .agents: return "sparkles"
         }
     }
 }
@@ -166,15 +164,14 @@ struct NotchExpandedView: View {
                         NotchHomeTab(companionManager: companionManager)
                     case .apps:
                         NotchMicroAppsView(companionManager: companionManager)
-                    case .agents:
-                        NotchAgentsTab(companionManager: companionManager)
                     }
                 }
                 .frame(maxHeight: .infinity, alignment: .top)
             }
+            // Agent work that needs you shows on Home.
             .onChange(of: companionManager.shouldRevealAgentsTab) { _, shouldReveal in
                 if shouldReveal {
-                    selectedTab = .agents
+                    selectedTab = .home
                     companionManager.shouldRevealAgentsTab = false
                 }
             }
@@ -186,7 +183,7 @@ struct NotchExpandedView: View {
             }
             .onAppear {
                 if companionManager.shouldRevealAgentsTab {
-                    selectedTab = .agents
+                    selectedTab = .home
                     companionManager.shouldRevealAgentsTab = false
                 } else if companionManager.shouldRevealAppsTab {
                     selectedTab = .apps
@@ -548,6 +545,7 @@ private struct NotchHomeTab: View {
                             typedMessageInputRow
                             missingPermissionNote
                             ContextualConnectorSuggestionBanner(companionManager: companionManager)
+                            unfinishedAgentCards
                             recentAgentRow
                         }
                     }
@@ -824,20 +822,10 @@ private struct NotchHomeTab: View {
             // One row of compact doors under the agents list.
             HStack(spacing: 6) {
                 NotchDoorTile(
-                    title: "Activity",
-                    subtitle: agentsDoorSubtitle,
-                    systemName: "sparkles",
-                    key: "1",
-                    help: "See what your agents are working on",
-                    isCompact: true
-                ) {
-                    companionManager.shouldRevealAgentsTab = true
-                }
-                NotchDoorTile(
                     title: "Window",
                     subtitle: "Chat and history",
                     systemName: "macwindow",
-                    key: "2",
+                    key: "1",
                     help: "Open the full HeyMate window",
                     isCompact: true
                 ) {
@@ -847,7 +835,7 @@ private struct NotchHomeTab: View {
                     title: "Integrations",
                     subtitle: "Gmail, Slack, more",
                     systemName: "puzzlepiece.extension",
-                    key: "3",
+                    key: "2",
                     help: "Apps every agent can use",
                     isCompact: true
                 ) {
@@ -857,7 +845,7 @@ private struct NotchHomeTab: View {
                     title: "Settings",
                     subtitle: "Engine, voice, keys",
                     systemName: "gearshape",
-                    key: "4",
+                    key: "3",
                     help: "Engine, model, voice, shortcuts, and appearance",
                     isCompact: true
                 ) {
@@ -867,35 +855,44 @@ private struct NotchHomeTab: View {
         }
     }
 
-    /// Live count beats a static description on the one door whose
-    /// contents change while you watch.
-    private var agentsDoorSubtitle: String {
-        let runs = companionManager.agentRuns
-        let awaitingCount = runs.filter {
-            $0.status == .awaitingPlanApproval || $0.status == .waitingForApproval
-        }.count
-        if awaitingCount > 0 { return "\(awaitingCount) need\(awaitingCount == 1 ? "s" : "") you" }
-        let activeCount = runs.filter { !$0.status.isTerminal }.count
-        if activeCount > 0 { return "\(activeCount) running" }
-        if runs.isEmpty { return "None yet" }
-        // A failed run is not "finished" from the user's side; say so.
-        let failedCount = runs.filter { $0.status == .failed }.count
-        let doneCount = runs.count - failedCount
-        switch (doneCount, failedCount) {
-        case (_, 0): return "\(doneCount) done"
-        case (0, _): return "\(failedCount) failed"
-        default: return "\(doneCount) done · \(failedCount) failed"
+    // MARK: Recent agent
+
+    /// Jobs still running or waiting on you, as full cards: this is where a
+    /// plan gets read and approved from the notch, so a job that needs you
+    /// comes first.
+    @ViewBuilder
+    private var unfinishedAgentCards: some View {
+        let unfinished = companionManager.agentRuns
+            .filter { !$0.status.isTerminal }
+            .sorted { first, second in
+                if first.status.needsUser != second.status.needsUser { return first.status.needsUser }
+                return first.createdAt > second.createdAt
+            }
+        if !unfinished.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                DSSectionLabel(title: unfinished.contains(where: \.status.needsUser) ? "Needs you" : "Working")
+                ForEach(unfinished) { run in
+                    AgentRunCard(
+                        run: run,
+                        onCancel: { companionManager.cancelAgent(runID: run.id) },
+                        onApprove: { companionManager.approveAgent(runID: run.id) },
+                        onDeny: { companionManager.denyAgent(runID: run.id) },
+                        onApprovePlan: { companionManager.approveAgentPlan(runID: run.id) },
+                        onDismissPlan: { companionManager.dismissAgentPlan(runID: run.id) },
+                        onOpenFolder: { companionManager.revealAgentFolder(runID: run.id) }
+                    )
+                    .id(run.id)
+                }
+            }
         }
     }
 
-    // MARK: Recent agent
-
     /// Idle Home would otherwise end at the composer. The latest agent run
     /// is the thing people most often come back to check, so it takes the
-    /// space — one tap jumps to its card on the Agents tab.
+    /// space — one tap opens the chat it belongs to.
     @ViewBuilder
     private var recentAgentRow: some View {
-        if isComposerHero {
+        if isComposerHero, !companionManager.agentRuns.contains(where: { !$0.status.isTerminal }) {
             VStack(alignment: .leading, spacing: 6) {
                 DSSectionLabel(title: "Latest from your agents")
                 if let latestRun = companionManager.agentRuns.max(by: { $0.createdAt < $1.createdAt }) {
@@ -905,7 +902,10 @@ private struct NotchHomeTab: View {
                             companionManager.mates.first { $0.id == owner.mateID }?.name
                         }
                     ) {
-                        companionManager.shouldRevealAgentsTab = true
+                        if let mateID = latestRun.chatOwner?.mateID {
+                            companionManager.openMate(id: mateID)
+                        }
+                        companionManager.openDesktopWindow(section: .chat)
                     }
                 } else {
                     // First run: say what the composer does rather than
@@ -968,7 +968,7 @@ private struct NotchRecentAgentRow: View {
         .buttonStyle(.plain)
         .pointerCursor()
         .onHover { isHovering = $0 }
-        .help("Open in Activity")
+        .help("Open its chat")
     }
 
     private var detail: String {
@@ -1171,244 +1171,7 @@ private struct ContextualConnectorSuggestionBanner: View {
     }
 }
 
-// MARK: - Agents Tab
-
-private struct NotchAgentsTab: View {
-    @ObservedObject var companionManager: CompanionManager
-    @State private var sandboxPromptText = ""
-    @State private var attachedPromptText = ""
-    @State private var attachedFolderURL: URL?
-    @State private var isShowingAttachedPrompt = false
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 10) {
-                    if let proposal = companionManager.standingOrderProposal {
-                        standingOrderProposalCard(proposal)
-                    }
-                    composeCard
-                    if isShowingAttachedPrompt {
-                        attachedPromptCard
-                    }
-                    if !companionManager.agentRevealErrorText.isEmpty {
-                        Text(companionManager.agentRevealErrorText)
-                            .font(DS.Fonts.caption.weight(.medium))
-                            .foregroundColor(DS.Colors.warningText)
-                    }
-                }
-            }
-            .frame(width: 310)
-
-            // The list is only a few rows tall, and a plan card is taller than
-            // that, so a run that starts waiting on the user brings its
-            // Approve / Deny row into view instead of leaving it below the fold.
-            ScrollViewReader { scrollProxy in
-                ScrollView(.vertical, showsIndicators: false) {
-                    agentList
-                }
-                .onChange(of: runIDAwaitingUser) { _, runID in
-                    guard let runID else { return }
-                    withAnimation(.easeOut(duration: 0.25)) {
-                        scrollProxy.scrollTo(runID, anchor: .bottom)
-                    }
-                }
-                .onAppear {
-                    guard let runID = runIDAwaitingUser else { return }
-                    scrollProxy.scrollTo(runID, anchor: .bottom)
-                }
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-    }
-
-    private func standingOrderProposalCard(_ proposal: StandingOrderProposal) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Suggestion", systemImage: "bell.badge.fill")
-                .font(DS.Fonts.sectionLabel)
-                .foregroundColor(DS.Colors.warningText)
-            Text(proposal.title)
-                .font(DS.Fonts.headline)
-                .foregroundColor(DS.Colors.textPrimary)
-            Text(proposal.task)
-                .font(DS.Fonts.caption)
-                .foregroundColor(DS.Colors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Text("May I look? Planning is read-only; doing still needs approval.")
-                .font(DS.Fonts.micro)
-                .foregroundColor(DS.Colors.textTertiary)
-            HStack(spacing: 8) {
-                NotchCapsuleButton(title: "Plan it", isProminent: true) {
-                    companionManager.approveStandingOrderProposal()
-                }
-                NotchCapsuleButton(title: "Dismiss") {
-                    companionManager.dismissStandingOrderProposal()
-                }
-            }
-        }
-        .padding(12)
-        .dsSurface(.tinted(DS.Colors.warning))
-    }
-
-    private var composeCard: some View {
-        // The engine is named on the bottom bar's chip, so this card is just
-        // the prompt field and the folder option.
-        VStack(alignment: .leading, spacing: 10) {
-            DSSectionLabel(title: "Ask an agent")
-
-            HStack(spacing: 8) {
-                TextField("Describe work for an agent", text: $sandboxPromptText)
-                    .textFieldStyle(.plain)
-                    .font(DS.Fonts.body)
-                    .foregroundColor(DS.Colors.textPrimary)
-                    .padding(.leading, 12)
-                    .onSubmit(startSandbox)
-
-                Button(action: startSandbox) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundColor(DS.Colors.accent)
-                        .frame(width: NotchControlMetrics.controlSize, height: NotchControlMetrics.controlSize)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
-                .disabled(sandboxPromptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .help("Send to an agent")
-                .accessibilityLabel("Send to an agent")
-                .padding(.trailing, 4)
-            }
-            .padding(.vertical, 4)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(DS.Colors.surface3.opacity(0.55))
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
-            )
-
-            Button(action: pickAttachedFolder) {
-                HStack(spacing: 6) {
-                    Image(systemName: "folder")
-                        .font(DS.Glyph.small)
-                    Text("Run in folder…")
-                        .font(DS.Fonts.body)
-                    Spacer()
-                }
-                .foregroundColor(DS.Colors.textSecondary)
-                .frame(minHeight: NotchControlMetrics.controlSize)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-        }
-        .padding(12)
-        .dsSurface(.card)
-    }
-
-    private var attachedPromptCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(attachedFolderURL?.lastPathComponent ?? "Folder")
-                .font(DS.Fonts.headline)
-                .foregroundColor(DS.Colors.textPrimary)
-            Text(attachedFolderURL?.path ?? "")
-                .font(DS.Fonts.micro)
-                .foregroundColor(DS.Colors.textTertiary)
-                .lineLimit(2)
-            HStack(spacing: 8) {
-                TextField("What should it do here?", text: $attachedPromptText)
-                    .textFieldStyle(.plain)
-                    .font(DS.Fonts.body)
-                    .foregroundColor(DS.Colors.textPrimary)
-                    .onSubmit(startAttached)
-                NotchCapsuleButton(title: "Run", isProminent: true, action: startAttached)
-            }
-        }
-        .padding(12)
-        .dsSurface(.card)
-    }
-
-    /// The newest run blocked on a plan or tool approval.
-    private var runIDAwaitingUser: UUID? {
-        companionManager.agentRuns
-            .filter { $0.status == .awaitingPlanApproval || $0.status == .waitingForApproval }
-            .max { $0.createdAt < $1.createdAt }?
-            .id
-    }
-
-    @ViewBuilder
-    private var agentList: some View {
-        let sections = AgentRunDayGrouping.sections(from: companionManager.agentRuns)
-        if sections.isEmpty {
-            VStack(spacing: 10) {
-                BuddyMark(size: .standard, color: DS.Colors.accent)
-                    .padding(.top, 20)
-                Text("No agent work yet")
-                    .font(DS.Fonts.titleCompact)
-                    .foregroundColor(DS.Colors.textPrimary)
-                Text("Say “HeyMate agent, …” or start one here.")
-                    .font(DS.Fonts.caption)
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .multilineTextAlignment(.center)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.bottom, 12)
-        } else {
-            ForEach(sections, id: \.title) { section in
-                VStack(alignment: .leading, spacing: 8) {
-                    // Day-group titles are stored uppercase for the tests that pin them;
-                    // the label displays them title-cased.
-                    DSSectionLabel(title: section.title.capitalized)
-                    ForEach(section.runs) { run in
-                        AgentRunCard(
-                            run: run,
-                            canFollowUp: companionManager.canSendAgentFollowUp(runID: run.id),
-                            onFollowUp: { text in
-                                companionManager.sendAgentFollowUp(runID: run.id, instruction: text)
-                            },
-                            onCancel: { companionManager.cancelAgent(runID: run.id) },
-                            onApprove: { companionManager.approveAgent(runID: run.id) },
-                            onDeny: { companionManager.denyAgent(runID: run.id) },
-                            onApprovePlan: { companionManager.approveAgentPlan(runID: run.id) },
-                            onDismissPlan: { companionManager.dismissAgentPlan(runID: run.id) },
-                            onOpenFolder: { companionManager.revealAgentFolder(runID: run.id) }
-                        )
-                        .id(run.id)
-                    }
-                }
-            }
-        }
-    }
-
-    private func startSandbox() {
-        let prompt = sandboxPromptText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !prompt.isEmpty else { return }
-        companionManager.startSandboxAgent(prompt: prompt)
-        sandboxPromptText = ""
-    }
-
-    private func pickAttachedFolder() {
-        guard let folderURL = companionManager.pickExistingAgentFolder() else { return }
-        attachedFolderURL = folderURL
-        isShowingAttachedPrompt = true
-        attachedPromptText = ""
-    }
-
-    private func startAttached() {
-        let prompt = attachedPromptText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let folderURL = attachedFolderURL, !prompt.isEmpty else { return }
-        companionManager.startAttachedAgent(
-            prompt: prompt,
-            workspaceURL: folderURL
-        )
-        attachedPromptText = ""
-        isShowingAttachedPrompt = false
-        attachedFolderURL = nil
-    }
-}
+// MARK: - Agent job card
 
 private struct AgentRunCard: View {
     let run: AgentRun

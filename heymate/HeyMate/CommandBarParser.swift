@@ -18,7 +18,6 @@ import Foundation
 nonisolated enum SlashCommand: String, CaseIterable, Identifiable {
     case help
     case chat
-    case agents
     case connectors
     case skills
     case memory
@@ -37,7 +36,6 @@ nonisolated enum SlashCommand: String, CaseIterable, Identifiable {
         switch self {
         case .help: return ["help", "?"]
         case .chat: return ["chat"]
-        case .agents: return ["agents", "agent"]
         case .connectors: return ["connectors", "integrations"]
         case .skills: return ["skills"]
         case .memory: return ["memory"]
@@ -54,7 +52,6 @@ nonisolated enum SlashCommand: String, CaseIterable, Identifiable {
         switch self {
         case .help: return "List these commands"
         case .chat: return "Open the chat window"
-        case .agents: return "Open agent runs"
         case .connectors: return "Open integrations"
         case .skills: return "Open skills"
         case .memory: return "Open what HeyMate remembers"
@@ -71,7 +68,6 @@ nonisolated enum SlashCommand: String, CaseIterable, Identifiable {
     var desktopSection: DesktopSection? {
         switch self {
         case .chat: return .chat
-        case .agents: return .agents
         case .connectors: return .connectors
         case .skills: return .skills
         case .memory: return .memory

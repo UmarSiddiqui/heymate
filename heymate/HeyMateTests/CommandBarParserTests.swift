@@ -10,7 +10,8 @@ import Testing
 struct CommandBarParserTests {
 
     @Test func leadingSlashResolvesAKnownCommand() {
-        #expect(CommandBarParser.parse("/agents") == .slashCommand(.agents, argument: ""))
+        #expect(CommandBarParser.parse("/chat") == .slashCommand(.chat, argument: ""))
+        #expect(CommandBarParser.parse("/agents") == .unknownSlashCommand("agents"))
         #expect(CommandBarParser.parse("/settings") == .slashCommand(.settings, argument: ""))
         #expect(CommandBarParser.parse("  /help  ") == .slashCommand(.help, argument: ""))
     }

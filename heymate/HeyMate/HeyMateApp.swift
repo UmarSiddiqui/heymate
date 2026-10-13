@@ -102,7 +102,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         let activeCount = companionManager.activeProcessBackedAgentRunCount
         guard activeCount > 0 else { return .terminateNow }
 
-        companionManager.openDesktopWindow(section: .agents)
+        companionManager.openDesktopWindow(section: .chat)
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = activeCount == 1
