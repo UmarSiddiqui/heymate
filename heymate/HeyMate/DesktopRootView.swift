@@ -97,6 +97,15 @@ enum DesktopSection: String, CaseIterable, Identifiable, Hashable {
 
     /// Opens Settings on one tab from anywhere inside the desktop window.
     static func openSettings(tab: String) {
+        // Integrations used to have a Settings page too; it is one page now.
+        if DesktopSettingsTab.movedToIntegrations.contains(tab) {
+            NotificationCenter.default.post(
+                name: .heyMateDesktopSelectSection,
+                object: nil,
+                userInfo: ["section": DesktopSection.connectors.rawValue]
+            )
+            return
+        }
         UserDefaults.standard.set(tab, forKey: settingsTabDefaultsKey)
         NotificationCenter.default.post(
             name: .heyMateDesktopSelectSection,
@@ -336,6 +345,7 @@ struct DesktopRootView: View {
             DesktopAgentsView(companionManager: companionManager)
         case .connectors:
             DesktopConnectorsView(
+                companionManager: companionManager,
                 store: companionManager.connectorStore,
                 runtime: companionManager.connectorRuntime,
                 composioConnections: companionManager.composioConnections,
