@@ -15,9 +15,9 @@
 //  mate's sheet, and Notch Apps and Privacy are Settings sections. The
 //  other `DesktopSection` cases stay so deep links keep working.
 //
-//  While Settings is open the sidebar becomes the Settings section rail
-//  (with Back to chat and Apps on top), so there is never a second sidebar
-//  inside the page.
+//  Outside chat the sidebar is always the Settings section rail (with Back
+//  to chat and Integrations on top), so Integrations and Settings read as
+//  one place and there is never a second sidebar inside the page.
 //
 //  Everything here is a view onto the same `CompanionManager`. There is no
 //  second state store and no syncing, which is why changing a setting in
@@ -97,6 +97,15 @@ enum DesktopSection: String, CaseIterable, Identifiable, Hashable {
 
     /// Opens Settings on one tab from anywhere inside the desktop window.
     static func openSettings(tab: String) {
+        // Integrations used to have a Settings page too; it is one page now.
+        if DesktopSettingsTab.movedToIntegrations.contains(tab) {
+            NotificationCenter.default.post(
+                name: .heyMateDesktopSelectSection,
+                object: nil,
+                userInfo: ["section": DesktopSection.connectors.rawValue]
+            )
+            return
+        }
         UserDefaults.standard.set(tab, forKey: settingsTabDefaultsKey)
         NotificationCenter.default.post(
             name: .heyMateDesktopSelectSection,
@@ -145,14 +154,8 @@ struct DesktopRootView: View {
                 .navigationTitle("")
             } else {
                 NavigationSplitView(columnVisibility: $sidebarVisibility) {
-                    Group {
-                        if selectedSection == .settings {
-                            settingsSidebar
-                        } else {
-                            workspaceSidebar
-                        }
-                    }
-                    .navigationSplitViewColumnWidth(min: 220, ideal: 237, max: 260)
+                    settingsSidebar
+                        .navigationSplitViewColumnWidth(min: 220, ideal: 237, max: 260)
                 } detail: {
                     detail
                         .safeAreaInset(edge: .top, spacing: 0) {
@@ -176,40 +179,9 @@ struct DesktopRootView: View {
 
     // MARK: Sidebar
 
-    /// Apps and Settings. The mate rail is the chat app; this list is only
-    /// how you leave it.
-    private var workspaceSidebar: some View {
-        List(selection: $selectedSection) {
-            Section {
-                Button {
-                    selectedSection = .chat
-                } label: {
-                    Label("Back to chat", systemImage: "bubble.left.and.bubble.right")
-                        .font(DS.Fonts.headline)
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
-                .selectionDisabled()
-            }
-
-            Section {
-                ForEach(DesktopSection.sidebarSections) { section in
-                    Label(section.displayName, systemImage: section.symbolName)
-                        .badge(badgeCount(for: section))
-                        .tag(section)
-                }
-            }
-        }
-        .listStyle(.sidebar)
-        .environment(\.defaultMinListRowHeight, 27)
-        .scrollContentBackground(.hidden)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            sidebarStatusBar
-        }
-        .background(CelestialSidebarBackground(accent: companionManager.themeColor))
-    }
-
-    /// The Settings rail, with the way out of Settings on top.
+    /// The one sidebar for every page outside chat: the Settings rail, with
+    /// Back to chat and Integrations on top. Integrations used to get its own
+    /// short sidebar, which made opening it feel like leaving Settings.
     private var settingsSidebar: some View {
         SettingsSidebar(
             navigation: settingsNavigation,
@@ -221,7 +193,9 @@ struct DesktopRootView: View {
                     .keyboardShortcut("[", modifiers: .command)
                     SettingsSidebarItem(
                         title: DesktopSection.connectors.displayName,
-                        symbolName: DesktopSection.connectors.symbolName
+                        symbolName: DesktopSection.connectors.symbolName,
+                        isSelected: selectedSection == .connectors,
+                        badge: badgeCount(for: .connectors)
                     ) {
                         select(.connectors)
                     }
@@ -232,7 +206,11 @@ struct DesktopRootView: View {
                         .padding(.top, DS.Spacing.sm)
                         .accessibilityHidden(true)
                 }
-            )
+            ),
+            isShowingSettingsPage: selectedSection == .settings,
+            onOpenSettingsPage: {
+                if selectedSection != .settings { selectedSection = .settings }
+            }
         )
         .safeAreaInset(edge: .bottom, spacing: 0) {
             sidebarStatusBar
@@ -336,6 +314,7 @@ struct DesktopRootView: View {
             DesktopAgentsView(companionManager: companionManager)
         case .connectors:
             DesktopConnectorsView(
+                companionManager: companionManager,
                 store: companionManager.connectorStore,
                 runtime: companionManager.connectorRuntime,
                 composioConnections: companionManager.composioConnections,

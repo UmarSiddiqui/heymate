@@ -271,9 +271,8 @@ struct DesktopConnectorScopeMenu: View {
                 logoSlug: slug
             )
         }
-        return (catalogItems + composioItems).sorted {
-            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-        }
+        // Both routes stay separate switches; the label says which is which.
+        return IntegrationOverlap.labeled(local: catalogItems, web: composioItems)
     }
 
     /// Some connections were saved with their slug as the name

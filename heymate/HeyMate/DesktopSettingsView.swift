@@ -102,8 +102,6 @@ struct SettingsDetailView: View {
             DesktopSettingsAccountsTab(companionManager: companionManager, navigation: navigation)
         case .agents:
             SettingsAgentsPane(companionManager: companionManager, navigation: navigation)
-        case .connections:
-            SettingsConnectionsPane(companionManager: companionManager, navigation: navigation)
         case .privacy:
             SettingsPrivacyPane(companionManager: companionManager, navigation: navigation)
         }
@@ -126,8 +124,14 @@ struct SettingsSidebar: View {
         return "HeyMate \(version) (\(build))"
     }
     /// Rows above the search field. The desktop window puts "Back to chat"
-    /// and "Apps" here.
+    /// and "Integrations" here.
     var header: AnyView?
+    /// False while the window shows a page from the header (Integrations),
+    /// so no Settings row looks selected.
+    var isShowingSettingsPage = true
+    /// Called when a Settings row or search result is picked, so the window
+    /// can switch back from a header page to Settings.
+    var onOpenSettingsPage: (() -> Void)?
 
     @AppStorage(DesktopSettingsTab.storageKey) private var selectedTabRawValue = DesktopSettingsTab.general.rawValue
     @FocusState private var isSearchFieldFocused: Bool
@@ -204,6 +208,7 @@ struct SettingsSidebar: View {
                 .focused($isSearchFieldFocused)
                 .onSubmit {
                     if let first = navigation.searchResults.first {
+                        onOpenSettingsPage?()
                         navigation.reveal(first)
                     }
                 }
@@ -260,6 +265,7 @@ struct SettingsSidebar: View {
                 .accessibilityAddTraits(.isHeader)
             ForEach(results) { item in
                 SettingsSidebarResultButton(item: item) {
+                    onOpenSettingsPage?()
                     navigation.reveal(item)
                 }
             }
@@ -284,10 +290,11 @@ struct SettingsSidebar: View {
                 SettingsSidebarItem(
                     title: tab.title,
                     symbolName: tab.symbolName,
-                    isSelected: tab == selectedTab,
+                    isSelected: isShowingSettingsPage && tab == selectedTab,
                     // Under Reduce Motion the pill fades between items instead.
                     selectionNamespace: accessibilityReduceMotion ? nil : selectionNamespace
                 ) {
+                    onOpenSettingsPage?()
                     // The selection pill slides and the page turns together.
                     withAnimation(accessibilityReduceMotion ? DS.Animation.reducedMotionFade : DS.Animation.settingsPage) {
                         selectedTabRawValue = tab.rawValue
@@ -299,11 +306,13 @@ struct SettingsSidebar: View {
 }
 
 /// One rail row. Also used for the desktop window's "Back to chat" and
-/// "Apps" links so the whole rail reads as one list.
+/// "Integrations" links so the whole rail reads as one list.
 struct SettingsSidebarItem: View {
     let title: String
     let symbolName: String
     var isSelected = false
+    /// A count that needs attention, such as integrations with errors.
+    var badge = 0
     /// When set, the selected fill is one shape that slides between items.
     var selectionNamespace: Namespace.ID?
     let action: () -> Void
@@ -328,6 +337,12 @@ struct SettingsSidebarItem: View {
                     .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textSecondary)
                     .lineLimit(1)
                 Spacer(minLength: 0)
+                if badge > 0 {
+                    Text("\(badge)")
+                        .font(DS.Fonts.caption)
+                        .monospacedDigit()
+                        .foregroundColor(DS.Colors.textSecondary)
+                }
             }
             .padding(.horizontal, DS.Spacing.sm + 2)
             .frame(minHeight: DS.SettingsLayout.railItemHeight)

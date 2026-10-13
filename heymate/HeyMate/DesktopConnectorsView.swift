@@ -16,6 +16,7 @@ import AppKit
 import SwiftUI
 
 struct DesktopConnectorsView: View {
+    @ObservedObject var companionManager: CompanionManager
     @ObservedObject var store: ConnectorStore
     @ObservedObject var runtime: ConnectorRuntime
     @ObservedObject var composioConnections: ComposioConnectionsRuntime
@@ -52,6 +53,7 @@ struct DesktopConnectorsView: View {
                 composioSetupCard
             }
             customSection
+            composioKeySection
         }
         .sheet(item: $connectorAwaitingKeyEntry) { connector in
             apiKeySheet(for: connector)
@@ -182,7 +184,8 @@ struct DesktopConnectorsView: View {
                 logoSlug: slug
             )
         }
-        return (native + web).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        // GitHub through `gh` and GitHub through Composio is still one GitHub.
+        return IntegrationOverlap.merged(local: native, web: web)
     }
 
     private var searchField: some View {
@@ -230,16 +233,27 @@ struct DesktopConnectorsView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Want Gmail, Slack, Notion, and more?")
                         .font(DS.Fonts.headline)
-                    Text("For now these need a free key from Composio, a service that handles signing in to web apps. Paste it once in Settings › Connections. Your app logins stay with Composio, not HeyMate.")
+                    Text("For now these need a free key from Composio, a service that handles signing in to web apps. Paste it below. Your app logins stay with Composio, not HeyMate.")
                         .font(DS.Fonts.caption)
                         .foregroundColor(DS.Colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer(minLength: 12)
-                Button("Set up in Settings") {
-                    DesktopSection.openSettings(tab: DesktopSettingsTab.connections.rawValue)
-                }
-                .buttonStyle(DSSecondaryButtonStyle())
+                Spacer(minLength: 0)
+            }
+            ComposioKeyRow(companionManager: companionManager)
+                .padding(.top, 10)
+        }
+    }
+
+    /// The saved Composio key, changed or removed right here. Before one
+    /// is saved, the setup card above holds the field instead.
+    @ViewBuilder
+    private var composioKeySection: some View {
+        if composioConnections.isConfigured {
+            VStack(alignment: .leading, spacing: 10) {
+                sectionHeader(title: "Composio key", subtitle: "What the web apps above sign in with")
+                ComposioKeyRow(companionManager: companionManager)
+                    .dsSurface(.row)
             }
         }
     }
@@ -279,10 +293,15 @@ struct DesktopConnectorsView: View {
     }
 
     private var visibleComposioToolkits: [ComposioToolkit] {
+        let offered = IntegrationOverlap.webAppsToList(
+            composioToolkitDirectory.toolkits,
+            connectedLocalNames: store.activeConnectors.map(\.displayName),
+            isConnectedOnWeb: { composioConnections.state(for: $0).isConnected }
+        )
         guard selectedComposioCategory != "All" else {
-            return composioToolkitDirectory.toolkits
+            return offered
         }
-        return composioToolkitDirectory.toolkits.filter { toolkit in
+        return offered.filter { toolkit in
             toolkit.categories.contains(selectedComposioCategory)
         }
     }

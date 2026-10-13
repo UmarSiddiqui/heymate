@@ -1,67 +1,33 @@
 //
-//  SettingsConnectionsPane.swift
+//  ComposioKeyRow.swift
 //  HeyMate
 //
-//  Settings › Connections: the apps HeyMate can reach, the Composio key that
-//  signs it in to web apps, and the local Google tool. The Apps page sends
-//  people here for the Composio key.
+//  The Composio key, entered and removed on the Integrations page itself.
+//  Composio is the service that signs HeyMate in to web apps like Gmail
+//  and Slack; the key never leaves this Mac.
 //
 
 import SwiftUI
 
-struct SettingsConnectionsPane: View {
+struct ComposioKeyRow: View {
     @ObservedObject var companionManager: CompanionManager
-    @ObservedObject var navigation: SettingsNavigationModel
     @ObservedObject private var composioConnections: ComposioConnectionsRuntime
 
     @State private var composioStatusMessage: String?
     @State private var composioStatusTone: SettingsStatusTone = .neutral
     @State private var isSavingComposioAPIKey = false
 
-    init(companionManager: CompanionManager, navigation: SettingsNavigationModel) {
+    init(companionManager: CompanionManager) {
         self.companionManager = companionManager
-        self.navigation = navigation
         self.composioConnections = companionManager.composioConnections
     }
 
     var body: some View {
-        SettingsPage(tab: .connections, navigation: navigation) {
-            SettingsSection {
-                SettingsRow(
-                    SettingsItem.connectedApps.title,
-                    subtitle: "Gmail, Slack, Calendar, and more. Every agent can read and act in what you connect; anything it sends asks you first.",
-                    systemImage: "puzzlepiece.extension",
-                    item: .connectedApps
-                ) {
-                    Button("Open Integrations") {
-                        companionManager.openDesktopWindow(section: .connectors)
-                    }
-                    .dsCapsuleButtonStyle(.secondary)
-                }
-            }
-
-            composioSection
-
-            SettingsSection(
-                "Google",
-                footer: "Agents reach Gmail, Calendar, and Drive through gogcli, a free tool you install on this Mac (brew install gogcli). HeyMate never handles your Google sign-in."
-            ) {
-                GoogleCLISettingsRow()
-            }
-        }
-    }
-
-    // MARK: Composio
-
-    private var composioSection: some View {
-        SettingsSection(
-            "Web apps",
-            footer: "Stored in a private file only your Mac account can read. HeyMate never receives the tokens for Gmail, Slack, or other connected apps."
-        ) {
+        VStack(alignment: .leading, spacing: 6) {
             SettingsSecretKeyRow(
-                title: SettingsItem.composioKey.title,
-                subtitle: "Optional. Composio is the service that signs HeyMate in to apps like Gmail and Slack. Its free tier is enough to start.",
-                item: .composioKey,
+                title: "Composio API key",
+                subtitle: "Composio signs HeyMate in to apps like Gmail and Slack. Its free tier is enough to start. Stored in a private file only your Mac account can read.",
+                item: nil,
                 placeholder: "Composio API key",
                 isStored: composioConnections.isConfigured,
                 isBusy: isSavingComposioAPIKey,
@@ -93,7 +59,7 @@ struct SettingsConnectionsPane: View {
             let state = companionManager.connectorStore.connectionState(for: ComposioSessionStore.connectorID)
             switch state {
             case .connected:
-                composioStatusMessage = "Ready. Supported apps can now connect from Apps."
+                composioStatusMessage = "Ready. Web apps below can now connect."
                 composioStatusTone = .positive
                 await companionManager.composioToolkitDirectory.loadDefaultPage(
                     apiKey: companionManager.composioConnections.apiKey

@@ -157,6 +157,8 @@ final class ComposioToolkitDirectory: ObservableObject {
         return items
             .compactMap(ComposioToolkit.decode(from:))
             .filter(\.isOneClickConnectable)
+            // Composio lists itself; it is the sign-in service, not an app.
+            .filter { $0.slug.lowercased() != ComposioSessionStore.connectorID }
     }
 
     // MARK: Loading
