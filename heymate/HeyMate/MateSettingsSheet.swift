@@ -327,9 +327,6 @@ struct MateSettingsSheet: View {
                 sheetLink("Manage skills", systemImage: "wand.and.stars") {
                     open(.skills)
                 }
-                sheetLink("See activity", systemImage: DesktopSection.agents.symbolName) {
-                    open(.agents)
-                }
             }
         }
     }
