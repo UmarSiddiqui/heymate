@@ -102,8 +102,6 @@ struct SettingsDetailView: View {
             DesktopSettingsAccountsTab(companionManager: companionManager, navigation: navigation)
         case .agents:
             SettingsAgentsPane(companionManager: companionManager, navigation: navigation)
-        case .connections:
-            SettingsConnectionsPane(companionManager: companionManager, navigation: navigation)
         case .privacy:
             SettingsPrivacyPane(companionManager: companionManager, navigation: navigation)
         }

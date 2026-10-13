@@ -24,7 +24,7 @@ struct DesktopSettingsTabsTests {
 
     @Test func sectionsAreInRailOrder() {
         #expect(DesktopSettingsTab.allCases.map(\.rawValue) == [
-            "general", "shortcuts", "voice", "notch", "accounts", "agents", "connections", "privacy"
+            "general", "shortcuts", "voice", "notch", "accounts", "agents", "privacy"
         ])
     }
 
@@ -34,9 +34,15 @@ struct DesktopSettingsTabsTests {
         #expect(DesktopSettingsTab.resolve("accounts") == .accounts)
         #expect(DesktopSettingsTab.resolve("notch") == .notch)
         #expect(DesktopSettingsTab.resolve("privacy") == .privacy)
-        // The old catch-all tab lands where its only in-app link pointed.
-        #expect(DesktopSettingsTab.resolve("advanced") == .connections)
+        // Integrations is one page now, outside Settings.
+        #expect(DesktopSettingsTab.resolve("connections") == .general)
+        #expect(DesktopSettingsTab.resolve("advanced") == .general)
+        #expect(DesktopSettingsTab.movedToIntegrations == ["connections", "advanced"])
         #expect(DesktopSettingsTab.resolve("not-a-section") == .general)
+    }
+
+    @Test func settingsHasNoSecondIntegrationsPage() {
+        #expect(!DesktopSettingsTab.allCases.map(\.title).contains("Integrations"))
     }
 
     @Test func sidebarDeepLinksLandOnTheirSections() {

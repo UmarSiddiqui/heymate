@@ -121,6 +121,7 @@ struct UISnapshotTests {
         let manager = Self.sampleManager()
         try Self.render(
             DesktopConnectorsView(
+                companionManager: manager,
                 store: manager.connectorStore,
                 runtime: manager.connectorRuntime,
                 composioConnections: manager.composioConnections,
@@ -216,6 +217,7 @@ struct UISnapshotTests {
         )
         try Self.render(
             DesktopConnectorsView(
+                companionManager: manager,
                 store: manager.connectorStore,
                 runtime: manager.connectorRuntime,
                 composioConnections: manager.composioConnections,

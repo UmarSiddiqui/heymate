@@ -29,18 +29,17 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
     case notch
     case accounts
     case agents
-    case connections
     case privacy
 
     /// UserDefaults key holding the selected section's raw value.
     static let storageKey = "desktopSettingsSelectedTab"
 
     /// Raw values earlier versions wrote that no longer name a section.
-    /// "advanced" was a catch-all tab; its only in-app writer was the Apps
-    /// page's Composio prompt, which now lands on Connections.
-    static let legacyAliases: [String: DesktopSettingsTab] = [
-        "advanced": .connections
-    ]
+    static let legacyAliases: [String: DesktopSettingsTab] = [:]
+
+    /// Settings sections that became the Integrations page. "advanced" was
+    /// a catch-all whose only in-app writer was the Composio prompt.
+    static let movedToIntegrations: Set<String> = ["connections", "advanced"]
 
     /// The section a stored or deep-linked raw value means. Unknown values
     /// fall back to General rather than an empty pane.
@@ -58,7 +57,6 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
         case .notch: return "Notch"
         case .accounts: return "AI & Accounts"
         case .agents: return "Agents & Control"
-        case .connections: return "Integrations"
         case .privacy: return "Privacy & Data"
         }
     }
@@ -78,8 +76,6 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
             return "Which AI answers you, and how hard it thinks."
         case .agents:
             return "Agents that work on their own, and what HeyMate may do on this Mac."
-        case .connections:
-            return "The apps and services every agent can use, and the keys behind them."
         case .privacy:
             return "What HeyMate sees, what it keeps, and how to erase it."
         }
@@ -93,7 +89,6 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
         case .notch: return "rectangle.topthird.inset.filled"
         case .accounts: return "sparkles"
         case .agents: return "cursorarrow.click.2"
-        case .connections: return "puzzlepiece.extension"
         case .privacy: return "hand.raised"
         }
     }
@@ -101,7 +96,7 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
     var group: DesktopSettingsTabGroup {
         switch self {
         case .general, .shortcuts, .voice, .notch: return .heyMate
-        case .accounts, .agents, .connections: return .intelligence
+        case .accounts, .agents: return .intelligence
         case .privacy: return .privacy
         }
     }
@@ -188,11 +183,6 @@ enum SettingsItem: String, CaseIterable, Identifiable {
     case backgroundAppControl
     case behaviorContract
 
-    // Connections
-    case connectedApps
-    case composioKey
-    case google
-
     // Privacy & Data
     case excludedApps
     case screenRecordings
@@ -221,8 +211,6 @@ enum SettingsItem: String, CaseIterable, Identifiable {
             return .accounts
         case .agentSignIn, .projectFolder, .computerControl, .backgroundAppControl, .behaviorContract:
             return .agents
-        case .connectedApps, .composioKey, .google:
-            return .connections
         case .excludedApps, .screenRecordings, .saveChats, .memories, .whatLeavesThisMac, .eraseData:
             return .privacy
         }
@@ -274,9 +262,6 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .computerControl: return "Let HeyMate use this Mac"
         case .backgroundAppControl: return "Background app control"
         case .behaviorContract: return "Honesty and safety rules"
-        case .connectedApps: return "Your integrations"
-        case .composioKey: return "Composio API key"
-        case .google: return "Google"
         case .excludedApps: return "Never capture these apps"
         case .screenRecordings: return "Show in screen recordings"
         case .saveChats: return "Save chats on this Mac"
@@ -332,9 +317,6 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .computerControl: return "computer use accessibility automation click type control"
         case .backgroundAppControl: return "cua driver background"
         case .behaviorContract: return "behavior contract rules honesty safety edit"
-        case .connectedApps: return "gmail slack calendar notion connectors integrations apps"
-        case .composioKey: return "composio api key web apps"
-        case .google: return "gogcli gmail drive calendar google"
         case .excludedApps: return "exclude bundle id password manager screenshot capture block"
         case .screenRecordings: return "screenshot share screen hide recording zoom"
         case .saveChats: return "chat history conversations remember save"
