@@ -343,6 +343,13 @@ final class CompanionManager: ObservableObject {
     @Published var showOnboardingPrompt: Bool = false
     /// The first-run demo and talk prompt; see CompanionManager+Onboarding.
     var onboardingIntroTask: Task<Void, Never>?
+    /// While the welcome tour wants a spoken answer (a name, an interview
+    /// reply), Talk transcripts go here instead of starting a turn.
+    var onboardingTranscriptSink: ((String) -> Void)?
+    /// Bumped each time the typed ask box is summoned by double tap, so the
+    /// welcome tour can tell the person found it.
+    @Published private(set) var typedComposerSummonCount = 0
+    lazy var onboardingWindowController = OnboardingWindowController(companionManager: self)
 
     let voiceDictation = VoiceDictation()
     let talkShortcutMonitor = GlobalShortcutMonitor(
@@ -607,6 +614,10 @@ final class CompanionManager: ObservableObject {
     }
 
     var isDesktopWindowVisible: Bool { desktopWindowController.isVisible }
+
+    func closeDesktopWindow() {
+        if desktopWindowController.isVisible { desktopWindowController.toggle() }
+    }
 
     /// Planning and launch races still make Cmd-Q unsafe. A write-enabled job
     /// may outlive HeyMate only after its detached runner's complete process
@@ -2713,10 +2724,15 @@ final class CompanionManager: ObservableObject {
         // if the old "Show in notch" toggle had been turned off. Assign AFTER
         // start() so the controller already holds `self` when it places panels.
         showNotchCompanion = true
-        // Only first-run setup opens the notch by itself. A missing
-        // permission later is a note in the notch, not a takeover.
+        // First run opens the welcome tour, and so does a launch that quit
+        // partway through it. A missing permission later is a note in the
+        // notch, not a takeover.
         if !hasCompletedOnboarding {
-            notchCompanionController.expandPinned()
+            Task { @MainActor [weak self] in
+                // Let the notch and the status item settle first.
+                try? await Task.sleep(for: .milliseconds(600))
+                self?.openWelcomeTour()
+            }
         }
         // Catalogs load immediately. When an update is due, they reload after
         // Claude, Codex, and OpenCode finish so the new models show.
@@ -3022,6 +3038,7 @@ final class CompanionManager: ObservableObject {
     /// composer rather than two that can disagree.
     private func handleTextDoubleTap() {
         guard !voiceDictation.isDictationInProgress else { return }
+        typedComposerSummonCount += 1
         notchCompanionController.toggleCompactChat()
     }
 
@@ -3207,7 +3224,7 @@ final class CompanionManager: ObservableObject {
 
     /// Prompt fragment describing the selected region with higher priority
     /// than the rest of the screenshot. Returns nil when nothing selected.
-    private func spatialSelectionPromptFragment() -> String? {
+    func spatialSelectionPromptFragment() -> String? {
         guard let selection = activeSpatialSelection,
               let screenFrame = spatialSelectionScreenFrame else { return nil }
 
@@ -3713,6 +3730,11 @@ final class CompanionManager: ObservableObject {
         // the conversation to that mate or open their chat.
         let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTranscript.isEmpty else { return }
+        if let onboardingTranscriptSink {
+            dispatch(.interactionFinished)
+            onboardingTranscriptSink(trimmedTranscript)
+            return
+        }
         isHeyMateTalkTurn = true
         if acceptLocalMateCommand(trimmedTranscript) { return }
         if holdForOpenCodeTrainingConsent(
@@ -4855,7 +4877,7 @@ final class CompanionManager: ObservableObject {
 
     /// Says one plain sentence. `speak(_:)` is for `SpokenFailure` only, and
     /// an agent milestone is not a failure.
-    private func speakLine(_ utterance: String) {
+    func speakLine(_ utterance: String) {
         guard activeRoutineTurn == nil else { return }
         Task { [weak self] in
             guard let self else { return }

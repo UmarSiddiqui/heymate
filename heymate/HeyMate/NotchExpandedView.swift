@@ -475,16 +475,9 @@ private struct NotchHomeTab: View {
     @State private var typedMessageInput = ""
     @FocusState private var isComposerFocused: Bool
     @ObservedObject private var permissionGuide = PermissionGuide.shared
-    /// Set once the person has seen the permission list and moved on, with
-    /// or without granting everything. HeyMate never blocks on it again.
-    @AppStorage("heymate.onboarding.permissionsReviewed") private var permissionsReviewed = false
 
     private var needsSetup: Bool {
         !companionManager.hasCompletedOnboarding
-    }
-
-    private var permissionsStepDone: Bool {
-        permissionsReviewed || companionManager.allPermissionsGranted
     }
 
     /// Idle with no agent running: the status card has gone quiet, so the
@@ -498,36 +491,32 @@ private struct NotchHomeTab: View {
             if needsSetup {
                 ScrollView(.vertical, showsIndicators: false) {
                     HStack(alignment: .top, spacing: 16) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            setupCopySection
-                            startButton
-                        }
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        setupCopySection
+                            .frame(maxWidth: .infinity, alignment: .topLeading)
 
+                        // Setup itself happens in the welcome tour window;
+                        // the notch only points back to it.
                         VStack(alignment: .leading, spacing: 10) {
-                            if !permissionsStepDone {
-                                permissionsSection
-                            } else if !companionManager.hasCompletedOnboarding {
-                                // Permissions done: which subscription runs
-                                // HeyMate, installed and signed in from here,
-                                // so the first question does not fail.
-                                NotchSubscriptionChoiceSection(
-                                    companionManager: companionManager,
-                                    signIn: companionManager.subscriptionSignIn
-                                )
-                                // Optional: HeyMate works with the Mac voice
-                                // straight away, so this is an offer, not a
-                                // step the Start button waits on.
-                                if OnDeviceVoiceModelStore.shared.isSupportedOnThisMac {
-                                    VStack(alignment: .leading, spacing: 8) {
-                                        NotchSectionHeader(title: "Voice")
-                                        OnDeviceVoiceDownloadRow(
-                                            companionManager: companionManager,
-                                            isCompact: true
-                                        )
-                                    }
-                                    .padding(.top, 4)
+                            Text("Finish the welcome tour")
+                                .font(DS.Fonts.headline)
+                                .foregroundColor(DS.Colors.textPrimary)
+                            Text("Permissions, your AI, and a quick hello. A few minutes, and you can skip any time.")
+                                .font(DS.Fonts.caption)
+                                .foregroundColor(DS.Colors.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Button("Continue the tour") { companionManager.openWelcomeTour() }
+                                .dsCapsuleButtonStyle(.primary)
+                            // Optional: HeyMate works with the Mac voice
+                            // straight away, so this is an offer, not a step.
+                            if OnDeviceVoiceModelStore.shared.isSupportedOnThisMac {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    NotchSectionHeader(title: "Voice")
+                                    OnDeviceVoiceDownloadRow(
+                                        companionManager: companionManager,
+                                        isCompact: true
+                                    )
                                 }
+                                .padding(.top, 4)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -610,11 +599,7 @@ private struct NotchHomeTab: View {
 
     @ViewBuilder
     private var setupCopySection: some View {
-        if permissionsStepDone {
-            Text("Permissions are set. Pick the AI you already pay for, then hit Start to meet HeyMate. The on-device voice is optional; you can get it later in Settings.")
-                .font(DS.Fonts.body)
-                .foregroundColor(DS.Colors.textSecondary)
-        } else if companionManager.hasCompletedOnboarding {
+        if companionManager.hasCompletedOnboarding {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Permissions needed")
                     .font(DS.Fonts.headline)
@@ -626,6 +611,9 @@ private struct NotchHomeTab: View {
             }
         } else {
             VStack(alignment: .leading, spacing: 6) {
+                // Written out in light once per launch as the notch opens.
+                HeyMateHelloTrace()
+                    .frame(width: 70, height: 50, alignment: .leading)
                 HStack(spacing: 10) {
                     BrandAppIcon(size: 38)
                     Text("Hi, I'm HeyMate.")
@@ -649,45 +637,6 @@ private struct NotchHomeTab: View {
                 }
                 .padding(.top, 4)
             }
-        }
-    }
-
-    private var permissionsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if !companionManager.hasAccessibilityPermission || !companionManager.hasScreenRecordingPermission {
-                NotchAppDropTile(
-                    missingAccessibility: !companionManager.hasAccessibilityPermission,
-                    missingScreenRecording: !companionManager.hasScreenRecordingPermission
-                )
-            }
-            PermissionChecklist(compact: true)
-            HStack {
-                Button(companionManager.allPermissionsGranted ? "Continue" : "Continue for now") {
-                    permissionsReviewed = true
-                }
-                .dsCapsuleButtonStyle(companionManager.allPermissionsGranted ? .primary : .secondary)
-                Spacer()
-            }
-            .help("You can turn the rest on later in Settings › Privacy & Data")
-            Button("Why these permissions?") {
-                if let url = URL(string: SupportLinks.permissionsPageURLString) {
-                    NSWorkspace.shared.open(url)
-                }
-            }
-            .buttonStyle(.plain)
-            .font(DS.Fonts.caption)
-            .foregroundColor(.secondary)
-            .pointerCursor()
-        }
-    }
-
-    @ViewBuilder
-    private var startButton: some View {
-        if !companionManager.hasCompletedOnboarding && permissionsStepDone {
-            NotchOnboardingStartButton(
-                companionManager: companionManager,
-                signIn: companionManager.subscriptionSignIn
-            )
         }
     }
 

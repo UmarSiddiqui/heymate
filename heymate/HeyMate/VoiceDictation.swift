@@ -560,7 +560,7 @@ private nonisolated final class AudioBufferRouter: @unchecked Sendable {
 
 /// Microphone loudness for the waveform, measured on the audio thread with
 /// vDSP and delivered to the main actor at most once per buffer.
-private nonisolated final class AudioLevelMeter: @unchecked Sendable {
+nonisolated final class AudioLevelMeter: @unchecked Sendable {
     private let deliver: @MainActor (CGFloat) -> Void
 
     init(deliver: @escaping @MainActor (CGFloat) -> Void) {
