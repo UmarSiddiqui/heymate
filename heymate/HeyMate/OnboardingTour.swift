@@ -44,7 +44,7 @@ final class OnboardingTour: ObservableObject {
     @Published private(set) var heardName: String? = OnboardingTour.storedName
     @Published private(set) var interviewLines: [OnboardingInterviewLine] = []
     @Published private(set) var isInterviewThinking = false
-    @Published private(set) var createdMateNames: [String] = []
+    @Published private(set) var createdMateNames: [String] = UserDefaults.standard.stringArray(forKey: OnboardingTour.createdMatesKey) ?? []
     /// What HeyMate said on the point and circle steps.
     @Published private(set) var lastAnswer: String?
     @Published private(set) var hasMarkedRegion = false
@@ -66,6 +66,9 @@ final class OnboardingTour: ObservableObject {
     static let progressKey = "heymate.onboarding.tourStep"
     static let nameKey = "heymate.onboarding.preferredName"
     static let prefersTypingKey = "heymate.onboarding.prefersTyping"
+    /// Mates the interview already made, so a resumed or replayed tour
+    /// doesn't make another set.
+    static let createdMatesKey = "heymate.onboarding.createdMates"
 
     private var samplePlayer: AVAudioPlayer?
     private let macVoice = MacOSSpeechSynthesizerClient()
@@ -73,6 +76,8 @@ final class OnboardingTour: ObservableObject {
     private var stepTask: Task<Void, Never>?
     private var watchers: Set<AnyCancellable> = []
     private var interviewAnswers = 0
+    /// A point or circle answer is being worked out; further presses wait.
+    private var isAnswering = false
 
     init(companionManager: CompanionManager, restart: Bool) {
         self.companionManager = companionManager
@@ -153,6 +158,7 @@ final class OnboardingTour: ObservableObject {
     }
 
     private func leaveStep() {
+        isAnswering = false
         stepTask?.cancel()
         stepTask = nil
         watchers.removeAll()
@@ -339,6 +345,12 @@ final class OnboardingTour: ObservableObject {
     func permissionsFinished() {
         markDone()
         next()
+        // The first capture is when macOS asks to let HeyMate skip its
+        // window picker. Ask now, next to the other permissions, rather
+        // than in the middle of the "I can see your screen" demo.
+        if companionManager.hasScreenRecordingPermission {
+            Task { _ = try? await ScreenCapture.allScreens() }
+        }
     }
 
     /// Shows "listening…" while a talk turn records, "thinking…" after.
@@ -371,13 +383,21 @@ final class OnboardingTour: ObservableObject {
 
     // MARK: Point and circle
 
+    /// The step keeps listening throughout, so a second press while this
+    /// is still looking stays in the tour instead of starting a real turn.
     private func answer(_ request: String, aboutSelection: Bool) {
+        guard !isAnswering else {
+            status = "still looking…"
+            return
+        }
+        isAnswering = true
         status = "looking…"
-        companionManager.onboardingTranscriptSink = nil
         Task { [weak self] in
             guard let self else { return }
             let spoken = await self.companionManager.answerTourQuestion(request, aboutSelection: aboutSelection)
+            self.isAnswering = false
             guard !Task.isCancelled else { return }
+            if aboutSelection { self.hasMarkedRegion = false }
             self.lastAnswer = spoken
             self.markDone(spoken == nil ? "I couldn't answer that one. Try again later from the notch." : nil)
             if spoken == nil {
@@ -391,6 +411,14 @@ final class OnboardingTour: ObservableObject {
     // MARK: Interview
 
     private func startInterview() async {
+        if interviewLines.isEmpty, !createdMateNames.isEmpty {
+            interviewLines = [OnboardingInterviewLine(
+                speaker: .heyMate,
+                text: "We already talked. I made you " + createdMateNames.joined(separator: ", ") + "."
+            )]
+            markDone()
+            return
+        }
         if interviewLines.isEmpty {
             let hello = heardName.map { "So, \($0). I'm curious about you." } ?? "I'm curious about you."
             interviewLines = [
@@ -498,6 +526,7 @@ final class OnboardingTour: ObservableObject {
             }
         }
         createdMateNames = made
+        UserDefaults.standard.set(made, forKey: Self.createdMatesKey)
         HeyMateLog.log("🎉 Welcome tour made \(made.count) mate(s)")
     }
 }
