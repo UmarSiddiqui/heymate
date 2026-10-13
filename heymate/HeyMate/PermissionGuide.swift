@@ -238,15 +238,35 @@ final class PermissionGuide: ObservableObject {
                 Self.openSettings(permission)
             }
         case .calendar:
-            if EKEventStore.authorizationStatus(for: .event) == .notDetermined {
-                _ = try? await EKEventStore().requestFullAccessToEvents()
+            let before = EKEventStore.authorizationStatus(for: .event)
+            if before == .notDetermined {
+                // Held until the answer is in; a store dropped mid-request
+                // can leave the grant unseen by this run of the app.
+                let store = EKEventStore()
+                let granted: Bool
+                do { granted = try await store.requestFullAccessToEvents() } catch {
+                    granted = false
+                    HeyMateLog.log("⚠️ Calendar request failed: \(error.localizedDescription)")
+                }
+                HeyMateLog.log("🔑 Calendar request answered: granted=\(granted), status \(before.rawValue) → \(EKEventStore.authorizationStatus(for: .event).rawValue)")
+                withExtendedLifetime(store) {}
             } else {
+                HeyMateLog.log("🔑 Calendar already asked (status \(before.rawValue)); opening System Settings")
                 Self.openSettings(permission)
             }
         case .reminders:
-            if EKEventStore.authorizationStatus(for: .reminder) == .notDetermined {
-                _ = try? await EKEventStore().requestFullAccessToReminders()
+            let before = EKEventStore.authorizationStatus(for: .reminder)
+            if before == .notDetermined {
+                let store = EKEventStore()
+                let granted: Bool
+                do { granted = try await store.requestFullAccessToReminders() } catch {
+                    granted = false
+                    HeyMateLog.log("⚠️ Reminders request failed: \(error.localizedDescription)")
+                }
+                HeyMateLog.log("🔑 Reminders request answered: granted=\(granted), status \(before.rawValue) → \(EKEventStore.authorizationStatus(for: .reminder).rawValue)")
+                withExtendedLifetime(store) {}
             } else {
+                HeyMateLog.log("🔑 Reminders already asked (status \(before.rawValue)); opening System Settings")
                 Self.openSettings(permission)
             }
         case .contacts:
