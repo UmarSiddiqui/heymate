@@ -59,6 +59,9 @@ struct PermissionWalkthrough: View {
     @State private var isAsking = false
     @State private var isShowingFullList = false
     @State private var isAskingExtras = false
+    /// Waited long enough in System Settings that a switch which is already
+    /// on but belongs to an older copy of HeyMate is the likely reason.
+    @State private var isWaitingLong = false
 
     /// Pages slide and settle on this spring.
     private static let pageSpring = Animation.spring(response: 0.42, dampingFraction: 0.84)
@@ -92,6 +95,12 @@ struct PermissionWalkthrough: View {
             }
         }
         .onDisappear { guide.stopWatching() }
+        .task(id: isWaitingInSettings) {
+            guard isWaitingInSettings else { return }
+            try? await Task.sleep(for: .seconds(15))
+            guard !Task.isCancelled, isWaitingInSettings else { return }
+            withAnimation(.easeOut(duration: DS.Animation.normal)) { isWaitingLong = true }
+        }
         .task(id: currentGranted) {
             guard currentGranted else { return }
             try? await Task.sleep(for: Self.grantedHold)
@@ -113,6 +122,7 @@ struct PermissionWalkthrough: View {
 
     private func advance() {
         isWaitingInSettings = false
+        isWaitingLong = false
         withAnimation(accessibilityReduceMotion ? DS.Animation.reducedMotionFade : Self.pageSpring) {
             index += 1
         }
@@ -234,10 +244,31 @@ struct PermissionWalkthrough: View {
                     .foregroundColor(DS.Colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if permission == .accessibility || permission == .screenRecording {
+            if permission == .screenRecording {
+                // macOS only applies Screen Recording to a relaunched app, so
+                // the switch can be on while this page still waits.
+                HStack(spacing: 8) {
+                    Text("Switched it on? macOS needs HeyMate to restart for this one. The tour picks up right here.")
+                        .font(DS.Fonts.caption)
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 4)
+                    Button("Restart HeyMate") { AppRelaunch.now() }
+                        .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)
+                }
+            }
+            if isWaitingLong {
+                Text("Already on and still waiting? That switch belongs to an older copy of HeyMate. Select HeyMate in the list, remove it with −, then drag this one in.")
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.warningText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.opacity)
+            }
+            if permission.isGrantedInSystemSettings {
                 NotchAppDropTile(
                     missingAccessibility: permission == .accessibility,
-                    missingScreenRecording: permission == .screenRecording
+                    missingScreenRecording: permission == .screenRecording,
+                    missingInputMonitoring: permission == .inputMonitoring
                 )
             }
         }
@@ -392,5 +423,23 @@ private extension AnyTransition {
     /// Pages blur slightly as they leave and come into focus as they land.
     static var softBlur: AnyTransition {
         .modifier(active: SoftBlur(radius: 5), identity: SoftBlur(radius: 0))
+    }
+}
+
+/// Quits and reopens HeyMate, for permissions macOS only applies at launch.
+enum AppRelaunch {
+    static func now() {
+        let path = Bundle.main.bundlePath
+        let relauncher = Process()
+        relauncher.executableURL = URL(fileURLWithPath: "/bin/sh")
+        // Waits for this process to exit, then opens the same copy again.
+        relauncher.arguments = ["-c", "while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 0.2; done; /usr/bin/open \"$0\"", path]
+        do {
+            try relauncher.run()
+        } catch {
+            HeyMateLog.log("⚠️ Couldn't schedule a relaunch: \(error.localizedDescription)")
+            return
+        }
+        NSApp.terminate(nil)
     }
 }

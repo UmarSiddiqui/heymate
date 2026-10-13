@@ -16,6 +16,7 @@ import SwiftUI
 struct NotchAppDropTile: View {
     var missingAccessibility: Bool
     var missingScreenRecording: Bool
+    var missingInputMonitoring = false
 
     @State private var isHovering = false
     @State private var isDragging = false
@@ -33,6 +34,15 @@ struct NotchAppDropTile: View {
                         action: {
                             PrivacyDropBundle.revealInFinder()
                             MacPermissions.openAccessibilitySettings()
+                        }
+                    )
+                }
+                if missingInputMonitoring {
+                    settingsLink(
+                        title: "Open Input Monitoring",
+                        action: {
+                            PrivacyDropBundle.revealInFinder()
+                            MacPermissions.openInputMonitoringSettings()
                         }
                     )
                 }
@@ -96,7 +106,8 @@ struct NotchAppDropTile: View {
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             AppBundleDragHandle(
-                settingsPane: missingAccessibility ? .accessibility : .screenRecording,
+                settingsPane: missingAccessibility ? .accessibility
+                    : (missingInputMonitoring ? .inputMonitoring : .screenRecording),
                 onHoverChange: { isHovering = $0 },
                 onDragChange: { isDragging = $0 }
             )
@@ -113,12 +124,14 @@ struct NotchAppDropTile: View {
 
 enum PrivacySettingsPane {
     case accessibility
+    case inputMonitoring
     case screenRecording
 
     @MainActor
     func open() {
         switch self {
         case .accessibility: MacPermissions.openAccessibilitySettings()
+        case .inputMonitoring: MacPermissions.openInputMonitoringSettings()
         case .screenRecording: MacPermissions.openScreenRecordingSettings()
         }
     }

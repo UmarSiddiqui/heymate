@@ -168,7 +168,12 @@ final class PermissionGuide: ObservableObject {
     func allGranted(_ list: [HeyMatePermission]) -> Bool { list.allSatisfy(granted.contains) }
 
     /// Keeps the list current while a view that shows it is on screen.
+    /// Views showing permissions right now. Polling stops when the last
+    /// one goes, so one view closing can't freeze another that's waiting.
+    private var watcherCount = 0
+
     func startWatching() {
+        watcherCount += 1
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -179,6 +184,8 @@ final class PermissionGuide: ObservableObject {
     }
 
     func stopWatching() {
+        watcherCount = max(0, watcherCount - 1)
+        guard watcherCount == 0 else { return }
         pollTask?.cancel()
         pollTask = nil
     }

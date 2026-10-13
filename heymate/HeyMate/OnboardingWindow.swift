@@ -129,6 +129,7 @@ struct OnboardingRootView: View {
             .foregroundColor(DS.Colors.textSecondary)
             .opacity(tour.canGoBack ? 1 : 0)
             .disabled(!tour.canGoBack)
+            .focusEffectDisabled()
             .pointerCursor()
             .frame(width: 80, alignment: .leading)
 
@@ -144,6 +145,7 @@ struct OnboardingRootView: View {
                 .disabled(tour.step == .reveal)
                 .pointerCursor()
                 .help("You can replay the tour from Settings › General")
+                .focusEffectDisabled()
                 .frame(width: 80, alignment: .trailing)
         }
         // Clear of the traffic lights.
