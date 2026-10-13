@@ -30,6 +30,9 @@ extension CompanionManager {
     func openWelcomeTour(restart: Bool = false) {
         NotificationCenter.default.post(name: .heyMateDismissPanel, object: nil)
         HeyMateAnalytics.track(restart ? .onboardingReplayed : .onboardingStarted)
+        // Replay starts from Settings, whose window can float above others
+        // when it hangs from the notch; the tour should be on top.
+        closeDesktopWindow()
         onboardingWindowController.show(restart: restart)
     }
 

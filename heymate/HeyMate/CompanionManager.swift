@@ -615,6 +615,10 @@ final class CompanionManager: ObservableObject {
 
     var isDesktopWindowVisible: Bool { desktopWindowController.isVisible }
 
+    func closeDesktopWindow() {
+        if desktopWindowController.isVisible { desktopWindowController.toggle() }
+    }
+
     /// Planning and launch races still make Cmd-Q unsafe. A write-enabled job
     /// may outlive HeyMate only after its detached runner's complete process
     /// identity has been verified against live state.
