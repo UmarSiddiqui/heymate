@@ -9,6 +9,7 @@
 import AppKit
 import Foundation
 import ImageIO
+import UniformTypeIdentifiers
 
 struct ChatImageAttachment: Identifiable, Equatable, Sendable {
     static let maximumCount = 6
@@ -77,5 +78,39 @@ enum ChatImageAttachmentError: LocalizedError {
         case .unreadableImage: return "HeyMate could not read that image."
         case .encodingFailed: return "HeyMate could not prepare that image."
         }
+    }
+}
+
+/// What ⌘V in the chat box should attach. Screenshots copied with ⌃⇧⌘4,
+/// images copied from a browser, and image files copied in Finder all land
+/// on the clipboard without any text, so the text field would drop them.
+nonisolated enum ChatImagePaste {
+    enum Content: Equatable {
+        case files([URL])
+        case imageData(Data)
+    }
+
+    /// Nil when the clipboard holds text worth pasting, so an ordinary paste
+    /// is left to the text field. Copied image files win even though Finder
+    /// also puts their names on the clipboard as text.
+    static func content(of pasteboard: NSPasteboard) -> Content? {
+        let imageFiles = (pasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [
+                .urlReadingFileURLsOnly: true,
+                .urlReadingContentsConformToTypes: [UTType.image.identifier]
+            ]
+        ) as? [URL]) ?? []
+        if !imageFiles.isEmpty { return .files(imageFiles) }
+
+        let hasText = !(pasteboard.string(forType: .string) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard !hasText else { return nil }
+        for type in [NSPasteboard.PasteboardType.png, .tiff] {
+            if let data = pasteboard.data(forType: type), !data.isEmpty {
+                return .imageData(data)
+            }
+        }
+        return nil
     }
 }
