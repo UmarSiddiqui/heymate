@@ -34,6 +34,9 @@ struct MateHomeView: View {
     @State private var isShowingImageImporter = false
     @State private var attachmentErrorText: String?
     @State private var isImageDropTargeted = false
+    /// Catches ⌘V while the chat box has focus, for clipboards that hold
+    /// an image and no text. See `ChatImagePaste`.
+    @State private var imagePasteMonitor: Any?
     @State private var isNearBottom = true
     @State private var viewportHeight: CGFloat = 0
     @State private var transcriptContentMaxY: CGFloat = 0
@@ -128,6 +131,7 @@ struct MateHomeView: View {
             onCompletion: handleImageImport
         )
         .onAppear {
+            installImagePasteMonitor()
             if startsWithDrawerOpen { isDrawerOpen = true }
             typedMessageInput = companionManager.currentChat.draftText ?? ""
             guard shouldFocusComposerOnAppear else { return }
@@ -137,6 +141,7 @@ struct MateHomeView: View {
         }
         .onDisappear {
             companionManager.updateCurrentDraft(typedMessageInput)
+            removeImagePasteMonitor()
         }
         .onChange(of: companionManager.currentChat.id) { _, _ in
             typedMessageInput = companionManager.currentChat.draftText ?? ""
@@ -1834,6 +1839,46 @@ struct MateHomeView: View {
         }
         if urls.count > availableSlots {
             attachmentErrorText = "Up to \(ChatImageAttachment.maximumCount) images per message."
+        }
+    }
+
+    /// The text field only pastes text, so a screenshot on the clipboard
+    /// did nothing. When the chat box is focused and the clipboard holds an
+    /// image (or copied image files) and no text, ⌘V attaches it instead.
+    private func installImagePasteMonitor() {
+        guard imagePasteMonitor == nil else { return }
+        imagePasteMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard modifiers == .command,
+                  event.charactersIgnoringModifiers?.lowercased() == "v",
+                  isComposerFocused,
+                  event.window?.isKeyWindow == true,
+                  let content = ChatImagePaste.content(of: .general) else { return event }
+            switch content {
+            case .files(let urls):
+                addImageFiles(urls)
+            case .imageData(let data):
+                addPastedImage(data)
+            }
+            return nil
+        }
+    }
+
+    private func removeImagePasteMonitor() {
+        if let imagePasteMonitor { NSEvent.removeMonitor(imagePasteMonitor) }
+        imagePasteMonitor = nil
+    }
+
+    private func addPastedImage(_ data: Data) {
+        attachmentErrorText = nil
+        guard imageAttachments.count < ChatImageAttachment.maximumCount else {
+            attachmentErrorText = "Up to \(ChatImageAttachment.maximumCount) images per message."
+            return
+        }
+        do {
+            imageAttachments.append(try ChatImageAttachment.make(from: data, fileName: "Pasted image"))
+        } catch {
+            attachmentErrorText = error.localizedDescription
         }
     }
 
