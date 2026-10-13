@@ -418,6 +418,7 @@ struct OnboardingHelloStep: View {
             Spacer(minLength: 20)
             HeyMateHelloTrace(lineWidth: 4, duration: 2.0)
                 .frame(width: 210, height: 150)
+                .cueMotion(.boot)
             Text("I'm HeyMate.")
                 .font(.system(size: 28, weight: .semibold))
                 .foregroundColor(DS.Colors.textPrimary)

@@ -116,6 +116,9 @@ final class ConnectorRuntime: ObservableObject {
             if connector.transport == .mcp {
                 HeyMateLog.log("🔌 \(connector.id) connected: \(accountLabel ?? "no label")")
             }
+            // A connector the person just added levels HeyMate up; one
+            // coming back at launch is not news.
+            if !isRestoring { HeyMateCue.shared.fire(.levelUp, subject: connector.id) }
         } catch ConnectorRuntimeError.permissionNotYetGranted {
             // Not a failure — the ask is simply still owed. Presenting it as
             // plain "Connect" rather than a warning keeps the card honest:

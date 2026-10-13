@@ -122,6 +122,7 @@ struct NotchExpandedView: View {
     var hardwareNotchWidth: CGFloat = 0
 
     @ObservedObject var transitionModel: NotchSurfaceTransitionModel
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
     /// Called when the user presses the collapse chevron.
     var onClose: () -> Void
@@ -865,8 +866,13 @@ private struct NotchHomeTab: View {
                         onOpenFolder: { companionManager.revealAgentFolder(runID: run.id) }
                     )
                     .id(run.id)
+                    .transition(.asymmetric(
+                        insertion: .identity,
+                        removal: .cueExit(.jobClosed, reduceMotion: accessibilityReduceMotion)
+                    ))
                 }
             }
+            .animation(.cueExit(.jobClosed, reduceMotion: accessibilityReduceMotion), value: unfinished.map(\.id))
         }
     }
 
@@ -1015,6 +1021,8 @@ private struct AgentRunCard: View {
 
             HStack(spacing: 6) {
                 DSStatusDot(color: statusColor)
+                    .cueMotion(.jobNeedsYou, subject: cueSubject)
+                    .background(needsYouHalo)
                 Text(statusLabel)
                     .font(DS.Fonts.statusWord)
                     .foregroundColor(statusColor)
@@ -1055,6 +1063,7 @@ private struct AgentRunCard: View {
                     cardButton("Dismiss", action: onDismissPlan)
                 case .waitingForApproval:
                     cardButton("Approve", isProminent: true, action: onApprove)
+                        .cueMotion(.permissionAsk, part: .prop, subject: cueSubject)
                     cardButton("Deny", action: onDeny)
                 case .succeeded, .failed, .cancelled:
                     cardButton("Open folder", action: onOpenFolder)
@@ -1089,6 +1098,32 @@ private struct AgentRunCard: View {
                 )
         )
         .dsSurface(.card)
+        .overlay { CueShimmer(subject: cueSubject).clipShape(cardShape) }
+        .cueGlow(.permissionAsk, subject: cueSubject, cornerRadius: DS.CornerRadius.extraLarge)
+        .overlay(alignment: .topTrailing) {
+            CueProp(kind: .tapback, subject: cueSubject)
+                .offset(x: 6, y: -6)
+        }
+        .cueMotion(.jobStarted, subject: cueSubject)
+    }
+
+    private var cueSubject: String { run.id.uuidString }
+
+    private var cardShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous)
+    }
+
+    /// The dot stays lit while the job waits on you; the needs-you cue's
+    /// two pulses end on this.
+    @ViewBuilder
+    private var needsYouHalo: some View {
+        if run.status.needsUser {
+            Circle()
+                .fill(statusColor.opacity(0.35))
+                .frame(width: 12, height: 12)
+                .blur(radius: 2)
+                .cueGlowOpacity(.jobNeedsYou, subject: cueSubject)
+        }
     }
 
     private var statusLabel: String {
@@ -1185,6 +1220,11 @@ private struct NotchStatusCard: View {
     private var activeCard: some View {
         HStack(spacing: DS.Spacing.sm + 2) {
             BrandAppIcon(size: DS.ControlSize.large, state: companionManager.voiceState)
+                .cueMotion(.responseReady, .question, .surprised, anchor: .bottom)
+                .overlay(alignment: .top) {
+                    CueProp(kind: .questionMark)
+                        .offset(y: -12)
+                }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(statusTitle)
@@ -1200,6 +1240,7 @@ private struct NotchStatusCard: View {
                         .foregroundColor(DS.Colors.textSecondary)
                         .lineLimit(1)
                         .help(statusSubtitle)
+                        .cueMotion(.responseReady, part: .prop)
                 }
             }
 
@@ -1318,10 +1359,11 @@ private struct NotchWaveformView: View {
 
     var body: some View {
         HStack(spacing: 2.5) {
-            ForEach(Array(Self.barWeights.enumerated()), id: \.offset) { _, weight in
+            ForEach(Array(Self.barWeights.enumerated()), id: \.offset) { barIndex, weight in
                 RoundedRectangle(cornerRadius: 1.5, style: .continuous)
                     .fill(DS.Colors.overlayCursorBlue)
                     .frame(width: 3, height: barHeight(forWeight: weight))
+                    .cueMotion(.listenStart, part: .item(barIndex))
             }
         }
         .animation(.easeOut(duration: 0.09), value: audioPowerLevel)

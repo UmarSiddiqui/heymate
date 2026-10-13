@@ -152,6 +152,7 @@ struct NotchPillView: View {
                 .padding(.bottom, 2)
         }
         .overlay(alignment: .bottom) { bottomHairline }
+        .overlay { closeEchoGlow }
         .animation(accessibilityReduceMotion ? nil : .easeOut(duration: 0.18), value: model.isHovered)
         .animation(accessibilityReduceMotion ? nil : .easeOut(duration: 0.16), value: model.isDropTargeted)
         .animation(
@@ -174,6 +175,23 @@ struct NotchPillView: View {
             style: .continuous
         )
         .fill(Color.black)
+    }
+
+    /// After a deliberate close, the pill glows faintly twice with the
+    /// close sound's echoes.
+    private var closeEchoGlow: some View {
+        CueMotionReader(sounds: [.panelClose], part: .prop) { frame in
+            UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: housingCornerRadius,
+                bottomTrailingRadius: housingCornerRadius,
+                topTrailingRadius: 0,
+                style: .continuous
+            )
+            .stroke(Color.white.opacity(0.45 * frame.glow), lineWidth: 1)
+            .shadow(color: Color.white.opacity(0.3 * frame.glow), radius: 4)
+        }
+        .allowsHitTesting(false)
     }
 
     private var outlineGlow: some View {
@@ -376,6 +394,7 @@ private struct NotchListeningDot: View {
             .fill(themeColor)
             .frame(width: 6, height: 6)
             .shadow(color: themeColor.opacity(0.9), radius: 3)
+            .cueMotion(.listenStart)
     }
 }
 
@@ -507,6 +526,7 @@ private struct NotchLiveWaveform: View {
                 Capsule(style: .continuous)
                     .fill(themeColor.opacity(0.55 + 0.45 * Double(weight)))
                     .frame(width: 2, height: height(forWeight: weight))
+                    .cueMotion(.listenStart, part: .item(barIndex))
             }
         }
         .animation(.easeOut(duration: 0.09), value: audioPowerLevel)

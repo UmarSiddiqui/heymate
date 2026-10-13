@@ -49,7 +49,10 @@ extension CompanionManager {
         if allPermissionsGranted && isCursorCompanionEnabled && !isOverlayVisible {
             showCursorOverlay()
         }
-        if openingHome { openDesktopWindow(section: .chat) }
+        if openingHome {
+            openDesktopWindow(section: .chat)
+            cue(.homeReveal)
+        }
     }
 
     // MARK: - Speaking
