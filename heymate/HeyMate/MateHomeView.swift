@@ -146,12 +146,17 @@ struct MateHomeView: View {
         .onChange(of: companionManager.currentChat.id) { _, _ in
             typedMessageInput = companionManager.currentChat.draftText ?? ""
             isNearBottom = true
+            // A fresh chat leads with Hold to talk again.
+            isComposerExpanded = false
         }
         .onChange(of: typedMessageInput) { _, newValue in
             companionManager.updateCurrentDraft(newValue)
         }
+        // Once the full composer is up it stays up until the chat changes.
+        // Collapsing on blur swapped it for Hold to talk the moment the
+        // Integrations or model menu took focus, so those menus never opened.
         .onChange(of: isComposerFocused) { _, focused in
-            if !focused && typedMessageInput.isEmpty { isComposerExpanded = false }
+            if focused { isComposerExpanded = true }
         }
         #if canImport(ImagePlayground)
         .modifier(ImagePlaygroundGate(concept: $companionManager.imagePlaygroundConcept) { url in

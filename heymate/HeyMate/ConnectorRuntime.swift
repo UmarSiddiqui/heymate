@@ -113,15 +113,40 @@ final class ConnectorRuntime: ObservableObject {
         do {
             let accountLabel = try await performConnection(for: connector, isRestoring: isRestoring)
             store.markConnected(connectorID: connector.id, accountLabel: accountLabel)
+            if connector.transport == .mcp {
+                HeyMateLog.log("🔌 \(connector.id) connected: \(accountLabel ?? "no label")")
+            }
         } catch ConnectorRuntimeError.permissionNotYetGranted {
             // Not a failure — the ask is simply still owed. Presenting it as
             // plain "Connect" rather than a warning keeps the card honest:
             // nothing is broken, the user just has not been asked yet.
             store.markAwaitingConnect(connectorID: connector.id)
         } catch {
+            HeyMateLog.log("🔌 \(connector.id) failed: \(error.localizedDescription)")
             store.markFailed(connectorID: connector.id, reason: error.localizedDescription)
         }
         await refreshAvailableMCPTools()
+    }
+
+    /// Whether Composio is switched on but its last connect failed, so chat
+    /// has none of its apps while the Integrations page still lists them as
+    /// connected.
+    var composioNeedsRetry: Bool {
+        let connectorID = ComposioSessionStore.connectorID
+        let record = store.record(for: connectorID)
+        return record.isEnabled && record.lastErrorMessage != nil && mcpClients[connectorID] == nil
+    }
+
+    /// Composio's tool list can time out on a cold start: `npx mcp-remote`
+    /// fetching itself, or a Tool Router session that went stale. A restore
+    /// never tried again, so every chat lost Gmail and the rest until the
+    /// next launch. A fresh session and one more connect fixes both.
+    func retryComposioIfFailed() async {
+        guard composioNeedsRetry,
+              let connector = ConnectorCatalog.connector(withID: ComposioSessionStore.connectorID) else { return }
+        HeyMateLog.log("🔌 composio: retrying after a failed connect")
+        clearComposioSession()
+        await connect(connector)
     }
 
     private func performConnection(for connector: Connector, isRestoring: Bool) async throws -> String? {
@@ -265,8 +290,17 @@ final class ConnectorRuntime: ObservableObject {
         }
 
         await mcpClients[connector.id]?.stop()
+        mcpClients[connector.id] = nil
         let client = MCPClient(launchCommand: command, environmentOverrides: environmentOverrides)
-        let tools = try await client.startAndDiscoverTools()
+        let tools: [MCPToolDefinition]
+        do {
+            tools = try await client.startAndDiscoverTools()
+        } catch {
+            // The server is already running; a failed handshake must not
+            // leave it behind with nothing holding it.
+            await client.stop()
+            throw error
+        }
         mcpClients[connector.id] = client
 
         return tools.isEmpty ? "Connected" : "\(tools.count) tools"
