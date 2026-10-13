@@ -628,6 +628,9 @@ private struct NotchHomeTab: View {
             }
         } else {
             VStack(alignment: .leading, spacing: 6) {
+                // Written out in light once per launch as the notch opens.
+                HeyMateHelloTrace()
+                    .frame(width: 70, height: 50, alignment: .leading)
                 HStack(spacing: 10) {
                     BrandAppIcon(size: 38)
                     Text("Hi, I'm HeyMate.")
@@ -654,33 +657,12 @@ private struct NotchHomeTab: View {
         }
     }
 
+    /// One permission at a time, then on to picking a subscription. The
+    /// full list is a tap away inside the walkthrough.
     private var permissionsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if !companionManager.hasAccessibilityPermission || !companionManager.hasScreenRecordingPermission {
-                NotchAppDropTile(
-                    missingAccessibility: !companionManager.hasAccessibilityPermission,
-                    missingScreenRecording: !companionManager.hasScreenRecordingPermission
-                )
-            }
-            PermissionChecklist(compact: true)
-            HStack {
-                Button(companionManager.allPermissionsGranted ? "Continue" : "Continue for now") {
-                    permissionsReviewed = true
-                }
-                .dsCapsuleButtonStyle(companionManager.allPermissionsGranted ? .primary : .secondary)
-                Spacer()
-            }
-            .help("You can turn the rest on later in Settings › Privacy & Data")
-            Button("Why these permissions?") {
-                if let url = URL(string: SupportLinks.permissionsPageURLString) {
-                    NSWorkspace.shared.open(url)
-                }
-            }
-            .buttonStyle(.plain)
-            .font(DS.Fonts.caption)
-            .foregroundColor(.secondary)
-            .pointerCursor()
-        }
+        PermissionWalkthrough(onFinish: {
+            withAnimation(DS.Animation.buddySpring) { permissionsReviewed = true }
+        })
     }
 
     @ViewBuilder
