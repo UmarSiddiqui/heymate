@@ -242,7 +242,7 @@ nonisolated enum CueChoreography {
     /// Every part a sound animates, so tests and previews can walk them.
     static func parts(for sound: UISoundPlayer.Sound) -> [CuePart] {
         switch sound {
-        case .listenStart: return [.subject] + (0..<listenBarCount).map { .item($0) }
+        case .listenStart: return [CuePart.subject] + (0..<listenBarCount).map { CuePart.item($0) }
         case .responseReady, .panelClose, .messageSent,
              .permissionAsk, .surprised, .jobStarted, .jobDone:
             return [.subject, .prop]
@@ -251,8 +251,8 @@ nonisolated enum CueChoreography {
              .levelUp, .levelDown, .boot:
             return [.subject]
         case .thumbsUp: return [.prop]
-        case .homeReveal: return (0..<homeTileCount).map { .item($0) } + (0..<sparkleCount).map { .sparkle($0) }
-        case .hatching: return [.subject, .prop, .item(0), .item(1)] + (0..<sparkleCount).map { .sparkle($0) }
+        case .homeReveal: return (0..<homeTileCount).map { CuePart.item($0) } + (0..<sparkleCount).map { CuePart.sparkle($0) }
+        case .hatching: return [CuePart.subject, .prop, .item(0), .item(1)] + (0..<sparkleCount).map { CuePart.sparkle($0) }
         }
     }
 
