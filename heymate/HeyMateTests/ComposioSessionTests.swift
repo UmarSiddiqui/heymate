@@ -502,6 +502,13 @@ struct ComposioToolkitDirectoryTests {
               "meta": {}
             },
             {
+              "slug": "composio",
+              "name": "Composio",
+              "composio_managed_auth_schemes": ["OAUTH2"],
+              "no_auth": false,
+              "meta": {}
+            },
+            {
               "slug": "bring-your-own-oauth",
               "name": "Developer credentials required",
               "composio_managed_auth_schemes": [],

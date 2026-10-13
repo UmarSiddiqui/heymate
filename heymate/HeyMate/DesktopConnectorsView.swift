@@ -184,7 +184,8 @@ struct DesktopConnectorsView: View {
                 logoSlug: slug
             )
         }
-        return (native + web).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        // GitHub through `gh` and GitHub through Composio is still one GitHub.
+        return IntegrationOverlap.merged(local: native, web: web)
     }
 
     private var searchField: some View {
@@ -292,10 +293,15 @@ struct DesktopConnectorsView: View {
     }
 
     private var visibleComposioToolkits: [ComposioToolkit] {
+        let offered = IntegrationOverlap.webAppsToList(
+            composioToolkitDirectory.toolkits,
+            connectedLocalNames: store.activeConnectors.map(\.displayName),
+            isConnectedOnWeb: { composioConnections.state(for: $0).isConnected }
+        )
         guard selectedComposioCategory != "All" else {
-            return composioToolkitDirectory.toolkits
+            return offered
         }
-        return composioToolkitDirectory.toolkits.filter { toolkit in
+        return offered.filter { toolkit in
             toolkit.categories.contains(selectedComposioCategory)
         }
     }
