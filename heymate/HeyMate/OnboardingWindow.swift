@@ -629,6 +629,7 @@ struct OnboardingVoiceStep: View {
                         )
                     }
                 }
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 520)
             }
 
@@ -670,7 +671,7 @@ struct OnboardingVoiceStep: View {
                 .font(DS.Fonts.caption)
                 .foregroundColor(DS.Colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
+                .frame(maxHeight: .infinity, alignment: .topLeading)
             HStack(spacing: 8) {
                 Button {
                     if sample == .mac { tour.playMacSample() } else { tour.playOnDeviceSample() }
@@ -686,7 +687,7 @@ struct OnboardingVoiceStep: View {
             }
         }
         .padding(16)
-        .frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(DS.Colors.surface2.opacity(isSelected ? 1 : 0.6))
