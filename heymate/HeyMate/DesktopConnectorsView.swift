@@ -61,9 +61,9 @@ struct DesktopConnectorsView: View {
         .sheet(item: $connectorAwaitingCommandEntry) { connector in
             launchCommandSheet(for: connector)
         }
-        .disclosureSound(isShowingAPIContractHelp)
-        .disclosureSound(connectorAwaitingKeyEntry != nil)
-        .disclosureSound(connectorAwaitingCommandEntry != nil)
+        .disclosureSound(isShowingAPIContractHelp, .sheet)
+        .disclosureSound(connectorAwaitingKeyEntry != nil, .sheet)
+        .disclosureSound(connectorAwaitingCommandEntry != nil, .sheet)
         .sheet(isPresented: $isShowingAPIContractHelp) {
             apiContractHelpSheet
         }

@@ -267,7 +267,7 @@ struct NotchExpandedView: View {
             headerIconButton(systemName: "info.circle", help: "About HeyMate") {
                 isShowingAboutPopover.toggle()
             }
-            .disclosureSound(isShowingAboutPopover)
+            .disclosureSound(isShowingAboutPopover, .popover)
             .popover(isPresented: $isShowingAboutPopover, arrowEdge: .bottom) {
                 notchAboutPopover
             }

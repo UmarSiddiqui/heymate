@@ -56,6 +56,37 @@ final class UISoundPlayer {
         case homeReveal = "HomeReveal"
         /// Rumble, cracks, then a chime when a new mate is born.
         case hatching = "Hatching"
+        /// Tiny rising pop / its reverse for popovers.
+        case popoverOpen = "PopoverOpen"
+        case popoverClose = "PopoverClose"
+        /// Soft swell settling on a note / its reverse for sheets.
+        case sheetOpen = "SheetOpen"
+        case sheetClose = "SheetClose"
+        /// Airy swish out / back for side panes and drawers.
+        case paneOpen = "PaneOpen"
+        case paneClose = "PaneClose"
+        /// Two-note tick up / down for disclosure rows.
+        case rowOpen = "RowOpen"
+        case rowClose = "RowClose"
+        /// A breath, for the notch's hover-peek.
+        case peek = "Peek"
+    }
+
+    /// What is opening or closing. Each kind has its own sound so the app
+    /// doesn't make one noise for everything.
+    enum Disclosure: CaseIterable {
+        case popover, sheet, pane, row, peek
+
+        func sound(isOpen: Bool) -> Sound {
+            switch self {
+            case .popover: return isOpen ? .popoverOpen : .popoverClose
+            case .sheet: return isOpen ? .sheetOpen : .sheetClose
+            case .pane: return isOpen ? .paneOpen : .paneClose
+            case .row: return isOpen ? .rowOpen : .rowClose
+            // A peek opening is the cue; its close stays silent.
+            case .peek: return .peek
+            }
+        }
     }
 
     /// Both mean "your answer is here". A typed reply that is also spoken
@@ -90,8 +121,9 @@ final class UISoundPlayer {
     static let disclosureVolume: Float = 0.28
 
     /// Open or close sound for anything that expands or collapses.
-    func playDisclosure(isOpen: Bool) {
-        play(isOpen ? .panelOpen : .panelClose, volume: Self.disclosureVolume)
+    func playDisclosure(_ kind: Disclosure, isOpen: Bool) {
+        if kind == .peek && !isOpen { return }
+        play(kind.sound(isOpen: isOpen), volume: Self.disclosureVolume)
     }
 
     func play(_ sound: Sound, volume: Float = 0.5) {
@@ -143,9 +175,9 @@ final class UISoundPlayer {
 extension View {
     /// Plays the open or close sound whenever `isOpen` flips: disclosure
     /// rows, popovers, side panes.
-    func disclosureSound(_ isOpen: Bool) -> some View {
+    func disclosureSound(_ isOpen: Bool, _ kind: UISoundPlayer.Disclosure) -> some View {
         onChange(of: isOpen) { _, open in
-            UISoundPlayer.shared.playDisclosure(isOpen: open)
+            UISoundPlayer.shared.playDisclosure(kind, isOpen: open)
         }
     }
 }
@@ -153,12 +185,12 @@ extension View {
 extension Binding where Value == Bool {
     /// The same binding, playing the open or close sound when a control
     /// (say, a `DisclosureGroup` chevron) flips it.
-    func withDisclosureSound() -> Binding<Bool> {
+    func withDisclosureSound(_ kind: UISoundPlayer.Disclosure = .row) -> Binding<Bool> {
         Binding(
             get: { wrappedValue },
             set: { newValue in
                 if newValue != wrappedValue {
-                    UISoundPlayer.shared.playDisclosure(isOpen: newValue)
+                    UISoundPlayer.shared.playDisclosure(kind, isOpen: newValue)
                 }
                 wrappedValue = newValue
             }

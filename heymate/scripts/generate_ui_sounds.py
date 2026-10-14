@@ -430,6 +430,55 @@ def build_sounds() -> dict[str, tuple[str, list[float]]]:
             (2.8, mallet(A5, 1.0, brightness=1.2)),
             (2.8, sparkle(A5, 0.9, count=9, seed=5)),
         ]), tail=0.8, wet=0.3))),
+
+        # Disclosures -----------------------------------------------------------
+        # Each kind of open/close has its own small gesture, so a popover, a
+        # sheet, a side pane and a disclosure row never sound the same.
+
+        # Popover: a tiny rising pop.
+        "PopoverOpen": ("popover-open.wav", finish(room(place([
+            (0.0, mallet(A5, 0.09, brightness=1.2)),
+            (0.035, mallet(D6, 0.12)),
+        ]), tail=0.12, wet=0.3), level=0.55)),
+        "PopoverClose": ("popover-close.wav", finish(room(place([
+            (0.0, mallet(D6, 0.08)),
+            (0.03, mallet(A5, 0.1, brightness=0.9)),
+        ]), tail=0.1, wet=0.3), level=0.5)),
+
+        # Sheet: a soft swell that settles on a note, and its reverse.
+        "SheetOpen": ("sheet-open.wav", finish(room(place([
+            (0.0, swell(D4, A4, 0.32, air=0.25, rise=0.45)),
+            (0.12, mallet(D5, 0.3, brightness=0.6)),
+        ]), tail=0.25), level=0.6)),
+        "SheetClose": ("sheet-close.wav", finish(room(place([
+            (0.0, mallet(A4, 0.25, brightness=0.5)),
+            (0.0, swell(A4, D4, 0.28, air=0.25, rise=0.2)),
+        ]), tail=0.2), level=0.55)),
+
+        # Side pane or drawer: an airy swish across, out and back.
+        "PaneOpen": ("pane-open.wav", finish(room(place([
+            (0.0, swell(900 * PITCH, 1800 * PITCH, 0.2, air=0.9, rise=0.7)),
+            (0.02, glide(E4, B4, 0.18, curve=0.8, body=0.2)),
+        ]), tail=0.15, wet=0.35), level=0.5)),
+        "PaneClose": ("pane-close.wav", finish(room(place([
+            (0.0, swell(1800 * PITCH, 800 * PITCH, 0.18, air=0.9, rise=0.25)),
+            (0.0, glide(B4, E4, 0.16, curve=0.8, body=0.2)),
+        ]), tail=0.12, wet=0.35), level=0.45)),
+
+        # Disclosure row: a tiny two-note tick, up to open, down to close.
+        "RowOpen": ("row-open.wav", finish(room(place([
+            (0.0, mallet(E5, 0.07, brightness=0.9)),
+            (0.025, mallet(A5, 0.08, brightness=0.9)),
+        ]), tail=0.08, wet=0.25), level=0.45)),
+        "RowClose": ("row-close.wav", finish(room(place([
+            (0.0, mallet(A5, 0.06, brightness=0.9)),
+            (0.025, mallet(E5, 0.08, brightness=0.9)),
+        ]), tail=0.08, wet=0.25), level=0.4)),
+
+        # Hover-peek of the notch: barely there, a breath.
+        "Peek": ("peek.wav", finish(room(
+            swell(500 * PITCH, 700 * PITCH, 0.22, air=1.2, rise=0.5),
+            tail=0.12, wet=0.3), level=0.3)),
     }
 
 
