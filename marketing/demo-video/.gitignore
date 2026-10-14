@@ -1,2 +1,5 @@
 node_modules
 out
+raw/
+# cropped copies of the raw takes that Remotion plays
+clip-a/public/*.mp4

@@ -113,7 +113,8 @@ final class HeyMateDesktopWindowController: NSObject, NSWindowDelegate {
         oldWindow.close()
         isSwitchingPlacement = false
         window = nil
-        show()
+        // Placement is switched from Settings; chat lives in the notch now.
+        show(initialSection: .settings)
     }
 
     func toggle(initialSection: DesktopSection = .chat) {

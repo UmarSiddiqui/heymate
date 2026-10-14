@@ -341,16 +341,28 @@ private struct AgentFilamentLine: View {
 // Active indicators own their own animation. Idle stays static so a companion
 // that sits in the menu bar all day does not keep SwiftUI rendering.
 
-/// Idle: steady green. Hover adds emphasis without a forever animation.
+/// Idle: steady green. Hover adds emphasis with a spring so the dot
+/// feels like it's acknowledging your presence — a tiny living thing
+/// in the notch. No animation while truly idle (rule #2).
 private struct NotchReadyDot: View {
     let isHovered: Bool
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
     var body: some View {
         Circle()
             .fill(DS.Colors.success)
             .frame(width: 6, height: 6)
+            .scaleEffect(isHovered ? 1.12 : 1.0)
             .opacity(isHovered ? 1.0 : 0.82)
-            .shadow(color: DS.Colors.success.opacity(0.55), radius: isHovered ? 4 : 2)
+            .shadow(
+                color: DS.Colors.success.opacity(isHovered ? 0.75 : 0.55),
+                radius: isHovered ? 5 : 2
+            )
+            .animation(
+                accessibilityReduceMotion ? nil :
+                    .spring(response: 0.35, dampingFraction: 0.65, blendDuration: 0),
+                value: isHovered
+            )
     }
 }
 
