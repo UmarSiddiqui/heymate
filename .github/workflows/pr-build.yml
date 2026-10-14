@@ -83,3 +83,54 @@ jobs:
           grep -E "✘|failed|error:|XCTAssert" test.log | head -120 || true
           tail -25 test.log
           exit $STATUS
+
+  # The release job builds Release, universal. Optimized builds can fail
+  # where Debug passes (a Swift 6.3.3 optimizer crash broke the 1.0.60
+  # release), so compile the same configuration here before merging.
+  release-compile:
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      PROJECT: heymate/HeyMate.xcodeproj
+      SCHEME: HeyMate
+      DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Select the newest Xcode 26
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE" ]; then
+            echo "::error::No Xcode 26 installation found on this runner." && exit 1
+          fi
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+
+      - name: Cache Swift packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.DERIVED_DATA }}/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('heymate/HeyMate.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Build Release (universal, unsigned)
+        run: |
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath "$DERIVED_DATA" \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY=- \
+            DEVELOPMENT_TEAM= \
+            PROVISIONING_PROFILE_SPECIFIER= \
+            build > build.log 2>&1 || {
+              grep -E "error:|Stack dump|While running pass" build.log | sort -u | head -80
+              tail -40 build.log
+              exit 1
+            }
+          grep -E "\*\* BUILD" build.log
