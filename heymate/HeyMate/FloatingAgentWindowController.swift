@@ -68,7 +68,7 @@ final class FloatingAgentWindowController {
         let panel = makePanel()
         panel.title = "HeyMate Floating Card Preview"
         let frame = FloatingAgentPresentation.frame(visibleFrame: screen.visibleFrame, height: 108)
-        let hosting = FloatingAgentHostingView(rootView: content)
+        let hosting = FloatingAgentHostingView(rootView: AnyView(content))
         hosting.sizingOptions = []
         hosting.frame = CGRect(origin: .zero, size: frame.size)
         panel.contentView = hosting
@@ -134,11 +134,11 @@ final class FloatingAgentWindowController {
                 self?.noticeStore.dismiss(id: update.id)
                 self?.refresh()
             })
-            let hosting: FloatingAgentHostingView<FloatingAgentStack>
-            if let current = panel.contentView as? FloatingAgentHostingView<FloatingAgentStack> {
-                current.rootView = view
+            let hosting: FloatingAgentHostingView
+            if let current = panel.contentView as? FloatingAgentHostingView {
+                current.rootView = AnyView(view)
                 hosting = current
-            } else { hosting = FloatingAgentHostingView(rootView: view) }
+            } else { hosting = FloatingAgentHostingView(rootView: AnyView(view)) }
             let height = FloatingAgentPresentation.stackHeight(runCount: runs.count + updates.count, collapsed: collapsed)
             let frame = FloatingAgentPresentation.frame(visibleFrame: screen.visibleFrame, height: height)
             hosting.sizingOptions = []
@@ -169,7 +169,10 @@ final class FloatingAgentWindowController {
     }
 }
 
-private final class FloatingAgentHostingView<Content: View>: NSHostingView<Content> {
+/// Not generic on purpose: Xcode 26.6's optimizer (Swift 6.3.3) crashes
+/// compiling the deinit of a private generic NSHostingView subclass in
+/// Release builds.
+private final class FloatingAgentHostingView: NSHostingView<AnyView> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
