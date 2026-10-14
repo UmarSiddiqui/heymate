@@ -40,15 +40,13 @@ enum NotchLayoutMath {
     /// Bottom-corner radius of the expanded card.
     nonisolated static let cardCornerRadius: CGFloat = 24
 
-    /// Boring Notch-style relaxed spring cadence. Real panel geometry still
-    /// moves on the display-link clock; content and corners settle with it.
-    /// Long enough for the content reveal (blur + scale) to read as a
-    /// morph rather than a pop — the frame itself lands early on the
-    /// fast-attack swoosh curve.
-    nonisolated static let expandDuration: TimeInterval = 0.42
+    /// Snappy: the frame lands early on the fast-attack swoosh curve and the
+    /// content simply fades in over it. Real panel geometry moves on the
+    /// display-link clock; content and corners settle with it.
+    nonisolated static let expandDuration: TimeInterval = 0.26
 
-    /// Closing is slightly faster than opening, matching pointer intent.
-    nonisolated static let collapseDuration: TimeInterval = 0.30
+    /// Closing is faster than opening, matching pointer intent.
+    nonisolated static let collapseDuration: TimeInterval = 0.18
 
     /// Preview settles border radius over 180 ms while width/height continue
     /// their final 30 ms. Expressed separately so silhouette lands cleanly.
@@ -57,10 +55,11 @@ enum NotchLayoutMath {
     /// How long the collapsed tab's peek slots blur and fade out before the
     /// card's frame starts growing. Short enough that a click still feels
     /// immediate, long enough to read as the pill "letting go".
-    nonisolated static let pillYieldDuration: TimeInterval = 0.09
+    nonisolated static let pillYieldDuration: TimeInterval = 0.06
 
-    /// Blur radius the peek slots reach as they yield.
-    nonisolated static let pillYieldBlur: CGFloat = 6
+    /// Blur radius the peek slots reach as they yield. Zero: they just fade,
+    /// so nothing pulls focus or reads as a zoom.
+    nonisolated static let pillYieldBlur: CGFloat = 0
 
     /// Idle ↔ listening width change on the collapsed tab.
     nonisolated static let pillResizeDuration: TimeInterval = 0.22
@@ -489,9 +488,9 @@ enum NotchLayoutMath {
     }
 
     /// Peak extra height, as a fraction of the full pill → card distance,
-    /// that the card reaches past its final height on open before settling
-    /// back. 0.05 of the swoosh's remaining slope lands at a ~3% overshoot.
-    nonisolated static let expandHeightOvershoot: CGFloat = 0.05
+    /// that the card reaches past its final height on open. Zero: the card
+    /// lands flush with no bounce, which reads crisper than a stretch.
+    nonisolated static let expandHeightOvershoot: CGFloat = 0
 
     /// Height progress for the open: the same swoosh as the width, plus a
     /// half-sine bump over the back 70% of the clock. It starts and ends at
@@ -552,24 +551,25 @@ enum NotchLayoutMath {
     /// rather than eased distance: legibility is a function of how long the
     /// window has been moving, not how far it has travelled.
     ///
-    /// Expand: start the reveal once the silhouette is established, 30–80%
-    /// of the clock, so the blur/scale below overlaps the frame growth
-    /// instead of waiting for it. Collapse: remove content in the first 45%
+    /// Expand: start the reveal once the silhouette is established, 15–60%
+    /// of the clock, so the fade overlaps the frame growth instead of
+    /// waiting for it. Collapse: remove content in the first 35%
     /// so text never visibly squashes against the shrinking frame.
     nonisolated static func morphContentOpacity(linearProgress: CGFloat, isExpanding: Bool) -> CGFloat {
         let clampedProgress = min(max(linearProgress, 0), 1)
         if isExpanding {
-            return min(max((clampedProgress - 0.30) / 0.50, 0), 1)
+            return min(max((clampedProgress - 0.15) / 0.45, 0), 1)
         }
-        return 1 - min(clampedProgress / 0.45, 1)
+        return 1 - min(clampedProgress / 0.35, 1)
     }
 
     /// Blur radius of the content at the start (and end of collapse) of the
-    /// reveal. Content sharpens as its opacity climbs.
-    nonisolated static let contentRevealMaxBlur: CGFloat = 10
+    /// reveal. Zero: a blur-to-sharp reveal reads as a camera zoom.
+    nonisolated static let contentRevealMaxBlur: CGFloat = 0
 
-    /// Scale the content grows from (anchored top-centre, under the camera).
-    nonisolated static let contentRevealMinScale: CGFloat = 0.7
+    /// Scale the content grows from. 1: content never scales, it only
+    /// fades, so opening the card has no zoom feel.
+    nonisolated static let contentRevealMinScale: CGFloat = 1
 
     /// Blur and scale ride the content's own opacity, so all three settle
     /// together and every curve stays a function of the same clock.

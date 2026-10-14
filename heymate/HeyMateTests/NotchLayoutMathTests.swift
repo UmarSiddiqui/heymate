@@ -390,23 +390,28 @@ struct NotchLayoutMathTests {
     }
 
     @Test func morphContentOpacityOverlapsFrameGrowthOnExpand() {
-        // Reveal starts at 30% of the clock — overlapping the frame growth —
-        // and is complete by 80%.
-        #expect(NotchLayoutMath.morphContentOpacity(linearProgress: 0.30, isExpanding: true) == 0)
-        #expect(abs(NotchLayoutMath.morphContentOpacity(linearProgress: 0.55, isExpanding: true) - 0.5) < 0.001)
-        #expect(NotchLayoutMath.morphContentOpacity(linearProgress: 0.80, isExpanding: true) == 1)
+        // Reveal starts at 15% of the clock — overlapping the frame growth —
+        // and is complete by 60%.
+        #expect(NotchLayoutMath.morphContentOpacity(linearProgress: 0.15, isExpanding: true) == 0)
+        #expect(abs(NotchLayoutMath.morphContentOpacity(linearProgress: 0.375, isExpanding: true) - 0.5) < 0.001)
+        #expect(NotchLayoutMath.morphContentOpacity(linearProgress: 0.62, isExpanding: true) == 1)
         #expect(NotchLayoutMath.morphContentOpacity(linearProgress: 1, isExpanding: true) == 1)
     }
 
-    @Test func morphContentBlurAndScaleFollowOpacity() {
-        #expect(NotchLayoutMath.morphContentBlur(contentOpacity: 0) == NotchLayoutMath.contentRevealMaxBlur)
-        #expect(NotchLayoutMath.morphContentBlur(contentOpacity: 1) == 0)
-        #expect(NotchLayoutMath.morphContentScale(contentOpacity: 0) == NotchLayoutMath.contentRevealMinScale)
-        #expect(NotchLayoutMath.morphContentScale(contentOpacity: 1) == 1)
-        #expect(abs(NotchLayoutMath.morphContentBlur(contentOpacity: 0.5) - 5) < 0.001)
+    @Test func contentOnlyFadesWithNoZoomOrBlur() {
+        for opacity in stride(from: 0.0, through: 1.0, by: 0.25) {
+            #expect(NotchLayoutMath.morphContentBlur(contentOpacity: CGFloat(opacity)) == 0)
+            #expect(NotchLayoutMath.morphContentScale(contentOpacity: CGFloat(opacity)) == 1)
+        }
+        #expect(NotchLayoutMath.pillYieldBlur == 0)
     }
 
-    @Test func liquidOpenOvershootsHeightThenLandsExactly() {
+    @Test func openAndCloseAreSnappy() {
+        #expect(NotchLayoutMath.expandDuration <= 0.3)
+        #expect(NotchLayoutMath.collapseDuration < NotchLayoutMath.expandDuration)
+    }
+
+    @Test func liquidOpenLandsExactlyWithoutOvershoot() {
         #expect(NotchLayoutMath.liquidOpenHeightProgress(linearProgress: 0) == 0)
         #expect(abs(NotchLayoutMath.liquidOpenHeightProgress(linearProgress: 1) - 1) < 0.0001)
 
@@ -414,9 +419,8 @@ struct NotchLayoutMathTests {
             NotchLayoutMath.liquidOpenHeightProgress(linearProgress: CGFloat($0))
         }
         let peak = samples.max() ?? 0
-        // A small, visible overshoot — a few percent, never a wobble.
-        #expect(peak > 1.02)
-        #expect(peak < 1.05)
+        // No bounce: height never passes its final value.
+        #expect(peak <= 1.0001)
     }
 
     @Test func liquidOpenKeepsTopFlushAndNeverOvershootsWidth() {
@@ -439,9 +443,9 @@ struct NotchLayoutMathTests {
 
     @Test func morphContentOpacityFadesOutEarlyOnCollapse() {
         #expect(NotchLayoutMath.morphContentOpacity(linearProgress: 0, isExpanding: false) == 1)
-        // Gone within the first 45% so text never squashes against the
+        // Gone within the first 35% so text never squashes against the
         // shrinking frame.
-        #expect(NotchLayoutMath.morphContentOpacity(linearProgress: 0.45, isExpanding: false) == 0)
+        #expect(NotchLayoutMath.morphContentOpacity(linearProgress: 0.35, isExpanding: false) == 0)
         #expect(NotchLayoutMath.morphContentOpacity(linearProgress: 1, isExpanding: false) == 0)
     }
 
