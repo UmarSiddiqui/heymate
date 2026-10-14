@@ -84,9 +84,9 @@ struct MateHomeView: View {
             }
         }
         .background(CelestialAtmosphere())
-        .disclosureSound(isShowingNewMate)
-        .disclosureSound(settingsMate != nil)
-        .disclosureSound(isShowingChatHistory)
+        .disclosureSound(isShowingNewMate, .sheet)
+        .disclosureSound(settingsMate != nil, .sheet)
+        .disclosureSound(isShowingChatHistory, .sheet)
         .sheet(isPresented: $isShowingNewMate, onDismiss: { builderSeed = "" }) {
             AgentBuilderSheet(companionManager: companionManager, initialDescription: builderSeed)
         }
@@ -859,7 +859,7 @@ struct MateHomeView: View {
             .help("New chat (⌘N)")
             .accessibilityLabel("New chat")
             Button {
-                UISoundPlayer.shared.playDisclosure(isOpen: !isDrawerOpen)
+                UISoundPlayer.shared.playDisclosure(.pane, isOpen: !isDrawerOpen)
                 isDrawerOpen.toggle()
             } label: {
                 Image(systemName: "sidebar.right")
@@ -934,7 +934,7 @@ struct MateHomeView: View {
                 .accessibilityHidden(true)
             }
             Button {
-                UISoundPlayer.shared.playDisclosure(isOpen: !isDrawerOpen)
+                UISoundPlayer.shared.playDisclosure(.pane, isOpen: !isDrawerOpen)
                 withAnimation(DS.Animation.controlSpring) { isDrawerOpen.toggle() }
             } label: {
                 HStack(spacing: 3) {

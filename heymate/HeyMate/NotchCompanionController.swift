@@ -1137,7 +1137,7 @@ final class NotchCompanionController {
         if pinned {
             UISoundPlayer.shared.play(.panelOpen)
         } else {
-            UISoundPlayer.shared.playDisclosure(isOpen: true)
+            UISoundPlayer.shared.playDisclosure(.peek, isOpen: true)
         }
         installDismissalMonitors()
 
@@ -1243,7 +1243,7 @@ final class NotchCompanionController {
         if wasPinned {
             UISoundPlayer.shared.play(.panelClose)
         } else {
-            UISoundPlayer.shared.playDisclosure(isOpen: false)
+            UISoundPlayer.shared.playDisclosure(.peek, isOpen: false)
         }
 
         // Shrink the real window back toward the pill's own frame, same
