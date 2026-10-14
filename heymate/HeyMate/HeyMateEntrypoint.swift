@@ -25,6 +25,12 @@ nonisolated enum HeyMateEntrypoint {
             catch { fputs("Appearance render failed: \(error)\n", stderr); Darwin.exit(EXIT_FAILURE) }
             return
         }
+        if let index = CommandLine.arguments.firstIndex(of: "--notch-buddy-render"),
+           CommandLine.arguments.indices.contains(index + 1) {
+            do { try MainActor.assumeIsolated { try NotchBuddyPreview.render(to: CommandLine.arguments[index + 1]) } }
+            catch { fputs("Notch character render failed: \(error)\n", stderr); Darwin.exit(EXIT_FAILURE) }
+            return
+        }
         if CommandLine.arguments.contains("--appearance-preview") {
             MainActor.assumeIsolated { CompanionAppearancePreview.run() }
             return

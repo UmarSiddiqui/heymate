@@ -91,6 +91,9 @@ final class NotchCompanionController {
     /// audio tick, which rebuilt the entire view graph 12 times a second.
     private let pillModel = NotchPillModel()
 
+    /// Hides the notch character while the frontmost app is full screen.
+    private let fullScreenMonitor = NotchFullScreenMonitor()
+
     /// SwiftUI owns silhouette/rim/content staging while AppKit owns the
     /// matching top-anchored panel frame on the same display-link clock.
     private let surfaceTransitionModel = NotchSurfaceTransitionModel()
@@ -174,8 +177,13 @@ final class NotchCompanionController {
 
     func start(companionManager: CompanionManager) {
         self.companionManager = companionManager
+        syncBuddy()
         showIfPossible()
         observeStateChanges()
+        fullScreenMonitor.start(
+            screen: { [weak self] in self?.pillPanel?.screen ?? self?.targetScreen() },
+            onChange: { [weak self] isFullScreen in self?.setBuddySuppressed(isFullScreen) }
+        )
 
         placementObserver = AppPresencePreferences.shared.$noNotchPlacement
             .dropFirst()
@@ -259,6 +267,7 @@ final class NotchCompanionController {
         cancellables.removeAll()
         placementObserver = nil
         audioPowerCancellable = nil
+        fullScreenMonitor.stop()
         if let screenParametersObserver {
             NotificationCenter.default.removeObserver(screenParametersObserver)
             self.screenParametersObserver = nil
@@ -346,8 +355,36 @@ final class NotchCompanionController {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] runs in
                 self?.pillModel.agentFilaments = AgentFilament.live(from: runs)
+                self?.pillModel.buddy.setRuns(runs)
             }
             .store(in: &cancellables)
+
+        Publishers.CombineLatest(companionManager.$mates, companionManager.$activeMateID)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] mates, activeMateID in
+                guard let self, let companionManager = self.companionManager else { return }
+                self.pillModel.buddy.setMates(mates, activeMateID: activeMateID,
+                                              defaultMateID: companionManager.mateDirectory.defaultMateID)
+            }
+            .store(in: &cancellables)
+    }
+
+    /// Everything the notch character reads, pulled at once. Called when the
+    /// tab is built; afterwards the subscriptions above keep it current.
+    private func syncBuddy() {
+        guard let companionManager else { return }
+        let buddy = pillModel.buddy
+        buddy.setMates(companionManager.mates, activeMateID: companionManager.activeMateID,
+                       defaultMateID: companionManager.mateDirectory.defaultMateID)
+        buddy.setRuns(companionManager.agentRuns)
+        buddy.setCompanionState(companionManager.state)
+    }
+
+    private func setBuddySuppressed(_ suppressed: Bool) {
+        guard pillModel.isBuddySuppressed != suppressed else { return }
+        pillModel.isBuddySuppressed = suppressed
+        guard !isExpanded, !isTransitioning else { return }
+        syncPillFrameToModel()
     }
 
     /// Attach/detach the mic-power subscription so it exists only while the
@@ -384,6 +421,7 @@ final class NotchCompanionController {
         pillModel.isSilentModeEnabled = companionManager.isSilentModeEnabled
         pillModel.agentFilaments = AgentFilament.live(from: companionManager.agentRuns)
         pillModel.activity = companionManager.activeNotchActivity
+        pillModel.buddy.setCompanionState(companionManager.state)
 
         guard !isExpanded, !isTransitioning else { return }
         syncPillFrameToModel()
@@ -439,7 +477,10 @@ final class NotchCompanionController {
         guard let pillPanel else { return }
 
         logDetectedNotch(on: targetScreen, frame: pillWindowFrame)
-        pillPanel.setFrame(pillWindowFrame, display: false)
+        let restingFrame = isExpanded
+            ? pillWindowFrame
+            : pillFrame(for: targetScreen, activeInteraction: pillModel.wantsWidenedFrame) ?? pillWindowFrame
+        pillPanel.setFrame(restingFrame, display: false)
         pillPanel.contentView = makePillContentView(occludedTopInset: notchHousing(for: targetScreen)?.inset ?? 0)
 
         if isExpanded {
@@ -942,6 +983,7 @@ final class NotchCompanionController {
         guard !isExpanded, !isTransitioning else { return }
         isPillHovered = true
         pillModel.isHovered = true
+        pillModel.buddy.noteUserPresence()
         syncPillFrameToModel()
         if Self.hoverOpensCard {
             scheduleHoverExpand()
@@ -1239,9 +1281,12 @@ final class NotchCompanionController {
         if wasPinned { UISoundPlayer.shared.play(.panelClose) }
 
         // Shrink the real window back toward the pill's own frame, same
-        // technique as the expand — a real collapse, not a shape morph.
+        // technique as the expand — a real collapse, not a shape morph. The
+        // pill's frame is the widened one while it has slots to show (the
+        // notch character, a live voice state), so the card lands on it in
+        // one move instead of shrinking past it and widening again.
         let collapseTargetFrame = targetScreen()
-            .flatMap { pillFrame(for: $0, activeInteraction: false) }
+            .flatMap { pillFrame(for: $0, activeInteraction: pillModel.wantsWidenedFrame) }
             ?? expandedPanel.frame
         animateFrame(
             of: expandedPanel,

@@ -159,12 +159,18 @@ nonisolated enum MateWorkActivity {
     ]
 
     static func expression(for text: String) -> MateFaceExpression {
+        match(for: text) ?? .thinking
+    }
+
+    /// The first rule the text matches, or nil when it says nothing about
+    /// the kind of work. The notch character walks instead of guessing.
+    static func match(for text: String) -> MateFaceExpression? {
         let words = text.lowercased()
             .split { !$0.isLetter }
             .map(String.init)
         for rule in rules where words.contains(where: { word in rule.prefixes.contains { word.hasPrefix($0) } }) {
             return rule.expression
         }
-        return .thinking
+        return nil
     }
 }

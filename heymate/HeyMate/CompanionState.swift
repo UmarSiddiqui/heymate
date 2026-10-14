@@ -13,7 +13,7 @@
 import Foundation
 
 /// What kind of input the user is currently providing while holding a shortcut.
-enum CompanionInputMode: Equatable {
+nonisolated enum CompanionInputMode: Equatable {
     case talk
     case dictate
     case spatial
@@ -21,7 +21,7 @@ enum CompanionInputMode: Equatable {
 
 /// Canonical companion states. `voiceState` on CompanionManager is derived
 /// from this so existing overlay/panel UI keeps working unchanged.
-enum CompanionState: Equatable {
+nonisolated enum CompanionState: Equatable {
     case idle
     case listening(CompanionInputMode)
     case finalizingTranscript

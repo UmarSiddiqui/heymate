@@ -81,11 +81,27 @@ final class NotchPillModel: ObservableObject {
     /// this span so their content is never hidden behind the camera.
     @Published var hardwareNotchWidth: CGFloat = NotchLayoutMath.fallbackIdleWidth
 
+    /// The notch character beside the camera. Its own model, so its
+    /// frame clock never re-renders the rest of the pill.
+    let buddy: NotchBuddyModel
+
+    init(buddy: NotchBuddyModel? = nil) {
+        self.buddy = buddy ?? NotchBuddyModel()
+    }
+
+    /// The frontmost app is full screen: the character steps out and the
+    /// tab goes back to the bare hardware cutout.
+    @Published var isBuddySuppressed = false
+
+    var showsBuddy: Bool { !isBuddySuppressed }
+
     /// True when compact state needs exposed side slots. Pointer hover alone
     /// only highlights the housing: widening before a click makes expansion
-    /// read as two separate stages instead of one top-centre morph.
+    /// read as two separate stages instead of one top-centre morph. The
+    /// character lives in the leading slot, so while it is shown the tab
+    /// keeps the one widened size (never a wider one).
     var wantsWidenedFrame: Bool {
-        voiceState != .idle || isDropTargeted || activity != nil
+        voiceState != .idle || isDropTargeted || activity != nil || showsBuddy
     }
 }
 
@@ -123,7 +139,7 @@ struct NotchPillView: View {
                 0
             )
             HStack(spacing: 0) {
-                leadingSlot
+                leadingSlot(height: geometry.size.height)
                     .frame(width: exposedSideWidth, alignment: .center)
                     .opacity(slotOpacity(forExposedWidth: exposedSideWidth))
                     .blur(radius: model.isYieldingToCard ? NotchLayoutMath.pillYieldBlur : 0)
@@ -161,6 +177,7 @@ struct NotchPillView: View {
         .animation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.22), value: model.voiceState)
         .animation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.22), value: model.activity)
         .animation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.2), value: model.isOutlineEnabled)
+        .animation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.22), value: model.isBuddySuppressed)
     }
 
     // MARK: Chrome
@@ -209,14 +226,17 @@ struct NotchPillView: View {
 
     // MARK: Compact leading
 
-    /// Left of the camera: what the companion IS doing. Voice state always
-    /// wins; an ambient activity fills in while idle.
+    /// Left of the camera: what the companion IS doing. The character acts
+    /// it out when shown; otherwise voice state wins and an ambient
+    /// activity fills in while idle.
     @ViewBuilder
-    private var leadingSlot: some View {
+    private func leadingSlot(height: CGFloat) -> some View {
         if model.isDropTargeted {
             Image(systemName: "tray.and.arrow.down.fill")
                 .font(DS.Glyph.small)
                 .foregroundColor(model.themeColor)
+        } else if model.showsBuddy {
+            NotchBuddyView(model: model.buddy, height: height, accent: model.themeColor)
         } else {
             switch model.voiceState {
             case .idle:
@@ -260,8 +280,28 @@ struct NotchPillView: View {
                 NotchTypingDots()
             case .idle:
                 if let activity = model.activity {
-                    pillLabel(activity.trailingText)
+                    if model.showsBuddy {
+                        // The character took the leading slot, so the
+                        // activity's glyph rides with its label.
+                        HStack(spacing: 2) {
+                            NotchActivityGlyph(activity: activity, themeColor: model.themeColor)
+                            pillLabel(activity.trailingText)
+                                .padding(.horizontal, -3)
+                        }
                         .foregroundColor(activity.tintColor.opacity(0.92))
+                    } else {
+                        pillLabel(activity.trailingText)
+                            .foregroundColor(activity.tintColor.opacity(0.92))
+                    }
+                } else if model.showsBuddy, !model.agentFilaments.isEmpty {
+                    // Live jobs: the count stays on the trailing side
+                    // while the character acts out the one it is showing.
+                    Text("\(model.agentFilaments.count)")
+                        .font(DS.Fonts.keycap)
+                        .monospacedDigit()
+                        .foregroundColor(model.themeColor)
+                        .contentTransition(.numericText())
+                        .padding(.horizontal, 4)
                 } else if model.isHovered {
                     pillLabel(model.isSilentModeEnabled ? "silent" : "ready")
                 } else {

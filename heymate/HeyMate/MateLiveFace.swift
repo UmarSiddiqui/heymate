@@ -1,5 +1,30 @@
 import SwiftUI
 
+/// The six colour mates' body colours, shared by the live face and the
+/// notch character so a mate wears the same colour everywhere.
+enum MateFacePalette {
+    static let ink = Color(red: 0.22, green: 0.18, blue: 0.23)
+
+    static func color(for assetName: String) -> Color {
+        switch assetName {
+        case "MateFacePeach": return Color(red: 0.98, green: 0.77, blue: 0.65)
+        case "MateFaceSky": return Color(red: 0.64, green: 0.82, blue: 0.94)
+        case "MateFaceButter": return Color(red: 0.97, green: 0.87, blue: 0.58)
+        case "MateFaceMint": return Color(red: 0.64, green: 0.86, blue: 0.76)
+        case "MateFaceBlush": return Color(red: 0.95, green: 0.71, blue: 0.77)
+        default: return Color(red: 0.82, green: 0.73, blue: 0.93)
+        }
+    }
+
+    /// A colour mate keeps its own colour. Drawn packs and photos have no
+    /// single body colour, so they borrow one of the six by id.
+    static func color(forMateAsset assetName: String, mateID: UUID) -> Color {
+        if MateFace.fillsFrame(assetName) { return color(for: assetName) }
+        let index = MateFace.index(for: mateID) % 6
+        return color(for: MateFace.legacyAssetNames[index])
+    }
+}
+
 /// Original vector rig for the six color mates. Photos and drawn packs keep their art.
 struct MateLiveFace: View {
     let assetName: String
@@ -93,16 +118,7 @@ struct MateLiveFace: View {
             }
         }
 
-        private var color: Color {
-            switch assetName {
-            case "MateFacePeach": return Color(red: 0.98, green: 0.77, blue: 0.65)
-            case "MateFaceSky": return Color(red: 0.64, green: 0.82, blue: 0.94)
-            case "MateFaceButter": return Color(red: 0.97, green: 0.87, blue: 0.58)
-            case "MateFaceMint": return Color(red: 0.64, green: 0.86, blue: 0.76)
-            case "MateFaceBlush": return Color(red: 0.95, green: 0.71, blue: 0.77)
-            default: return Color(red: 0.82, green: 0.73, blue: 0.93)
-            }
-        }
+        private var color: Color { MateFacePalette.color(for: assetName) }
 
         /// Smile depth: lower is a frown, 0.63 is a flat line.
         private var mouthCurve: Double {
@@ -115,7 +131,7 @@ struct MateLiveFace: View {
 
         private func draw(in context: inout GraphicsContext, size: CGSize, elapsed: Double) {
             let s = size.width
-            let ink = Color(red: 0.22, green: 0.18, blue: 0.23)
+            let ink = MateFacePalette.ink
             let breathe = elapsed == 0 ? 0 : sin(elapsed * 1.7) * s * 0.009
             context.translateBy(x: 0, y: breathe)
             context.fill(Path(ellipseIn: CGRect(x: s * 0.025, y: s * 0.025, width: s * 0.95, height: s * 0.95)),
