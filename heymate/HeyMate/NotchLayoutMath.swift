@@ -123,16 +123,16 @@ enum NotchLayoutMath {
     }
 
     /// Expanded panel content width (the card that drops below the notch on
-    /// hover/click). Wide enough for the Home tab's controls; the final
-    /// frame width never goes below the idle tab + margin so the card always
-    /// visually contains the notch.
-    nonisolated static let expandedWidth: CGFloat = 680
+    /// hover/click). Two columns (composer, agents) and one tool bar; the
+    /// final frame width never goes below the idle tab + margin so the card
+    /// always visually contains the notch.
+    nonisolated static let expandedWidth: CGFloat = 600
 
     /// Visible content height of the expanded card BELOW the camera housing.
     /// The panel's total frame height is `topSafeAreaInset + expandedHeight`.
-    /// Wide, shallow Boring Notch-style surface. Dense tools lay out in
-    /// columns instead of turning the notch into a vertical popover.
-    nonisolated static let expandedHeight: CGFloat = 250
+    /// Wide, shallow Boring Notch-style surface: the composer beside two
+    /// agent rows, over one bar of tools. Anything longer scrolls.
+    nonisolated static let expandedHeight: CGFloat = 164
 
     /// Compact chat that drops from the notch on ctrl+command: wide enough
     /// for a composer + bubbles, short enough that it still reads as the

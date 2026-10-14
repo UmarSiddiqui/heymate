@@ -81,6 +81,18 @@ struct HarnessTurnNotesTests {
         #expect(notes.contains("Report only what is new."))
     }
 
+    @Test func laterRoutineRunsSayWhenTheyLastRan() {
+        let lastRun = Date(timeIntervalSince1970: 1_790_000_000)
+        let notes = HarnessTurnNotes.prefix(input(kind: .routine(isFirstRun: false, lastRunAt: lastRun)))
+        #expect(notes.contains("It last ran \(lastRun.formatted(date: .abbreviated, time: .shortened))."))
+        #expect(!notes.contains("did not finish"))
+    }
+
+    @Test func aRoutineAfterAnUnfinishedRunChecksBeforeRepeating() {
+        let notes = HarnessTurnNotes.prefix(input(kind: .routine(isFirstRun: false, lastAttemptDidNotFinish: true)))
+        #expect(notes.contains("The last run did not finish."))
+    }
+
     @Test func talkCanCarryRunningAndWaitingJobs() {
         let notes = HarnessTurnNotes.prefix(input(
             runningJobs: [

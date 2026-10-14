@@ -2,7 +2,9 @@
 //  MateRoutineScheduler.swift
 //  HeyMate
 //
-//  Once a minute, and when the Mac wakes. Network and wake are injected so
+//  Every 30 seconds, at startup, after network recovery, and when the Mac
+//  or its screens wake.
+//  Network and wake are injected so
 //  tests never need a live path or a sleep cycle.
 //
 
@@ -12,12 +14,14 @@ import Network
 
 protocol MateNetworkMonitoring: AnyObject {
     var hasUsableNetwork: Bool { get }
-    func start()
+    func start(onUsableNetwork: @escaping @MainActor @Sendable () -> Void)
+    func stop()
 }
 
 @MainActor
 protocol MateWakeSource: AnyObject {
     func start(onWake: @escaping () -> Void)
+    func stop()
 }
 
 @MainActor
@@ -30,10 +34,13 @@ protocol MateRoutineRunning: AnyObject {
 
 @MainActor
 final class MateRoutineScheduler {
+    static let pollInterval: TimeInterval = 30
+
     weak var owner: MateRoutineRunning?
     private var network: MateNetworkMonitoring?
     private var wake: MateWakeSource?
     private var timer: Timer?
+    private var generation = 0
 
     init(
         network: MateNetworkMonitoring? = nil,
@@ -45,18 +52,33 @@ final class MateRoutineScheduler {
 
     func start() {
         guard timer == nil else { return }
-        let network = resolvedNetwork()
-        network.start()
-        resolvedWake().start { [weak self] in
-            self?.tick()
-        }
-        let timer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
+        generation += 1
+        let currentGeneration = generation
+        let timer = Timer(timeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.tick()
+                guard let self, self.timer != nil, self.generation == currentGeneration else { return }
+                self.tick()
             }
         }
-        RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+        RunLoop.main.add(timer, forMode: .common)
+        resolvedNetwork().start { [weak self] in
+            guard let self, self.timer != nil, self.generation == currentGeneration else { return }
+            self.tick()
+        }
+        resolvedWake().start { [weak self] in
+            guard let self, self.timer != nil, self.generation == currentGeneration else { return }
+            self.tick()
+        }
+        tick()
+    }
+
+    func stop() {
+        generation += 1
+        timer?.invalidate()
+        timer = nil
+        network?.stop()
+        wake?.stop()
     }
 
     func tick(now: Date = Date()) {
@@ -101,45 +123,78 @@ final class MateRoutineScheduler {
 }
 
 final class PathMateNetworkMonitor: MateNetworkMonitoring, @unchecked Sendable {
-    private let monitor = NWPathMonitor()
+    private var monitor: NWPathMonitor?
     private let queue = DispatchQueue(label: "heymate.mate-network")
     private let lock = NSLock()
-    private var satisfied = true
-    private var didStart = false
+    /// Nil until the first path update. Unknown counts as usable, so a
+    /// routine due at launch isn't marked "waiting for the internet".
+    private var satisfied: Bool?
+    private var generation = 0
 
     var hasUsableNetwork: Bool {
         lock.lock()
         defer { lock.unlock() }
-        return satisfied
+        return satisfied ?? true
     }
 
-    func start() {
-        guard !didStart else { return }
-        didStart = true
-        monitor.pathUpdateHandler = { [weak self] path in
+    func start(onUsableNetwork: @escaping @MainActor @Sendable () -> Void) {
+        lock.lock()
+        guard monitor == nil else { lock.unlock(); return }
+        let next = NWPathMonitor()
+        monitor = next
+        generation += 1
+        let currentGeneration = generation
+        satisfied = nil
+        lock.unlock()
+        next.pathUpdateHandler = { [weak self] path in
             guard let self else { return }
+            let usable = path.status == .satisfied
             self.lock.lock()
-            self.satisfied = path.status == .satisfied
+            guard self.generation == currentGeneration else { self.lock.unlock(); return }
+            let restored = usable && self.satisfied == false
+            self.satisfied = usable
             self.lock.unlock()
+            if restored {
+                Task { @MainActor in onUsableNetwork() }
+            }
         }
-        monitor.start(queue: queue)
+        next.start(queue: queue)
     }
+
+    func stop() {
+        lock.lock()
+        generation += 1
+        let old = monitor
+        monitor = nil
+        satisfied = nil
+        lock.unlock()
+        old?.cancel()
+    }
+
 }
 
 @MainActor
 final class WorkspaceMateWakeSource: MateWakeSource {
-    private var token: NSObjectProtocol?
+    private var tokens: [NSObjectProtocol] = []
+    /// Wi-Fi and the display take a moment after wake; checking straight
+    /// away would mark every due routine as waiting for the internet.
+    static let settleDelay: Duration = .seconds(5)
 
     func start(onWake: @escaping () -> Void) {
-        guard token == nil else { return }
-        token = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification,
-            object: nil,
-            queue: .main
-        ) { _ in
-            Task { @MainActor in
-                onWake()
+        guard tokens.isEmpty else { return }
+        let center = NSWorkspace.shared.notificationCenter
+        tokens = [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification].map { name in
+            center.addObserver(forName: name, object: nil, queue: .main) { _ in
+                Task { @MainActor in
+                    try? await Task.sleep(for: Self.settleDelay)
+                    onWake()
+                }
             }
         }
     }
+    func stop() {
+        tokens.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
+        tokens.removeAll()
+    }
+
 }

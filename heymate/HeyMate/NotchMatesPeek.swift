@@ -53,17 +53,20 @@ nonisolated enum NotchMatesPeekOrder {
 
 struct NotchMatesPeek: View {
     @ObservedObject var companionManager: CompanionManager
+    /// How many mates to list. "All" opens the rest in the window.
+    var limit: Int = 4
 
     private var rows: [(mate: Mate, preview: MateRailPreview)] {
         NotchMatesPeekOrder.mates(
             companionManager.mates,
             sessions: companionManager.savedChats,
-            defaultMateID: companionManager.mateDirectory.defaultMateID
+            defaultMateID: companionManager.mateDirectory.defaultMateID,
+            limit: limit
         )
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 2) {
             HStack {
                 DSSectionLabel(title: "Agents")
                 Spacer()
@@ -86,7 +89,7 @@ struct NotchMatesPeek: View {
                         Rectangle()
                             .fill(DS.Colors.borderSubtle)
                             .frame(height: 1)
-                            .padding(.leading, 46)
+                            .padding(.leading, DS.ControlSize.regular + DS.Spacing.lg)
                     }
                 }
             }
@@ -103,8 +106,8 @@ private struct NotchMatePeekRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                MateFaceView(mate: mate, size: 32)
+            HStack(spacing: DS.Spacing.sm + 2) {
+                MateFaceView(mate: mate, size: DS.ControlSize.regular)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -127,8 +130,8 @@ private struct NotchMatePeekRow: View {
                 }
                 NotchFileStack(paths: MateRecentFiles.newest(in: mate.folderPath))
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 6)
+            .padding(.horizontal, DS.Spacing.xs + 2)
+            .padding(.vertical, DS.Spacing.xs)
             .background(
                 RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
                     .fill(isHovering ? DS.Colors.surface2 : Color.clear)
@@ -152,10 +155,10 @@ private struct NotchFileStack: View {
             ForEach(Array(paths.enumerated().reversed()), id: \.element) { index, path in
                 NotchFileThumbnail(path: path)
                     .rotationEffect(.degrees(index == 0 ? 0 : -8))
-                    .offset(x: index == 0 ? 0 : -8)
+                    .offset(x: index == 0 ? 0 : -7)
             }
         }
-        .frame(width: paths.isEmpty ? 0 : 40, height: 38)
+        .frame(width: paths.isEmpty ? 0 : 34, height: 32)
         .accessibilityHidden(true)
     }
 }
@@ -178,12 +181,12 @@ private struct NotchFileThumbnail: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Color.black.opacity(0.2), lineWidth: 0.5))
-            .frame(width: 30, height: 36)
+            .frame(width: 24, height: 29)
             .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
             .task(id: path) {
                 let request = QLThumbnailGenerator.Request(
                     fileAt: URL(fileURLWithPath: path),
-                    size: CGSize(width: 30, height: 36),
+                    size: CGSize(width: 24, height: 29),
                     scale: NSScreen.main?.backingScaleFactor ?? 2,
                     representationTypes: .thumbnail
                 )

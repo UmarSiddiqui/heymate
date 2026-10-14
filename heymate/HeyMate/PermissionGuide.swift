@@ -68,13 +68,29 @@ enum HeyMatePermission: String, CaseIterable, Identifiable {
         }
     }
 
+    /// What this permission lets HeyMate do, on or off. Shown on the full
+    /// Permissions page so each switch is explained before it's flipped.
+    var purpose: String {
+        switch self {
+        case .microphone: return "Hears you while you hold ⌃⌥, so you can talk instead of type."
+        case .speech: return "Turns what you say into text, so HeyMate can answer it."
+        case .accessibility: return "Points, clicks, and types in other apps when you ask it to. Global shortcuts need it too."
+        case .inputMonitoring: return "Notices ⌃⌥ and HeyMate's other shortcuts in every app, not only when HeyMate is in front."
+        case .screenRecording: return "Sees your screen when you ask about something on it."
+        case .notifications: return "Tells you when an agent finishes its job."
+        case .calendar: return "Reads your events and adds new ones when you ask."
+        case .reminders: return "Reads your reminders and adds new ones when you ask."
+        case .contacts: return "Looks up people you mention by name."
+        }
+    }
+
     /// What is missing while this is off.
     var offText: String {
         switch self {
         case .microphone: return "HeyMate can't hear you yet"
         case .speech: return "HeyMate can't turn your voice into text yet"
         case .accessibility: return "HeyMate can't click or type for you yet"
-        case .inputMonitoring: return "⌃⌥ won't work in other apps yet"
+        case .inputMonitoring: return "Keyboard shortcuts like ⌃⌥ don't work yet"
         case .screenRecording: return "HeyMate can't see your screen yet"
         case .notifications: return "You won't hear when an agent finishes"
         case .calendar: return "HeyMate can't see your calendar"
@@ -117,6 +133,20 @@ enum HeyMatePermission: String, CaseIterable, Identifiable {
         case .reminders: return "Privacy_Reminders"
         case .contacts: return "Privacy_Contacts"
         }
+    }
+
+    /// Without these, ⌃⌥ and every other global shortcut is dead, which
+    /// looks like HeyMate is broken rather than missing a permission.
+    var breaksShortcuts: Bool {
+        self == .inputMonitoring || self == .accessibility
+    }
+
+    /// Where to find the switch, and what to do when the list already shows
+    /// HeyMate turned on: after an update macOS can keep a stale entry that
+    /// only works again once it is switched off and on.
+    var settingsHint: String? {
+        guard isGrantedInSystemSettings else { return nil }
+        return "Turn on HeyMate under Privacy & Security › \(title). Already on? Switch it off and on again."
     }
 
     /// The order "Allow all" walks: quick prompts first, then the ones that
@@ -423,10 +453,23 @@ struct PermissionChecklist: View {
                 Text(permission.title)
                     .font(DS.Fonts.headline)
                     .foregroundColor(DS.Colors.textPrimary)
-                Text(isOn ? permission.onText : permission.offText)
-                    .font(DS.Fonts.caption)
-                    .foregroundColor(isOn ? DS.Colors.textSecondary : DS.Colors.warningText)
-                    .fixedSize(horizontal: false, vertical: true)
+                if compact {
+                    Text(isOn ? permission.onText : permission.offText)
+                        .font(DS.Fonts.caption)
+                        .foregroundColor(isOn ? DS.Colors.textSecondary : DS.Colors.warningText)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text(permission.purpose)
+                        .font(DS.Fonts.caption)
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if !isOn {
+                        Text(permission.offText)
+                            .font(DS.Fonts.caption)
+                            .foregroundColor(DS.Colors.warningText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
             Spacer(minLength: 8)
             if isOn {

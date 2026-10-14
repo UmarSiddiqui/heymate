@@ -11,7 +11,7 @@ import Foundation
 
 enum HarnessTurnKind: Equatable {
     case conversation
-    case routine(isFirstRun: Bool)
+    case routine(isFirstRun: Bool, lastRunAt: Date? = nil, lastAttemptDidNotFinish: Bool = false)
     case standingOrder
 }
 
@@ -73,10 +73,16 @@ enum HarnessTurnNotes {
         switch input.kind {
         case .conversation:
             break
-        case .routine(let isFirstRun):
+        case .routine(let isFirstRun, let lastRunAt, let lastAttemptDidNotFinish):
             lines.append("This brief was written by HeyMate.")
             if !isFirstRun {
+                if let lastRunAt {
+                    lines.append("It last ran \(lastRunAt.formatted(date: .abbreviated, time: .shortened)).")
+                }
                 lines.append("Report only what is new.")
+            }
+            if lastAttemptDidNotFinish {
+                lines.append("The last run did not finish. Do not repeat anything it already sent or changed outside this Mac; check first.")
             }
         case .standingOrder:
             lines.append("This brief was written by HeyMate.")

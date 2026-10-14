@@ -1,12 +1,12 @@
 {
-  "data" : [
+  "data": [
     {
-      "filename" : "listen-start.wav",
-      "idiom" : "universal"
+      "filename": "listen-start.m4a",
+      "idiom": "universal"
     }
   ],
-  "info" : {
-    "author" : "xcode",
-    "version" : 1
+  "info": {
+    "author": "xcode",
+    "version": 1
   }
 }

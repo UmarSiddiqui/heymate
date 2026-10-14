@@ -154,37 +154,88 @@ enum MateFaceExpression: Equatable {
     case listening
     case thinking
     case speaking
+    case attention
+    case success
+    case failure
+    case guiding
+    /// Agent work, from the job's latest progress line.
+    case reading
+    case writing
+    case tooling
+    case browsing
 
     static func live(_ state: CompanionState) -> MateFaceExpression {
         switch state {
-        case .idle, .error, .guiding:
-            return .idle
+        case .idle: return .idle
+        case .error: return .failure
+        case .guiding: return .guiding
         case .listening, .finalizingTranscript:
             return .listening
         case .capturingContext, .thinking, .agentRunning:
             return .thinking
-        case .speaking, .waitingForApproval:
-            return .speaking
+        case .speaking: return .speaking
+        case .waitingForApproval: return .attention
         }
     }
 
+    static func agent(_ status: AgentRunStatus) -> Self {
+        switch status {
+        case .queued: return .idle
+        case .planning, .running: return .thinking
+        case .awaitingPlanApproval, .waitingForApproval: return .attention
+        case .succeeded: return .success
+        case .failed: return .failure
+        case .cancelled: return .still
+        }
+    }
+
+    /// Like `agent(_:)`, but a running job shows what it is doing.
+    static func agent(_ run: AgentRun) -> Self {
+        guard run.status == .running else { return agent(run.status) }
+        return MateWorkActivity.expression(for: run.latestAction)
+    }
+
+    /// Any of the agent-work looks, which animate like thinking.
+    var isWorking: Bool {
+        switch self {
+        case .thinking, .reading, .writing, .tooling, .browsing: return true
+        default: return false
+        }
+    }
 }
 
-/// A plain picture in a circle. The ring shows when the agent you are
-/// talking to is listening or thinking; nothing else moves.
+/// Live catalog faces retain their original art; thumbnails and custom photos stay still.
 struct MateFaceView: View {
     let mate: Mate
     var size: CGFloat = 28
     var expression: MateFaceExpression = .still
+    /// A reaction to play once, such as a finished job.
+    var reactionEvent: MateReactionEvent? = nil
+    /// Clicking the face makes it react.
+    var interactive = false
 
     var body: some View {
-        faceImage
-            .resizable()
-            .interpolation(.high)
-            .scaledToFill()
-            .frame(width: size * cropScale, height: size * cropScale)
-            .frame(width: size, height: size)
-            .clipShape(Circle())
+        Group {
+            if expression != .still, size >= 28,
+               mate.faceAssetName.flatMap(MateFaceStore.fileURL) == nil {
+                if MateFace.fillsFrame(MateFace.assetName(for: mate)) {
+                    MateLiveFace(assetName: MateFace.assetName(for: mate), size: size, expression: expression,
+                                 reactionEvent: reactionEvent, interactive: interactive)
+                } else {
+                    MateArtworkMotionView(image: faceImage, assetName: MateFace.assetName(for: mate),
+                                          size: size, expression: expression,
+                                          reactionEvent: reactionEvent, interactive: interactive)
+                }
+            } else {
+                faceImage
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFill()
+                    .frame(width: size * cropScale, height: size * cropScale)
+                    .frame(width: size, height: size)
+                    .clipShape(Circle())
+            }
+        }
             .overlay {
                 Circle().stroke(ringColor, lineWidth: expression == .still ? 0.6 : 1.4)
             }
@@ -195,7 +246,10 @@ struct MateFaceView: View {
         switch expression {
         case .still, .idle: return DS.Colors.borderSubtle
         case .listening, .speaking: return DS.Colors.accent
-        case .thinking: return DS.Colors.warning
+        case .thinking, .attention, .reading, .writing, .tooling, .browsing: return DS.Colors.warning
+        case .success: return DS.Colors.success
+        case .failure: return DS.Colors.destructiveText
+        case .guiding: return DS.Colors.info
         }
     }
 

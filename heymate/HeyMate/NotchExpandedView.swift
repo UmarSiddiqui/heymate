@@ -49,7 +49,8 @@ enum NotchControlMetrics {
     static let compactControlSize: CGFloat = 26
     static let glyphSize: CGFloat = 13
     static let labelSize: CGFloat = 12
-    static let bottomBarHeight: CGFloat = 42
+    /// One regular control plus a 4pt margin above and below it.
+    static let bottomBarHeight: CGFloat = DS.ControlSize.regular + DS.Spacing.sm
 }
 
 /// Inline text action ("Clear", "Manage", "Sign in"). Looks like a link,
@@ -133,8 +134,9 @@ struct NotchExpandedView: View {
         // controls stay top-centred underneath and reveal only after the
         // unified silhouette has substantially formed.
         GeometryReader { viewport in
-            let contentWidth = layoutSize.width > 0 ? layoutSize.width : viewport.size.width
-            let contentHeight = layoutSize.height > 0 ? layoutSize.height : viewport.size.height
+            let size = transitionModel.effectiveLayoutSize(layoutSize, viewport: viewport.size)
+            let contentWidth = size.width
+            let contentHeight = size.height
 
             cardBody
                 .frame(width: contentWidth, height: contentHeight, alignment: .top)
@@ -250,28 +252,15 @@ struct NotchExpandedView: View {
         .accessibilityLabel("Status: \(headerStatusText)")
     }
 
-    /// The Home tab's Doors row already puts Window and Settings one tap
-    /// away. Repeating them here is only useful on the
-    /// tabs that don't have a Doors row — Apps and Agents — so this bar
-    /// drops them exactly where they'd be
-    /// a pure duplicate instead of always carrying six icons.
-    private var doorsRowIsVisible: Bool {
-        selectedTab == .home
-            && companionManager.hasCompletedOnboarding
-    }
-
-    /// Tools only. Status and collapse moved to the header's right wing.
+    /// Every way out of the card in one row: the engine, the three
+    /// window pages, the buddy, and About. Status, collapse and quit live
+    /// on the header's right wing.
     private var bottomActionBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: DS.Spacing.sm) {
             engineChip
+            doorButtons
 
             Spacer(minLength: 0)
-
-            if !doorsRowIsVisible {
-                headerIconButton(systemName: "macwindow", help: "Open HeyMate window") {
-                    companionManager.openDesktopWindow(section: .chat)
-                }
-            }
 
             NotchCursorDock(companionManager: companionManager)
 
@@ -281,22 +270,59 @@ struct NotchExpandedView: View {
             .popover(isPresented: $isShowingAboutPopover, arrowEdge: .bottom) {
                 notchAboutPopover
             }
-
-            if !doorsRowIsVisible {
-                headerIconButton(systemName: "gearshape", help: "Settings") {
-                    companionManager.openDesktopWindow(section: .settings)
-                }
-            }
         }
         // 16pt matches the content columns and keeps the end controls clear
         // of the card's 24pt bottom corners.
-        .padding(.horizontal, 16)
+        .padding(.horizontal, DS.Spacing.lg)
         .overlay(alignment: .top) {
             Rectangle()
                 .fill(DS.Colors.hairline)
                 .frame(height: 0.5)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, DS.Spacing.lg)
         }
+    }
+
+    /// Window, Integrations and Settings as one grouped icon row. They used
+    /// to be three tall tiles; the names live in the tooltips and the
+    /// ⌘1–⌘3 shortcuts still work.
+    private var doorButtons: some View {
+        HStack(spacing: 2) {
+            doorButton(title: "Window", systemName: "macwindow", detail: "chat and history", key: "1") {
+                companionManager.openDesktopWindow(section: .chat)
+            }
+            doorButton(title: "Integrations", systemName: "puzzlepiece.extension", detail: "apps every agent can use", key: "2") {
+                companionManager.openDesktopWindow(section: .connectors)
+            }
+            doorButton(title: "Settings", systemName: "gearshape", detail: "engine, voice, shortcuts, appearance", key: "3") {
+                companionManager.openDesktopWindow(section: .settings)
+            }
+        }
+        .padding(2)
+        .background(Capsule().fill(DS.Colors.surface3.opacity(0.82)))
+    }
+
+    private func doorButton(
+        title: String,
+        systemName: String,
+        detail: String,
+        key: KeyEquivalent,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(DS.Glyph.regular)
+                .frame(
+                    width: NotchControlMetrics.controlSize,
+                    height: DS.ControlSize.small
+                )
+                .contentShape(Capsule())
+        }
+        .buttonStyle(NotchDoorButtonStyle())
+        .pointerCursor()
+        .keyboardShortcut(key, modifiers: .command)
+        .help("\(title): \(detail) (⌘\(key.character))")
+        .accessibilityLabel(title)
+        .accessibilityHint(detail)
     }
 
     /// Names the engine instead of hiding it behind a bare CPU glyph — which
@@ -526,40 +552,40 @@ private struct NotchHomeTab: View {
                     .frame(minHeight: viewport.size.height, alignment: .top)
                 }
             } else {
-                HStack(alignment: .top, spacing: 12) {
+                // Composer on the left, agents on the right. The composer
+                // comes first so it never scrolls out of sight; notes and
+                // jobs that need you stack under it. Doors live in the
+                // bottom bar.
+                HStack(alignment: .top, spacing: DS.Spacing.md) {
                     ScrollView(.vertical, showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 9) {
-                            NotchStatusCard(companionManager: companionManager)
-                            NotchSubscriptionSignInBanner(signIn: companionManager.subscriptionSignIn)
+                        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+                            if !shortcutsAreOff {
+                                NotchStatusCard(companionManager: companionManager)
+                            }
                             typedMessageInputRow
                             missingPermissionNote
+                            NotchSubscriptionSignInBanner(signIn: companionManager.subscriptionSignIn)
                             ContextualConnectorSuggestionBanner(companionManager: companionManager)
                             unfinishedAgentCards
-                            recentAgentRow
                         }
                     }
-                    .frame(width: (viewport.size.width - 12) * 0.48)
+                    .frame(width: (viewport.size.width - DS.Spacing.lg * 2 - DS.Spacing.md) / 2)
 
-                    // The doors stay pinned under the scrolling list, so a
-                    // long agents list can never push them out of the card.
-                    VStack(alignment: .leading, spacing: 8) {
-                        ScrollView(.vertical, showsIndicators: false) {
-                            VStack(alignment: .leading, spacing: 10) {
-                                NotchTrayStrip(
-                                    activityCenter: companionManager.notchActivityCenter,
-                                    onOpenDesktop: { section in
-                                        companionManager.openDesktopWindow(section: section)
-                                    }
-                                )
-                                NotchMatesPeek(companionManager: companionManager)
-                            }
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+                            NotchTrayStrip(
+                                activityCenter: companionManager.notchActivityCenter,
+                                onOpenDesktop: { section in
+                                    companionManager.openDesktopWindow(section: section)
+                                }
+                            )
+                            NotchMatesPeek(companionManager: companionManager, limit: 2)
                         }
-                        doorsRow
                     }
                     .frame(maxWidth: .infinity)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.horizontal, DS.Spacing.lg)
+                .padding(.vertical, DS.Spacing.sm)
                 .frame(width: viewport.size.width, height: viewport.size.height, alignment: .top)
             }
         }
@@ -567,32 +593,84 @@ private struct NotchHomeTab: View {
 
     // MARK: Missing permissions
 
-    /// One line when a core permission is off. HeyMate keeps working; the
-    /// line says what is missing and offers to turn it all on.
+    /// Core permissions that are off, the ones that kill shortcuts first.
+    private var missingPermissions: [HeyMatePermission] {
+        let off = HeyMatePermission.core.filter { !permissionGuide.isGranted($0) }
+        return off.filter(\.breaksShortcuts) + off.filter { !$0.breaksShortcuts }
+    }
+
+    /// The talk hint says "hold ctrl + option", which is a lie while the
+    /// permission behind shortcuts is off, so the note replaces it.
+    private var shortcutsAreOff: Bool {
+        missingPermissions.first?.breaksShortcuts == true
+    }
+
+    /// A note under the composer when a core permission is off. HeyMate
+    /// keeps working; the note names what is missing and offers the fix.
+    /// The longer how-to lives in its tooltip so the note stays two lines.
     @ViewBuilder
     private var missingPermissionNote: some View {
-        let missing = HeyMatePermission.core.filter { !permissionGuide.isGranted($0) }
+        let missing = missingPermissions
         if let first = missing.first {
-            HStack(spacing: 8) {
-                Image(systemName: first.systemImage)
-                    .font(DS.Glyph.small)
-                    .foregroundColor(DS.Colors.warningText)
-                Text(missing.count == 1 ? first.offText : "\(first.offText), and \(missing.count - 1) more")
-                    .font(DS.Fonts.caption)
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .lineLimit(2)
-                Spacer(minLength: 4)
-                Button(permissionGuide.isAllowingAll ? "Allowing…" : "Allow all") {
-                    Task { await permissionGuide.allowAll(includeExtras: false) }
+            VStack(alignment: .leading, spacing: DS.Spacing.xs + 2) {
+                HStack(spacing: DS.Spacing.sm) {
+                    Image(systemName: first.systemImage)
+                        .font(DS.Glyph.small)
+                        .foregroundColor(DS.Colors.warningText)
+                    Text(first.breaksShortcuts ? "Keyboard shortcuts are off" : first.offText)
+                        .font(DS.Fonts.caption.weight(.semibold))
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.9)
+                    Spacer(minLength: 0)
+                    if missing.count > 1 {
+                        Text("+\(missing.count - 1)")
+                            .font(DS.Fonts.keycap)
+                            .foregroundColor(DS.Colors.textTertiary)
+                            .help("\(missing.count - 1) more permission\(missing.count == 2 ? " is" : "s are") off too.")
+                    }
                 }
-                .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)
-                .disabled(permissionGuide.isAllowingAll)
+                HStack(spacing: DS.Spacing.xs + 2) {
+                    Button(first.isGrantedInSystemSettings ? "Open \(first.title)" : "Allow") {
+                        Task { await permissionGuide.request(first) }
+                    }
+                    .dsCapsuleButtonStyle(.primary, height: DS.ControlSize.small)
+                    .disabled(permissionGuide.isAllowingAll)
+                    if first.breaksShortcuts {
+                        Button("Help") {
+                            UserDefaults.standard.set(
+                                DesktopSettingsTab.permissions.rawValue,
+                                forKey: DesktopSettingsTab.storageKey
+                            )
+                            companionManager.openDesktopWindow(section: .settings)
+                        }
+                        .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
+                        .help("Settings › Permissions, with a Repair button for shortcuts that stopped working")
+                    }
+                    if missing.count > 1 {
+                        Button(permissionGuide.isAllowingAll ? "Allowing…" : "Allow all") {
+                            Task { await permissionGuide.allowAll(includeExtras: false) }
+                        }
+                        .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)
+                        .disabled(permissionGuide.isAllowingAll)
+                    }
+                }
             }
-            .padding(.horizontal, 11)
-            .padding(.vertical, 7)
+            .padding(.horizontal, DS.Spacing.md - 1)
+            .padding(.vertical, DS.Spacing.sm)
             .dsSurface(.row)
+            .help(permissionNoteHelp(for: first))
             .onAppear { permissionGuide.startWatching() }
         }
+    }
+
+    private func permissionNoteHelp(for permission: HeyMatePermission) -> String {
+        var lines: [String] = []
+        if permission.breaksShortcuts {
+            lines.append("HeyMate needs \(permission.title) to hear ⌃⌥ and your other shortcuts.")
+        }
+        if let hint = permission.settingsHint { lines.append(hint) }
+        return lines.joined(separator: " ")
     }
 
     // MARK: Setup
@@ -676,7 +754,7 @@ private struct NotchHomeTab: View {
             .help("Send — starts a coding agent in ~/Projects/heymate")
             .padding(.trailing, 5)
         }
-        .padding(.vertical, isComposerHero ? 9 : 5)
+        .padding(.vertical, isComposerHero ? DS.Spacing.xs + 2 : DS.Spacing.xs + 1)
         .background(
             Capsule(style: .continuous)
                 .fill(DS.Colors.surface2.opacity(0.85))
@@ -759,51 +837,6 @@ private struct NotchHomeTab: View {
         }
     }
 
-    // MARK: Doors
-
-    /// The four ways out of Home. Everything that used to be an inline
-    /// section here — shortcuts, skills, connectors, memory, privacy — is
-    /// a list or a form, which is exactly what a shallow notch card hanging
-    /// off a camera housing is worst at. Those live in the window now;
-    /// this row is the door.
-    private var doorsRow: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            // One row of compact doors under the agents list.
-            HStack(spacing: 6) {
-                NotchDoorTile(
-                    title: "Window",
-                    subtitle: "Chat and history",
-                    systemName: "macwindow",
-                    key: "1",
-                    help: "Open the full HeyMate window",
-                    isCompact: true
-                ) {
-                    companionManager.openDesktopWindow(section: .chat)
-                }
-                NotchDoorTile(
-                    title: "Integrations",
-                    subtitle: "Gmail, Slack, more",
-                    systemName: "puzzlepiece.extension",
-                    key: "2",
-                    help: "Apps every agent can use",
-                    isCompact: true
-                ) {
-                    companionManager.openDesktopWindow(section: .connectors)
-                }
-                NotchDoorTile(
-                    title: "Settings",
-                    subtitle: "Engine, voice, keys",
-                    systemName: "gearshape",
-                    key: "3",
-                    help: "Engine, model, voice, shortcuts, and appearance",
-                    isCompact: true
-                ) {
-                    companionManager.openDesktopWindow(section: .settings)
-                }
-            }
-        }
-    }
-
     // MARK: Recent agent
 
     /// Jobs still running or waiting on you, as full cards: this is where a
@@ -836,214 +869,34 @@ private struct NotchHomeTab: View {
         }
     }
 
-    /// Idle Home would otherwise end at the composer. The latest agent run
-    /// is the thing people most often come back to check, so it takes the
-    /// space — one tap opens the chat it belongs to.
-    @ViewBuilder
-    private var recentAgentRow: some View {
-        if isComposerHero, !companionManager.agentRuns.contains(where: { !$0.status.isTerminal }) {
-            VStack(alignment: .leading, spacing: 6) {
-                DSSectionLabel(title: "Latest from your agents")
-                if let latestRun = companionManager.agentRuns.max(by: { $0.createdAt < $1.createdAt }) {
-                    NotchRecentAgentRow(
-                        run: latestRun,
-                        agentName: latestRun.chatOwner.flatMap { owner in
-                            companionManager.mates.first { $0.id == owner.mateID }?.name
-                        }
-                    ) {
-                        if let mateID = latestRun.chatOwner?.mateID {
-                            companionManager.openMate(id: mateID)
-                        }
-                        companionManager.openDesktopWindow(section: .chat)
-                    }
-                } else {
-                    // First run: say what the composer does rather than
-                    // leaving the column to trail off into nebula.
-                    HStack(spacing: 8) {
-                        Image(systemName: "sparkles")
-                            .font(DS.Glyph.small)
-                            .foregroundColor(DS.Colors.textTertiary)
-                        Text("None yet. Type a task above and press ↩ to start one.")
-                            .font(DS.Fonts.caption)
-                            .foregroundColor(DS.Colors.textTertiary)
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 9)
-                    .background(
-                        RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                            .strokeBorder(DS.Colors.borderSubtle, style: StrokeStyle(lineWidth: 0.6, dash: [3, 3]))
-                    )
-                }
-            }
-            .padding(.top, 4)
-        }
+}
+
+/// A borderless icon in the grouped door row. Lights up on hover and
+/// press only, so the row reads as one quiet capsule at rest.
+private struct NotchDoorButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        NotchDoorButtonLabel(configuration: configuration)
     }
 }
 
-private struct NotchRecentAgentRow: View {
-    let run: AgentRun
-    /// Who did the work. Nil for older runs that no agent owns.
-    let agentName: String?
-    let onOpen: () -> Void
+/// A view, not the style itself, so it can hold its own hover state.
+private struct NotchDoorButtonLabel: View {
+    let configuration: ButtonStyleConfiguration
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
 
     var body: some View {
-        Button(action: onOpen) {
-            HStack(spacing: 9) {
-                DSStatusDot(color: DS.Colors.agentStatus(run.status))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(agentName ?? run.title)
-                        .font(DS.Fonts.control)
-                        .foregroundColor(DS.Colors.textPrimary)
-                        .lineLimit(1)
-                    Text(detail)
-                        .font(DS.Fonts.caption)
-                        .foregroundColor(DS.Colors.textTertiary)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 4)
-                Image(systemName: "chevron.right")
-                    .font(DS.Glyph.small)
-                    .foregroundColor(isHovering ? DS.Colors.textSecondary : DS.Colors.textTertiary)
-            }
-            .padding(.horizontal, 11)
-            .padding(.vertical, 8)
-            .dsSurface(.row, isHighlighted: isHovering)
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
-        .onHover { isHovering = $0 }
-        .help("Open its chat")
-    }
-
-    private var detail: String {
-        let when = RelativeDateTimeFormatter().localizedString(for: run.createdAt, relativeTo: Date())
-        let status = "\(statusWord) · \(when)"
-        return agentName == nil ? status : "\(status) · \(run.title)"
-    }
-
-    private var statusWord: String {
-        switch run.status {
-        case .queued: return "Queued"
-        case .planning: return "Planning"
-        case .awaitingPlanApproval: return "Plan ready"
-        case .running: return "Running"
-        case .waitingForApproval: return "Needs approval"
-        case .succeeded: return "Done"
-        case .failed: return "Failed"
-        case .cancelled: return "Cancelled"
-        }
-    }
-}
-
-/// One door tile. A struct (not a function) so each tile can carry its own
-/// hover state — the icon stays neutral until the pointer is actually on
-/// it, so the row doesn't compete with the composer for accent weight.
-private struct NotchDoorTile: View {
-    let title: String
-    let subtitle: String
-    let systemName: String
-    let key: KeyEquivalent
-    let help: String
-    let isCompact: Bool
-    let action: () -> Void
-
-    init(
-        title: String,
-        subtitle: String,
-        systemName: String,
-        key: KeyEquivalent,
-        help: String,
-        isCompact: Bool = false,
-        action: @escaping () -> Void
-    ) {
-        self.title = title
-        self.subtitle = subtitle
-        self.systemName = systemName
-        self.key = key
-        self.help = help
-        self.isCompact = isCompact
-        self.action = action
-    }
-
-    @State private var isHovering = false
-
-    var body: some View {
-        if isCompact {
-            compactBody
-        } else {
-            fullBody
-        }
-    }
-
-    /// Icon over a one-word title, four to a row.
-    private var compactBody: some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: systemName)
-                    .font(DS.Glyph.regular)
-                    .foregroundColor(isHovering ? DS.Colors.accentText : DS.Colors.textSecondary)
-                Text(title)
-                    .font(DS.Fonts.caption.weight(.semibold))
-                    .foregroundColor(DS.Colors.textPrimary)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .dsSurface(.row, isHighlighted: isHovering)
-            .animation(.easeOut(duration: 0.12), value: isHovering)
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
-        .help("\(help) · \(subtitle)")
-        .keyboardShortcut(key, modifiers: .command)
-        .onHover { isHovering = $0 }
-        .accessibilityLabel(title)
-        .accessibilityHint(subtitle)
-    }
-
-    private var fullBody: some View {
-        Button(action: action) {
-            HStack(spacing: 9) {
-                RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
-                    .fill(isHovering ? DS.Colors.accent.opacity(0.22) : DS.Colors.surface3.opacity(0.8))
-                    .frame(width: 30, height: 30)
-                    .overlay(
-                        Image(systemName: systemName)
-                            .font(DS.Glyph.large)
-                            .foregroundColor(isHovering ? DS.Colors.accentText : DS.Colors.textSecondary)
-                    )
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(DS.Fonts.control)
-                        .foregroundColor(DS.Colors.textPrimary)
-                        .lineLimit(1)
-                    Text(subtitle)
-                        .font(DS.Fonts.caption)
-                        .foregroundColor(DS.Colors.textTertiary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.9)
-                }
-            }
-            .padding(.leading, 8)
-            .padding(.trailing, 10)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .dsSurface(.row, isHighlighted: isHovering)
-            .animation(.easeOut(duration: 0.12), value: isHovering)
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
-        .help(help)
-        .keyboardShortcut(key, modifiers: .command)
-        .onHover { isHovering = $0 }
-        .accessibilityLabel(title)
-        .accessibilityHint(subtitle)
+        configuration.label
+            .foregroundColor(isHovering ? DS.Colors.textPrimary : DS.Colors.textSecondary)
+            .background(
+                Capsule().fill(
+                    configuration.isPressed ? DS.Colors.surface4
+                        : isHovering ? DS.Colors.surface2 : Color.clear
+                )
+            )
+            .onHover { isHovering = $0 }
+            .animation(reduceMotion ? nil : .easeOut(duration: DS.Animation.fast), value: isHovering)
     }
 }
 
@@ -1329,8 +1182,8 @@ private struct NotchStatusCard: View {
     }
 
     private var activeCard: some View {
-        HStack(spacing: 12) {
-            BrandAppIcon(size: 38, state: companionManager.voiceState)
+        HStack(spacing: DS.Spacing.sm + 2) {
+            BrandAppIcon(size: DS.ControlSize.large, state: companionManager.voiceState)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(statusTitle)
@@ -1344,12 +1197,12 @@ private struct NotchStatusCard: View {
                     Text(statusSubtitle)
                         .font(DS.Fonts.caption)
                         .foregroundColor(DS.Colors.textSecondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(1)
+                        .help(statusSubtitle)
                 }
             }
 
-            Spacer()
+            Spacer(minLength: 0)
 
             if companionManager.voiceState == .listening {
                 Button(action: { companionManager.finishVoiceInputFromNotch() }) {
@@ -1366,7 +1219,7 @@ private struct NotchStatusCard: View {
                 .accessibilityHint("Press Escape")
             }
         }
-        .padding(12)
+        .padding(DS.Spacing.sm + 2)
         .background(
             ZStack {
                 RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous)

@@ -1,12 +1,12 @@
 {
-  "data" : [
+  "data": [
     {
-      "filename" : "response-ready.wav",
-      "idiom" : "universal"
+      "filename": "response-ready.m4a",
+      "idiom": "universal"
     }
   ],
-  "info" : {
-    "author" : "xcode",
-    "version" : 1
+  "info": {
+    "author": "xcode",
+    "version": 1
   }
 }

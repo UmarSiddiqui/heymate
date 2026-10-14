@@ -16,7 +16,7 @@ import Foundation
 final class HeadlessAgentLauncher {
 
     private struct LiveSession {
-        let process: HeadlessCLIProcess
+        var process: HeadlessCLIProcess
         let adapter: HeadlessCLIAdapter
         let leg: AgentRunLeg
         var timeoutTask: Task<Void, Never>?
@@ -25,6 +25,11 @@ final class HeadlessAgentLauncher {
         /// overwritten the way `summary` is.
         var planFragments: [String] = []
         var finalResult = AgentFinalResult()
+        var codexAttemptID: UUID?
+        var codexConnection: CodexAppServerConnection?
+        var codexPlanning: CodexAppServerPlanningSession?
+        var codexStartTask: Task<Void, Never>?
+        var codexFinishing = false
     }
 
     private enum PendingStopReason {
@@ -63,11 +68,18 @@ final class HeadlessAgentLauncher {
     private var sessions: [UUID: LiveSession] = [:]
     private var pendingStops: [UUID: PendingStop] = [:]
     private var receiptScansInFlight: Set<UUID> = []
+    private var lastCodexPlanningAttempt: [UUID: UUID] = [:]
+
+    /// Acceptance into local delivery handling is not a remote acknowledgement.
+    func followUpDeliverySummary(runID: UUID) -> String {
+        store.run(id: runID)?.activity.last?.text ?? "Follow-up accepted for processing."
+    }
 
     /// Write-enabled legs run in a signed embedded command-line helper.
     /// Planning, replanning, and follow-ups remain short, read-only child
     /// processes owned by the app so session selection stays unchanged.
     var detachedExecutionEnabled = true
+    var codexLivePlanningEnabled = true
     var detachedRuntimeRootURL = DetachedAgentRuntimePaths.defaultRootURL
     var detachedRunnerExecutableURL: () -> URL? = {
         DetachedAgentRunnerExecutable.bundledURL()
@@ -355,9 +367,8 @@ final class HeadlessAgentLauncher {
         spawn(runID: runID, leg: .replan(feedback: trimmedFeedback))
     }
 
-    /// "Also make it dark mode." More work stays in the same CLI session. If
-    /// the agent is busy, the instruction waits for the current write leg to
-    /// finish; a one-shot CLI process cannot safely accept a new turn midway.
+    /// More work stays in the same CLI session. Codex planning accepts live
+    /// input; one-shot/write runtimes queue instructions for their next leg.
     ///
     /// Returns false when the job cannot be continued, which the caller shows
     /// rather than silently starting a fresh, context-free job.
@@ -386,6 +397,16 @@ final class HeadlessAgentLauncher {
                     current.appendActivity(kind: .agent, text: Self.liveStatusReply(for: current))
                 }
                 onRunsChanged?()
+                return true
+            }
+
+            if sessions[runID]?.codexAttemptID != nil {
+                return sendCodexPlanningSteer(runID: runID, instruction: trimmedInstruction)
+            }
+
+            if run.status == .awaitingPlanApproval {
+                guard !run.sessionIdentifier.isEmpty else { return false }
+                requestReplan(runID: runID, feedback: trimmedInstruction)
                 return true
             }
 
@@ -583,6 +604,7 @@ final class HeadlessAgentLauncher {
             // progress and emits a false failure notification.
             if let liveSession = sessions.removeValue(forKey: runID) {
                 liveSession.timeoutTask?.cancel()
+                liveSession.codexStartTask?.cancel()
                 guard await liveSession.process.terminateAndWait() else {
                     _ = store.update(id: runID) { current in
                         current.status = .failed
@@ -794,6 +816,7 @@ final class HeadlessAgentLauncher {
 
     private func spawn(runID: UUID, leg: AgentRunLeg) {
         guard let run = store.run(id: runID) else { return }
+        lastCodexPlanningAttempt[runID] = nil
         let shouldDetachExecution = detachedExecutionEnabled && leg == .execute
 
         guard let executableURL = resolveExecutable(run.executor.executableName) else {
@@ -849,6 +872,11 @@ final class HeadlessAgentLauncher {
                 executableURL: executableURL,
                 launchSpec: spec
             )
+            return
+        }
+
+        if codexLivePlanningEnabled, run.executor == .codex, leg.isReadOnly {
+            spawnCodexPlanning(run: run, leg: leg, executableURL: executableURL, adapter: adapter)
             return
         }
 
@@ -908,6 +936,178 @@ final class HeadlessAgentLauncher {
         )
         onRunsChanged?()
         onEvent?(runID, .started)
+    }
+
+    // MARK: - Owned Codex planning and live input
+
+    private func spawnCodexPlanning(run: AgentRun, leg: AgentRunLeg,
+                                    executableURL: URL, adapter: HeadlessCLIAdapter) {
+        let attempt = UUID()
+        let probeProcess = HeadlessCLIProcess()
+        let probe = CodexAppServerConnection()
+        sessions[run.id] = LiveSession(process: probeProcess, adapter: adapter, leg: leg,
+                                      codexAttemptID: attempt, codexConnection: probe)
+        lastCodexPlanningAttempt[run.id] = attempt
+        _ = store.update(id: run.id) { current in
+            current.status = .planning
+            current.startedAt = current.startedAt ?? Date()
+            current.latestAction = "Preparing live Codex planning…"
+            current.pendingApprovalID = ""
+            current.appendActivity(kind: .status, text: current.latestAction)
+        }
+        let limit = runtimeLimitForLeg(leg)
+        let wait = waitForRuntimeLimit
+        sessions[run.id]?.timeoutTask = Task { [weak self] in
+            await wait(limit)
+            guard !Task.isCancelled else { return }
+            self?.failTimeout(runID: run.id)
+        }
+        sessions[run.id]?.codexStartTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try self.checkCodexOwnership(runID: run.id, attempt: attempt, process: probeProcess)
+                self.trackCodexPID(probe, runID: run.id, attempt: attempt, process: probeProcess)
+                try await probe.launch(executableURL: executableURL, workspaceURL: run.workspaceURL,
+                                       process: probeProcess, arguments: CodexPlanningIsolation.arguments,
+                                       environmentKeysToRemove: run.executor.environmentKeysToRemove)
+                let config = try await probe.request(method: "config/read", params: .object([
+                    "includeLayers": .bool(false), "cwd": .string(run.workspaceURL.path)
+                ]))
+                let arguments = try CodexPlanningIsolation.arguments(disablingServersFrom: config)
+                // No thread/model request has occurred. Resolve all inherited
+                // MCP names first, then stop this probe before creating its peer.
+                guard await probe.shutdown() else { throw CodexPlanningIsolation.Failure.unsafeConfiguration }
+                try self.checkCodexOwnership(runID: run.id, attempt: attempt, process: probeProcess)
+                let process = HeadlessCLIProcess()
+                let connection = CodexAppServerConnection()
+                self.sessions[run.id]?.process = process
+                self.sessions[run.id]?.codexConnection = connection
+                self.trackCodexPID(connection, runID: run.id, attempt: attempt, process: process)
+                try await connection.launch(executableURL: executableURL, workspaceURL: run.workspaceURL,
+                                            process: process, arguments: arguments,
+                                            environmentKeysToRemove: run.executor.environmentKeysToRemove)
+                let finalConfig = try await connection.request(method: "config/read", params: .object([
+                    "includeLayers": .bool(false), "cwd": .string(run.workspaceURL.path)
+                ]))
+                try CodexPlanningIsolation.validateFinalConfiguration(finalConfig)
+                try self.checkCodexOwnership(runID: run.id, attempt: attempt, process: process)
+                let planning = CodexAppServerPlanningSession(owner: .init(runID: run.id, attemptID: attempt),
+                                                             connection: connection)
+                self.sessions[run.id]?.codexPlanning = planning
+                planning.onThreadIdentified = { [weak self] id in
+                    guard let self, self.sessions[run.id]?.codexAttemptID == attempt,
+                          self.pendingStops[run.id] == nil else { return }
+                    self.apply(.sessionIdentified(id), to: run.id)
+                }
+                planning.onOutcome = { [weak self] outcome in
+                    self?.finishCodexPlanning(runID: run.id, attempt: attempt, outcome: outcome)
+                }
+                let text: String
+                switch leg {
+                case .plan(let prompt): text = "\(AgentPlanBrief.planningContract)\n\nTask:\n\(prompt)"
+                case .replan(let feedback): text = "\(AgentPlanBrief.replanContract)\n\nFeedback:\n\(feedback)"
+                case .followUp(let instruction): text = "\(AgentPlanBrief.followUpContract)\n\nNew request:\n\(instruction)"
+                case .execute: throw CodexPlanningIsolation.Failure.unsafeConfiguration
+                }
+                _ = try await planning.start(text: text, workspaceURL: run.workspaceURL,
+                    resumeThreadID: run.sessionIdentifier.isEmpty ? nil : run.sessionIdentifier,
+                    model: self.codexModelIdentifier(), effort: self.codexReasoningEffort())
+            } catch {
+                guard self.pendingStops[run.id] == nil else { return }
+                self.finishCodexPlanning(runID: run.id, attempt: attempt,
+                    outcome: .failed("Could not start isolated Codex planning. \(error.localizedDescription)"))
+            }
+        }
+        onRunsChanged?()
+        onEvent?(run.id, .started)
+    }
+
+    private func checkCodexOwnership(runID: UUID, attempt: UUID, process: HeadlessCLIProcess) throws {
+        try Task.checkCancellation()
+        guard sessions[runID]?.codexAttemptID == attempt, sessions[runID]?.process === process,
+              pendingStops[runID] == nil, sessions[runID]?.codexFinishing == false else {
+            throw CancellationError()
+        }
+    }
+
+    private func trackCodexPID(_ connection: CodexAppServerConnection, runID: UUID,
+                               attempt: UUID, process: HeadlessCLIProcess) {
+        connection.onProcessStarted = { [weak self] in
+            guard let self, self.sessions[runID]?.codexAttemptID == attempt,
+                  self.sessions[runID]?.process === process, self.pendingStops[runID] == nil else { return }
+            _ = self.store.update(id: runID) { $0.pid = process.processIdentifier }
+        }
+    }
+
+    private func finishCodexPlanning(runID: UUID, attempt: UUID,
+                                     outcome: CodexAppServerPlanningSession.Outcome) {
+        guard let session = sessions[runID], session.codexAttemptID == attempt,
+              !session.codexFinishing, pendingStops[runID] == nil else { return }
+        sessions[runID]?.codexFinishing = true
+        session.timeoutTask?.cancel()
+        Task { [weak self] in
+            let stopped: Bool
+            if let connection = session.codexConnection { stopped = await connection.shutdown() }
+            else { stopped = await session.process.terminateAndWait() }
+            guard let self, self.sessions[runID]?.codexAttemptID == attempt,
+                  self.pendingStops[runID] == nil else { return }
+            guard stopped else {
+                _ = self.store.update(id: runID) { current in
+                    current.error = "Could not stop Codex planning. Try Cancel again."
+                    current.latestAction = current.error
+                    current.appendActivity(kind: .status, text: current.error)
+                }
+                self.onRunsChanged?()
+                return
+            }
+            self.sessions[runID] = nil
+            switch outcome {
+            case .completed(let plan):
+                let text = Self.presentablePlanText(from: [plan])
+                self.apply(text.isEmpty ? .failed(message: "Codex returned no usable plan.") : .planReady(text: text), to: runID)
+            case .interrupted: self.finishCancellation(runID: runID)
+            case .failed(let message): self.apply(.failed(message: message), to: runID)
+            }
+        }
+    }
+
+    @discardableResult
+    private func sendCodexPlanningSteer(runID: UUID, instruction: String) -> Bool {
+        guard let attempt = sessions[runID]?.codexAttemptID else { return false }
+        let messageID = UUID()
+        _ = store.update(id: runID) { current in
+            current.appendActivity(kind: .user, text: instruction)
+            current.appendActivity(kind: .status, text: "Sending update to live Codex planning turn…")
+        }
+        onRunsChanged?()
+        Task { [weak self] in
+            guard let self else { return }
+            let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+            while self.sessions[runID]?.codexAttemptID == attempt,
+                  self.sessions[runID]?.codexPlanning?.identity == nil,
+                  self.pendingStops[runID] == nil, self.sessions[runID]?.codexFinishing == false,
+                  ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+            let receipt: CodexAppServerPlanningSession.SteerReceipt
+            if let session = self.sessions[runID], session.codexAttemptID == attempt,
+               !session.codexFinishing, self.pendingStops[runID] == nil,
+               let planning = session.codexPlanning, let identity = planning.identity {
+                receipt = await planning.steer(text: instruction, expectedTurnID: identity.turnID, messageID: messageID)
+            } else { receipt = .unavailable }
+            guard self.lastCodexPlanningAttempt[runID] == attempt else { return }
+            let text: String
+            switch receipt {
+            case .acknowledged: text = "Codex acknowledged update in the live planning turn."
+            case .rejected: text = "Codex rejected the update. It was not queued or retried."
+            case .unknown: text = "Update delivery unknown. Not retried; Codex may have received it."
+            case .unavailable: text = "Update not sent: the planning turn is not available. Send again when ready."
+            case .pending: text = "Update still awaiting acknowledgement."
+            }
+            _ = self.store.update(id: runID) { $0.appendActivity(kind: .status, text: text) }
+            self.onRunsChanged?()
+        }
+        return true
     }
 
     // MARK: - Detached execute runtime
@@ -1594,6 +1794,7 @@ final class HeadlessAgentLauncher {
         guard pendingStops[runID] == nil else { return }
 
         liveSession.timeoutTask?.cancel()
+        liveSession.codexStartTask?.cancel()
         let pendingStop = PendingStop(
             identifier: UUID(),
             process: liveSession.process,
@@ -1718,6 +1919,7 @@ final class HeadlessAgentLauncher {
         case .finished(let summary):
             markCurrentWriteLegUndoReady(runID: runID)
             sessions[runID]?.timeoutTask?.cancel()
+            sessions[runID]?.codexStartTask?.cancel()
             sessions[runID]?.process.terminateThenKill()
             _ = store.update(id: runID) { current in
                 guard !current.status.isTerminal else { return }
@@ -1735,6 +1937,7 @@ final class HeadlessAgentLauncher {
         case .failed(let message):
             markCurrentWriteLegUndoReady(runID: runID)
             sessions[runID]?.timeoutTask?.cancel()
+            sessions[runID]?.codexStartTask?.cancel()
             sessions[runID]?.process.terminateThenKill()
             sessions[runID] = nil
             _ = store.update(id: runID) { current in

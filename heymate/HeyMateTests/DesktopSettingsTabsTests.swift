@@ -24,7 +24,7 @@ struct DesktopSettingsTabsTests {
 
     @Test func sectionsAreInRailOrder() {
         #expect(DesktopSettingsTab.allCases.map(\.rawValue) == [
-            "general", "shortcuts", "voice", "notch", "accounts", "agents", "privacy"
+            "general", "shortcuts", "voice", "notch", "accounts", "agents", "permissions", "privacy"
         ])
     }
 

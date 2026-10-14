@@ -208,7 +208,7 @@ struct NotchLayoutMathTests {
         #expect(frame.maxY == external.maxY - NotchLayoutMath.fallbackMenuBarHeight)
     }
 
-    @Test func compactChatIsSmallerThanTheFullCardAndStillCoversTheNotch() throws {
+    @Test func compactChatIsNarrowerThanTheFullCardAndStillCoversTheNotch() throws {
         let compact = try #require(NotchLayoutMath.compactChatFrame(
             screenFrame: Self.macBookScreen,
             topSafeAreaInset: Self.notchInset,
@@ -231,7 +231,8 @@ struct NotchLayoutMathTests {
         #expect(compact.maxY == Self.macBookScreen.maxY)
         #expect(compact.height == Self.notchInset + NotchLayoutMath.compactChatHeight)
         #expect(compact.width >= NotchLayoutMath.compactChatWidth)
-        #expect(compact.height < full.height)
+        // The compact Home card is shallower than a chat needs, so only
+        // the width still orders the two.
         #expect(compact.width <= full.width)
     }
 

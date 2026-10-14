@@ -157,6 +157,8 @@ final class NotchCompanionController {
     /// Remembered sheet size. Dragging an edge updates it; a double-click
     /// restores `NotchHomeSize.standard`.
     private var homeSize = NotchHomeSize.stored()
+    /// The full chat keeps its own size: it is a different, bigger surface.
+    private var chatSize = NotchHomeSize.storedChat()
     private var resizeBaseline: NotchHomeSize?
 
     /// Toggled from the panel; persists via UserDefaults. Re-evaluated on
@@ -605,22 +607,60 @@ final class NotchCompanionController {
     }
 
     private func applyHomeResize(edge: NotchHomeEdge, translation: CGSize) {
-        let baseline = resizeBaseline ?? homeSize
-        homeSize = baseline.applying(edge: edge, translation: translation)
+        if presentedSurface == .fullChat {
+            let baseline = resizeBaseline ?? chatSize
+            chatSize = baseline.unclampedApplying(edge: edge, translation: translation).clampedForChat()
+        } else {
+            let baseline = resizeBaseline ?? homeSize
+            homeSize = baseline.applying(edge: edge, translation: translation)
+        }
         applyHomeFrame()
     }
 
     private func finishHomeResize(reset: Bool) {
-        if reset { homeSize = .standard }
-        homeSize.save()
+        if presentedSurface == .fullChat {
+            if reset { chatSize = NotchHomeSize.Chat.standard }
+            chatSize.saveChat()
+        } else {
+            if reset { homeSize = .standard }
+            homeSize.save()
+        }
         resizeBaseline = nil
         applyHomeFrame()
+    }
+
+    /// The page the full chat opens on. Read when its surface is built.
+    private var fullChatSection: DesktopSection = .chat
+
+    /// The workspace, grown out of the notch, on `section`. Pinned and
+    /// focused, so the composer takes typing straight away.
+    func openFullChat(section: DesktopSection = .chat) {
+        companionManager?.activateConnectorsIfNeeded()
+        fullChatSection = section
+        if isExpanded, presentedSurface == .fullChat, expandedPanel?.isVisible == true {
+            NotificationCenter.default.post(
+                name: .heyMateDesktopSelectSection,
+                object: nil,
+                userInfo: ["section": section.rawValue]
+            )
+        }
+        presentSurface(.fullChat, pinned: true)
+    }
+
+    /// Never taller or wider than the screen it hangs on.
+    private func fittedChatSize(on screen: NSScreen) -> NotchHomeSize {
+        let inset = notchHousing(for: screen)?.inset ?? NotchLayoutMath.fallbackMenuBarHeight
+        return NotchHomeSize(
+            width: min(chatSize.width, screen.frame.width - 24),
+            heightBelowHousing: min(chatSize.heightBelowHousing, screen.frame.height - inset - 24)
+        )
     }
 
     private func applyHomeFrame() {
         guard isExpanded, let screen = currentTargetScreen(),
               let nextFrame = frame(for: presentedSurface, screen: screen) else { return }
         expandedPanel?.setFrame(nextFrame, display: true, animate: false)
+        surfaceTransitionModel.resizedLayoutSize = nextFrame.size
     }
 
     private func currentTargetScreen() -> NSScreen? {
@@ -631,7 +671,9 @@ final class NotchCompanionController {
     private func frame(for surface: NotchPresentedSurface, screen: NSScreen) -> CGRect? {
         switch surface {
         case .fullCard:
-            return expandedCardFrame(for: screen)
+            return expandedCardFrame(for: screen, size: homeSize)
+        case .fullChat:
+            return expandedCardFrame(for: screen, size: fittedChatSize(on: screen))
         case .compactChat:
             return compactChatFrame(for: screen)
         case .connectorSuggestion:
@@ -642,7 +684,7 @@ final class NotchCompanionController {
     /// Screen-derived expanded-card frame — hardware notch when available,
     /// software-notch fallback otherwise. Always returns a frame once a
     /// target screen exists, so the control surface cannot go missing.
-    private func expandedCardFrame(for screen: NSScreen) -> CGRect? {
+    private func expandedCardFrame(for screen: NSScreen, size: NotchHomeSize) -> CGRect? {
         let housing = notchHousing(for: screen)
         if let housing,
            let hardwareFrame = NotchLayoutMath.expandedFrame(
@@ -650,16 +692,16 @@ final class NotchCompanionController {
             topSafeAreaInset: housing.inset,
             auxiliaryTopLeftMaxX: housing.leftMaxX,
             auxiliaryTopRightMinX: housing.rightMinX,
-            contentWidth: homeSize.width,
-            contentHeight: homeSize.heightBelowHousing
+            contentWidth: size.width,
+            contentHeight: size.heightBelowHousing
            ) {
             return pixelAlign(hardwareFrame, on: screen)
         }
         return pixelAlign(
             NotchLayoutMath.fallbackExpandedFrame(
                 screenFrame: screen.frame,
-                contentWidth: homeSize.width,
-                contentHeight: homeSize.heightBelowHousing
+                contentWidth: size.width,
+                contentHeight: size.heightBelowHousing
             ),
             on: screen
         )
@@ -667,22 +709,23 @@ final class NotchCompanionController {
 
     private func compactChatFrame(for screen: NSScreen) -> CGRect? {
         let housing = notchHousing(for: screen)
+        let compactSize = homeSize.atLeast(.compactChatMinimum)
         if let housing,
            let hardwareFrame = NotchLayoutMath.compactChatFrame(
             screenFrame: screen.frame,
             topSafeAreaInset: housing.inset,
             auxiliaryTopLeftMaxX: housing.leftMaxX,
             auxiliaryTopRightMinX: housing.rightMinX,
-            contentWidth: homeSize.width,
-            contentHeight: homeSize.heightBelowHousing
+            contentWidth: compactSize.width,
+            contentHeight: compactSize.heightBelowHousing
            ) {
             return pixelAlign(hardwareFrame, on: screen)
         }
         return pixelAlign(
             NotchLayoutMath.fallbackCompactChatFrame(
                 screenFrame: screen.frame,
-                contentWidth: homeSize.width,
-                contentHeight: homeSize.heightBelowHousing
+                contentWidth: compactSize.width,
+                contentHeight: compactSize.heightBelowHousing
             ),
             on: screen
         )
@@ -872,9 +915,17 @@ final class NotchCompanionController {
             occludedTopInset: occludedTopInset,
             layoutSize: layoutSize,
             hardwareNotchWidth: hardwareNotchWidthForCurrentScreen(),
+            fullChatSection: fullChatSection,
             transitionModel: surfaceTransitionModel,
             onClose: { [weak self] in self?.collapseAndUnpin() },
-            onResizeBegan: { [weak self] in self?.resizeBaseline = self?.homeSize },
+            onResizeBegan: { [weak self] in
+                guard let self else { return }
+                resizeBaseline = presentedSurface == .fullChat ? chatSize : homeSize
+                // A fast drag leaves the card; resizing must not read as
+                // the pointer moving away.
+                cancelPendingGraceCollapse()
+                isPinned = true
+            },
             onResizeChanged: { [weak self] edge, translation in
                 self?.applyHomeResize(edge: edge, translation: translation)
             },
@@ -982,6 +1033,9 @@ final class NotchCompanionController {
     /// auto-collapses again.
     private func expandAfterHover() {
         guard !isExpanded, !isTransitioning else { return }
+        // The attached panel's neck sits over the notch, so crossing it
+        // must not pop the card on top of the panel.
+        if companionManager?.isAttachedDesktopPanelVisible == true { return }
         // Deliberately does NOT kick off connector restore. A hover is often
         // just a cursor crossing the notch on its way somewhere else, and a
         // password panel is far too heavy an answer to that. Restore waits
@@ -1053,6 +1107,9 @@ final class NotchCompanionController {
         // continuous liquid glass expand.
         frameAnimator.cancel()
         guard let companionManager else { return }
+        // One thing hangs from the notch at a time: opening the card on
+        // purpose folds the attached panel.
+        companionManager.foldAttachedDesktopPanel()
         guard let targetScreen = targetScreen(),
               let destinationFrame = frame(for: surface, screen: targetScreen) else { return }
 
@@ -1076,6 +1133,8 @@ final class NotchCompanionController {
         presentedSurface = surface
         isExpanded = true
         isTransitioning = true
+        // Only a deliberate open makes a sound; hover-peeks stay silent.
+        if pinned { UISoundPlayer.shared.play(.panelOpen) }
         installDismissalMonitors()
 
         if expandedPanel == nil {
@@ -1157,6 +1216,7 @@ final class NotchCompanionController {
     /// collapse.
     private func collapseAndUnpin(animated: Bool = true) {
         cancelScheduledTransitions()
+        let wasPinned = isPinned
         isPinned = false
         isPillHovered = false
 
@@ -1176,6 +1236,7 @@ final class NotchCompanionController {
 
         isTransitioning = true
         surfaceTransitionModel.dismiss()
+        if wasPinned { UISoundPlayer.shared.play(.panelClose) }
 
         // Shrink the real window back toward the pill's own frame, same
         // technique as the expand — a real collapse, not a shape morph.
@@ -1330,6 +1391,9 @@ final class NotchCompanionController {
                     // other HeyMate panel sitting under the pointer.
                     let clickLocation = NSEvent.mouseLocation
                     if self.expandedPanel?.frame.contains(clickLocation) == true { return }
+                    // The full chat is a place you work in, like a window:
+                    // it stays until Escape or its close button.
+                    if self.presentedSurface == .fullChat { return }
                     self.collapseAndUnpin()
                 }
             }

@@ -143,7 +143,7 @@ struct UISnapshotTests {
         try Self.render(
             NotchExpandedView(
                 companionManager: manager,
-                occludedTopInset: 0,
+                occludedTopInset: 38,
                 layoutSize: size,
                 hardwareNotchWidth: 200,
                 transitionModel: transition,
@@ -153,6 +153,16 @@ struct UISnapshotTests {
             size: size,
             dark: true,
             name: "notch-home"
+        )
+        try Self.render(
+            NotchMicroAppsView(companionManager: manager)
+                .background(Color.black),
+            size: CGSize(
+                width: NotchLayoutMath.expandedWidth,
+                height: NotchLayoutMath.expandedHeight - NotchControlMetrics.bottomBarHeight
+            ),
+            dark: true,
+            name: "notch-tools"
         )
     }
 
