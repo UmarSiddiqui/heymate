@@ -52,6 +52,16 @@ final class HeyMateDesktopWindowController: NSObject, NSWindowDelegate {
 
     var isVisible: Bool { window?.isVisible == true }
 
+    /// True while the panel hanging from the notch is on screen.
+    var isAttachedPanelVisible: Bool { (window as? AttachedDesktopPanel)?.isVisible == true }
+
+    /// The attached panel and the notch card share the notch, so only one
+    /// is open at a time. A detached window is left alone.
+    func foldAttachedPanel() {
+        guard let panel = window as? AttachedDesktopPanel, panel.isVisible else { return }
+        panel.close()
+    }
+
     // MARK: Presentation
 
     func show(initialSection: DesktopSection = .chat) {

@@ -29,6 +29,7 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
     case notch
     case accounts
     case agents
+    case permissions
     case privacy
 
     /// UserDefaults key holding the selected section's raw value.
@@ -57,6 +58,7 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
         case .notch: return "Notch"
         case .accounts: return "AI & Accounts"
         case .agents: return "Agents & Control"
+        case .permissions: return "Permissions"
         case .privacy: return "Privacy & Data"
         }
     }
@@ -76,6 +78,9 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
             return "Which AI answers you, and how hard it thinks."
         case .agents:
             return "Agents that work on their own, and what HeyMate may do on this Mac."
+            return "The apps and services every agent can use, and the keys behind them."
+        case .permissions:
+            return "What macOS lets HeyMate do, and how to fix it when something stops working."
         case .privacy:
             return "What HeyMate sees, what it keeps, and how to erase it."
         }
@@ -89,6 +94,7 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
         case .notch: return "rectangle.topthird.inset.filled"
         case .accounts: return "sparkles"
         case .agents: return "cursorarrow.click.2"
+        case .permissions: return "lock.shield"
         case .privacy: return "hand.raised"
         }
     }
@@ -97,7 +103,7 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .general, .shortcuts, .voice, .notch: return .heyMate
         case .accounts, .agents: return .intelligence
-        case .privacy: return .privacy
+        case .permissions, .privacy: return .privacy
         }
     }
 }
@@ -183,6 +189,11 @@ enum SettingsItem: String, CaseIterable, Identifiable {
     case backgroundAppControl
     case behaviorContract
 
+
+    // Permissions
+    case permissionList
+    case repairShortcuts
+
     // Privacy & Data
     case excludedApps
     case screenRecordings
@@ -211,6 +222,8 @@ enum SettingsItem: String, CaseIterable, Identifiable {
             return .accounts
         case .agentSignIn, .projectFolder, .computerControl, .backgroundAppControl, .behaviorContract:
             return .agents
+        case .permissionList, .repairShortcuts:
+            return .permissions
         case .excludedApps, .screenRecordings, .saveChats, .memories, .whatLeavesThisMac, .eraseData:
             return .privacy
         }
@@ -262,6 +275,8 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .computerControl: return "Let HeyMate use this Mac"
         case .backgroundAppControl: return "Background app control"
         case .behaviorContract: return "Honesty and safety rules"
+        case .permissionList: return "Permissions"
+        case .repairShortcuts: return "Repair keyboard shortcuts"
         case .excludedApps: return "Never capture these apps"
         case .screenRecordings: return "Show in screen recordings"
         case .saveChats: return "Save chats on this Mac"
@@ -317,6 +332,8 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .computerControl: return "computer use accessibility automation click type control"
         case .backgroundAppControl: return "cua driver background"
         case .behaviorContract: return "behavior contract rules honesty safety edit"
+        case .permissionList: return "permission allow accessibility input monitoring screen recording microphone speech notifications calendar contacts"
+        case .repairShortcuts: return "control option ctrl opt hotkey shortcut keyboard not working input monitoring reset repair"
         case .excludedApps: return "exclude bundle id password manager screenshot capture block"
         case .screenRecordings: return "screenshot share screen hide recording zoom"
         case .saveChats: return "chat history conversations remember save"

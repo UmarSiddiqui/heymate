@@ -615,6 +615,10 @@ final class CompanionManager: ObservableObject {
 
     var isDesktopWindowVisible: Bool { desktopWindowController.isVisible }
 
+    var isAttachedDesktopPanelVisible: Bool { desktopWindowController.isAttachedPanelVisible }
+
+    func foldAttachedDesktopPanel() { desktopWindowController.foldAttachedPanel() }
+
     func closeDesktopWindow() {
         if desktopWindowController.isVisible { desktopWindowController.toggle() }
     }
@@ -824,6 +828,7 @@ final class CompanionManager: ObservableObject {
         guard let proposal = standingOrderProposal else { return }
         standingOrderProposal = nil
         notchActivityCenter.agentActivity = nil
+        UISoundPlayer.shared.play(.thumbsUp)
         startSandboxAgent(prompt: proposal.task, brief: .standingOrder)
     }
 
@@ -1879,6 +1884,12 @@ final class CompanionManager: ObservableObject {
     /// True when Accessibility, Screen Recording, and Microphone are granted.
     /// Screen Content is requested automatically after Screen Recording — it
     /// is not a fourth setup gate.
+    /// Accessibility and Input Monitoring: without either one, ⌃⌥ and the
+    /// other global shortcuts hear nothing.
+    var keyboardShortcutPermissionsGranted: Bool {
+        MacPermissions.hasAccessibilityPermission() && MacPermissions.hasInputMonitoringPermission()
+    }
+
     var allPermissionsGranted: Bool {
         MacPermissions.requiredPermissionsAreGranted(
             hasAccessibility: hasAccessibilityPermission,
@@ -2389,6 +2400,7 @@ final class CompanionManager: ObservableObject {
         ))
         session.updatedAt = Date()
         currentChat = session
+        UISoundPlayer.shared.play(.messageReceived)
         let captionText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         streamingAssistantText = ""
         lingerCursorCaption(captionText)
@@ -2711,9 +2723,12 @@ final class CompanionManager: ObservableObject {
         composioRetryTask = nil
     }
 
+    private let floatingAgentWindowController = FloatingAgentWindowController()
+
     func start() {
+        floatingAgentWindowController.start(manager: self)
         refreshAllPermissions()
-        HeyMateLog.log("🔑 HeyMate start — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
+        HeyMateLog.log("🔑 HeyMate start — accessibility: \(hasAccessibilityPermission), inputMonitoring: \(MacPermissions.hasInputMonitoringPermission()), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
         startPermissionPolling()
         bindVoiceStateObservation()
         bindAudioPowerLevel()
@@ -2734,6 +2749,7 @@ final class CompanionManager: ObservableObject {
         UISoundPlayer.shared.warmUp()
         systemOverlayYield.onYieldChange = { [weak self] yielded in
             self?.overlayWindowManager.setYielded(yielded)
+            self?.floatingAgentWindowController.setYielded(yielded)
         }
         systemOverlayYield.start()
         // Load skill files + refresh the published memory snapshot. Bundled
@@ -2756,6 +2772,10 @@ final class CompanionManager: ObservableObject {
                 try? await Task.sleep(for: .milliseconds(600))
                 self?.openWelcomeTour()
             }
+        } else if !keyboardShortcutPermissionsGranted {
+            // Without these, ⌃⌥ silently does nothing, so the notch
+            // opens once per launch to say why.
+            notchCompanionController.expandPinned()
         }
         // Catalogs load immediately. When an update is due, they reload after
         // Claude, Codex, and OpenCode finish so the new models show.
@@ -2786,6 +2806,8 @@ final class CompanionManager: ObservableObject {
     }
 
     func stop() {
+        floatingAgentWindowController.stop()
+        mateRoutineScheduler.stop()
         stopExternalControlBridge()
         setKeyboardShortcutsListening(false)
         voiceDictation.cancel()
@@ -4978,6 +5000,7 @@ final class CompanionManager: ObservableObject {
 
     /// Per-tool approval inside a running attached job.
     func approveAgent(runID: UUID) {
+        UISoundPlayer.shared.play(.thumbsUp)
         agentLauncher.resolveApproval(runID: runID, approve: true)
     }
 
@@ -4997,6 +5020,7 @@ final class CompanionManager: ObservableObject {
                 skillsRoot: skillsRoot
             )
         }
+        UISoundPlayer.shared.play(.thumbsUp)
         agentLauncher.approvePlan(runID: runID)
     }
 
@@ -5008,6 +5032,7 @@ final class CompanionManager: ObservableObject {
 
     /// Throw the job away. Nothing was written, so there is nothing to undo.
     func dismissAgentPlan(runID: UUID) {
+        UISoundPlayer.shared.play(.jobClosed)
         agentLauncher.dismissPlan(runID: runID)
     }
 
@@ -5494,8 +5519,11 @@ extension CompanionManager {
         guard let mate = mateForHarnessWork(named: name) else {
             return ("No mate named \(name).", true)
         }
-        if let run = latestContinuableRun(for: mate.id), sendAgentFollowUp(runID: run.id, instruction: message) {
-            return ("Sent that to \(mate.name).", false)
+        if let run = latestContinuableRun(for: mate.id) {
+            guard sendAgentFollowUp(runID: run.id, instruction: message) else {
+                return ("Couldn't deliver update to \(mate.name)'s existing job.", true)
+            }
+            return (agentLauncher.followUpDeliverySummary(runID: run.id), false)
         }
         return harnessOutcomeMessage(beginMateWork(
             task: message,
@@ -5520,7 +5548,7 @@ extension CompanionManager {
                     return ("\(mate.name) is waiting on an approval card.", true)
                 case .queued, .planning, .running:
                     if sendAgentFollowUp(runID: runID, instruction: answer) {
-                        return ("Sent that to \(mate.name).", false)
+                        return (agentLauncher.followUpDeliverySummary(runID: runID), false)
                     }
                     return ("Couldn't reach \(mate.name).", true)
                 case .succeeded, .failed, .cancelled:
@@ -5582,7 +5610,11 @@ extension CompanionManager {
               let routine = routines.first(where: { $0.id == turn.routineID }) else {
             return .conversation
         }
-        return .routine(isFirstRun: routine.lastRunAt == nil)
+        return .routine(
+            isFirstRun: routine.lastRunAt == nil,
+            lastRunAt: routine.lastRunAt,
+            lastAttemptDidNotFinish: MateRoutineAccounting.lastAttemptDidNotFinish(routine)
+        )
     }
 
     fileprivate func runningJobNotes() -> [HarnessJobNote] {

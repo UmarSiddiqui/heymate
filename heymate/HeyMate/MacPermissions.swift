@@ -74,6 +74,36 @@ enum MacPermissions {
         return route
     }
 
+    /// After an update, macOS can keep HeyMate's old Input Monitoring entry:
+    /// the switch looks on, but it belongs to the previous build, so the new
+    /// one is refused. Clearing HeyMate's own entry and asking again gives
+    /// the person a fresh prompt for this build. Returns whether the reset ran.
+    @discardableResult
+    static func resetAndRequestInputMonitoring() -> Bool {
+        let didReset = resetPrivacyEntry(service: "ListenEvent")
+        hasPromptedForInputMonitoring = false
+        requestInputMonitoringPermission()
+        if !hasInputMonitoringPermission() { openInputMonitoringSettings() }
+        return didReset
+    }
+
+    /// `tccutil reset <service> <bundle id>`, for HeyMate's own entry only.
+    private static func resetPrivacyEntry(service: String) -> Bool {
+        guard let bundleIdentifier = Bundle.main.bundleIdentifier else { return false }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        process.arguments = ["reset", service, bundleIdentifier]
+        do {
+            try process.run()
+            process.waitUntilExit()
+            HeyMateLog.log("🔑 Reset HeyMate's \(service) entry: exit \(process.terminationStatus)")
+            return process.terminationStatus == 0
+        } catch {
+            HeyMateLog.log("⚠️ Couldn't reset HeyMate's \(service) entry: \(error)")
+            return false
+        }
+    }
+
     static func openInputMonitoringSettings() {
         openPrivacyPane("Privacy_ListenEvent")
     }

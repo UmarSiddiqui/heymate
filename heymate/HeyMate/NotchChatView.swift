@@ -34,6 +34,20 @@ final class NotchSurfaceTransitionModel: ObservableObject {
     @Published private(set) var morphContentBlur: CGFloat = NotchLayoutMath.contentRevealMaxBlur
     @Published private(set) var morphContentScale: CGFloat = NotchLayoutMath.contentRevealMinScale
 
+    /// The size the surface lays out at after the person drags an edge.
+    /// Surfaces are built at their open size so the grow animation clips
+    /// rather than reflows; a live resize has to reach them through here.
+    @Published var resizedLayoutSize: CGSize?
+
+    /// The size a surface built for `layoutSize` should lay out at now.
+    func effectiveLayoutSize(_ layoutSize: CGSize, viewport: CGSize) -> CGSize {
+        let size = resizedLayoutSize ?? layoutSize
+        return CGSize(
+            width: size.width > 0 ? size.width : viewport.width,
+            height: size.height > 0 ? size.height : viewport.height
+        )
+    }
+
     /// Expand and collapse share the morph math but not the feel: expand
     /// eases out and fades content in late, collapse eases in and fades
     /// content out early. `present`/`dismiss` record which way the clock
@@ -47,6 +61,7 @@ final class NotchSurfaceTransitionModel: ObservableObject {
         transaction.disablesAnimations = true
         withTransaction(transaction) {
             isPresented = false
+            resizedLayoutSize = nil
             morphCardness = 0
             morphContentOpacity = 0
             morphBezelOpacity = 1
@@ -199,6 +214,9 @@ struct NotchLiquidGlassCardModifier: ViewModifier {
 enum NotchPresentedSurface: Equatable {
     case fullCard
     case compactChat
+    /// The whole chat, rail and all, grown out of the notch. This is where
+    /// "open chat" lands instead of a separate window.
+    case fullChat
     case connectorSuggestion
 }
 
@@ -210,6 +228,7 @@ struct NotchSurfaceRoot: View {
     var occludedTopInset: CGFloat = 0
     var layoutSize: CGSize = .zero
     var hardwareNotchWidth: CGFloat = 0
+    var fullChatSection: DesktopSection = .chat
     @ObservedObject var transitionModel: NotchSurfaceTransitionModel
     var onClose: () -> Void
     var onResizeBegan: () -> Void
@@ -230,6 +249,7 @@ struct NotchSurfaceRoot: View {
         occludedTopInset: CGFloat = 0,
         layoutSize: CGSize = .zero,
         hardwareNotchWidth: CGFloat = 0,
+        fullChatSection: DesktopSection = .chat,
         transitionModel: NotchSurfaceTransitionModel,
         onClose: @escaping () -> Void,
         onResizeBegan: @escaping () -> Void = {},
@@ -241,6 +261,7 @@ struct NotchSurfaceRoot: View {
         self.occludedTopInset = occludedTopInset
         self.layoutSize = layoutSize
         self.hardwareNotchWidth = hardwareNotchWidth
+        self.fullChatSection = fullChatSection
         self.transitionModel = transitionModel
         self.onClose = onClose
         self.onResizeBegan = onResizeBegan
@@ -288,13 +309,15 @@ struct NotchSurfaceRoot: View {
                 transitionModel: transitionModel,
                 onClose: onClose
             )
-        case .compactChat:
+        case .compactChat, .fullChat:
             NotchCompactChatCard(
                 companionManager: companionManager,
                 occludedTopInset: occludedTopInset,
                 layoutSize: layoutSize,
                 hardwareNotchWidth: hardwareNotchWidth,
                 transitionModel: transitionModel,
+                isFullChat: surface == .fullChat,
+                fullChatSection: fullChatSection,
                 onClose: onClose
             )
         case .connectorSuggestion:
@@ -371,8 +394,9 @@ struct NotchConnectorSuggestionCard: View {
 
     var body: some View {
         GeometryReader { viewport in
-            let contentWidth = layoutSize.width > 0 ? layoutSize.width : viewport.size.width
-            let contentHeight = layoutSize.height > 0 ? layoutSize.height : viewport.size.height
+            let size = transitionModel.effectiveLayoutSize(layoutSize, viewport: viewport.size)
+            let contentWidth = size.width
+            let contentHeight = size.height
 
             suggestionBody
                 .frame(width: contentWidth, height: contentHeight, alignment: .top)
@@ -512,19 +536,23 @@ struct NotchConnectorSuggestionCard: View {
     }
 }
 
-/// Minimal notch expansion: chat transcript + composer, no Home chrome.
+/// Chat grown out of the notch. Compact is transcript + composer; full is
+/// the same chat the desktop window used to hold, rail included.
 struct NotchCompactChatCard: View {
     @ObservedObject var companionManager: CompanionManager
     var occludedTopInset: CGFloat = 0
     var layoutSize: CGSize = .zero
     var hardwareNotchWidth: CGFloat = 0
     @ObservedObject var transitionModel: NotchSurfaceTransitionModel
+    var isFullChat = false
+    var fullChatSection: DesktopSection = .chat
     var onClose: () -> Void
 
     var body: some View {
         GeometryReader { viewport in
-            let contentWidth = layoutSize.width > 0 ? layoutSize.width : viewport.size.width
-            let contentHeight = layoutSize.height > 0 ? layoutSize.height : viewport.size.height
+            let size = transitionModel.effectiveLayoutSize(layoutSize, viewport: viewport.size)
+            let contentWidth = size.width
+            let contentHeight = size.height
 
             compactBody
                 .frame(width: contentWidth, height: contentHeight, alignment: .top)
@@ -545,15 +573,26 @@ struct NotchCompactChatCard: View {
         VStack(spacing: 0) {
             Spacer(minLength: occludedTopInset)
 
-            MateHomeView(
-                companionManager: companionManager,
-                isCompactLayout: true,
-                onOpenSection: { section in
-                    companionManager.openDesktopWindow(section: section)
-                },
-                onClose: onClose,
-                shouldFocusComposerOnAppear: true
-            )
+            Group {
+                if isFullChat {
+                    // The whole workspace: chat, Integrations, Settings.
+                    DesktopRootView(
+                        companionManager: companionManager,
+                        initialSection: fullChatSection,
+                        onClose: onClose
+                    )
+                } else {
+                    MateHomeView(
+                        companionManager: companionManager,
+                        isCompactLayout: true,
+                        onOpenSection: { section in
+                            companionManager.openDesktopWindow(section: section)
+                        },
+                        onClose: onClose,
+                        shouldFocusComposerOnAppear: true
+                    )
+                }
+            }
             .frame(maxHeight: .infinity, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -150,6 +150,17 @@ struct MateRoutineScheduleTests {
         #expect(MateRoutineAccounting.isDue(archived, now: Date.distantFuture) == false)
     }
 
+    @Test func unfinishedRunsAreFlaggedForTheNextOne() {
+        let clean = sample(failures: 0)
+        #expect(!MateRoutineAccounting.lastAttemptDidNotFinish(clean))
+        #expect(MateRoutineAccounting.lastAttemptDidNotFinish(sample(failures: 1)))
+        let interrupted = MateRoutineAccounting.recordInterrupted(clean, now: clean.nextRunAt, calendar: calendar)
+        #expect(MateRoutineAccounting.lastAttemptDidNotFinish(interrupted))
+        let succeeded = MateRoutineAccounting.recordSuccess(interrupted, now: interrupted.nextRunAt,
+                                                            calendar: calendar, status: "Done.")
+        #expect(!MateRoutineAccounting.lastAttemptDidNotFinish(succeeded))
+    }
+
     @Test func routineMessagePrefixesTheTask() {
         #expect(
             MateRoutineMessage.format(task: "Check inbox", outcome: "3 new.")
@@ -213,6 +224,47 @@ struct MateRoutineSchedulerTests {
         #expect(runner.failures.count == 1)
     }
 
+    @Test func networkRecoveryRetriesDueWorkWithoutWaitingForTheTimer() {
+        let runner = FakeRoutineRunner(routines: [dueRoutine()])
+        let network = FakeMateNetwork(hasUsableNetwork: false)
+        let scheduler = MateRoutineScheduler(network: network, wake: FakeMateWake())
+        scheduler.owner = runner
+        scheduler.start()
+        defer { scheduler.stop() }
+        #expect(runner.started.isEmpty)
+        #expect(runner.waitingIDs.count == 1)
+        network.hasUsableNetwork = true
+        network.onUsableNetwork?()
+        #expect(runner.started.count == 1)
+        #expect(runner.failures.isEmpty)
+    }
+
+    @Test func stopCleansSourcesAndRejectsOldCallbacksAfterRestart() {
+        let runner = FakeRoutineRunner(routines: [dueRoutine()])
+        let network = FakeMateNetwork(hasUsableNetwork: true)
+        let wake = FakeMateWake()
+        let scheduler = MateRoutineScheduler(network: network, wake: wake)
+        scheduler.owner = runner
+        scheduler.start()
+        let oldNetwork = network.onUsableNetwork
+        let oldWake = wake.onWake
+        #expect(runner.started.count == 1)
+        scheduler.stop()
+        #expect(network.stops == 1)
+        #expect(wake.stops == 1)
+        oldNetwork?()
+        oldWake?()
+        #expect(runner.started.count == 1)
+        scheduler.start()
+        defer { scheduler.stop() }
+        #expect(runner.started.count == 2)
+        oldNetwork?()
+        oldWake?()
+        #expect(runner.started.count == 2)
+        wake.onWake?()
+        #expect(runner.started.count == 3)
+    }
+
     private func dueRoutine() -> MateRoutine {
         MateRoutine(
             id: UUID(),
@@ -262,12 +314,20 @@ private final class FakeRoutineRunner: MateRoutineRunning {
 private final class FakeMateNetwork: MateNetworkMonitoring {
     var hasUsableNetwork: Bool
     init(hasUsableNetwork: Bool) { self.hasUsableNetwork = hasUsableNetwork }
-    func start() {}
+    var onUsableNetwork: (@MainActor @Sendable () -> Void)?
+    var stops = 0
+    func start(onUsableNetwork: @escaping @MainActor @Sendable () -> Void) {
+        self.onUsableNetwork = onUsableNetwork
+    }
+    func stop() { stops += 1; onUsableNetwork = nil }
 }
 
 @MainActor
 private final class FakeMateWake: MateWakeSource {
-    func start(onWake: @escaping () -> Void) {}
+    var onWake: (() -> Void)?
+    var stops = 0
+    func start(onWake: @escaping () -> Void) { self.onWake = onWake }
+    func stop() { stops += 1; onWake = nil }
 }
 
 struct MateRoutineEditingTests {

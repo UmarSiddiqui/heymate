@@ -117,6 +117,7 @@ extension CompanionManager: MateRoutineRunning {
         if let starter { firstChat.firstMoment?.starter = starter }
         if rememberConversationsEnabled { chatHistoryStore.upsert(firstChat) }
         syncMatePublications()
+        UISoundPlayer.shared.play(.hatching)
         if opensChat {
             openMate(id: mate.id)
             currentChat = firstChat
@@ -321,6 +322,7 @@ extension CompanionManager: MateRoutineRunning {
             MateFaceStore.deleteIfCustom(face)
         }
         guard mateDirectory.deleteMate(id: id) else { return false }
+        UISoundPlayer.shared.play(.levelDown)
         savedChats = rememberConversationsEnabled ? chatHistoryStore.loadAll() : []
         syncMatePublications()
         if viewingDeletedMate {

@@ -180,9 +180,9 @@ struct NotchPillView: View {
         NotchOutlineGlow(color: model.themeColor, cornerRadius: housingCornerRadius)
     }
 
-    /// One hairline under the housing, tinted while a voice interaction is
-    /// live. Previously two stacked overlays; a single rectangle whose color
-    /// interpolates is both cheaper and avoids the double-edge seam.
+    /// One hairline under the housing, only while a voice interaction is
+    /// live or a drop is over the notch. At rest the housing has no edge, so
+    /// it reads as the hardware notch rather than a line across the screen.
     private var bottomHairline: some View {
         Rectangle()
             .fill(hairlineColor)
@@ -194,7 +194,7 @@ struct NotchPillView: View {
         if model.voiceState != .idle {
             return model.themeColor.opacity(0.5)
         }
-        return .white.opacity(model.isHovered ? 0.20 : 0.10)
+        return .clear
     }
 
     /// Slots fade in only once there is real estate to draw them in, so a

@@ -105,6 +105,13 @@ nonisolated enum MateRoutineAccounting {
     static let failurePauseCount = 3
     static let archivedPauseReason = "Paused because this agent is archived."
     static let manualPauseReason = "Paused by you."
+    static let interruptedStatus = "Interrupted. I'll try the next slot."
+
+    /// The previous run failed or was cut off, so it may have done part of
+    /// the work. The next run checks before repeating anything.
+    static func lastAttemptDidNotFinish(_ routine: MateRoutine) -> Bool {
+        routine.consecutiveFailures > 0 || routine.lastStatusMessage == interruptedStatus
+    }
 
     static func isDue(_ routine: MateRoutine, now: Date) -> Bool {
         guard routine.enabled, routine.pausedReason == nil else { return false }
@@ -151,7 +158,7 @@ nonisolated enum MateRoutineAccounting {
     static func recordInterrupted(_ routine: MateRoutine, now: Date, calendar: Calendar) -> MateRoutine {
         var copy = routine
         copy.lastRunAt = now
-        copy.lastStatusMessage = "Interrupted. I'll try the next slot."
+        copy.lastStatusMessage = interruptedStatus
         copy.nextRunAt = routine.schedule.advance(from: routine.nextRunAt, now: now, calendar: calendar)
         return copy
     }

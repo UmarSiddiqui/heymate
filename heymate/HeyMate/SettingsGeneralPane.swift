@@ -16,6 +16,9 @@ struct SettingsGeneralPane: View {
     @ObservedObject private var presencePreferences = AppPresencePreferences.shared
     @ObservedObject private var updateController = AppUpdateController.shared
 
+    @AppStorage(CompanionAppearancePreference.idleAnimationsKey) private var idleAnimations = true
+    @AppStorage(CompanionAppearancePreference.floatingAgentsKey) private var floatingAgents = true
+
     var body: some View {
         SettingsPage(tab: .general, navigation: navigation) {
             appearanceSection
@@ -39,6 +42,14 @@ struct SettingsGeneralPane: View {
             ) {
                 SettingsAccentSwatches(companionManager: companionManager)
             }
+            SettingsDivider()
+            SettingsToggleRow("Idle character animation",
+                              subtitle: "Let live mates breathe and blink. Reduce Motion always takes priority.",
+                              isOn: $idleAnimations)
+            SettingsDivider()
+            SettingsToggleRow("Floating agent cards",
+                              subtitle: "Keep active jobs and approval requests visible on each display.",
+                              isOn: $floatingAgents)
         }
     }
 

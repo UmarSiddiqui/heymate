@@ -131,6 +131,8 @@ struct InteractionSoundAndKeyCapTests {
         #expect(UISoundPlayer.sound(for: .started) == .jobStarted)
         #expect(UISoundPlayer.sound(for: .finished(summary: "ok")) == .jobDone)
         #expect(UISoundPlayer.sound(for: .planReady(text: "plan")) == .jobNeedsYou)
+        #expect(UISoundPlayer.sound(for: .approvalRequested(id: "1", summary: "run")) == .permissionAsk)
+        #expect(UISoundPlayer.sound(for: .failed(message: "boom")) == .surprised)
         #expect(UISoundPlayer.sound(for: .text("chatter")) == nil)
     }
 

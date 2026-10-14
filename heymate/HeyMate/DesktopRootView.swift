@@ -121,9 +121,16 @@ struct DesktopRootView: View {
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
     /// Search and scroll-to-row state shared by the Settings rail and page.
     @StateObject private var settingsNavigation = SettingsNavigationModel()
+    /// Collapses the notch it is hosted in. Nil in a window.
+    var onClose: (() -> Void)?
 
-    init(companionManager: CompanionManager, initialSection: DesktopSection) {
+    init(
+        companionManager: CompanionManager,
+        initialSection: DesktopSection,
+        onClose: (() -> Void)? = nil
+    ) {
         self.companionManager = companionManager
+        self.onClose = onClose
         Self.rememberSettingsTab(for: initialSection)
         _selectedSection = State(initialValue: initialSection.landingSection)
     }
@@ -146,7 +153,9 @@ struct DesktopRootView: View {
                 MateHomeView(
                     companionManager: companionManager,
                     isCompactLayout: false,
-                    onOpenSection: { select($0) }
+                    onOpenSection: { select($0) },
+                    onClose: onClose,
+                    shouldFocusComposerOnAppear: onClose != nil
                 )
                 .navigationTitle("")
             } else {

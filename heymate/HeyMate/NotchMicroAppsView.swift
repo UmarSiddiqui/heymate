@@ -42,7 +42,7 @@ struct NotchMicroAppsView: View {
                     launcherGrid
                 }
             }
-            .frame(width: 220)
+            .frame(width: 200)
 
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 10) {
@@ -56,7 +56,7 @@ struct NotchMicroAppsView: View {
                     }
                 }
             }
-            .frame(width: 196)
+            .frame(maxWidth: .infinity)
 
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 10) {

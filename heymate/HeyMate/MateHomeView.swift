@@ -546,11 +546,7 @@ struct MateHomeView: View {
     }
 
     private func liveFace(_ mate: Mate, size: CGFloat) -> some View {
-        MateFaceView(
-            mate: mate,
-            size: size,
-            expression: MateFaceExpression.live(companionManager.state)
-        )
+        LiveMateFaceView(mate: mate, size: size, manager: companionManager)
     }
 
 
