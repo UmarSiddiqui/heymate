@@ -2658,6 +2658,10 @@ final class CompanionManager: ObservableObject {
 
     private(set) var hasActivatedConnectors = false
     private var connectorActivationTask: Task<Void, Never>?
+    /// One retry of a failed Composio connect at a time, and not on every
+    /// turn while Composio itself is down.
+    private var composioRetryTask: Task<Void, Never>?
+    private var lastComposioRetryAt: Date?
 
     /// Reconnect everything the user had enabled — but not at launch.
     ///
@@ -2686,6 +2690,25 @@ final class CompanionManager: ObservableObject {
     func awaitConnectorActivation() async {
         activateConnectorsIfNeeded()
         await connectorActivationTask?.value
+        await retryComposioIfFailed()
+    }
+
+    /// A Composio connect that failed (usually a tool-list timeout on a cold
+    /// start) is tried again before the next turn, at most every two
+    /// minutes. Without it the model is handed no web apps and tells the
+    /// user it can't reach a Gmail the Integrations page shows as connected.
+    private func retryComposioIfFailed() async {
+        if let composioRetryTask {
+            await composioRetryTask.value
+            return
+        }
+        guard connectorRuntime.composioNeedsRetry else { return }
+        if let lastComposioRetryAt, Date().timeIntervalSince(lastComposioRetryAt) < 120 { return }
+        lastComposioRetryAt = Date()
+        let task = Task { await connectorRuntime.retryComposioIfFailed() }
+        composioRetryTask = task
+        await task.value
+        composioRetryTask = nil
     }
 
     func start() {
