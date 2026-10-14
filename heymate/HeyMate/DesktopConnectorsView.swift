@@ -61,6 +61,9 @@ struct DesktopConnectorsView: View {
         .sheet(item: $connectorAwaitingCommandEntry) { connector in
             launchCommandSheet(for: connector)
         }
+        .disclosureSound(isShowingAPIContractHelp)
+        .disclosureSound(connectorAwaitingKeyEntry != nil)
+        .disclosureSound(connectorAwaitingCommandEntry != nil)
         .sheet(isPresented: $isShowingAPIContractHelp) {
             apiContractHelpSheet
         }
@@ -496,7 +499,7 @@ struct DesktopConnectorsView: View {
             }
 
             if !presetConnectors.isEmpty {
-                DisclosureGroup(isExpanded: $areMCPPresetsExpanded) {
+                DisclosureGroup(isExpanded: $areMCPPresetsExpanded.withDisclosureSound()) {
                     LazyVGrid(
                         columns: [GridItem(.adaptive(minimum: 340), spacing: 12)],
                         spacing: 12

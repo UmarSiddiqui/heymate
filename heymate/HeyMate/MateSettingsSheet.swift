@@ -159,6 +159,7 @@ struct MateSettingsSheet: View {
     private var identityHeader: some View {
         HStack(alignment: .center, spacing: 14) {
             Button {
+                UISoundPlayer.shared.playDisclosure(isOpen: !isShowingLook)
                 withAnimation(DS.Animation.controlSpring) { isShowingLook.toggle() }
             } label: {
                 MateFaceView(mate: preview(selectedFace), size: 64, expression: .idle)

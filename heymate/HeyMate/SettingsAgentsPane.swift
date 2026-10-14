@@ -42,6 +42,7 @@ struct SettingsAgentsPane: View {
             computerControlSection
             behaviorContractSection
         }
+        .disclosureSound(showsBehaviorContractEditor)
         .sheet(isPresented: $showsBehaviorContractEditor) {
             BehaviorContractEditorSheet()
         }

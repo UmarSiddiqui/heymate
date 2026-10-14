@@ -10,6 +10,7 @@
 
 import AppKit
 import AVFoundation
+import SwiftUI
 
 @MainActor
 final class UISoundPlayer {
@@ -84,7 +85,16 @@ final class UISoundPlayer {
     /// mates created at once) plays one cue instead of a pile-up.
     private var activePlayers: [(sound: Sound, player: AVAudioPlayer)] = []
 
-    func play(_ sound: Sound) {
+    /// Volume for expand/collapse of rows, popovers, panes and hover-peeks:
+    /// the same open/close gesture, softer than a deliberate notch open.
+    static let disclosureVolume: Float = 0.28
+
+    /// Open or close sound for anything that expands or collapses.
+    func playDisclosure(isOpen: Bool) {
+        play(isOpen ? .panelOpen : .panelClose, volume: Self.disclosureVolume)
+    }
+
+    func play(_ sound: Sound, volume: Float = 0.5) {
         guard isSoundEnabled else { return }
 
         if Self.answerCues.contains(sound) {
@@ -100,7 +110,7 @@ final class UISoundPlayer {
             HeyMateLog.log("🔇 UISoundPlayer: missing or unplayable sound asset \(sound.rawValue)")
             return
         }
-        player.volume = 0.5
+        player.volume = volume
         activePlayers.append((sound, player))
         player.play()
     }
@@ -127,5 +137,31 @@ final class UISoundPlayer {
         return UserDefaults.standard.object(forKey: CompanionManager.uiSoundPreferenceKey) == nil
             ? true
             : UserDefaults.standard.bool(forKey: CompanionManager.uiSoundPreferenceKey)
+    }
+}
+
+extension View {
+    /// Plays the open or close sound whenever `isOpen` flips: disclosure
+    /// rows, popovers, side panes.
+    func disclosureSound(_ isOpen: Bool) -> some View {
+        onChange(of: isOpen) { _, open in
+            UISoundPlayer.shared.playDisclosure(isOpen: open)
+        }
+    }
+}
+
+extension Binding where Value == Bool {
+    /// The same binding, playing the open or close sound when a control
+    /// (say, a `DisclosureGroup` chevron) flips it.
+    func withDisclosureSound() -> Binding<Bool> {
+        Binding(
+            get: { wrappedValue },
+            set: { newValue in
+                if newValue != wrappedValue {
+                    UISoundPlayer.shared.playDisclosure(isOpen: newValue)
+                }
+                wrappedValue = newValue
+            }
+        )
     }
 }

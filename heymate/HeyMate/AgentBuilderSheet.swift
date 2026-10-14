@@ -216,6 +216,7 @@ struct AgentBuilderSheet: View {
             .pointerCursor()
             .help("Choose a face")
             .accessibilityLabel("Choose a face")
+            .disclosureSound(isPickingFace)
             .popover(isPresented: $isPickingFace, arrowEdge: .bottom) {
                 facePicker(draft.wrappedValue)
             }

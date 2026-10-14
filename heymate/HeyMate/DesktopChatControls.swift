@@ -28,6 +28,7 @@ struct DesktopChatHeader: View {
             Spacer(minLength: 10)
 
             Button {
+                UISoundPlayer.shared.playDisclosure(isOpen: !isShowingHistory)
                 withAnimation(.easeInOut(duration: 0.18)) { isShowingHistory.toggle() }
             } label: {
                 Image(systemName: isShowingHistory ? "bubble.left.and.bubble.right" : "clock.arrow.circlepath")
@@ -56,6 +57,7 @@ struct DesktopChatHeader: View {
             .keyboardShortcut("n", modifiers: .command)
 
             Button {
+                UISoundPlayer.shared.playDisclosure(isOpen: !isShowingInspector)
                 withAnimation(.easeInOut(duration: 0.16)) { isShowingInspector.toggle() }
             } label: {
                 Image(systemName: "sidebar.right")
@@ -200,6 +202,7 @@ struct DesktopConnectorScopeMenu: View {
         .pointerCursor()
         .help("Integrations every agent can use")
         .accessibilityLabel("Integrations: \(compactTitle)")
+        .disclosureSound(isShowingPicker)
         .popover(isPresented: $isShowingPicker, arrowEdge: .top) {
             ConnectorScopePickerPanel(
                 items: connectedItems,
@@ -385,6 +388,7 @@ struct DesktopComposerModelButton: View {
         .buttonStyle(.plain)
         .pointerCursor()
         .help("Choose engine, model, and reasoning effort")
+        .disclosureSound(isShowingModelPicker)
         .popover(isPresented: $isShowingModelPicker, arrowEdge: .bottom) {
             NotchModelPickerPanel(companionManager: companionManager)
                 .frame(width: 430, height: 390)
