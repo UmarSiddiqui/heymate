@@ -719,6 +719,7 @@ struct SettingsDisclosureRow<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
+                UISoundPlayer.shared.playDisclosure(isOpen: !isExpanded)
                 withAnimation(accessibilityReduceMotion ? DS.Animation.reducedMotionFade : DS.Animation.settingsDisclosure) {
                     isExpanded.toggle()
                 }

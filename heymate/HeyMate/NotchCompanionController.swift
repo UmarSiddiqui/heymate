@@ -1133,8 +1133,12 @@ final class NotchCompanionController {
         presentedSurface = surface
         isExpanded = true
         isTransitioning = true
-        // Only a deliberate open makes a sound; hover-peeks stay silent.
-        if pinned { UISoundPlayer.shared.play(.panelOpen) }
+        // Every open makes a sound; hover-peeks are softer than a deliberate open.
+        if pinned {
+            UISoundPlayer.shared.play(.panelOpen)
+        } else {
+            UISoundPlayer.shared.playDisclosure(isOpen: true)
+        }
         installDismissalMonitors()
 
         if expandedPanel == nil {
@@ -1236,7 +1240,11 @@ final class NotchCompanionController {
 
         isTransitioning = true
         surfaceTransitionModel.dismiss()
-        if wasPinned { UISoundPlayer.shared.play(.panelClose) }
+        if wasPinned {
+            UISoundPlayer.shared.play(.panelClose)
+        } else {
+            UISoundPlayer.shared.playDisclosure(isOpen: false)
+        }
 
         // Shrink the real window back toward the pill's own frame, same
         // technique as the expand — a real collapse, not a shape morph.

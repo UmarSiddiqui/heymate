@@ -47,6 +47,7 @@ struct MateHomeView: View {
     @State private var isComposerExpanded = false
     @State private var settingsMate: Mate?
     @State private var isShowingChatHistory = false
+    @State private var showsAllRoutines = false
     @State private var matePendingDelete: Mate?
     @State private var matePendingArchive: Mate?
     @State private var filePendingDelete: String?
@@ -83,6 +84,9 @@ struct MateHomeView: View {
             }
         }
         .background(CelestialAtmosphere())
+        .disclosureSound(isShowingNewMate)
+        .disclosureSound(settingsMate != nil)
+        .disclosureSound(isShowingChatHistory)
         .sheet(isPresented: $isShowingNewMate, onDismiss: { builderSeed = "" }) {
             AgentBuilderSheet(companionManager: companionManager, initialDescription: builderSeed)
         }
@@ -855,6 +859,7 @@ struct MateHomeView: View {
             .help("New chat (⌘N)")
             .accessibilityLabel("New chat")
             Button {
+                UISoundPlayer.shared.playDisclosure(isOpen: !isDrawerOpen)
                 isDrawerOpen.toggle()
             } label: {
                 Image(systemName: "sidebar.right")
@@ -929,6 +934,7 @@ struct MateHomeView: View {
                 .accessibilityHidden(true)
             }
             Button {
+                UISoundPlayer.shared.playDisclosure(isOpen: !isDrawerOpen)
                 withAnimation(DS.Animation.controlSpring) { isDrawerOpen.toggle() }
             } label: {
                 HStack(spacing: 3) {
@@ -2152,7 +2158,7 @@ struct MateHomeView: View {
             ForEach(mine) { routine in
                 routineRow(routine)
             }
-            DisclosureGroup {
+            DisclosureGroup(isExpanded: $showsAllRoutines.withDisclosureSound()) {
                 VStack(alignment: .leading, spacing: 8) {
                     if companionManager.routines.isEmpty {
                         Text("Nothing scheduled.")
