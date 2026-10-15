@@ -4544,7 +4544,12 @@ final class CompanionManager: ObservableObject {
                     connectorDisplayName: connectorDisplayName,
                     toolName: namespacedToolID,
                     argumentsSummary: TalkToolCatalog.argumentsSummary(arguments),
-                    risk: risk
+                    risk: risk,
+                    actions: ConnectorToolCallDescription.actions(
+                        forToolNamed: namespacedToolID,
+                        arguments: arguments,
+                        appNames: composioConnections.records.mapValues(\.displayName)
+                    )
                 )
             )
             guard wasApproved, !Task.isCancelled, responseIsCurrent?() != false else {

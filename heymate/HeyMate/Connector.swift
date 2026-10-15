@@ -93,12 +93,22 @@ enum ConnectorToolRisk: Int, Codable, Comparable, Sendable {
     /// least — so `COMPOSIO_MULTI_EXECUTE_TOOL`, which can run anything, still
     /// stops for a yes.
     static func inferred(forToolNamed toolName: String, ceiling: ConnectorToolRisk) -> ConnectorToolRisk {
-        let tokens = Set(tokenize(toolName))
+        let orderedTokens = tokenize(toolName)
+        var tokens = Set(orderedTokens)
+        // Words like "message" and "post" are nouns after a read verb:
+        // `GMAIL_FETCH_MESSAGE_BY_THREAD_ID` reads a message, it sends
+        // nothing. They still count as sends when they lead the name
+        // (`REPLY_TO_THREAD`) or follow a write (`CREATE_POST` publishes).
+        let firstVerb = orderedTokens.first { allVerbs.contains($0) }
+        if let firstVerb, readVerbs.contains(firstVerb) {
+            tokens.subtract(sendOrNounWords)
+        }
         let inferred: ConnectorToolRisk?
         // Most dangerous first: `list_and_delete` is a delete.
         if !tokens.isDisjoint(with: destructiveVerbs) {
             inferred = .destructive
-        } else if !tokens.isDisjoint(with: externalSideEffectVerbs) {
+        } else if !tokens.isDisjoint(with: externalSideEffectVerbs)
+                    || !tokens.isDisjoint(with: sendOrNounWords) {
             inferred = .externalSideEffect
         } else if !tokens.isDisjoint(with: writeVerbs) {
             inferred = .reversibleWrite
@@ -167,8 +177,11 @@ enum ConnectorToolRisk: Int, Codable, Comparable, Sendable {
         "wipe", "truncate", "uninstall", "disconnect", "cancel", "terminate"
     ]
     private static let externalSideEffectVerbs: Set<String> = [
-        "send", "post", "publish", "share", "email", "message", "invite",
-        "reply", "forward", "notify", "broadcast", "submit", "pay", "charge"
+        "send", "publish", "notify", "broadcast", "submit", "pay", "charge"
+    ]
+    /// Sends when used as a verb, harmless nouns after a read verb.
+    private static let sendOrNounWords: Set<String> = [
+        "post", "share", "email", "message", "invite", "reply", "forward"
     ]
     private static let writeVerbs: Set<String> = [
         "create", "add", "update", "set", "write", "edit", "patch", "upload",
@@ -180,6 +193,12 @@ enum ConnectorToolRisk: Int, Codable, Comparable, Sendable {
         "schemas", "lookup", "count", "query", "check", "status", "info",
         "view", "show", "download", "export", "analytics", "stats", "metrics"
     ]
+
+    private static let allVerbs: Set<String> = destructiveVerbs
+        .union(externalSideEffectVerbs)
+        .union(sendOrNounWords)
+        .union(writeVerbs)
+        .union(readVerbs)
 
     var displayName: String {
         switch self {
