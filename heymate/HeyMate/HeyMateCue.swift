@@ -67,11 +67,11 @@ final class HeyMateCue: ObservableObject {
     var lastCue: HeyMateCueEvent? { recentCues.last }
 
     private let now: () -> Date
-    private let playSound: (UISoundPlayer.Sound) -> Void
+    private let playSound: @MainActor (UISoundPlayer.Sound) -> Void
 
     init(
         now: @escaping () -> Date = Date.init,
-        playSound: @escaping (UISoundPlayer.Sound) -> Void = { UISoundPlayer.shared.play($0) }
+        playSound: @escaping @MainActor (UISoundPlayer.Sound) -> Void = { @MainActor sound in UISoundPlayer.shared.play(sound) }
     ) {
         self.now = now
         self.playSound = playSound
