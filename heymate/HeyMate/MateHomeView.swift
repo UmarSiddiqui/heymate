@@ -27,6 +27,7 @@ struct MateHomeView: View {
     /// Jobs whose plan is open in the chat's job strip.
     @State private var expandedPlanRunIDs: Set<UUID> = []
     @State private var isShowingNewMate = false
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     /// What the builder opens with, when a suggestion started it.
     @State private var builderSeed = ""
     @State private var typedMessageInput = ""
@@ -468,6 +469,7 @@ struct MateHomeView: View {
                         railHeader("Pinned")
                         ForEach(rail.pinned) { mate in
                             mateRow(mate)
+                                .transition(railRowTransition)
                         }
                     }
                     if !suggestedAgents.isEmpty {
@@ -488,19 +490,30 @@ struct MateHomeView: View {
                     }
                     ForEach(rail.others) { mate in
                         mateRow(mate)
+                            .transition(railRowTransition)
                     }
                     if !archivedRail.isEmpty {
                         railHeader("Archived")
                         ForEach(archivedRail) { mate in
                             mateRow(mate)
+                                .transition(railRowTransition)
                         }
                     }
                 }
             .padding(.horizontal, 8)
             .padding(.top, 12)
             .padding(.bottom, 8)
+            .animation(
+                .cueExit(.levelDown, reduceMotion: accessibilityReduceMotion),
+                value: companionManager.mates.map(\.id)
+            )
             }
         }
+    }
+
+    /// A deleted agent slides down and fades with the level-down sound.
+    private var railRowTransition: AnyTransition {
+        .asymmetric(insertion: .identity, removal: .cueExit(.levelDown, reduceMotion: accessibilityReduceMotion))
     }
 
     private var rail: (pinned: [Mate], others: [Mate]) {
@@ -551,6 +564,11 @@ struct MateHomeView: View {
 
     private func liveFace(_ mate: Mate, size: CGFloat) -> some View {
         LiveMateFaceView(mate: mate, size: size, manager: companionManager)
+            .cueMotion(.question, anchor: .bottom)
+            .overlay(alignment: .topTrailing) {
+                CueProp(kind: .questionMark)
+                    .offset(x: 6, y: -8)
+            }
     }
 
 
@@ -789,12 +807,18 @@ struct MateHomeView: View {
 
     private var conversation: some View {
         VStack(spacing: 0) {
+            // After the welcome tour, home comes in a piece per note of
+            // its reveal, with a few sparkles over the top.
             conversationHeader
+                .cueMotion(.homeReveal, part: .item(0))
+                .overlay { CueSparkles(sound: .homeReveal) }
             transcript
+                .cueMotion(.homeReveal, part: .item(1))
             mateJobsStrip
             composer
                 .padding(.horizontal, isCompactLayout ? 12 : 20)
                 .padding(.bottom, isCompactLayout ? 10 : 16)
+                .cueMotion(.homeReveal, part: .item(2))
         }
         .dropDestination(for: URL.self) { urls, _ in
             addImageFiles(urls)
@@ -1000,6 +1024,15 @@ struct MateHomeView: View {
                 // while hidden, so the gap between messages can stay small.
                 VStack(alignment: .leading, spacing: 10) {
                     if let firstMoment = companionManager.currentChat.firstMoment {
+                        // A new agent's first chat opens on its face, which
+                        // hatches when the agent was just made.
+                        if let mate = activeMate {
+                            HatchingReveal(subject: mate.id.uuidString, side: 56) {
+                                MateFaceView(mate: mate, size: 56)
+                            }
+                            .padding(.top, 8)
+                            .accessibilityHidden(true)
+                        }
                         Label(firstMoment.confirmation, systemImage: "checkmark.circle")
                             .font(DS.Fonts.caption)
                             .foregroundColor(DS.Colors.textSecondary)
@@ -1221,8 +1254,17 @@ struct MateHomeView: View {
                                 RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous)
                                     .fill(DS.Colors.helpChatUserBubble)
                             )
+                            .overlay(alignment: .topTrailing) {
+                                CueProp(kind: .paperPlane, bornAt: message.createdAt)
+                                    .offset(x: 4, y: -4)
+                            }
+                            .cueMotion(.messageSent, bornAt: message.createdAt, anchor: .bottomTrailing)
                     } else {
-                        ChatMarkdownText(text: message.text)
+                        CueWordReveal(text: message.text, bornAt: message.createdAt) { visibleWords in
+                            ChatMarkdownText(text: message.text, visibleWordCount: visibleWords)
+                        }
+                        .cueMotion(.messageReceived, bornAt: message.createdAt, anchor: .topLeading)
+                        .cueMotion(.question, part: .item(0), bornAt: message.createdAt, anchor: .topLeading)
                         if let chrome = companionManager.harnessReplyChrome[message.id] {
                             HarnessFollowUpRow(
                                 actions: chrome.nextActions,
@@ -1414,8 +1456,13 @@ struct MateHomeView: View {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(unfinished) { run in
                     mateJobRow(run)
+                        .transition(.asymmetric(
+                            insertion: .identity,
+                            removal: .cueExit(.jobClosed, reduceMotion: accessibilityReduceMotion)
+                        ))
                 }
             }
+            .animation(.cueExit(.jobClosed, reduceMotion: accessibilityReduceMotion), value: unfinished.map(\.id))
             .frame(maxWidth: MateHomeLayout.readingMeasure, alignment: .leading)
             .frame(maxWidth: .infinity)
             .padding(.horizontal, isCompactLayout ? 12 : 20)
@@ -1427,6 +1474,7 @@ struct MateHomeView: View {
         let showsPlan = run.status == .awaitingPlanApproval
             && !run.planText.isEmpty
             && expandedPlanRunIDs.contains(run.id)
+        let cueSubject = run.id.uuidString
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Group {
@@ -1442,6 +1490,7 @@ struct MateHomeView: View {
                 .font(DS.Glyph.small)
                 .foregroundColor(run.status.needsUser ? DS.Colors.warningText : DS.Colors.textSecondary)
                 .frame(width: 18, height: 18)
+                .cueMotion(.jobNeedsYou, subject: cueSubject)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(run.title)
                         .font(DS.Fonts.headline)
@@ -1473,6 +1522,7 @@ struct MateHomeView: View {
                 case .waitingForApproval:
                     Button("Allow") { companionManager.approveAgent(runID: run.id) }
                         .dsCapsuleButtonStyle(.primary, height: DS.ControlSize.small)
+                        .cueMotion(.permissionAsk, part: .prop, subject: cueSubject)
                     Button("Deny") { companionManager.denyAgent(runID: run.id) }
                         .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
                 default:
@@ -1507,6 +1557,16 @@ struct MateHomeView: View {
                     lineWidth: 1
                 )
         )
+        .overlay {
+            CueShimmer(subject: cueSubject)
+                .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous))
+        }
+        .cueGlow(.permissionAsk, subject: cueSubject, cornerRadius: DS.CornerRadius.medium)
+        .overlay(alignment: .topTrailing) {
+            CueProp(kind: .tapback, subject: cueSubject)
+                .offset(x: 6, y: -6)
+        }
+        .cueMotion(.jobStarted, subject: cueSubject)
     }
 
     private func mateJobDetail(_ run: AgentRun) -> String {

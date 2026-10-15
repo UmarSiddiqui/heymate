@@ -273,7 +273,10 @@ struct NotchSurfaceRoot: View {
 
     var body: some View {
         ZStack {
+            // Rides on the frame morph: the content lands with the open's
+            // thump and dims on the close's tap.
             surfaceContent
+                .cueMotion(.panelOpen, .panelClose)
             if surface != .connectorSuggestion {
                 NotchHomeResizeChrome(
                     onBegan: onResizeBegan,
