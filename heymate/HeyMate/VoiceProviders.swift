@@ -5,10 +5,8 @@
 //  Listen (speech-to-text) and Speak (text-to-speech) choices for the
 //  Models settings page. Independent of the brain (Claude / OpenCode).
 //
-//  Three tiers each way:
-//  - ElevenLabs: best quality, needs the user's own ElevenLabs key
-//  - On-device: Parakeet / Kokoro, an optional one-time download
-//  - Mac: Apple Speech / the best installed Mac voice, always there, the fallback
+//  Local voice is the default. ElevenLabs is optional under Advanced.
+//  Retired Mac raw values remain readable for preference migration.
 //
 
 import Foundation
@@ -49,13 +47,13 @@ enum VoiceListenProvider: String, CaseIterable, Hashable {
         for candidateRawValue in [storedRawValue, bundleRawValue] {
             guard let normalizedRawValue = candidateRawValue?.lowercased() else { continue }
             if let provider = VoiceListenProvider(rawValue: normalizedRawValue) {
-                return provider
+                return provider == .apple ? .onDevice : provider
             }
             if retiredRawValues.contains(normalizedRawValue) {
                 return .elevenLabs
             }
         }
-        return .apple
+        return .onDevice
     }
 
     static func fromUserDefaults() -> VoiceListenProvider {
@@ -102,13 +100,13 @@ enum VoiceSpeakProvider: String, CaseIterable, Hashable {
     ) -> VoiceSpeakProvider {
         if let storedRawValue,
            let stored = VoiceSpeakProvider(rawValue: storedRawValue.lowercased()) {
-            return stored
+            return stored == .macOS ? .onDevice : stored
         }
         if let bundleRawValue,
            let bundle = VoiceSpeakProvider(rawValue: bundleRawValue.lowercased()) {
-            return bundle
+            return bundle == .macOS ? .onDevice : bundle
         }
-        return .macOS
+        return .onDevice
     }
 
     static func fromUserDefaults() -> VoiceSpeakProvider {

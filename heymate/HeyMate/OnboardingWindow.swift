@@ -592,8 +592,7 @@ struct OnboardingRevealStep: View {
 
 // MARK: - Voice
 
-/// "How should I sound?": the Mac voice now, the on-device voice after a
-/// download, or no voice at all.
+/// Local voice downloads at launch; the tour can continue while it prepares.
 struct OnboardingVoiceStep: View {
     @ObservedObject var tour: OnboardingTour
     @ObservedObject private var store = OnDeviceVoiceModelStore.shared
@@ -602,100 +601,23 @@ struct OnboardingVoiceStep: View {
         OnboardingStepFrame(
             title: "How should I sound?",
             subtitle: store.speakState.isInstalled
-                ? "My on-device voice is ready. Tap a voice to hear it."
-                : "Right now I use your Mac's built-in voice. Download my on-device voice and I'll sound like a person. It runs privately on this Mac."
+                ? "My local voice is ready. Tap a voice to hear it."
+                : "My local voice downloads automatically. Keep going while it gets ready."
         ) {
-            if store.speakState.isInstalled {
-                OnDeviceVoiceGrid()
-                    .frame(maxWidth: 560)
-            } else {
-                HStack(alignment: .top, spacing: 12) {
-                    choiceCard(
-                        title: "Mac voice",
-                        detail: "Works now. A bit robotic.",
-                        symbol: "desktopcomputer",
-                        isSelected: !tour.prefersTyping && !store.isDownloading,
-                        sample: .mac,
-                        onDownload: nil
-                    )
-                    if store.isSupportedOnThisMac {
-                        choiceCard(
-                            title: "On-device voice",
-                            detail: "Natural, free, private. " + OnDeviceVoiceModelStore.approximateDownloadSizeDescription.capitalizedFirst + ".",
-                            symbol: "sparkles",
-                            isSelected: store.isDownloading,
-                            sample: .onDevice,
-                            onDownload: store.isDownloading ? nil : { tour.downloadOnDeviceVoice() }
-                        )
-                    }
-                }
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 520)
-            }
-
+            OnDeviceVoiceGrid()
+                .frame(maxWidth: 560)
+            OnDeviceVoiceDownloadRow(companionManager: tour.companionManager, isCompact: true)
             Button {
                 tour.setPrefersTyping(!tour.prefersTyping)
             } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: tour.prefersTyping ? "checkmark.square.fill" : "square")
-                        .foregroundColor(tour.prefersTyping ? DS.Colors.accent : DS.Colors.textTertiary)
-                    Text("I'd rather type. No voice.")
-                        .foregroundColor(DS.Colors.textSecondary)
-                }
-                .font(DS.Fonts.body)
+                Label("I'd rather type. No voice.", systemImage: tour.prefersTyping ? "checkmark.square.fill" : "square")
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .font(DS.Fonts.body)
             }
             .buttonStyle(.plain)
             .pointerCursor()
-            .help("HeyMate stays quiet and you type. You can change this in Settings › Talk & Voice.")
+            .help("HeyMate stays quiet and you type. Change this in Settings › Voice › Advanced.")
         }
-    }
-
-    private func choiceCard(
-        title: String,
-        detail: String,
-        symbol: String,
-        isSelected: Bool,
-        sample: OnboardingTour.VoiceSample,
-        onDownload: (() -> Void)?
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: symbol)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(isSelected ? DS.Colors.accent : DS.Colors.textSecondary)
-                Text(title)
-                    .font(DS.Fonts.headline)
-                    .foregroundColor(DS.Colors.textPrimary)
-            }
-            Text(detail)
-                .font(DS.Fonts.caption)
-                .foregroundColor(DS.Colors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxHeight: .infinity, alignment: .topLeading)
-            HStack(spacing: 8) {
-                Button {
-                    if sample == .mac { tour.playMacSample() } else { tour.playOnDeviceSample() }
-                } label: {
-                    Label(tour.playingSample == sample ? "Playing…" : "Hear it",
-                          systemImage: tour.playingSample == sample ? "waveform" : "play.fill")
-                }
-                .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)
-                if let onDownload {
-                    Button("Download", action: onDownload)
-                        .dsCapsuleButtonStyle(.primary, height: DS.ControlSize.small)
-                }
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(DS.Colors.surface2.opacity(isSelected ? 1 : 0.6))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(isSelected ? DS.Colors.accent : DS.Colors.borderSubtle, lineWidth: isSelected ? 2 : 1)
-        )
     }
 }
 

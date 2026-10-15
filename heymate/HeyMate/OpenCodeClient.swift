@@ -230,7 +230,8 @@ final class OpenCodeClient: VisionConversationClient {
                         providerID: currentProviderID,
                         providerName: providerName,
                         modelID: modelID,
-                        modelName: modelName.isEmpty ? "\(providerName) · \(modelID)" : modelName
+                        modelName: modelName.isEmpty ? "\(providerName) · \(modelID)" : modelName,
+                        isFree: Self.hasZeroCost(modelDictionary)
                     ))
                 }
             } else if let modelsArray = provider["models"] as? [[String: Any]] {
@@ -242,12 +243,20 @@ final class OpenCodeClient: VisionConversationClient {
                         providerID: currentProviderID,
                         providerName: providerName,
                         modelID: modelID,
-                        modelName: modelName.isEmpty ? "\(providerName) · \(modelID)" : modelName
+                        modelName: modelName.isEmpty ? "\(providerName) · \(modelID)" : modelName,
+                        isFree: Self.hasZeroCost(modelDictionary)
                     ))
                 }
             }
         }
         return models
+    }
+
+    static func hasZeroCost(_ model: [String: Any]?) -> Bool {
+        guard let cost = model?["cost"] as? [String: Any],
+              let input = cost["input"] as? NSNumber,
+              let output = cost["output"] as? NSNumber else { return false }
+        return input.doubleValue == 0 && output.doubleValue == 0
     }
 
     // MARK: - Private Request Helpers

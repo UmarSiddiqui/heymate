@@ -125,6 +125,13 @@ struct OpenCodeSettingsRows: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            SettingsRow("Set up OpenCode", subtitle: companionManager.openCodeSetupStatusText ?? "Installs OpenCode if needed and starts it on this Mac.") {
+                HStack {
+                    Button("Set up OpenCode") { companionManager.beginOpenCodeSetup(freeModelsOnly: false) }
+                    Button("Use free models") { companionManager.beginOpenCodeSetup(freeModelsOnly: true) }
+                }
+                .disabled(companionManager.isOpenCodeSetupInFlight)
+            }
             SettingsRow("OpenCode address", subtitle: connectionSubtitle) {
                 HStack(spacing: DS.Spacing.xs) {
                     SettingsRefreshButton(
@@ -148,8 +155,8 @@ struct OpenCodeSettingsRows: View {
             if companionManager.openCodeModels.isEmpty {
                 SettingsEmptyRow(
                     text: companionManager.isOpenCodeServerReachable == false
-                        ? "OpenCode isn't running on this Mac. Start it with `opencode serve` in Terminal, then refresh."
-                        : "No models yet. Start OpenCode with `opencode serve` in Terminal.",
+                        ? "OpenCode isn't running. Choose Set up OpenCode to install and start it."
+                        : "No models yet. Choose Set up OpenCode to get started.",
                     systemImage: "terminal"
                 )
             } else {
@@ -480,7 +487,6 @@ struct OnDeviceVoiceDownloadRow: View {
     /// Onboarding shows a shorter, friendlier version.
     var isCompact = false
 
-    @State private var isConfirmingRemoval = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
@@ -512,23 +518,13 @@ struct OnDeviceVoiceDownloadRow: View {
                 SettingsInlineHelp(failure, tone: .attention)
             }
         }
-        .confirmationDialog(
-            "Remove the on-device voice?",
-            isPresented: $isConfirmingRemoval,
-            titleVisibility: .visible
-        ) {
-            Button("Remove", role: .destructive) { removeModels() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("HeyMate switches back to the Mac voice. You can download it again any time.")
-        }
     }
 
     private var title: String {
         if !store.isSupportedOnThisMac { return "On-device voice" }
         if store.isEverythingInstalled { return "On-device voice is ready" }
         if store.isDownloading { return "Downloading on-device voice…" }
-        return isCompact ? "Want a private, natural voice?" : "On-device voice"
+        return "Preparing local voice"
     }
 
     private var subtitle: String {
@@ -536,14 +532,12 @@ struct OnDeviceVoiceDownloadRow: View {
             if case .unsupported(let reason) = store.listenState { return reason }
             return "Not available on this Mac."
         }
+        if case .unsupported(let reason) = store.speakState { return reason }
         if store.isEverythingInstalled {
             return "Listening and speaking run on this Mac. Nothing leaves it."
         }
         if store.isDownloading {
-            return "One-time download. You can keep using HeyMate meanwhile."
-        }
-        if case .unsupported(let reason) = store.speakState {
-            return "Listens on this Mac, offline. \(reason) Download once, \(OnDeviceVoiceModelStore.approximateDownloadSizeDescription)."
+            return "Automatic one-time download, about 600 MB. Keep using HeyMate meanwhile."
         }
         return "Listens and talks on this Mac, offline and free. One-time download, \(OnDeviceVoiceModelStore.approximateDownloadSizeDescription)."
     }
@@ -553,10 +547,7 @@ struct OnDeviceVoiceDownloadRow: View {
         if !store.isSupportedOnThisMac || store.isDownloading {
             EmptyView()
         } else if store.isEverythingInstalled {
-            if !isCompact {
-                Button("Remove") { isConfirmingRemoval = true }
-                    .dsCapsuleButtonStyle(.destructive, height: isCompact ? DS.ControlSize.small : DS.ControlSize.regular)
-            }
+            EmptyView()
         } else {
             Button(store.lastFailureMessage == nil ? "Download" : "Try again") {
                 Task { await store.downloadAll() }
@@ -565,15 +556,6 @@ struct OnDeviceVoiceDownloadRow: View {
         }
     }
 
-    private func removeModels() {
-        if companionManager.selectedListenProvider == .onDevice {
-            companionManager.setSelectedListenProvider(.apple)
-        }
-        if companionManager.selectedSpeakProvider == .onDevice {
-            companionManager.setSelectedSpeakProvider(.macOS)
-        }
-        Task { await store.removeAll() }
-    }
 }
 
 // MARK: - Google

@@ -1,0 +1,11 @@
+{
+  "name": "heymate-clip-a",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Real HeyMate captures edited with Remotion. Resolves packages from ../node_modules.",
+  "scripts": {
+    "studio": "remotion studio",
+    "typecheck": "tsc --noEmit",
+    "render": "./render-all.sh"
+  }
+}

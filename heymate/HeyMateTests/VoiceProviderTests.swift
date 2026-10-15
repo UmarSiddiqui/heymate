@@ -35,26 +35,31 @@ struct VoiceProviderTests {
         #expect(VoiceListenProvider.resolved(storedRawValue: "AssemblyAI", bundleRawValue: nil) == .elevenLabs)
     }
 
+    @Test func retiredMacPreferencesMigrateToLocal() {
+        #expect(VoiceListenProvider.resolved(storedRawValue: "apple", bundleRawValue: "elevenlabs") == .onDevice)
+        #expect(VoiceSpeakProvider.resolved(storedRawValue: "macos", bundleRawValue: "elevenlabs") == .onDevice)
+    }
+
     @Test func speakOnDeviceRoundTrips() {
         #expect(VoiceSpeakProvider.resolved(storedRawValue: "kokoro", bundleRawValue: "macos") == .onDevice)
     }
 
-    @Test func listenInvalidStoredValueFallsBackToBundleThenApple() {
+    @Test func listenInvalidStoredValueFallsBackToLocal() {
         #expect(
             VoiceListenProvider.resolved(
                 storedRawValue: "not-a-provider",
                 bundleRawValue: "apple"
-            ) == .apple
+            ) == .onDevice
         )
         #expect(
             VoiceListenProvider.resolved(
                 storedRawValue: "not-a-provider",
                 bundleRawValue: nil
-            ) == .apple
+            ) == .onDevice
         )
     }
 
-    @Test func speakStoredPreferenceWinsOverDefaultMac() {
+    @Test func speakStoredPreferenceWinsOverLocalDefault() {
         #expect(
             VoiceSpeakProvider.resolved(
                 storedRawValue: "elevenlabs",
@@ -65,13 +70,13 @@ struct VoiceProviderTests {
             VoiceSpeakProvider.resolved(
                 storedRawValue: nil,
                 bundleRawValue: nil
-            ) == .macOS
+            ) == .onDevice
         )
         #expect(
             VoiceSpeakProvider.resolved(
                 storedRawValue: "nope",
                 bundleRawValue: nil
-            ) == .macOS
+            ) == .onDevice
         )
     }
 
@@ -86,11 +91,11 @@ struct VoiceProviderTests {
             VoiceSpeakProvider.resolved(
                 storedRawValue: nil,
                 bundleRawValue: "macos"
-            ) == .macOS
+            ) == .onDevice
         )
     }
 
-    @Test func speakInvalidStoredValueFallsBackToBundleThenMac() {
+    @Test func speakInvalidStoredValueFallsBackToLocal() {
         #expect(
             VoiceSpeakProvider.resolved(
                 storedRawValue: "not-a-provider",
@@ -101,30 +106,35 @@ struct VoiceProviderTests {
             VoiceSpeakProvider.resolved(
                 storedRawValue: "not-a-provider",
                 bundleRawValue: nil
-            ) == .macOS
+            ) == .onDevice
         )
     }
 
     @Test func listenFactoryHonorsPreferredProvider() {
         let apple = SpeechToTextProviders.resolve(.apple)
-        #expect(apple.displayName == "Apple Speech")
+        #expect(apple.displayName == "On-device")
     }
 
     @Test func listenFactoryFallsBackWhenOnDeviceIsMissing() {
-        // Never pretends a missing model is usable: without the download the
-        // factory hands back something that can actually run.
+        // Missing local models must never silently select Apple Speech.
         let provider = SpeechToTextProviders.resolve(.onDevice)
-        #expect(provider.isConfigured)
+        #expect(provider.displayName == "On-device")
+        #expect(SpeechToTextProviders.fallback(after: provider) == nil)
     }
 }
 
 @MainActor
 struct VoiceProviderPersistenceTests {
 
-    @Test func companionDefaultsSpeakToMacWhenNothingStored() {
+    @Test func retiredMacSpeakingChoiceUsesKokoro() {
+        #expect(CompanionManager.makeSpeakingClient(for: .macOS, workerBaseURL: "http://localhost") is KokoroTTSClient)
+        #expect(CompanionManager.makeSpeakingClient(for: .onDevice, workerBaseURL: "http://localhost") is KokoroTTSClient)
+    }
+
+    @Test func companionDefaultsSpeakToLocalWhenNothingStored() {
         UserDefaults.standard.removeObject(forKey: CompanionManager.speakPreferenceKey)
         let manager = CompanionManager()
-        #expect(manager.selectedSpeakProvider == .macOS)
+        #expect(manager.selectedSpeakProvider == .onDevice)
         UserDefaults.standard.removeObject(forKey: CompanionManager.speakPreferenceKey)
     }
 
@@ -136,11 +146,11 @@ struct VoiceProviderPersistenceTests {
         manager.setSelectedListenProvider(.apple)
         manager.setSelectedSpeakProvider(.elevenLabs)
 
-        #expect(UserDefaults.standard.string(forKey: CompanionManager.listenPreferenceKey) == "apple")
+        #expect(UserDefaults.standard.string(forKey: CompanionManager.listenPreferenceKey) == "parakeet")
         #expect(UserDefaults.standard.string(forKey: CompanionManager.speakPreferenceKey) == "elevenlabs")
-        #expect(manager.selectedListenProvider == .apple)
+        #expect(manager.selectedListenProvider == .onDevice)
         #expect(manager.selectedSpeakProvider == .elevenLabs)
-        #expect(manager.voiceDictation.transcriptionProviderDisplayName == "Apple Speech")
+        #expect(manager.voiceDictation.transcriptionProviderDisplayName == "On-device")
 
         UserDefaults.standard.removeObject(forKey: CompanionManager.listenPreferenceKey)
         UserDefaults.standard.removeObject(forKey: CompanionManager.speakPreferenceKey)

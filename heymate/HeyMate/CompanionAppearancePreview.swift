@@ -56,7 +56,6 @@ private struct AppearanceFixture: View {
     @State private var floatingResult = ""
     @State private var focusRetainedAtCreation = false
     @State private var selectedPack = "colors"
-    @State private var stackCollapsed = false
     @State private var showUpdates = CommandLine.arguments.contains("--appearance-updates")
     @State private var updateDismissed = false
     @State private var reportOpened = false
@@ -168,13 +167,12 @@ private struct AppearanceFixture: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Active jobs").font(DS.Fonts.headline)
                     FloatingAgentStack(runs: [run(needsUser: true), run(needsUser: false)],
-                                       mates: [mate(assets[0])], collapsed: stackCollapsed,
-                                       onToggle: { stackCollapsed.toggle() }, onHome: { opened = true },
+                                       mates: [mate(assets[0])],
                                        onOpen: { _, _ in opened = true },
                                        updates: showUpdates && !updateDismissed ? [resultUpdate] : [],
                                        onReport: { _ in reportOpened = true }, onDismiss: { _ in updateDismissed = true })
                         .frame(height: FloatingAgentPresentation.stackHeight(
-                            runCount: showUpdates && !updateDismissed ? 3 : 2, collapsed: stackCollapsed))
+                            runCount: showUpdates && !updateDismissed ? 3 : 2))
                 }.frame(width: 300)
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Same identity, every size").font(DS.Fonts.headline)

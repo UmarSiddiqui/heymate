@@ -62,6 +62,7 @@ nonisolated enum LoginShellExecutableResolver {
             "/opt/homebrew/bin",
             "/usr/local/bin",
             "\(home)/.local/bin",
+            "\(home)/.opencode/bin",
             "\(home)/.bun/bin",
             "\(home)/.npm-global/bin",
             "/Applications/ChatGPT.app/Contents/Resources",

@@ -7,9 +7,9 @@ import SwiftUI
 final class FloatingAgentWindowController {
     private weak var manager: CompanionManager?
     private var subscriptions = Set<AnyCancellable>()
-    private var panels: [NSPanel] = []
+    private var panels: [String: NSPanel] = [:]
+    private var expandedPanelIDs = Set<String>()
     private var yielded = false
-    private var collapsed = false
     private let noticeStore = FloatingAgentNoticeStore()
     private var reportWindow: NSWindow?
     private var reportNotice: FloatingAgentNotice?
@@ -37,8 +37,9 @@ final class FloatingAgentWindowController {
 
     func stop() {
         subscriptions.removeAll()
-        panels.forEach { $0.orderOut(nil); $0.contentView = nil }
+        panels.values.forEach { $0.orderOut(nil); $0.contentView = nil }
         panels.removeAll()
+        expandedPanelIDs.removeAll()
         reportWindow?.close()
         reportWindow = nil
         reportNotice = nil
@@ -80,10 +81,15 @@ final class FloatingAgentWindowController {
 
     private func refresh() {
         guard let manager else { return }
-        if let reportNotice, !manager.agentRuns.contains(where: { reportNotice.matches($0) }) {
-            reportWindow?.close()
-            reportWindow = nil
-            self.reportNotice = nil
+        if let reportNotice {
+            if let run = manager.agentRuns.first(where: { reportNotice.matches($0) }),
+               let mate = manager.mates.first(where: { $0.id == reportNotice.mateID }) {
+                reportWindow?.contentView = NSHostingView(rootView: FloatingAgentReportView(run: run, mateName: mate.name))
+            } else {
+                reportWindow?.close()
+                reportWindow = nil
+                self.reportNotice = nil
+            }
         }
         let runs = FloatingAgentPresentation.activeRuns(manager.agentRuns.filter {
             FloatingAgentPresentation.owner(for: $0, mates: manager.mates) != nil
@@ -97,55 +103,73 @@ final class FloatingAgentWindowController {
         let enabled = defaults.object(forKey: CompanionAppearancePreference.floatingAgentsKey) == nil
             || defaults.bool(forKey: CompanionAppearancePreference.floatingAgentsKey)
         guard enabled, !yielded, !runs.isEmpty || !updates.isEmpty else {
-            panels.forEach { $0.orderOut(nil); $0.contentView = nil }
+            panels.values.forEach { $0.orderOut(nil); $0.contentView = nil }
             panels.removeAll()
+            expandedPanelIDs.removeAll()
             return
         }
-        // Reuse panels while progress changes, so updates never steal focus.
-        while panels.count > NSScreen.screens.count {
-            let panel = panels.removeLast(); panel.orderOut(nil); panel.contentView = nil
-        }
-        for (index, screen) in NSScreen.screens.enumerated() {
-            let panel: NSPanel
-            if index < panels.count { panel = panels[index] }
-            else {
-                panel = Self.makePanel()
-                AppPresencePreferences.shared.registerAmbientWindow(panel)
-                panels.append(panel)
-            }
-            let view = FloatingAgentStack(runs: runs, mates: manager.mates, collapsed: collapsed,
-                                         onToggle: { [weak self] in
-                guard let self else { return }
-                self.collapsed.toggle()
-                self.refresh()
-            }, onHome: { manager.openDesktopWindow(section: .chat) }, onOpen: { run, mate in
-                let stored = run.chatOwner.flatMap { manager.chatHistoryStore.session(id: $0.chatID) }
-                if let chatID = FloatingAgentPresentation.ownedChatID(
-                    for: run, mate: mate, currentChat: manager.currentChat, storedChat: stored,
-                    defaultMateID: manager.mateDirectory.defaultMateID
-                ) {
-                    manager.openChat(id: chatID)
-                } else if manager.activeMateID != mate.id {
-                    manager.openMate(id: mate.id)
+        // Each bubble owns a compact native panel. No invisible wide stack
+        // intercepts the desktop while the pointer is outside a bubble.
+        let rows = FloatingAgentPresentation.rows(runs: runs, updates: updates)
+        var liveIDs = Set<String>()
+        for (screenIndex, screen) in NSScreen.screens.enumerated() {
+            let capacity = max(1, Int((screen.visibleFrame.height - 56) / 84))
+            for (rowIndex, row) in rows.prefix(capacity).enumerated() {
+                let id = "\(screenIndex):\(row.id)"
+                liveIDs.insert(id)
+                let panel: NSPanel
+                if let current = panels[id] { panel = current }
+                else {
+                    panel = Self.makePanel()
+                    AppPresencePreferences.shared.registerAmbientWindow(panel)
+                    panels[id] = panel
                 }
-                manager.openDesktopWindow(section: .chat)
-            }, updates: updates, onReport: { [weak self] in self?.showReport($0) },
-               onDismiss: { [weak self] update in
-                self?.noticeStore.dismiss(id: update.id)
-                self?.refresh()
-            })
-            let hosting: FloatingAgentHostingView
-            if let current = panel.contentView as? FloatingAgentHostingView {
-                current.rootView = AnyView(view)
-                hosting = current
-            } else { hosting = FloatingAgentHostingView(rootView: AnyView(view)) }
-            let height = FloatingAgentPresentation.stackHeight(runCount: runs.count + updates.count, collapsed: collapsed)
-            let frame = FloatingAgentPresentation.frame(visibleFrame: screen.visibleFrame, height: height)
-            hosting.sizingOptions = []
-            hosting.frame = CGRect(origin: .zero, size: frame.size)
-            panel.contentView = hosting
-            panel.setFrame(frame, display: true)
-            panel.orderFrontRegardless()
+                let run: AgentRun
+                switch row {
+                case .agent(let active): run = active
+                case .update(let update): run = update.run
+                }
+                guard let mate = FloatingAgentPresentation.owner(for: run, mates: manager.mates) else { continue }
+                let view = FloatingAgentBubble(row: row, mate: mate, onOpen: {
+                    let stored = run.chatOwner.flatMap { manager.chatHistoryStore.session(id: $0.chatID) }
+                    if let chatID = FloatingAgentPresentation.ownedChatID(
+                        for: run, mate: mate, currentChat: manager.currentChat, storedChat: stored,
+                        defaultMateID: manager.mateDirectory.defaultMateID
+                    ) {
+                        manager.openChat(id: chatID)
+                    } else if manager.activeMateID != mate.id {
+                        manager.openMate(id: mate.id)
+                    }
+                    manager.openDesktopWindow(section: .chat)
+                }, onReport: { [weak self] in self?.showReport($0) }, onDismiss: { [weak self] update in
+                    self?.noticeStore.dismiss(id: update.id)
+                    self?.refresh()
+                }, onExpansion: { [weak self, weak panel] expanded in
+                    guard let self, let panel, self.panels[id] === panel else { return }
+                    if expanded { self.expandedPanelIDs.insert(id) }
+                    else { self.expandedPanelIDs.remove(id) }
+                    let frame = FloatingAgentPresentation.bubbleFrame(
+                        visibleFrame: screen.visibleFrame, index: rowIndex, expanded: expanded)
+                    panel.setFrame(frame, display: true)
+                })
+                let hosting: FloatingAgentHostingView
+                if let current = panel.contentView as? FloatingAgentHostingView {
+                    current.rootView = AnyView(view)
+                    hosting = current
+                } else { hosting = FloatingAgentHostingView(rootView: AnyView(view)) }
+                let frame = FloatingAgentPresentation.bubbleFrame(
+                    visibleFrame: screen.visibleFrame, index: rowIndex, expanded: expandedPanelIDs.contains(id))
+                hosting.sizingOptions = []
+                hosting.frame = CGRect(origin: .zero, size: frame.size)
+                hosting.autoresizingMask = [.width, .height]
+                panel.contentView = hosting
+                panel.setFrame(frame, display: true)
+                if !panel.isVisible { panel.orderFrontRegardless() }
+            }
+        }
+        for id in Set(panels.keys).subtracting(liveIDs) {
+            if let panel = panels.removeValue(forKey: id) { panel.orderOut(nil); panel.contentView = nil }
+            expandedPanelIDs.remove(id)
         }
     }
 
@@ -239,8 +263,17 @@ nonisolated enum FloatingAgentPresentation {
         return chat.id
     }
 
-    static func stackHeight(runCount: Int, collapsed: Bool) -> CGFloat {
-        collapsed ? 40 : CGFloat(min(max(0, runCount), 3)) * 92 + 48
+    /// Expansion keeps the avatar center fixed so the pointer never loses it.
+    static func bubbleFrame(visibleFrame: CGRect, index: Int, expanded: Bool) -> CGRect {
+        let width = min(expanded ? 324.0 : 56.0, max(0, visibleFrame.width - 24))
+        let height = expanded ? 108.0 : 56.0
+        let centerY = visibleFrame.maxY - 70 - CGFloat(index) * 84
+        return CGRect(x: visibleFrame.maxX - width - 12, y: centerY - height / 2,
+                      width: width, height: height)
+    }
+
+    static func stackHeight(runCount: Int) -> CGFloat {
+        max(0, CGFloat(min(max(0, runCount), 3)) * 116 - 8)
     }
 
     static func frame(visibleFrame: CGRect, height: CGFloat) -> CGRect {
@@ -252,72 +285,134 @@ nonisolated enum FloatingAgentPresentation {
 }
 
 struct FloatingAgentStack: View {
-    @Environment(\.companionSnapshotRendering) private var snapshotRendering
     let runs: [AgentRun]
     let mates: [Mate]
-    let collapsed: Bool
-    let onToggle: () -> Void
-    let onHome: () -> Void
     let onOpen: (AgentRun, Mate) -> Void
     var updates: [FloatingAgentNoticeItem] = []
     var onReport: (FloatingAgentNoticeItem) -> Void = { _ in }
     var onDismiss: (FloatingAgentNoticeItem) -> Void = { _ in }
 
     var body: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 8) {
-                Button(action: onHome) {
-                    Image(systemName: "bubble.left.and.bubble.right")
-                        .font(.system(size: 12, weight: .medium))
+        VStack(alignment: .trailing, spacing: 8) {
+            ForEach(FloatingAgentPresentation.rows(runs: runs, updates: updates)) { row in
+                let run = run(for: row)
+                if let mate = FloatingAgentPresentation.owner(for: run, mates: mates) {
+                    FloatingAgentBubble(row: row, mate: mate, onOpen: { onOpen(run, mate) },
+                                        onReport: onReport, onDismiss: onDismiss)
+                        .frame(height: 108)
                 }
-                .help("Open chats")
-                .accessibilityLabel("Open chats")
-                Text("\(runs.count) active \(runs.count == 1 ? "job" : "jobs")")
-                    .font(DS.Fonts.caption.weight(.medium))
-                if !updates.isEmpty {
-                    Text("· \(updates.count) \(updates.count == 1 ? "update" : "updates")")
-                        .font(DS.Fonts.caption).foregroundStyle(DS.Colors.textSecondary)
-                }
-                if runs.contains(where: { $0.status.needsUser }) {
-                    Image(systemName: "hand.raised.fill").foregroundStyle(DS.Colors.warningText)
-                        .accessibilityLabel("Work needs your review")
-                }
-                Spacer(minLength: 0)
-                Button(action: onToggle) {
-                    Image(systemName: collapsed ? "chevron.down" : "chevron.up")
-                        .font(.system(size: 11, weight: .semibold))
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
-                }
-                .help(collapsed ? "Show agent bubbles" : "Hide agent bubbles")
-                .accessibilityLabel(collapsed ? "Show agent bubbles" : "Hide agent bubbles")
-            }
-            .buttonStyle(.plain)
-            .frame(height: 24)
-            if !collapsed {
-                if snapshotRendering { rows }
-                else { ScrollView { rows }.scrollIndicators(.hidden) }
             }
         }
-        .padding(8)
-        .foregroundStyle(DS.Colors.textPrimary)
-        .background(DS.Colors.surface1.opacity(0.96), in: RoundedRectangle(cornerRadius: 18))
     }
 
-    private var rows: some View {
-        VStack(spacing: 8) {
-            ForEach(FloatingAgentPresentation.rows(runs: runs, updates: updates)) { row in
-                switch row {
-                case .update(let update):
-                    FloatingAgentNoticeCard(run: update.run, mateName: update.mateName,
-                                            onReport: { onReport(update) }, onDismiss: { onDismiss(update) })
-                case .agent(let run):
-                    if let mate = FloatingAgentPresentation.owner(for: run, mates: mates) {
-                        FloatingAgentCard(run: run, mate: mate) { onOpen(run, mate) }
+    private func run(for row: FloatingAgentPresentation.Row) -> AgentRun {
+        switch row {
+        case .agent(let run): return run
+        case .update(let update): return update.run
+        }
+    }
+}
+
+/// Avatar stays mounted while details appear to its left. The delayed exit
+/// lets the pointer cross into report/dismiss actions without hover flicker.
+struct FloatingAgentBubble: View {
+    let row: FloatingAgentPresentation.Row
+    let mate: Mate
+    let onOpen: () -> Void
+    let onReport: (FloatingAgentNoticeItem) -> Void
+    let onDismiss: (FloatingAgentNoticeItem) -> Void
+    var onExpansion: (Bool) -> Void = { _ in }
+    @State private var expanded = false
+    @State private var collapseTask: Task<Void, Never>?
+    @Environment(\.companionSnapshotRendering) private var snapshotRendering
+
+    private var run: AgentRun {
+        switch row {
+        case .agent(let run): return run
+        case .update(let update): return update.run
+        }
+    }
+    private var tint: Color {
+        run.status.needsUser || run.status == .failed ? DS.Colors.warningText : DS.Colors.accent
+    }
+    private var label: String {
+        switch row {
+        case .agent: return FloatingAgentPresentation.statusLabel(run.status)
+        case .update: return run.status == .failed ? "Task needs attention" : "Result ready"
+        }
+    }
+    private func open() {
+        if case .update(let update) = row { onReport(update) }
+        else { onOpen() }
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if expanded || snapshotRendering {
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack {
+                        Text(label).font(DS.Fonts.caption.weight(.semibold)).foregroundStyle(tint)
+                        Spacer(minLength: 0)
+                        if case .update(let update) = row {
+                            Button { onDismiss(update) } label: {
+                                Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
+                                    .frame(width: 24, height: 24).contentShape(Rectangle())
+                            }.accessibilityLabel("Dismiss update for \(run.title)")
+                        }
                     }
+                    Text(run.title).font(DS.Fonts.body.weight(.medium)).lineLimit(1)
+                    Button(action: open) {
+                        Text(run.status.isTerminal ? "Open task report" :
+                             run.status.needsUser ? "Open to review and approve" : "Open mate chat")
+                            .font(DS.Fonts.caption).foregroundStyle(tint).lineLimit(1)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Button(action: open) {
+                MateFaceView(mate: mate, size: 36, expression: .agent(run))
+                    .frame(width: 40, height: 40)
+                    .background(Color.black, in: Circle())
+                    .overlay(Circle().stroke(tint, lineWidth: 2))
+                    .overlay(alignment: .bottomTrailing) {
+                        if run.status.needsUser || run.status.isTerminal {
+                            Image(systemName: run.status.needsUser ? "hand.raised.fill" :
+                                  run.status == .failed ? "exclamationmark" : "checkmark")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(DS.Colors.surface1)
+                                .frame(width: 18, height: 18).background(tint, in: Circle())
+                        }
+                    }
+            }
+            .help("\(mate.name): \(label). \(run.title)")
+            .accessibilityLabel("\(mate.name), \(label), \(run.title)")
+        }
+        .padding(.leading, expanded || snapshotRendering ? 16 : 8)
+        .padding(.trailing, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .foregroundStyle(DS.Colors.textPrimary)
+        .background {
+            if expanded || snapshotRendering {
+                RoundedRectangle(cornerRadius: 22).fill(Color.black)
+                    .overlay(RoundedRectangle(cornerRadius: 22).stroke(tint.opacity(0.35), lineWidth: 1))
+            }
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .onHover { inside in
+            collapseTask?.cancel()
+            if inside {
+                expanded = true
+                onExpansion(true)
+            } else {
+                collapseTask = Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(160))
+                    guard !Task.isCancelled else { return }
+                    expanded = false
+                    onExpansion(false)
                 }
             }
         }
+        .onDisappear { collapseTask?.cancel() }
     }
 }
 
@@ -370,7 +465,7 @@ struct FloatingAgentCard: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
-            .background(DS.Colors.surface1, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(Color.black, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(run.status.needsUser ? DS.Colors.warning.opacity(0.6) : DS.Colors.borderSubtle, lineWidth: 1))
         }

@@ -648,15 +648,13 @@ struct HarnessFollowUpRow: View {
                 }
             }
             ForEach(Array(artifactPaths.enumerated()), id: \.offset) { _, path in
-                Button {
-                    onOpenArtifact(path)
-                } label: {
-                    Label(URL(fileURLWithPath: path).lastPathComponent, systemImage: "doc")
-                        .font(DS.Fonts.caption)
-                        .foregroundColor(DS.Colors.textSecondary)
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
+                MateArtifactCard(
+                    path: path,
+                    name: URL(fileURLWithPath: path).lastPathComponent,
+                    isDirectory: (try? URL(fileURLWithPath: path).resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false,
+                    onOpen: { onOpenArtifact(path) }
+                )
+                .frame(width: 160)
             }
         }
     }

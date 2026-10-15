@@ -51,6 +51,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        Task { await OnDeviceVoiceModelStore.shared.downloadAll() }
         companionManager.start()
         AppPresencePreferences.shared.applyOnLaunch()
         AppUpdateController.shared.start()

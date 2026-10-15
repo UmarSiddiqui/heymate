@@ -2,11 +2,8 @@
 //  SettingsVoicePane.swift
 //  HeyMate
 //
-//  Settings › Talk & Voice: how talking behaves, which microphone, and who
-//  listens and speaks. These used to be spread over three places — the Mac
-//  voice and microphone under General, the Listen/Speak providers and the
-//  ElevenLabs voice under Advanced — so every voice question now has one
-//  answer page.
+//  Voice cards and speed first; providers, credentials, microphone and
+//  interaction controls live under Advanced.
 //
 
 import SwiftUI
@@ -21,8 +18,7 @@ struct SettingsVoicePane: View {
     // makes an open menu flicker.
     @State private var availableAudioInputDevices: [AudioInputDevice] = []
     @State private var selectedAudioInputDeviceUID = AudioInputDeviceCatalog.selectedDeviceUID
-    @State private var availableSystemVoices: [SpeechVoiceOption] = []
-    @State private var selectedSystemVoiceID = SpeechVoiceCatalog.selectedSystemVoiceID
+    @State private var showsAdvanced = false
 
     /// Bumped after the ElevenLabs key changes so locked providers re-read.
     @State private var credentialsRevision = 0
@@ -31,21 +27,37 @@ struct SettingsVoicePane: View {
 
     var body: some View {
         SettingsPage(tab: .voice, navigation: navigation) {
-            talkingSection
-            microphoneSection
-            listenAndSpeakSection
-                .id(credentialsRevision)
-            voicesSection
+            SpeechSpeedRow()
+                .settingsAnchor(.speechSpeed)
+            OnDeviceVoiceGrid()
+                .settingsAnchor(.onDeviceVoiceStyle)
+            OnDeviceVoiceDownloadRow(companionManager: companionManager, isCompact: true)
+                .settingsAnchor(.onDeviceVoice)
+            DisclosureGroup("Advanced", isExpanded: $showsAdvanced) {
+                VStack(alignment: .leading, spacing: DS.SettingsLayout.sectionSpacing) {
+                    listenAndSpeakSection.id(credentialsRevision)
+                    elevenLabsSection
+                    microphoneSection
+                    talkingSection
+                }
+                .padding(.top, DS.Spacing.md)
+            }
+            .foregroundStyle(DS.Colors.textSecondary)
         }
         .onAppear {
             refreshAudioInputDevices()
-            availableSystemVoices = SpeechVoiceCatalog.availableSystemVoices()
+            revealAdvancedIfNeeded()
         }
+        .onChange(of: navigation.revealRequest) { _, _ in revealAdvancedIfNeeded() }
         .onChange(of: selectedAudioInputDeviceUID) { _, newValue in
             AudioInputDeviceCatalog.selectedDeviceUID = newValue
         }
-        .onChange(of: selectedSystemVoiceID) { _, newValue in
-            SpeechVoiceCatalog.selectedSystemVoiceID = newValue
+    }
+
+    private func revealAdvancedIfNeeded() {
+        guard let item = navigation.revealRequest?.item, item.tab == .voice else { return }
+        if ![SettingsItem.speechSpeed, .onDeviceVoiceStyle, .onDeviceVoice].contains(item) {
+            showsAdvanced = true
         }
     }
 
@@ -174,7 +186,7 @@ struct SettingsVoicePane: View {
         let isIdle = companionManager.voiceState == .idle
         return SettingsSection(
             "Listen & speak",
-            footer: "On-device and Mac keep your voice on this computer. If a choice can't run, HeyMate falls back to the Mac."
+            footer: "Local voice is free and private. ElevenLabs uses your API key; if unavailable, HeyMate uses local voice."
         ) {
             SettingsRow(
                 SettingsItem.listenProvider.title,
@@ -187,7 +199,7 @@ struct SettingsVoicePane: View {
                         get: { companionManager.selectedListenProvider },
                         set: { companionManager.setSelectedListenProvider($0) }
                     ),
-                    segments: VoiceListenProvider.allCases.map { provider in
+                    segments: [VoiceListenProvider.onDevice, .elevenLabs].map { provider in
                         DSSegment(
                             value: provider,
                             title: provider.displayName,
@@ -210,7 +222,7 @@ struct SettingsVoicePane: View {
                         get: { companionManager.selectedSpeakProvider },
                         set: { companionManager.setSelectedSpeakProvider($0) }
                     ),
-                    segments: VoiceSpeakProvider.allCases.map { provider in
+                    segments: [VoiceSpeakProvider.onDevice, .elevenLabs].map { provider in
                         DSSegment(
                             value: provider,
                             title: provider.displayName,
@@ -230,44 +242,8 @@ struct SettingsVoicePane: View {
 
     // MARK: Voices
 
-    private var systemVoiceOptions: [DSMenuOption<String>] {
-        [DSMenuOption(value: SpeechVoiceCatalog.systemDefaultVoiceID, title: "Automatic (best voice)")]
-            + availableSystemVoices.enumerated().map { index, voice in
-                DSMenuOption(value: voice.id, title: voice.displayName, startsGroup: index == 0)
-            }
-    }
-
-    private var voicesSection: some View {
-        SettingsSection("Voices") {
-            SettingsPickerRow(
-                SettingsItem.macVoice.title,
-                subtitle: "Also the fallback voice. Premium voices are free in System Settings › Accessibility › Spoken Content.",
-                item: .macVoice,
-                selection: $selectedSystemVoiceID,
-                options: systemVoiceOptions,
-                placeholder: "Automatic (best voice)"
-            )
-
-            SettingsDivider()
-
-            OnDeviceVoiceDownloadRow(companionManager: companionManager)
-                .settingsRowInsets()
-                .settingsAnchor(.onDeviceVoice)
-
-            SettingsDivider()
-
-            SpeechSpeedRow()
-                .settingsRowInsets()
-                .settingsAnchor(.speechSpeed)
-
-            SettingsDivider()
-
-            OnDeviceVoiceGrid()
-                .settingsRowInsets()
-                .settingsAnchor(.onDeviceVoiceStyle)
-
-            SettingsDivider()
-
+    private var elevenLabsSection: some View {
+        SettingsSection("ElevenLabs") {
             SettingsSecretKeyRow(
                 title: SettingsItem.elevenLabsKey.title,
                 subtitle: hasElevenLabsKey
@@ -277,7 +253,7 @@ struct SettingsVoicePane: View {
                 placeholder: "ElevenLabs API key",
                 isStored: hasElevenLabsKey,
                 removalTitle: "Remove the ElevenLabs key?",
-                removalMessage: "HeyMate deletes it from this Mac. Anything set to ElevenLabs falls back to the on-device or Mac voice.",
+                removalMessage: "HeyMate deletes it from this Mac. Anything set to ElevenLabs falls back to local voice.",
                 onSave: saveElevenLabsKey,
                 onRemove: removeElevenLabsKey
             )
@@ -434,7 +410,7 @@ struct OnDeviceVoiceGrid: View {
     @State private var previewingID: String?
     @State private var previewClient: KokoroTTSClient?
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 5)
+    private let columns = [GridItem(.adaptive(minimum: 105), spacing: 12)]
 
     private var isAvailable: Bool { KokoroEngine.modelsAreInstalled() }
 
@@ -443,10 +419,10 @@ struct OnDeviceVoiceGrid: View {
             SettingsRowLabel(
                 title: SettingsItem.onDeviceVoiceStyle.title,
                 subtitle: isAvailable
-                    ? "Tap a voice to hear it. Used when the on-device voice speaks."
-                    : "Download the on-device voice above to pick one of these."
+                    ? "Tap a voice to hear it. Your pick applies to future local replies."
+                    : "Voices become available when the automatic download finishes."
             )
-            LazyVGrid(columns: columns, spacing: 8) {
+            LazyVGrid(columns: columns, spacing: 12) {
                 ForEach(OnDeviceVoiceOption.all) { option in
                     card(option)
                 }
@@ -455,6 +431,22 @@ struct OnDeviceVoiceGrid: View {
             .opacity(isAvailable ? 1 : 0.5)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onDisappear { previewClient?.stopPlayback() }
+    }
+
+    private func voiceColor(_ option: OnDeviceVoiceOption) -> Color {
+        switch option.id {
+        case "af_heart": return .pink
+        case "af_bella": return .orange
+        case "af_nicole": return .purple
+        case "af_sky": return .cyan
+        case "af_nova": return .yellow
+        case "am_michael": return .green
+        case "am_adam": return .indigo
+        case "am_puck": return .mint
+        case "bf_emma": return .blue
+        default: return .teal
+        }
     }
 
     private func card(_ option: OnDeviceVoiceOption) -> some View {
@@ -465,7 +457,7 @@ struct OnDeviceVoiceGrid: View {
             VStack(spacing: 5) {
                 Image(systemName: previewingID == option.id ? "waveform" : option.symbol)
                     .font(.system(size: 20, weight: .medium))
-                    .foregroundColor(isSelected ? DS.Colors.accent : DS.Colors.textSecondary)
+                    .foregroundColor(voiceColor(option))
                     .frame(height: 26)
                 Text(option.name)
                     .font(DS.Fonts.headline)
@@ -477,7 +469,7 @@ struct OnDeviceVoiceGrid: View {
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
+            .padding(.vertical, 22)
             .padding(.horizontal, 4)
             .background(
                 RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
@@ -506,6 +498,7 @@ struct OnDeviceVoiceGrid: View {
     private func select(_ option: OnDeviceVoiceOption) {
         selectedID = option.id
         SpeechStylePreferences.onDeviceVoice = option.id
+        previewClient?.stopPlayback()
         let client = previewClient ?? KokoroTTSClient()
         previewClient = client
         previewingID = option.id

@@ -2,12 +2,12 @@
 //  OnDeviceVoiceModels.swift
 //  HeyMate
 //
-//  The optional on-device voice: Parakeet (NVIDIA, via FluidAudio) listens
+//  The default local voice: Parakeet (NVIDIA, via FluidAudio) listens
 //  and Kokoro 82M speaks. Both run on the Neural Engine, so once downloaded
 //  nothing leaves the Mac and no account or key is needed.
 //
-//  Models are not bundled — the app stays small and the user opts in from
-//  onboarding or Settings. FluidAudio owns the cache locations:
+//  Models are not bundled — the app stays small and downloads them on
+//  first launch. FluidAudio owns the cache locations:
 //  Parakeet under ~/Library/Application Support/FluidAudio/Models, Kokoro
 //  under ~/.cache/fluidaudio/Models.
 //
@@ -50,8 +50,7 @@ final class OnDeviceVoiceModelStore: ObservableObject {
     @Published private(set) var listenState: OnDeviceVoiceModelState = .notInstalled
     @Published private(set) var speakState: OnDeviceVoiceModelState = .notInstalled
 
-    /// Called once a model finishes downloading, so the caller can switch
-    /// Listen or Speak over to it.
+    /// Called when a download finishes so selected local models can warm up.
     var onModelInstalled: ((OnDeviceVoiceModelKind) -> Void)?
 
     private init() {

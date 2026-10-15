@@ -3,7 +3,7 @@
 //  HeyMate
 //
 //  How fast HeyMate talks, and which on-device voice it uses. Speed applies
-//  to every voice (on-device, ElevenLabs, Mac); the voice choice applies to
+//  to local voice and ElevenLabs; the voice choice applies to
 //  the on-device model, whose voices ship with it for free.
 //
 
@@ -13,7 +13,7 @@ nonisolated enum SpeechStylePreferences {
     static let speedKey = "speechSpeedMultiplier"
     static let onDeviceVoiceKey = "onDeviceVoiceName"
 
-    static let speedChoices: [Double] = [0.75, 1.0, 1.25, 1.5]
+    static let speedChoices: [Double] = [0.5, 0.75, 1.0, 1.25, 1.5]
 
     static var speed: Double {
         get {

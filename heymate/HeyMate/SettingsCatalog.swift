@@ -54,7 +54,7 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .general: return "General"
         case .shortcuts: return "Shortcuts"
-        case .voice: return "Talk & Voice"
+        case .voice: return "Voice"
         case .notch: return "Notch"
         case .accounts: return "AI & Accounts"
         case .agents: return "Agents & Control"
@@ -71,7 +71,7 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
         case .shortcuts:
             return "The keys that summon HeyMate from anywhere on your Mac."
         case .voice:
-            return "How HeyMate listens to you and how it sounds."
+            return "Choose how HeyMate sounds and how fast it talks."
         case .notch:
             return "Small things that live around the camera. Each is off until you turn it on."
         case .accounts:
@@ -366,6 +366,7 @@ enum SettingsSearch {
         var scored: [(item: SettingsItem, score: Int, order: Int)] = []
 
         for (order, item) in SettingsItem.allCases.enumerated() {
+            guard item != .macVoice else { continue }
             let title = normalized(item.title)
             let haystack = [title, normalized(item.keywords), normalized(item.tab.title)]
                 .joined(separator: " ")

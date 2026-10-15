@@ -114,6 +114,35 @@ struct DetachedAgentRunnerEngineTests {
         #expect(state.terminalSafeError?.contains("Blue Lantern") != true)
     }
 
+    @Test func failureDetailsSurvivePrivatelyWithoutEnteringJournal() async throws {
+        let fixture = try makeFixtureDirectory(named: "stderr-report")
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let runtimeRoot = fixture.appendingPathComponent("runtime", isDirectory: true)
+        let scriptURL = try makeExecutableScript(in: fixture, named: "failed.sh", contents: """
+            #!/bin/sh
+            printf '%s\n' 'Private diagnostic: authentication rejected api_key=sk-fixture-secret' >&2
+            exit 1
+            """)
+        let request = makeRequest(executableURL: URL(fileURLWithPath: "/bin/sh"), arguments: [scriptURL.path],
+                                  workspaceURL: fixture, runtimeLimit: 5)
+        let engine = try DetachedAgentRunnerEngine(request: request, rootDirectoryURL: runtimeRoot,
+                                                   exitProcess: { _ in }, wakeMainApp: {})
+        engine.start()
+        let ended = await waitUntil(timeout: 5) {
+            (try? Self.loadState(root: runtimeRoot, request: request))?.phase.isTerminal == true
+        }
+        #expect(ended)
+        let report = try #require(try AgentPrivateResultStore.load(root: runtimeRoot,
+                                       runID: request.runID, attemptID: request.attemptID))
+        #expect(report.contains("authentication rejected"))
+        #expect(!report.contains("sk-fixture-secret"))
+        let state = try #require(try Self.loadState(root: runtimeRoot, request: request))
+        #expect(state.terminalSafeError == "Coding agent exited with status 1")
+        let records = try DetachedAgentRuntimeJournal.loadReadOnly(rootDirectoryURL: runtimeRoot,
+                                      runID: request.runID, attemptID: request.attemptID)
+        #expect(!records.contains { $0.safeSummary?.contains("Private diagnostic") == true })
+    }
+
     /// npm installs Codex as a `#!/usr/bin/env node` script, so the child's
     /// executable is the interpreter. A run that outlives the identity poll
     /// must still finish instead of the runner quitting with nothing journaled.

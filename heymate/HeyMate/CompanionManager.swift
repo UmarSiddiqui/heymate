@@ -938,7 +938,7 @@ final class CompanionManager: ObservableObject {
         apiKey: CustomAPIConfiguration.apiKey()
     )
 
-    var voiceSynthesisClient: any TTSClient = MacOSSpeechSynthesizerClient()
+    var voiceSynthesisClient: any TTSClient = KokoroTTSClient()
 
     /// Last-resort speaker when the selected TTS client throws. Retained so
     /// the utterance is not deallocated mid-sentence.
@@ -1116,6 +1116,11 @@ final class CompanionManager: ObservableObject {
 
     /// Live snapshot of what the configured OpenCode server exposes. Filled by
     /// refreshOpenCodeServerStatus(); drives the model browser in Settings.
+    @Published private(set) var isOpenCodeSetupInFlight = false
+    @Published private(set) var openCodeSetupStatusText: String?
+    private let openCodeLocalServer = OpenCodeLocalServer()
+    private var openCodeFreeModelsOnly = UserDefaults.standard.bool(forKey: "openCodeFreeModelsOnly")
+
     @Published private(set) var openCodeModels: [OpenCodeModelOption] = []
     @Published private(set) var isOpenCodeServerReachable: Bool?
     @Published private(set) var openCodeServerVersion: String?
@@ -1227,10 +1232,11 @@ final class CompanionManager: ObservableObject {
         )
     }
 
-    func setSelectedBrain(_ brain: AgentBrain) {
+    func setSelectedBrain(_ brain: AgentBrain, freeModelsOnly: Bool = false) {
         selectedBrain = brain
         rebuildOpenCodeClient()
         WarmTalkPool.shared.drain()
+        if brain == .openCode { beginOpenCodeSetup(freeModelsOnly: freeModelsOnly) }
     }
 
     /// Starts the Claude child the next Talk question will use, if Claude
@@ -1338,6 +1344,7 @@ final class CompanionManager: ObservableObject {
     }
 
     func setSelectedListenProvider(_ provider: VoiceListenProvider) {
+        let provider: VoiceListenProvider = provider == .apple ? .onDevice : provider
         selectedListenProvider = provider
         UserDefaults.standard.set(provider.rawValue, forKey: Self.listenPreferenceKey)
         voiceDictation.useProvider(
@@ -1346,6 +1353,7 @@ final class CompanionManager: ObservableObject {
     }
 
     func setSelectedSpeakProvider(_ provider: VoiceSpeakProvider) {
+        let provider: VoiceSpeakProvider = provider == .macOS ? .onDevice : provider
         selectedSpeakProvider = provider
         UserDefaults.standard.set(provider.rawValue, forKey: Self.speakPreferenceKey)
         voiceSynthesisClient.stopPlayback()
@@ -1356,17 +1364,21 @@ final class CompanionManager: ObservableObject {
         if provider == .onDevice { Self.warmKokoro() }
     }
 
-    /// A finished on-device download switches Listen or Speak over to it —
-    /// the user downloaded it to use it. Also warms Parakeet and Kokoro when
-    /// they are already the choice, so the first press after launch is quick.
+    /// Warm newly installed local models without overriding ElevenLabs choices.
+    /// Existing models are warmed at launch for a quick first reply.
     private func bindOnDeviceVoiceModels() {
+        guard !HeyMateDataDirectory.isUnitTestHost else { return }
         OnDeviceVoiceModelStore.shared.onModelInstalled = { [weak self] kind in
-            guard let self, self.voiceState == .idle else { return }
+            guard let self else { return }
             switch kind {
             case .listen:
-                self.setSelectedListenProvider(.onDevice)
+                if self.selectedListenProvider == .onDevice {
+                    Task.detached(priority: .utility) {
+                        _ = try? await ParakeetEngine.shared.loadIfNeeded()
+                    }
+                }
             case .speak:
-                self.setSelectedSpeakProvider(.onDevice)
+                if self.selectedSpeakProvider == .onDevice { Self.warmKokoro() }
             }
         }
 
@@ -1399,24 +1411,18 @@ final class CompanionManager: ObservableObject {
         SilentModeAwareTTSClient(wrapping: makeSpeakingClient(for: provider, workerBaseURL: workerBaseURL))
     }
 
-    /// The client for a Speak choice. ElevenLabs and on-device fall back to
-    /// the Mac voice when they fail, so a reply is never lost.
+    /// Local voice is the default and the only fallback for ElevenLabs.
     static func makeSpeakingClient(
         for provider: VoiceSpeakProvider,
         workerBaseURL: String
     ) -> any TTSClient {
         switch provider {
-        case .macOS:
-            return MacOSSpeechSynthesizerClient()
+        case .macOS, .onDevice:
+            return KokoroTTSClient()
         case .elevenLabs:
             return FallbackTTSClient(
                 primary: ElevenLabsVoiceClient(workerURL: "\(workerBaseURL)/tts"),
-                fallback: MacOSSpeechSynthesizerClient()
-            )
-        case .onDevice:
-            return FallbackTTSClient(
-                primary: KokoroTTSClient(),
-                fallback: MacOSSpeechSynthesizerClient()
+                fallback: KokoroTTSClient()
             )
         }
     }
@@ -1592,6 +1598,19 @@ final class CompanionManager: ObservableObject {
         isOpenCodeRefreshInFlight = true
         defer { isOpenCodeRefreshInFlight = false }
 
+        if selectedBrain == .openCode,
+           UserDefaults.standard.bool(forKey: "openCodeAutomaticSetup"),
+           OpenCodeLocalServer.supports(normalizedOpenCodeServerURL()),
+           !openCodeLocalServer.isRunning,
+           let executable = LoginShellExecutableResolver.resolveExecutable(named: "opencode") {
+            let existingVersion = try? await OpenCodeClient.fetchServerVersion(
+                baseURL: normalizedOpenCodeServerURL(),
+                basicAuthUsername: openCodeBasicAuthUsername.isEmpty ? nil : openCodeBasicAuthUsername,
+                basicAuthPassword: openCodeBasicAuthPassword.isEmpty ? nil : openCodeBasicAuthPassword
+            )
+            if existingVersion == nil { try? startManagedOpenCodeServer(executable: executable) }
+        }
+
         // Capture settings up front so a mid-flight edit doesn't mix two configs.
         let serverURL = normalizedOpenCodeServerURL()
         let authUsername = openCodeBasicAuthUsername.isEmpty ? nil : openCodeBasicAuthUsername
@@ -1618,15 +1637,104 @@ final class CompanionManager: ObservableObject {
 
             let currentSelectionIsValid = availableModels.contains {
                 $0.providerID == openCodeProviderID && $0.modelID == openCodeModelID
+                    && (!openCodeFreeModelsOnly || $0.isFreeWithoutSignIn)
             }
-            if !currentSelectionIsValid, let firstAvailableModel = availableModels.first {
+            if !currentSelectionIsValid, let firstAvailableModel = availableModels
+                .filter({ !openCodeFreeModelsOnly || $0.isFreeWithoutSignIn })
+                .sorted(by: { $0.id < $1.id }).first {
                 selectOpenCodeModel(firstAvailableModel)
                 HeyMateLog.log("🤖 OpenCode: auto-selected \(firstAvailableModel.id)")
+            } else if !currentSelectionIsValid, openCodeFreeModelsOnly {
+                openCodeProviderID = ""
+                openCodeModelID = ""
             }
         } catch {
             isOpenCodeServerReachable = false
             openCodeConnectionErrorText = error.localizedDescription
         }
+    }
+
+    /// Explicit provider choice authorizes installation; refreshes only restart an installed server.
+    func beginOpenCodeSetup(freeModelsOnly: Bool) {
+        openCodeFreeModelsOnly = freeModelsOnly
+        UserDefaults.standard.set(freeModelsOnly, forKey: "openCodeFreeModelsOnly")
+        if freeModelsOnly {
+            openCodeProviderID = ""
+            openCodeModelID = ""
+        }
+        guard !isOpenCodeSetupInFlight else { return }
+        guard OpenCodeLocalServer.supports(normalizedOpenCodeServerURL()) else {
+            openCodeSetupStatusText = "Custom OpenCode address: connect your server, then refresh."
+            return
+        }
+        UserDefaults.standard.set(true, forKey: "openCodeAutomaticSetup")
+        isOpenCodeSetupInFlight = true
+        openCodeSetupStatusText = "Setting up OpenCode…"
+        Task {
+            defer { isOpenCodeSetupInFlight = false }
+            if LoginShellExecutableResolver.resolveExecutable(named: "opencode") == nil {
+                openCodeSetupStatusText = "Installing OpenCode…"
+                let outcome = await Task.detached(priority: .utility) {
+                    SubscriptionCLIInstaller.runInstall(for: .openCode)
+                }.value
+                if case .failed(let message) = outcome {
+                    openCodeSetupStatusText = message
+                    return
+                }
+            }
+            guard let executable = LoginShellExecutableResolver.resolveExecutable(named: "opencode") else {
+                openCodeSetupStatusText = "OpenCode was not found after installation. Try setup again."
+                return
+            }
+            do {
+                // Reuse a server the user already runs, including its existing credentials.
+                if (try? await OpenCodeClient.fetchServerVersion(
+                    baseURL: normalizedOpenCodeServerURL(),
+                    basicAuthUsername: openCodeBasicAuthUsername.isEmpty ? nil : openCodeBasicAuthUsername,
+                    basicAuthPassword: openCodeBasicAuthPassword.isEmpty ? nil : openCodeBasicAuthPassword
+                )) == nil {
+                    try startManagedOpenCodeServer(executable: executable)
+                }
+                openCodeSetupStatusText = "Loading OpenCode models…"
+                for _ in 0..<30 {
+                    await refreshOpenCodeServerStatus()
+                    if isOpenCodeServerReachable == true { break }
+                    try await Task.sleep(for: .seconds(1))
+                }
+                guard isOpenCodeServerReachable == true else {
+                    openCodeSetupStatusText = "OpenCode did not start. Try setup again or check your server address."
+                    return
+                }
+                if openCodeFreeModelsOnly {
+                    guard let model = openCodeModels.filter(\.isFreeWithoutSignIn)
+                        .sorted(by: { $0.id < $1.id }).first else {
+                        openCodeProviderID = ""
+                        openCodeModelID = ""
+                        openCodeSetupStatusText = "No free models available right now. Choose another engine or refresh later."
+                        return
+                    }
+                    selectOpenCodeModel(model)
+                }
+                refreshHeadlessCLIStatus()
+                openCodeSetupStatusText = openCodeModelID.isEmpty
+                    ? "OpenCode is ready. Choose a model below."
+                    : "OpenCode is ready · \(openCodeModelID)"
+            } catch {
+                openCodeSetupStatusText = "Could not start OpenCode. Try setup again."
+            }
+        }
+    }
+
+    private func startManagedOpenCodeServer(executable: URL) throws {
+        guard OpenCodeLocalServer.supports(normalizedOpenCodeServerURL()) else { return }
+        if openCodeBasicAuthPassword.isEmpty {
+            openCodeBasicAuthPassword = UUID().uuidString + UUID().uuidString
+        }
+        try openCodeLocalServer.start(
+            executable: executable,
+            username: openCodeBasicAuthUsername.isEmpty ? "opencode" : openCodeBasicAuthUsername,
+            password: openCodeBasicAuthPassword
+        )
     }
 
     var selectedCodexModel: CodexModelOption? {

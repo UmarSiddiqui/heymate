@@ -37,6 +37,10 @@ struct SettingsCatalogTests {
 
     // MARK: Search
 
+    @Test func retiredMacVoiceIsNotSearchable() {
+        #expect(!SettingsSearch.results(for: "Mac voice").contains(.macVoice))
+    }
+
     @Test func emptyOrBlankQueryFindsNothing() {
         #expect(SettingsSearch.results(for: "").isEmpty)
         #expect(SettingsSearch.results(for: "   ").isEmpty)

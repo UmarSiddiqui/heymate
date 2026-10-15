@@ -20,6 +20,11 @@ struct OpenCodeModelOption: Identifiable, Hashable {
     /// Human-readable model name as reported by the server; falls back to modelID.
     let modelName: String
 
+    /// Server-reported pricing, never inferred from a model name.
+    var isFree: Bool = false
+
+    var isFreeWithoutSignIn: Bool { providerID == "opencode" && isFree }
+
     var id: String { "\(providerID)/\(modelID)" }
 
     /// Compact label for pickers — model name only, since the surrounding UI

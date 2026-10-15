@@ -77,13 +77,26 @@ struct MateHomeView: View {
                 // The header sits in the titlebar row, level with the
                 // traffic lights, instead of under an empty band.
                 .ignoresSafeArea(.container, edges: isCompactLayout ? [] : .top)
-            if columns.contains(.drawer) {
+            if !isCompactLayout, let previewedFilePath {
+                Rectangle().fill(DS.Colors.borderSubtle).frame(width: 1)
+                MateDocumentPreview(path: previewedFilePath, onClose: { self.previewedFilePath = nil })
+                    .frame(minWidth: 300, idealWidth: 440, maxWidth: 560)
+            } else if columns.contains(.drawer) {
                 Rectangle().fill(DS.Colors.borderSubtle).frame(width: 1)
                 mateDrawer
                     .frame(width: MateHomeLayout.drawerWidth)
             }
         }
         .background(CelestialAtmosphere())
+        .sheet(isPresented: Binding(
+            get: { isCompactLayout && !isDrawerOpen && previewedFilePath != nil },
+            set: { if !$0 { previewedFilePath = nil } }
+        )) {
+            if let previewedFilePath {
+                MateDocumentPreview(path: previewedFilePath, onClose: { self.previewedFilePath = nil })
+                    .frame(minWidth: 380, minHeight: 480)
+            }
+        }
         .disclosureSound(isShowingNewMate, .sheet)
         .disclosureSound(settingsMate != nil, .sheet)
         .disclosureSound(isShowingChatHistory, .sheet)
@@ -115,7 +128,13 @@ struct MateHomeView: View {
             })
         }
         .sheet(isPresented: compactDrawerPresented) {
-            mateDrawer
+            Group {
+                if let previewedFilePath {
+                    MateDocumentPreview(path: previewedFilePath, onClose: { self.previewedFilePath = nil })
+                } else {
+                    mateDrawer
+                }
+            }
                 .frame(minWidth: 320, minHeight: 420)
                 .confirmationDialog(
                     "Delete \(matePendingDelete?.name ?? "this agent")?",
@@ -148,6 +167,7 @@ struct MateHomeView: View {
             removeImagePasteMonitor()
         }
         .onChange(of: companionManager.currentChat.id) { _, _ in
+            previewedFilePath = nil
             typedMessageInput = companionManager.currentChat.draftText ?? ""
             isNearBottom = true
             // A fresh chat leads with Hold to talk again.
@@ -1226,12 +1246,17 @@ struct MateHomeView: View {
                         if let chrome = companionManager.harnessReplyChrome[message.id] {
                             HarnessFollowUpRow(
                                 actions: chrome.nextActions,
-                                artifactPaths: chrome.artifactPaths,
+                                artifactPaths: chrome.artifactPaths.map { artifactURL(for: $0).path },
                                 onAction: { phrase in
                                     _ = companionManager.sendTypedMessage(phrase)
                                 },
                                 onOpenArtifact: { path in
-                                    NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                                    let url = URL(fileURLWithPath: path)
+                                    if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                                        NSWorkspace.shared.open(url)
+                                    } else {
+                                        previewedFilePath = path
+                                    }
                                 }
                             )
                         }
@@ -2032,6 +2057,15 @@ struct MateHomeView: View {
         )
     }
 
+    private func artifactURL(for path: String) -> URL {
+        let expanded = (path as NSString).expandingTildeInPath
+        if expanded.hasPrefix("/") { return URL(fileURLWithPath: expanded) }
+        if let folder = activeMate?.folderPath {
+            return URL(fileURLWithPath: folder, isDirectory: true).appendingPathComponent(expanded)
+        }
+        return URL(fileURLWithPath: expanded)
+    }
+
     private var filesSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Files")
@@ -2063,14 +2097,6 @@ struct MateHomeView: View {
                             onDelete: entry.isDirectory ? nil : { filePendingDelete = entry.id }
                         )
                     }
-                }
-                if let previewedFilePath,
-                   let preview = MateWorkspace.previewText(at: previewedFilePath) {
-                    Text(preview)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundColor(DS.Colors.textSecondary)
-                        .lineLimit(8)
-                        .textSelection(.enabled)
                 }
                 Button("Show in Finder") {
                     NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)

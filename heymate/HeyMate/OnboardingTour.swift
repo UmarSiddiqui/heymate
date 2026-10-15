@@ -55,7 +55,7 @@ final class OnboardingTour: ObservableObject {
     /// Which sample is playing on the voice step.
     @Published private(set) var playingSample: VoiceSample?
 
-    enum VoiceSample { case mac, onDevice }
+    enum VoiceSample { case onDevice }
 
     let micCheck = OnboardingMicCheck()
     let companionManager: CompanionManager
@@ -71,7 +71,6 @@ final class OnboardingTour: ObservableObject {
     static let createdMatesKey = "heymate.onboarding.createdMates"
 
     private var samplePlayer: AVAudioPlayer?
-    private let macVoice = MacOSSpeechSynthesizerClient()
 
     private var stepTask: Task<Void, Never>?
     private var watchers: Set<AnyCancellable> = []
@@ -206,9 +205,9 @@ final class OnboardingTour: ObservableObject {
             if store.speakState.isInstalled {
                 await say("Pick the voice you like. Tap one to hear it.")
             } else if store.isSupportedOnThisMac {
-                await say("Right now I sound like this, a bit robotic. Download my on-device voice and I'll sound much better. Or we can just type.")
+                await say("My local voice is downloading. Keep going while it gets ready, or type any time.")
             } else {
-                await say("This is my Mac voice. You can keep it, or we can just type.")
+                await say("Local voice is unavailable on this Mac. You can type, or set up ElevenLabs in Settings.")
             }
 
         case .permissions:
@@ -292,17 +291,6 @@ final class OnboardingTour: ObservableObject {
 
     // MARK: Voice
 
-    func playMacSample() {
-        stopSamples()
-        playingSample = .mac
-        Task { [weak self] in
-            guard let self else { return }
-            try? await self.macVoice.speakText("Hi, I'm HeyMate. This is my built-in Mac voice.")
-            while self.macVoice.isPlaying { try? await Task.sleep(for: .milliseconds(120)) }
-            if self.playingSample == .mac { self.playingSample = nil }
-        }
-    }
-
     func playOnDeviceSample() {
         stopSamples()
         guard let url = Bundle.main.url(forResource: "OnDeviceVoiceSample", withExtension: "m4a"),
@@ -319,7 +307,6 @@ final class OnboardingTour: ObservableObject {
     private func stopSamples() {
         samplePlayer?.stop()
         samplePlayer = nil
-        macVoice.stopPlayback()
         playingSample = nil
     }
 

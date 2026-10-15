@@ -37,6 +37,7 @@ final class DetachedAgentRunnerEngine {
 
     private var state: DetachedAgentDurableState
     private var finalResult = AgentFinalResult()
+    private var providerFailureMessage: String?
     private var pendingProviderApprovalID: String?
     private var workBudgetRemaining: Duration
     private var workSegmentStartedAt: SuspendingClock.Instant?
@@ -152,7 +153,10 @@ final class DetachedAgentRunnerEngine {
                 recordProgress("Runner received an unsupported plan event")
             case .approvalRequested(let providerID, _):
                 beginApprovalWait(providerID: providerID)
-            case .finished, .failed:
+            case .failed(let message):
+                let safe = AgentReceiptPrivacy.privateAnswer(message)
+                if !safe.isEmpty { providerFailureMessage = safe }
+            case .finished:
                 continue
             }
         }
@@ -163,6 +167,19 @@ final class DetachedAgentRunnerEngine {
         pauseWorkTimeout()
         approvalTimeoutTask?.cancel()
 
+        if status != 0 || finalResult.outcome == .failed {
+            // Failure prose belongs in the private result artifact, never in
+            // the metadata journal. Preserve the actual provider/stderr cause.
+            let headline = status == 0 ? "Coding agent reported an error" : "Coding agent exited with status \(status)"
+            let details = [providerFailureMessage, process.recentStandardErrorSummary]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            let report = headline + "\n\n" + (details.isEmpty
+                ? "The coding agent supplied no additional error details. No completed result is available."
+                : details.joined(separator: "\n\n"))
+            try? AgentPrivateResultStore.save(report, root: rootDirectoryURL,
+                                             runID: request.runID, attemptID: request.attemptID)
+        }
         if finalResult.outcome == .failed {
             finishTerminal(
                 phase: .failed,
