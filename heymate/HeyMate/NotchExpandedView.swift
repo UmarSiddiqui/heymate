@@ -122,7 +122,6 @@ struct NotchExpandedView: View {
     var hardwareNotchWidth: CGFloat = 0
 
     @ObservedObject var transitionModel: NotchSurfaceTransitionModel
-    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
     /// Called when the user presses the collapse chevron.
     var onClose: () -> Void
@@ -499,6 +498,7 @@ private struct NotchTabSwitcher: View {
 
 private struct NotchHomeTab: View {
     @ObservedObject var companionManager: CompanionManager
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
     @State private var typedMessageInput = ""
     @FocusState private var isComposerFocused: Bool
