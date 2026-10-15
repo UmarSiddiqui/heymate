@@ -168,7 +168,7 @@ nonisolated enum CueChoreography {
     /// files. Extra beats come from the per-sound motion spec; the ones
     /// marked "est." are read off the sound's shape and should be checked
     /// against a screen recording.
-    static func timing(for sound: UISoundPlayer.Sound) -> CueSoundTiming {
+    static func timing(for sound: UISoundPlayer.Sound) -> CueSoundTiming? {
         switch sound {
         case .listenStart: return CueSoundTiming(peak: 0.071, audible: 0.599)
         case .responseReady: return CueSoundTiming(peak: 0.112, audible: 0.765)
@@ -195,7 +195,17 @@ nonisolated enum CueChoreography {
         case .homeReveal: return CueSoundTiming(peak: 0.392, audible: 1.130, beats: [0.232, 0.312])
         // Rumble, cracks at 1.6 and 2.1 s, burst 2.55–2.8 s.
         case .hatching: return CueSoundTiming(peak: 1.624, audible: 3.544, beats: [1.600, 2.100, 2.550, 2.800])
+        case .popoverOpen, .popoverClose, .sheetOpen, .sheetClose,
+             .paneOpen, .paneClose, .rowOpen, .rowClose, .peek: return nil
         }
+    }
+
+    /// Disclosure sounds (popovers, sheets, panes, rows, the notch peek)
+    /// play through `UISoundPlayer.playDisclosure` and have no cue motion
+    /// on purpose: the thing opening already moves with its own
+    /// transition, and a second motion on top would fight it.
+    static func isMotionless(_ sound: UISoundPlayer.Sound) -> Bool {
+        timing(for: sound) == nil
     }
 
     /// The showpiece. Every other cue has to stay micro.
@@ -206,14 +216,14 @@ nonisolated enum CueChoreography {
 
     // MARK: - Accents
 
-    static func accent(for sound: UISoundPlayer.Sound) -> CueAccent {
+    static func accent(for sound: UISoundPlayer.Sound) -> CueAccent? {
         switch sound {
         case .listenStart: return CueAccent(part: .subject, time: 0.071)
         case .responseReady: return CueAccent(part: .subject, time: 0.112)
         case .panelOpen: return CueAccent(part: .subject, time: 0.060)
         case .panelClose: return CueAccent(part: .subject, time: 0.0)
         case .messageSent: return CueAccent(part: .subject, time: 0.135)
-        case .messageReceived: return CueAccent(part: .subject, time: 0.095)
+        case .messageReceived: return CueAccent(part: .subject, time: replyPopTime)
         case .question: return CueAccent(part: .prop, time: 0.200)
         case .permissionAsk: return CueAccent(part: .subject, time: 0.194)
         case .surprised: return CueAccent(part: .subject, time: 0.081)
@@ -227,6 +237,8 @@ nonisolated enum CueChoreography {
         case .boot: return CueAccent(part: .subject, time: 0.740)
         case .homeReveal: return CueAccent(part: .item(2), time: 0.392)
         case .hatching: return CueAccent(part: .subject, time: 2.800)
+        case .popoverOpen, .popoverClose, .sheetOpen, .sheetClose,
+             .paneOpen, .paneClose, .rowOpen, .rowClose, .peek: return nil
         }
     }
 
@@ -253,6 +265,8 @@ nonisolated enum CueChoreography {
         case .thumbsUp: return [.prop]
         case .homeReveal: return (0..<homeTileCount).map { CuePart.item($0) } + (0..<sparkleCount).map { CuePart.sparkle($0) }
         case .hatching: return [CuePart.subject, .prop, .item(0), .item(1)] + (0..<sparkleCount).map { CuePart.sparkle($0) }
+        case .popoverOpen, .popoverClose, .sheetOpen, .sheetClose,
+             .paneOpen, .paneClose, .rowOpen, .rowClose, .peek: return []
         }
     }
 
@@ -283,6 +297,8 @@ nonisolated enum CueChoreography {
         case .boot: return boot(part)
         case .homeReveal: return homeReveal(part)
         case .hatching: return hatching(part)
+        case .popoverOpen, .popoverClose, .sheetOpen, .sheetClose,
+             .paneOpen, .paneClose, .rowOpen, .rowClose, .peek: return nil
         }
     }
 
@@ -366,6 +382,9 @@ nonisolated enum CueChoreography {
 
     // MARK: Chat
 
+    /// When a reply bubble pops, on the second note; its first word lands here.
+    static let replyPopTime: TimeInterval = 0.095
+
     /// The sent bubble slides up 8 pt and grows from 0.96, settling on the
     /// peak; a paper plane (prop) flies up and right 12 pt and fades.
     private static func messageSent(_ part: CuePart) -> CueMotion? {
@@ -391,7 +410,7 @@ nonisolated enum CueChoreography {
     private static func messageReceived(_ part: CuePart) -> CueMotion? {
         guard case .subject = part else { return nil }
         return CueMotion(
-            scale: CueTrack([(0, 0.94), (0.095, 1.02), (0.22, 1.0)]),
+            scale: CueTrack([(0, 0.94), (replyPopTime, 1.02), (0.22, 1.0)]),
             opacity: CueTrack([(0, 0), (0.06, 1)])
         )
     }
@@ -411,7 +430,7 @@ nonisolated enum CueChoreography {
     /// everything at once.
     static func revealedWordCount(totalWords: Int, elapsed: TimeInterval, reduceMotion: Bool) -> Int {
         guard !reduceMotion else { return totalWords }
-        let firstWordAt = accent(for: .messageReceived).time
+        let firstWordAt = replyPopTime
         guard elapsed >= firstWordAt else { return 0 }
         let shown = 1 + Int((elapsed - firstWordAt) / wordRevealInterval(totalWords: totalWords))
         return min(totalWords, shown)
@@ -419,12 +438,12 @@ nonisolated enum CueChoreography {
 
     /// The longest any reply reveals for.
     static var maximumWordRevealDuration: TimeInterval {
-        accent(for: .messageReceived).time + maximumWordRevealSpan
+        replyPopTime + maximumWordRevealSpan
     }
 
     /// How long a reply of `totalWords` keeps revealing.
     static func wordRevealDuration(totalWords: Int) -> TimeInterval {
-        accent(for: .messageReceived).time
+        replyPopTime
             + Double(max(totalWords - 1, 0)) * wordRevealInterval(totalWords: totalWords)
     }
 

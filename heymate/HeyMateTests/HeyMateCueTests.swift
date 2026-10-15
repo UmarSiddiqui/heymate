@@ -24,8 +24,32 @@ struct HeyMateCueTests {
         stride(from: 0, through: end + step, by: step).map { $0 }
     }
 
+    /// Every sound that gets a cue. Disclosure sounds are the explicit
+    /// exception (see `motionlessSoundsAreExactlyTheDisclosures`).
+    private var cueSounds: [UISoundPlayer.Sound] {
+        UISoundPlayer.Sound.allCases.filter { !CueChoreography.isMotionless($0) }
+    }
+
+    /// The only sounds without a motion are the disclosure ones, whose
+    /// popover, sheet, pane or row already animates as it opens.
+    @Test func motionlessSoundsAreExactlyTheDisclosures() {
+        let disclosureSounds = Set(UISoundPlayer.Disclosure.allCases.flatMap { [$0.sound(isOpen: true), $0.sound(isOpen: false)] })
+        let motionless = Set(UISoundPlayer.Sound.allCases.filter { CueChoreography.isMotionless($0) })
+        #expect(motionless == disclosureSounds)
+        for sound in motionless {
+            #expect(CueChoreography.parts(for: sound).isEmpty, "\(sound) is motionless but has parts")
+            #expect(CueChoreography.accent(for: sound) == nil)
+        }
+    }
+
+    @Test func questionsAreRecognised() {
+        #expect(HeyMateCue.asksBack("Which folder should I use?"))
+        #expect(HeyMateCue.asksBack("Want me to go ahead? \n"))
+        #expect(!HeyMateCue.asksBack("Done. I saved it to Downloads."))
+    }
+
     @Test func everySoundHasAMotion() {
-        for sound in UISoundPlayer.Sound.allCases {
+        for sound in cueSounds {
             let parts = CueChoreography.parts(for: sound)
             #expect(!parts.isEmpty, "\(sound) has no parts")
             for part in parts {
@@ -36,8 +60,8 @@ struct HeyMateCueTests {
     }
 
     @Test func timingIsMeasuredAndOrdered() {
-        for sound in UISoundPlayer.Sound.allCases {
-            let timing = CueChoreography.timing(for: sound)
+        for sound in cueSounds {
+            let timing = CueChoreography.timing(for: sound)!
             #expect(timing.peak >= 0 && timing.peak < timing.audible, "\(sound) peak/audible out of order")
             for beat in timing.beats {
                 #expect(beat >= 0 && beat < timing.audible, "\(sound) beat \(beat) outside the sound")
@@ -46,9 +70,9 @@ struct HeyMateCueTests {
     }
 
     @Test func accentLandsOnABeatOfTheSound() {
-        for sound in UISoundPlayer.Sound.allCases {
-            let timing = CueChoreography.timing(for: sound)
-            let accent = CueChoreography.accent(for: sound)
+        for sound in cueSounds {
+            let timing = CueChoreography.timing(for: sound)!
+            let accent = CueChoreography.accent(for: sound)!
             let beats = [timing.peak] + timing.beats
             let nearest = beats.map { abs($0 - accent.time) }.min() ?? .infinity
             #expect(nearest <= syncTolerance, "\(sound) accent at \(accent.time)s misses its beats \(beats)")
@@ -56,8 +80,8 @@ struct HeyMateCueTests {
     }
 
     @Test func accentIsAKeyedMomentOfItsPart() {
-        for sound in UISoundPlayer.Sound.allCases {
-            let accent = CueChoreography.accent(for: sound)
+        for sound in cueSounds {
+            let accent = CueChoreography.accent(for: sound)!
             #expect(CueChoreography.parts(for: sound).contains(accent.part), "\(sound) accents a part it doesn't animate")
             let keys = CueChoreography.motion(for: sound, part: accent.part)?.keyTimes ?? []
             #expect(keys.contains { abs($0 - accent.time) < 0.0005 }, "\(sound) accent \(accent.time)s is not a keyframe")
@@ -65,7 +89,7 @@ struct HeyMateCueTests {
     }
 
     @Test func motionStartsWithTheSound() {
-        for sound in UISoundPlayer.Sound.allCases {
+        for sound in cueSounds {
             let keys = CueChoreography.parts(for: sound)
                 .compactMap { CueChoreography.motion(for: sound, part: $0) }
                 .flatMap(\.keyTimes)
@@ -77,7 +101,7 @@ struct HeyMateCueTests {
     /// mic dot's grow-in (0.6) is in the spec; props (the tapback's 1.15,
     /// the done ring) and sparkles are separate small objects.
     @Test func subjectsStayMicro() {
-        for sound in UISoundPlayer.Sound.allCases where !CueChoreography.isShowpiece(sound) {
+        for sound in cueSounds where !CueChoreography.isShowpiece(sound) {
             guard let motion = CueChoreography.motion(for: sound, part: .subject) else { continue }
             for time in samples(upTo: motion.endTime) {
                 let frame = motion.frame(at: time)
@@ -94,12 +118,12 @@ struct HeyMateCueTests {
     }
 
     @Test func onlyHatchingIsLong() {
-        for sound in UISoundPlayer.Sound.allCases {
+        for sound in cueSounds {
             let duration = CueChoreography.duration(for: sound)
             if CueChoreography.isShowpiece(sound) {
                 #expect(duration <= 5.5, "hatching outlasts its 5.5 s file")
             } else {
-                let audible = CueChoreography.timing(for: sound).audible
+                let audible = CueChoreography.timing(for: sound)!.audible
                 #expect(duration <= max(audible, 0.6) + 0.05, "\(sound) moves for \(duration)s, past its sound")
             }
         }
@@ -109,7 +133,7 @@ struct HeyMateCueTests {
     /// card, a removed item, a closing panel's content).
     @Test func subjectsSettle() {
         let exits: [UISoundPlayer.Sound] = [.panelClose, .jobClosed, .levelDown]
-        for sound in UISoundPlayer.Sound.allCases {
+        for sound in cueSounds {
             guard let motion = CueChoreography.motion(for: sound, part: .subject) else { continue }
             let end = motion.frame(at: motion.endTime + 1)
             #expect(end.offsetX == 0 && end.rotation == 0, "\(sound) doesn't settle")
@@ -122,7 +146,7 @@ struct HeyMateCueTests {
     }
 
     @Test func reduceMotionIsOpacityOnly() {
-        for sound in UISoundPlayer.Sound.allCases {
+        for sound in cueSounds {
             for part in CueChoreography.parts(for: sound) {
                 guard let motion = CueChoreography.motion(for: sound, part: part) else { continue }
                 for time in samples(upTo: motion.endTime, step: 0.02) {
@@ -165,7 +189,7 @@ struct HeyMateCueTests {
     // MARK: Word reveal
 
     @Test func replyWordsRevealFromThePop() {
-        let pop = CueChoreography.accent(for: .messageReceived).time
+        let pop = CueChoreography.replyPopTime
         #expect(CueChoreography.revealedWordCount(totalWords: 10, elapsed: pop - 0.01, reduceMotion: false) == 0)
         #expect(CueChoreography.revealedWordCount(totalWords: 10, elapsed: pop, reduceMotion: false) == 1)
         #expect(CueChoreography.revealedWordCount(totalWords: 10, elapsed: pop + 0.035 * 3 + 0.001, reduceMotion: false) == 4)
@@ -175,7 +199,7 @@ struct HeyMateCueTests {
     }
 
     @Test func longRepliesRevealQuickly() {
-        #expect(CueChoreography.wordRevealDuration(totalWords: 400) <= CueChoreography.accent(for: .messageReceived).time + 1.5 + 0.0001)
+        #expect(CueChoreography.wordRevealDuration(totalWords: 400) <= CueChoreography.replyPopTime + 1.5 + 0.0001)
     }
 
     @Test func hiddenWordsKeepTheirPlace() {

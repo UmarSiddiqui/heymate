@@ -1135,7 +1135,7 @@ final class NotchCompanionController {
         isTransitioning = true
         // Every open makes a sound; hover-peeks are softer than a deliberate open.
         if pinned {
-            UISoundPlayer.shared.play(.panelOpen)
+            HeyMateCue.shared.fire(.panelOpen)
         } else {
             UISoundPlayer.shared.playDisclosure(.peek, isOpen: true)
         }
@@ -1241,7 +1241,7 @@ final class NotchCompanionController {
         isTransitioning = true
         surfaceTransitionModel.dismiss()
         if wasPinned {
-            UISoundPlayer.shared.play(.panelClose)
+            HeyMateCue.shared.fire(.panelClose)
         } else {
             UISoundPlayer.shared.playDisclosure(.peek, isOpen: false)
         }

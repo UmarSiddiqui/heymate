@@ -27,8 +27,13 @@ struct CueMotionReader<Content: View>: View {
     var bornAt: Date? = nil
     @ViewBuilder let content: (CueFrame) -> Content
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.companionMotionSuppressed) private var motionSuppressed
     @State private var playing: HeyMateCueEvent?
+
+    /// A container that suppresses motion (a preview) gets the same
+    /// opacity-only cues as Reduce Motion.
+    private var reduceMotion: Bool { systemReduceMotion || motionSuppressed }
 
     var body: some View {
         TimelineView(.animation(minimumInterval: nil, paused: playing == nil)) { context in
@@ -370,8 +375,13 @@ struct CueWordReveal<Content: View>: View {
     let bornAt: Date
     @ViewBuilder let content: (Int?) -> Content
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.companionMotionSuppressed) private var motionSuppressed
     @State private var playing: HeyMateCueEvent?
+
+    /// A container that suppresses motion (a preview) gets the same
+    /// opacity-only cues as Reduce Motion.
+    private var reduceMotion: Bool { systemReduceMotion || motionSuppressed }
     @State private var totalWords = 0
 
     var body: some View {

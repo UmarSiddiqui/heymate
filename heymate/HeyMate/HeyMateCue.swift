@@ -105,6 +105,11 @@ final class HeyMateCue: ObservableObject {
     /// can still find its cue; past its own duration a view ignores it.
     static let retention: TimeInterval = 4
 
+    /// A finished reply that ends by asking something back.
+    nonisolated static func asksBack(_ reply: String) -> Bool {
+        reply.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?")
+    }
+
     /// The newest still-playing cue a view should join.
     func activeCue(
         for sounds: [UISoundPlayer.Sound],

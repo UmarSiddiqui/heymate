@@ -19,6 +19,7 @@ struct FloatingAgentNoticeCard: View {
 
     private var tint: Color { run.status == .failed ? DS.Colors.warningText : DS.Colors.accent }
     private var title: String { run.status == .failed ? "Task needs attention" : "Result ready" }
+    private var cueSubject: String { run.id.uuidString }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -49,12 +50,17 @@ struct FloatingAgentNoticeCard: View {
                         .overlay(alignment: .topTrailing) {
                             Circle().fill(tint).frame(width: 7, height: 7).padding(5)
                         }
+                        // Done: a pop with one soft ring over the tail.
+                        // Failed: squash, then stretch-pop on the peak.
+                        .overlay { CueProp(kind: .ring, subject: cueSubject) }
+                        .cueMotion(.jobDone, .surprised, subject: cueSubject, anchor: .bottom)
                 }
                 .help("\(mateName): \(run.title). Open task report")
                 .accessibilityLabel("\(mateName), \(title), \(run.title). Open task report")
             }
         }
         .buttonStyle(.plain)
+        .cueMotion(.surprised, part: .prop, subject: cueSubject)
         .frame(height: 84)
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
