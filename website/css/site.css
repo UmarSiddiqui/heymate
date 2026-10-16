@@ -538,3 +538,45 @@ kbd[data-key].down { transform: translateY(2px); border-bottom-width: 1px; backg
 .is-listening .notch-typing i { background: var(--signal-bright); }
 @keyframes notch-dot { 0%, 60%, 100% { transform: none; opacity: 0.45; } 30% { transform: translateY(-3px); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .notch-typing i { animation: none; opacity: 0.8; } }
+
+/* Milo, the futuristic mate, lives at the bottom of the screen.
+   Wide screens have room in the right gutter, so he stands there.
+   Narrower screens would put him over the text, so he only peeks over
+   the edge and stands up when hovered or tapped. Near the footer he ducks away. */
+.mate {
+  position: fixed; right: max(14px, env(safe-area-inset-right)); bottom: 0; z-index: 15;
+  width: 64px; pointer-events: none;
+  transform: translateY(60%); transition: transform 0.55s var(--ease);
+}
+.mate-btn {
+  position: relative; display: block; width: 100%; padding: 0; border: 0; background: none;
+  cursor: pointer; pointer-events: auto; -webkit-tap-highlight-color: transparent;
+}
+.mate-btn:focus-visible { outline-offset: -2px; border-radius: 40% 40% 12px 12px; }
+.mate-body { display: grid; animation: mate-bob 3.6s ease-in-out infinite; transform-origin: 50% 100%; }
+.mate-body img {
+  grid-area: 1 / 1; width: 100%; height: auto; opacity: 0;
+  filter: drop-shadow(0 6px 10px rgba(14, 14, 15, 0.16));
+}
+.mate[data-frame="idle"] .mate-idle,
+.mate[data-frame="blink"] .mate-blink,
+.mate[data-frame="wave"] .mate-wave { opacity: 1; }
+.mate-bubble {
+  position: absolute; right: 70%; bottom: calc(100% - 22px); white-space: nowrap;
+  padding: 8px 12px; border-radius: 14px 14px 4px 14px; background: var(--ink); color: var(--paper);
+  font: 600 13px/1.3 var(--text); opacity: 0; transform: translateY(6px) scale(0.96);
+  transform-origin: 100% 100%; transition: opacity 0.2s, transform 0.3s var(--ease); pointer-events: none;
+}
+.mate.talking .mate-bubble { opacity: 1; transform: none; }
+.mate:focus-within, .mate.awake { transform: none; }
+@media (hover: hover) { .mate:hover { transform: none; } }
+.mate.away { transform: translateY(110%); }
+@media (min-width: 1300px) {
+  .mate { width: 88px; transform: none; }
+}
+@keyframes mate-bob { 0%, 100% { transform: none; } 50% { transform: translateY(-3px) rotate(-1deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .mate, .mate-bubble { transition: none; }
+  .mate-body { animation: none; }
+}
+@media print { .mate { display: none; } }
