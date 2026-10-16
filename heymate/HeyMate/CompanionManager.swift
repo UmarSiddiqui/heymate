@@ -274,13 +274,13 @@ final class CompanionManager: ObservableObject {
     /// Interaction sounds at the two moments users benefit from an audio cue:
     /// the mic opening for a talk request, and the spoken answer arriving.
     /// Dictation/spatial flows stay silent — sound there would be noise.
+    /// UISoundPlayer applies quiet hours to the sound; the motion still plays.
     private func playUISoundForTransition(_ event: CompanionEvent) {
-        guard !QuietPolicy.shouldSilenceAnnouncements() else { return }
         switch event {
         case .startListening(.talk):
-            UISoundPlayer.shared.play(.listenStart)
+            cue(.listenStart)
         case .beginSpeaking:
-            UISoundPlayer.shared.play(.responseReady)
+            cue(.responseReady)
         default:
             break
         }
@@ -690,9 +690,7 @@ final class CompanionManager: ObservableObject {
     }
 
     private func handleTimerCompleted(label: String) {
-        if !QuietPolicy.shouldSilenceAnnouncements() {
-            UISoundPlayer.shared.play(.responseReady)
-        }
+        cue(.responseReady)
         notchActivityCenter.agentActivity = NotchActivity(
             kind: .timer,
             trailingText: "done",
@@ -828,7 +826,7 @@ final class CompanionManager: ObservableObject {
         guard let proposal = standingOrderProposal else { return }
         standingOrderProposal = nil
         notchActivityCenter.agentActivity = nil
-        UISoundPlayer.shared.play(.thumbsUp)
+        cue(.thumbsUp)
         startSandboxAgent(prompt: proposal.task, brief: .standingOrder)
     }
 
@@ -938,7 +936,7 @@ final class CompanionManager: ObservableObject {
         apiKey: CustomAPIConfiguration.apiKey()
     )
 
-    var voiceSynthesisClient: any TTSClient = MacOSSpeechSynthesizerClient()
+    var voiceSynthesisClient: any TTSClient = KokoroTTSClient()
 
     /// Last-resort speaker when the selected TTS client throws. Retained so
     /// the utterance is not deallocated mid-sentence.
@@ -1116,6 +1114,11 @@ final class CompanionManager: ObservableObject {
 
     /// Live snapshot of what the configured OpenCode server exposes. Filled by
     /// refreshOpenCodeServerStatus(); drives the model browser in Settings.
+    @Published private(set) var isOpenCodeSetupInFlight = false
+    @Published private(set) var openCodeSetupStatusText: String?
+    private let openCodeLocalServer = OpenCodeLocalServer()
+    private var openCodeFreeModelsOnly = UserDefaults.standard.bool(forKey: "openCodeFreeModelsOnly")
+
     @Published private(set) var openCodeModels: [OpenCodeModelOption] = []
     @Published private(set) var isOpenCodeServerReachable: Bool?
     @Published private(set) var openCodeServerVersion: String?
@@ -1227,10 +1230,11 @@ final class CompanionManager: ObservableObject {
         )
     }
 
-    func setSelectedBrain(_ brain: AgentBrain) {
+    func setSelectedBrain(_ brain: AgentBrain, freeModelsOnly: Bool = false) {
         selectedBrain = brain
         rebuildOpenCodeClient()
         WarmTalkPool.shared.drain()
+        if brain == .openCode { beginOpenCodeSetup(freeModelsOnly: freeModelsOnly) }
     }
 
     /// Starts the Claude child the next Talk question will use, if Claude
@@ -1338,6 +1342,7 @@ final class CompanionManager: ObservableObject {
     }
 
     func setSelectedListenProvider(_ provider: VoiceListenProvider) {
+        let provider: VoiceListenProvider = provider == .apple ? .onDevice : provider
         selectedListenProvider = provider
         UserDefaults.standard.set(provider.rawValue, forKey: Self.listenPreferenceKey)
         voiceDictation.useProvider(
@@ -1346,6 +1351,7 @@ final class CompanionManager: ObservableObject {
     }
 
     func setSelectedSpeakProvider(_ provider: VoiceSpeakProvider) {
+        let provider: VoiceSpeakProvider = provider == .macOS ? .onDevice : provider
         selectedSpeakProvider = provider
         UserDefaults.standard.set(provider.rawValue, forKey: Self.speakPreferenceKey)
         voiceSynthesisClient.stopPlayback()
@@ -1356,17 +1362,21 @@ final class CompanionManager: ObservableObject {
         if provider == .onDevice { Self.warmKokoro() }
     }
 
-    /// A finished on-device download switches Listen or Speak over to it —
-    /// the user downloaded it to use it. Also warms Parakeet and Kokoro when
-    /// they are already the choice, so the first press after launch is quick.
+    /// Warm newly installed local models without overriding ElevenLabs choices.
+    /// Existing models are warmed at launch for a quick first reply.
     private func bindOnDeviceVoiceModels() {
+        guard !HeyMateDataDirectory.isUnitTestHost else { return }
         OnDeviceVoiceModelStore.shared.onModelInstalled = { [weak self] kind in
-            guard let self, self.voiceState == .idle else { return }
+            guard let self else { return }
             switch kind {
             case .listen:
-                self.setSelectedListenProvider(.onDevice)
+                if self.selectedListenProvider == .onDevice {
+                    Task.detached(priority: .utility) {
+                        _ = try? await ParakeetEngine.shared.loadIfNeeded()
+                    }
+                }
             case .speak:
-                self.setSelectedSpeakProvider(.onDevice)
+                if self.selectedSpeakProvider == .onDevice { Self.warmKokoro() }
             }
         }
 
@@ -1399,24 +1409,18 @@ final class CompanionManager: ObservableObject {
         SilentModeAwareTTSClient(wrapping: makeSpeakingClient(for: provider, workerBaseURL: workerBaseURL))
     }
 
-    /// The client for a Speak choice. ElevenLabs and on-device fall back to
-    /// the Mac voice when they fail, so a reply is never lost.
+    /// Local voice is the default and the only fallback for ElevenLabs.
     static func makeSpeakingClient(
         for provider: VoiceSpeakProvider,
         workerBaseURL: String
     ) -> any TTSClient {
         switch provider {
-        case .macOS:
-            return MacOSSpeechSynthesizerClient()
+        case .macOS, .onDevice:
+            return KokoroTTSClient()
         case .elevenLabs:
             return FallbackTTSClient(
                 primary: ElevenLabsVoiceClient(workerURL: "\(workerBaseURL)/tts"),
-                fallback: MacOSSpeechSynthesizerClient()
-            )
-        case .onDevice:
-            return FallbackTTSClient(
-                primary: KokoroTTSClient(),
-                fallback: MacOSSpeechSynthesizerClient()
+                fallback: KokoroTTSClient()
             )
         }
     }
@@ -1592,6 +1596,19 @@ final class CompanionManager: ObservableObject {
         isOpenCodeRefreshInFlight = true
         defer { isOpenCodeRefreshInFlight = false }
 
+        if selectedBrain == .openCode,
+           UserDefaults.standard.bool(forKey: "openCodeAutomaticSetup"),
+           OpenCodeLocalServer.supports(normalizedOpenCodeServerURL()),
+           !openCodeLocalServer.isRunning,
+           let executable = LoginShellExecutableResolver.resolveExecutable(named: "opencode") {
+            let existingVersion = try? await OpenCodeClient.fetchServerVersion(
+                baseURL: normalizedOpenCodeServerURL(),
+                basicAuthUsername: openCodeBasicAuthUsername.isEmpty ? nil : openCodeBasicAuthUsername,
+                basicAuthPassword: openCodeBasicAuthPassword.isEmpty ? nil : openCodeBasicAuthPassword
+            )
+            if existingVersion == nil { try? startManagedOpenCodeServer(executable: executable) }
+        }
+
         // Capture settings up front so a mid-flight edit doesn't mix two configs.
         let serverURL = normalizedOpenCodeServerURL()
         let authUsername = openCodeBasicAuthUsername.isEmpty ? nil : openCodeBasicAuthUsername
@@ -1618,15 +1635,104 @@ final class CompanionManager: ObservableObject {
 
             let currentSelectionIsValid = availableModels.contains {
                 $0.providerID == openCodeProviderID && $0.modelID == openCodeModelID
+                    && (!openCodeFreeModelsOnly || $0.isFreeWithoutSignIn)
             }
-            if !currentSelectionIsValid, let firstAvailableModel = availableModels.first {
+            if !currentSelectionIsValid, let firstAvailableModel = availableModels
+                .filter({ !openCodeFreeModelsOnly || $0.isFreeWithoutSignIn })
+                .sorted(by: { $0.id < $1.id }).first {
                 selectOpenCodeModel(firstAvailableModel)
                 HeyMateLog.log("🤖 OpenCode: auto-selected \(firstAvailableModel.id)")
+            } else if !currentSelectionIsValid, openCodeFreeModelsOnly {
+                openCodeProviderID = ""
+                openCodeModelID = ""
             }
         } catch {
             isOpenCodeServerReachable = false
             openCodeConnectionErrorText = error.localizedDescription
         }
+    }
+
+    /// Explicit provider choice authorizes installation; refreshes only restart an installed server.
+    func beginOpenCodeSetup(freeModelsOnly: Bool) {
+        openCodeFreeModelsOnly = freeModelsOnly
+        UserDefaults.standard.set(freeModelsOnly, forKey: "openCodeFreeModelsOnly")
+        if freeModelsOnly {
+            openCodeProviderID = ""
+            openCodeModelID = ""
+        }
+        guard !isOpenCodeSetupInFlight else { return }
+        guard OpenCodeLocalServer.supports(normalizedOpenCodeServerURL()) else {
+            openCodeSetupStatusText = "Custom OpenCode address: connect your server, then refresh."
+            return
+        }
+        UserDefaults.standard.set(true, forKey: "openCodeAutomaticSetup")
+        isOpenCodeSetupInFlight = true
+        openCodeSetupStatusText = "Setting up OpenCode…"
+        Task {
+            defer { isOpenCodeSetupInFlight = false }
+            if LoginShellExecutableResolver.resolveExecutable(named: "opencode") == nil {
+                openCodeSetupStatusText = "Installing OpenCode…"
+                let outcome = await Task.detached(priority: .utility) {
+                    SubscriptionCLIInstaller.runInstall(for: .openCode)
+                }.value
+                if case .failed(let message) = outcome {
+                    openCodeSetupStatusText = message
+                    return
+                }
+            }
+            guard let executable = LoginShellExecutableResolver.resolveExecutable(named: "opencode") else {
+                openCodeSetupStatusText = "OpenCode was not found after installation. Try setup again."
+                return
+            }
+            do {
+                // Reuse a server the user already runs, including its existing credentials.
+                if (try? await OpenCodeClient.fetchServerVersion(
+                    baseURL: normalizedOpenCodeServerURL(),
+                    basicAuthUsername: openCodeBasicAuthUsername.isEmpty ? nil : openCodeBasicAuthUsername,
+                    basicAuthPassword: openCodeBasicAuthPassword.isEmpty ? nil : openCodeBasicAuthPassword
+                )) == nil {
+                    try startManagedOpenCodeServer(executable: executable)
+                }
+                openCodeSetupStatusText = "Loading OpenCode models…"
+                for _ in 0..<30 {
+                    await refreshOpenCodeServerStatus()
+                    if isOpenCodeServerReachable == true { break }
+                    try await Task.sleep(for: .seconds(1))
+                }
+                guard isOpenCodeServerReachable == true else {
+                    openCodeSetupStatusText = "OpenCode did not start. Try setup again or check your server address."
+                    return
+                }
+                if openCodeFreeModelsOnly {
+                    guard let model = openCodeModels.filter(\.isFreeWithoutSignIn)
+                        .sorted(by: { $0.id < $1.id }).first else {
+                        openCodeProviderID = ""
+                        openCodeModelID = ""
+                        openCodeSetupStatusText = "No free models available right now. Choose another engine or refresh later."
+                        return
+                    }
+                    selectOpenCodeModel(model)
+                }
+                refreshHeadlessCLIStatus()
+                openCodeSetupStatusText = openCodeModelID.isEmpty
+                    ? "OpenCode is ready. Choose a model below."
+                    : "OpenCode is ready · \(openCodeModelID)"
+            } catch {
+                openCodeSetupStatusText = "Could not start OpenCode. Try setup again."
+            }
+        }
+    }
+
+    private func startManagedOpenCodeServer(executable: URL) throws {
+        guard OpenCodeLocalServer.supports(normalizedOpenCodeServerURL()) else { return }
+        if openCodeBasicAuthPassword.isEmpty {
+            openCodeBasicAuthPassword = UUID().uuidString + UUID().uuidString
+        }
+        try openCodeLocalServer.start(
+            executable: executable,
+            username: openCodeBasicAuthUsername.isEmpty ? "opencode" : openCodeBasicAuthUsername,
+            password: openCodeBasicAuthPassword
+        )
     }
 
     var selectedCodexModel: CodexModelOption? {
@@ -1696,6 +1802,7 @@ final class CompanionManager: ObservableObject {
     private var pendingOpenCodeTrainingSend: PendingOpenCodeSend?
     private var pendingOpenCodeTrainingImages: [ChatImageAttachment] = []
     var pendingHandoffs: [MateHandoff] = []
+    var handoffDispatchScheduled = false
     /// Set when a walkthrough turn is still in flight and the user acts.
     var guidedClickLandedDuringTurn = false
     @Published var pendingDestructiveConfirmation: PendingDestructiveWork?
@@ -1712,6 +1819,9 @@ final class CompanionManager: ObservableObject {
     }
     var activeHandoffMateID: UUID?
     var activeHandoffHops = 0
+    var activeHandoff: MateHandoff?
+    var activeHandoffMessageStart = 0
+    var activeHandoffRunIDs: [UUID] = []
     let meetingNotes = MeetingNotes(fileURL: MeetingNotes.appSupportFileURL())
     private let onDeviceLanguageClient = OnDeviceLanguageClient()
 
@@ -1827,9 +1937,15 @@ final class CompanionManager: ObservableObject {
     }
 
     func scheduleNextHandoffIfNeeded() {
-        guard activeHandoffMateID == nil, activeRoutineTurn == nil, !pendingHandoffs.isEmpty else { return }
-        let next = pendingHandoffs.removeFirst()
+        guard !handoffDispatchScheduled, activeHandoffMateID == nil, activeRoutineTurn == nil,
+              !isResponseInFlight, openCodeTrainingNotice == nil, !pendingHandoffs.isEmpty else { return }
+        handoffDispatchScheduled = true
         Task { @MainActor in
+            self.handoffDispatchScheduled = false
+            guard self.activeHandoffMateID == nil, self.activeRoutineTurn == nil,
+                  !self.isResponseInFlight, self.openCodeTrainingNotice == nil,
+                  !self.pendingHandoffs.isEmpty else { return }
+            let next = self.pendingHandoffs.removeFirst()
             self.beginHandoff(next)
         }
     }
@@ -1904,6 +2020,8 @@ final class CompanionManager: ObservableObject {
 
     /// Newest-first snapshot of agent jobs for the Agents tab.
     @Published var agentRuns: [AgentRun] = []
+    @Published var taskNotices: [FloatingAgentNotice] = []
+    @Published var focusedTaskRunID: UUID?
 
     /// Exactly one proactive nudge at a time. Matching a rule only populates
     /// this value; approval starts normal read-only planning.
@@ -2062,6 +2180,7 @@ final class CompanionManager: ObservableObject {
     func installRemoteSkill(_ descriptor: RemoteSkillDescriptor) throws {
         try skillRegistryInstallationStore.install(descriptor)
         reloadSkills()
+        cue(.levelUp, subject: descriptor.id)
     }
 
     func removeRemoteSkill(_ descriptor: RemoteSkillDescriptor) throws {
@@ -2276,6 +2395,9 @@ final class CompanionManager: ObservableObject {
         } else if activeHandoffMateID != nil {
             completeActiveHandoff(succeeded: false)
         }
+        // Explicit Stop cancels queued delegation too. Provider failures do
+        // not come through this path and must not erase unrelated tasks.
+        pendingHandoffs.removeAll()
         guard resetInteractionState else { return }
         dispatch(.cancel)
         // The reply task calls beginContextCapture before it notices cancellation.
@@ -2306,7 +2428,9 @@ final class CompanionManager: ObservableObject {
                 role: .user,
                 text: trimmed,
                 createdAt: Date(),
-                attachmentNames: names
+                attachmentNames: names,
+                taskSummary: activeHandoff.flatMap { $0.deliveredInstruction == trimmed ? $0.instruction : nil },
+                taskSource: activeHandoff.flatMap { $0.deliveredInstruction == trimmed ? $0.fromMateName : nil }
             ))
             heyMateTalkSession.updatedAt = Date()
             if isRecordingMeeting {
@@ -2325,11 +2449,13 @@ final class CompanionManager: ObservableObject {
             role: .user,
             text: trimmed,
             createdAt: Date(),
-            attachmentNames: names
+            attachmentNames: names,
+            taskSummary: activeHandoff.flatMap { $0.deliveredInstruction == trimmed ? $0.instruction : nil },
+            taskSource: activeHandoff.flatMap { $0.deliveredInstruction == trimmed ? $0.fromMateName : nil }
         ))
         session.updatedAt = Date()
         if session.title == ChatSession.defaultTitle {
-            session.title = ChatSession.title(from: trimmed)
+            session.title = ChatSession.title(from: session.messages.last?.visibleText ?? trimmed)
         }
         currentChat = session
         persistCurrentChatIfNeeded()
@@ -2350,11 +2476,13 @@ final class CompanionManager: ObservableObject {
             role: .user,
             text: trimmed,
             createdAt: Date(),
-            attachmentNames: attachmentNames
+            attachmentNames: attachmentNames,
+            taskSummary: activeHandoff.flatMap { $0.deliveredInstruction == trimmed ? $0.instruction : nil },
+            taskSource: activeHandoff.flatMap { $0.deliveredInstruction == trimmed ? $0.fromMateName : nil }
         ))
         session.updatedAt = Date()
         if session.title == ChatSession.defaultTitle {
-            session.title = ChatSession.title(from: trimmed)
+            session.title = ChatSession.title(from: session.messages.last?.visibleText ?? trimmed)
         }
         backgroundRoutineSession = session
         if rememberConversationsEnabled {
@@ -2400,7 +2528,13 @@ final class CompanionManager: ObservableObject {
         ))
         session.updatedAt = Date()
         currentChat = session
-        UISoundPlayer.shared.play(.messageReceived)
+        // A reply that asks something back gets the question cue instead.
+        // One that arrived whole reveals word by word; a streamed one was
+        // already read as it came in.
+        cue(
+            HeyMateCue.asksBack(trimmed) ? .question : .messageReceived,
+            revealsText: streamingAssistantText.isEmpty
+        )
         let captionText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         streamingAssistantText = ""
         lingerCursorCaption(captionText)
@@ -3651,9 +3785,7 @@ final class CompanionManager: ObservableObject {
             let messageWithContext = messageText.appending(contextPreamble(for: contextTokens))
             lastTranscript = messageText
             HeyMateAnalytics.track(.userMessageSent(characterCount: messageText.count))
-            if !QuietPolicy.shouldSilenceAnnouncements() {
-                UISoundPlayer.shared.play(.messageSent)
-            }
+            cue(.messageSent)
             // Not `requiresIdle`: a busy Talk pipeline is something a second
             // question deliberately interrupts, and the states where typing
             // genuinely cannot be served were refused above by name.
@@ -3848,7 +3980,12 @@ final class CompanionManager: ObservableObject {
             return
         }
         if continueFailedRunIfRetry(transcript) { return }
-        switch VoiceRouter.decide(transcript) {
+        // Classify the actual delegated request. The app-added history envelope
+        // is reference data and contains safety wording, not another action.
+        let routingTranscript = activeHandoff.flatMap { handoff in
+            handoff.deliveredInstruction == transcript ? handoff.instruction : nil
+        } ?? transcript
+        switch VoiceRouter.decide(routingTranscript) {
         case .local(let action):
             performLocalVoiceAction(action)
         case .agent:
@@ -3910,6 +4047,8 @@ final class CompanionManager: ObservableObject {
                         let succeeded: Bool
                         if case .success = outcome { succeeded = true } else { succeeded = false }
                         self.completeActiveHandoff(succeeded: succeeded)
+                        completion.didComplete = true
+                        self.scheduleNextHandoffIfNeeded()
                     }
                 }
             }
@@ -4001,7 +4140,9 @@ final class CompanionManager: ObservableObject {
         )
         sendTranscriptToClaudeWithScreenshot(
             transcript: transcript,
-            shouldCaptureScreen: TalkContextPolicy.allowCapture(
+            // A delegated request must not inspect whichever unrelated app
+            // happens to be foreground now. Only its explicit attachments travel.
+            shouldCaptureScreen: activeHandoffMateID == nil && TalkContextPolicy.allowCapture(
                 wantsScreen: wantsScreen,
                 typedInsideHeyMate: typedInsideHeyMate,
                 frontmostIsHeyMate: frontmostIsHeyMate,
@@ -4273,7 +4414,18 @@ final class CompanionManager: ObservableObject {
                     senderHops: activeHandoffMateID == nil ? 0 : activeHandoffHops
                 )
                 if !handoff.handoffs.isEmpty {
-                    pendingHandoffs.append(contentsOf: handoff.handoffs)
+                    let requester = activeHandoff?.requester ?? AgentChatOwner(
+                        mateID: turnSession.mateID ?? mateDirectory.defaultMateID,
+                        chatID: turnSession.id
+                    )
+                    pendingHandoffs.append(contentsOf: handoff.handoffs.map { parsed in
+                        var delivery = parsed
+                        delivery.requester = requester
+                        delivery.requestContext = activeHandoff?.requestContext
+                            ?? MateHandoffContext.request(transcript, session: turnSession)
+                        delivery.imageAttachments = activeHandoff?.imageAttachments ?? imageAttachments
+                        return delivery
+                    })
                 }
                 let work = MateWorkParser.extract(from: handoff.spokenText)
                 let spokenText = blocks.presentedSummary ?? work.spokenText
@@ -4308,7 +4460,10 @@ final class CompanionManager: ObservableObject {
                     }
                     if activeRoutineTurn != nil {
                         completeActiveRoutineTurn(.success(spokenText))
+                    } else if activeHandoffMateID != nil {
+                        completeActiveHandoff(succeeded: true)
                     }
+                    scheduleNextHandoffIfNeeded()
                     return
                 }
 
@@ -4371,7 +4526,7 @@ final class CompanionManager: ObservableObject {
                 if activeRoutineTurn != nil {
                     completeActiveRoutineTurn(.failure(error.localizedDescription))
                 } else if activeHandoffMateID != nil {
-                    completeActiveHandoff(succeeded: false)
+                    completeActiveHandoff(succeeded: false, failureMessage: error.localizedDescription)
                 } else {
                     // A turn typed in the window is read, not heard, so an
                     // expired login has to say what to do in the chat too.
@@ -4544,7 +4699,12 @@ final class CompanionManager: ObservableObject {
                     connectorDisplayName: connectorDisplayName,
                     toolName: namespacedToolID,
                     argumentsSummary: TalkToolCatalog.argumentsSummary(arguments),
-                    risk: risk
+                    risk: risk,
+                    actions: ConnectorToolCallDescription.actions(
+                        forToolNamed: namespacedToolID,
+                        arguments: arguments,
+                        appNames: composioConnections.records.mapValues(\.displayName)
+                    )
                 )
             )
             guard wasApproved, !Task.isCancelled, responseIsCurrent?() != false else {
@@ -4890,7 +5050,7 @@ final class CompanionManager: ObservableObject {
             ?? defaultHeadlessExecutor
         guard !refusesUnapprovedOpenCodeJob(executor: resolvedExecutor) else { return nil }
         HeyMateLog.log("🤖 Agent: starting sandbox (\(resolvedExecutor.displayName))")
-        let owner = chatOwner ?? prepareAgentChatOwner(prompt: prompt)
+        let owner = handoffAwareOwner(chatOwner ?? prepareAgentChatOwner(prompt: prompt))
         computerUseCoordinator.conversationID = owner.chatID
         let mate = mateDirectory.mates.first { $0.id == owner.mateID }
         let notedPrompt = notedUserMessage(
@@ -4908,6 +5068,7 @@ final class CompanionManager: ObservableObject {
             screenContext: currentAgentScreenContext(),
             chatOwner: owner
         )
+        if activeHandoff != nil { activeHandoffRunIDs.append(runID) }
         shouldRevealAgentsTab = true
         if suspendsTalk { speakAgentStartedAck() }
         scheduleTransientHideIfNeeded()
@@ -4952,7 +5113,7 @@ final class CompanionManager: ObservableObject {
             ?? brain.executor
             ?? defaultHeadlessExecutor
         guard !refusesUnapprovedOpenCodeJob(executor: resolvedExecutor) else { return nil }
-        let owner = chatOwner ?? prepareAgentChatOwner(prompt: prompt)
+        let owner = handoffAwareOwner(chatOwner ?? prepareAgentChatOwner(prompt: prompt))
         computerUseCoordinator.conversationID = owner.chatID
         let mate = mateDirectory.mates.first { $0.id == owner.mateID }
         let notedPrompt = notedUserMessage(
@@ -4971,8 +5132,36 @@ final class CompanionManager: ObservableObject {
             screenContext: currentAgentScreenContext(),
             chatOwner: owner
         )
+        if activeHandoff != nil { activeHandoffRunIDs.append(runID) }
         shouldRevealAgentsTab = true
         return runID
+    }
+
+    func dismissTaskNotice(id: UUID) {
+        floatingAgentWindowController.dismissNotice(id: id)
+    }
+
+    /// Exact persisted ownership only. A missing/deleted chat is never replaced.
+    @discardableResult
+    func openTaskChat(runID: UUID) -> Bool {
+        guard let run = agentRuns.first(where: { $0.id == runID }), let owner = run.chatOwner,
+              let mate = mates.first(where: { $0.id == owner.mateID && !$0.archived }) else { return false }
+        let stored = chatHistoryStore.session(id: owner.chatID)
+        guard let chatID = FloatingAgentPresentation.ownedChatID(
+            for: run, mate: mate, currentChat: currentChat, storedChat: stored,
+            defaultMateID: mateDirectory.defaultMateID
+        ) else { return false }
+        if currentChat.id != chatID { openChat(id: chatID) }
+        focusedTaskRunID = runID
+        openDesktopWindow(section: .chat)
+        return true
+    }
+
+    @discardableResult
+    func retryTask(runID: UUID) -> Bool {
+        let accepted = agentLauncher.retryFailedRun(runID: runID)
+        if !accepted { agentRevealErrorText = "This task cannot be retried. Start a new request." }
+        return accepted
     }
 
     func cancelAgent(runID: UUID) {
@@ -5000,7 +5189,7 @@ final class CompanionManager: ObservableObject {
 
     /// Per-tool approval inside a running attached job.
     func approveAgent(runID: UUID) {
-        UISoundPlayer.shared.play(.thumbsUp)
+        cue(.thumbsUp, subject: runID.uuidString)
         agentLauncher.resolveApproval(runID: runID, approve: true)
     }
 
@@ -5020,7 +5209,7 @@ final class CompanionManager: ObservableObject {
                 skillsRoot: skillsRoot
             )
         }
-        UISoundPlayer.shared.play(.thumbsUp)
+        cue(.thumbsUp, subject: runID.uuidString)
         agentLauncher.approvePlan(runID: runID)
     }
 
@@ -5032,7 +5221,7 @@ final class CompanionManager: ObservableObject {
 
     /// Throw the job away. Nothing was written, so there is nothing to undo.
     func dismissAgentPlan(runID: UUID) {
-        UISoundPlayer.shared.play(.jobClosed)
+        cue(.jobClosed, subject: runID.uuidString)
         agentLauncher.dismissPlan(runID: runID)
     }
 
@@ -5185,8 +5374,8 @@ final class CompanionManager: ObservableObject {
         if let run = agentRunStore.run(id: runID) {
             agentUserNotifier.handle(run: run, event: event)
         }
-        if let sound = UISoundPlayer.sound(for: event), !QuietPolicy.shouldSilenceAnnouncements() {
-            UISoundPlayer.shared.play(sound)
+        if let sound = UISoundPlayer.sound(for: event) {
+            cue(sound, subject: runID.uuidString)
         }
 
         postMateRunUpdate(runID: runID, event: event)

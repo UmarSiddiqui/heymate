@@ -34,7 +34,16 @@ struct NotchTrayStrip: View {
     /// Opens the matching page of the HeyMate window.
     var onOpenDesktop: (DesktopSection) -> Void
 
-    init(activityCenter: NotchActivityCenter, onOpenDesktop: @escaping (DesktopSection) -> Void) {
+    /// False when a parent already scrolls horizontally (the Tools row), so
+    /// the chips lay out inline instead of nesting a second scroller.
+    var scrollsHorizontally = true
+
+    init(
+        activityCenter: NotchActivityCenter,
+        scrollsHorizontally: Bool = true,
+        onOpenDesktop: @escaping (DesktopSection) -> Void
+    ) {
+        self.scrollsHorizontally = scrollsHorizontally
         self.activityCenter = activityCenter
         self.shelfStore = activityCenter.shelfStore
         self.nowPlayingMonitor = activityCenter.nowPlayingMonitor
@@ -58,7 +67,7 @@ struct NotchTrayStrip: View {
             VStack(alignment: .leading, spacing: 7) {
                 DSSectionLabel(title: "Right now")
 
-                ScrollView(.horizontal, showsIndicators: false) {
+                horizontalContainer {
                     HStack(spacing: 7) {
                         if let nowPlaying = nowPlayingMonitor.nowPlaying, activityCenter.isEnabled(.media) {
                             nowPlayingChip(nowPlaying)
@@ -90,6 +99,15 @@ struct NotchTrayStrip: View {
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func horizontalContainer<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        if scrollsHorizontally {
+            ScrollView(.horizontal, showsIndicators: false) { content() }
+        } else {
+            content()
         }
     }
 
@@ -125,7 +143,7 @@ struct NotchTrayStrip: View {
                         .font(DS.Glyph.micro)
                         .foregroundColor(DS.Colors.textPrimary)
                         .frame(width: 24, height: 24)
-                        .background(Circle().fill(DS.Colors.surface4))
+                        .background(Circle().fill(DS.Colors.notchSelectedFill))
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
@@ -371,11 +389,7 @@ struct NotchTrayStrip: View {
             .frame(minHeight: 34)
             .background(
                 Capsule(style: .continuous)
-                    .fill(DS.Colors.surface2.opacity(0.72))
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
+                    .fill(DS.Colors.notchWellFill)
             )
             .fixedSize()
     }
@@ -386,7 +400,7 @@ struct NotchTrayStrip: View {
                 .font(DS.Glyph.micro)
                 .foregroundColor(DS.Colors.textSecondary)
                 .frame(width: 24, height: 24)
-                .background(Circle().fill(DS.Colors.surface4))
+                .background(Circle().fill(DS.Colors.notchSelectedFill))
         }
         .buttonStyle(.plain)
         .pointerCursor()

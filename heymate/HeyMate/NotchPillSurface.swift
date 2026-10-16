@@ -146,12 +146,22 @@ struct NotchPillView: View {
         .accessibilityLabel(Text(accessibilitySummary))
         .background(housingFill)
         .overlay { if model.isOutlineEnabled { outlineGlow } }
+        .overlay {
+            UnevenRoundedRectangle(
+                topLeadingRadius: 0, bottomLeadingRadius: housingCornerRadius,
+                bottomTrailingRadius: housingCornerRadius, topTrailingRadius: 0,
+                style: .continuous
+            )
+            .strokeBorder(LinearGradient(colors: [.clear, .white.opacity(model.isHovered ? 0.14 : 0.035)], startPoint: .top, endPoint: .bottom), lineWidth: 0.5)
+            .allowsHitTesting(false)
+        }
         .overlay(alignment: .bottom) {
             AgentFilamentStrip(filaments: model.agentFilaments)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 2)
         }
         .overlay(alignment: .bottom) { bottomHairline }
+        .overlay { closeEchoGlow }
         .animation(accessibilityReduceMotion ? nil : .easeOut(duration: 0.18), value: model.isHovered)
         .animation(accessibilityReduceMotion ? nil : .easeOut(duration: 0.16), value: model.isDropTargeted)
         .animation(
@@ -176,8 +186,26 @@ struct NotchPillView: View {
         .fill(Color.black)
     }
 
+    /// After a deliberate close, the pill glows faintly twice with the
+    /// close sound's echoes.
+    private var closeEchoGlow: some View {
+        CueMotionReader(sounds: [.panelClose], part: .prop) { frame in
+            UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: housingCornerRadius,
+                bottomTrailingRadius: housingCornerRadius,
+                topTrailingRadius: 0,
+                style: .continuous
+            )
+            .stroke(Color.white.opacity(0.45 * frame.glow), lineWidth: 1)
+            .shadow(color: Color.white.opacity(0.3 * frame.glow), radius: 4)
+        }
+        .allowsHitTesting(false)
+    }
+
     private var outlineGlow: some View {
         NotchOutlineGlow(color: model.themeColor, cornerRadius: housingCornerRadius)
+            .opacity(model.voiceState == .idle && !model.isDropTargeted ? (model.isHovered ? 0.58 : 0.30) : 0.85)
     }
 
     /// One hairline under the housing, only while a voice interaction is
@@ -194,7 +222,7 @@ struct NotchPillView: View {
         if model.voiceState != .idle {
             return model.themeColor.opacity(0.5)
         }
-        return .clear
+        return Color.white.opacity(model.isHovered ? 0.10 : 0)
     }
 
     /// Slots fade in only once there is real estate to draw them in, so a
@@ -376,6 +404,7 @@ private struct NotchListeningDot: View {
             .fill(themeColor)
             .frame(width: 6, height: 6)
             .shadow(color: themeColor.opacity(0.9), radius: 3)
+            .cueMotion(.listenStart)
     }
 }
 
@@ -507,6 +536,7 @@ private struct NotchLiveWaveform: View {
                 Capsule(style: .continuous)
                     .fill(themeColor.opacity(0.55 + 0.45 * Double(weight)))
                     .frame(width: 2, height: height(forWeight: weight))
+                    .cueMotion(.listenStart, part: .item(barIndex))
             }
         }
         .animation(.easeOut(duration: 0.09), value: audioPowerLevel)

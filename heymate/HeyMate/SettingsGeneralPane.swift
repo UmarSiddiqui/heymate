@@ -16,6 +16,7 @@ struct SettingsGeneralPane: View {
     @ObservedObject private var presencePreferences = AppPresencePreferences.shared
     @ObservedObject private var updateController = AppUpdateController.shared
 
+    @AppStorage(QuietPolicy.presentationModeKey) private var presentationMode = false
     @AppStorage(CompanionAppearancePreference.idleAnimationsKey) private var idleAnimations = true
     @AppStorage(CompanionAppearancePreference.floatingAgentsKey) private var floatingAgents = true
 
@@ -79,6 +80,8 @@ struct SettingsGeneralPane: View {
                 item: .showInDock,
                 isOn: $presencePreferences.showsInDock
             )
+            SettingsDivider()
+            SettingsToggleRow("Presentation mode", subtitle: "Hide floating task notices and pause announcements and suggestions. Approvals stay pending in chat.", isOn: $presentationMode)
             SettingsDivider()
             SettingsRow(
                 SettingsItem.noNotchPlacement.title,
@@ -198,6 +201,12 @@ struct SettingsGeneralPane: View {
             ) {
                 Button("Replay") { companionManager.replayOnboarding() }
                     .dsCapsuleButtonStyle(.secondary)
+            }
+
+            SettingsDivider()
+            SettingsRow("Support diagnostics", subtitle: "Review a redacted local report before saving. Nothing uploads.") {
+                SupportDiagnosticsExport(manager: companionManager)
+                    .dsCapsuleButtonStyle(.quiet)
             }
 
             ForEach(SupportLinks.destinations) { destination in

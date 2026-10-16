@@ -80,6 +80,8 @@ nonisolated struct DetachedAgentDurableState: Codable, Equatable, Sendable {
     var pendingApprovalToken: DetachedAgentApprovalToken?
     var handedOffToTerminal: Bool
     var exitCode: Int32?
+    var liveSteeringToken: UUID? = nil
+    var liveInputReceipts: [DetachedLiveInputReceipt]? = nil
 
     init(
         runID: UUID,

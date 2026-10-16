@@ -174,6 +174,21 @@ struct ChatHistoryStoreTests {
         #expect(pairs.map(\.assistantResponse) == ["a1", "a2"])
     }
 
+    @Test func apiHistoryRetainsDelegatedReportsAndRunMilestonesForFollowUp() {
+        var session = ChatSession.empty()
+        session.messages = [
+            makeMessage(role: .user, text: "Check records, do not send", offset: 1),
+            makeMessage(role: .assistant, text: "Asking Scout", offset: 2),
+            makeMessage(role: .assistant, text: "Scout reported: found 3 records", offset: 3),
+            makeMessage(role: .assistant, text: "Scout work update: plan awaits approval", offset: 4),
+            makeMessage(role: .user, text: "Review those records", offset: 5)
+        ]
+        let pair = session.apiHistoryPairs().first
+        #expect(pair?.userTranscript == "Check records, do not send")
+        #expect(pair?.assistantResponse == "Asking Scout\n\nScout reported: found 3 records\n\nScout work update: plan awaits approval")
+        #expect(session.apiHistoryPairs().count == 1)
+    }
+
     @Test func apiHistoryPairsHonorsLimit() {
         var messages: [ChatMessage] = []
         for index in 1...6 {

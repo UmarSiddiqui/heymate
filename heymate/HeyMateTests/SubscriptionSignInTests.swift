@@ -336,7 +336,7 @@ struct SubscriptionSignInTests {
         #expect(SubscriptionCLIInstaller.installShellCommand(for: .codex)
             == "set -o pipefail; curl -fsSL https://chatgpt.com/codex/install.sh | sh")
         #expect(SubscriptionCLIInstaller.environmentOverrides(for: .codex)["CODEX_NON_INTERACTIVE"] == "1")
-        #expect(SubscriptionCLIInstaller.installShellCommand(for: .openCode) == nil)
+        #expect(SubscriptionCLIInstaller.installShellCommand(for: .openCode)?.contains("https://opencode.ai/install") == true)
     }
 
     @Test func loginsAreTheSubscriptionBrowserFlows() {
@@ -423,6 +423,7 @@ struct SubscriptionSignInTests {
         #expect(OnboardingAIChoice.neither.brain == .onDevice)
         #expect(OnboardingAIChoice.neither.executor == nil)
         #expect(OnboardingAIChoice(executor: .codex) == .chatGPT)
-        #expect(OnboardingAIChoice(executor: .openCode) == nil)
+        #expect(OnboardingAIChoice(executor: .openCode) == .openCode)
+        #expect(OnboardingAIChoice.freeModels.brain == .openCode)
     }
 }

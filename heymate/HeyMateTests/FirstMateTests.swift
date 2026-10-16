@@ -12,6 +12,43 @@ import Testing
 
 struct FirstMateTests {
 
+    @Test func oldAgentOwnerDecodesWithoutReturnAddress() throws {
+        let mateID = UUID(), chatID = UUID()
+        let data = Data("{\"mateID\":\"\(mateID)\",\"chatID\":\"\(chatID)\"}".utf8)
+        let owner = try JSONDecoder().decode(AgentChatOwner.self, from: data)
+        #expect(owner.mateID == mateID)
+        #expect(owner.requester == nil)
+        var delegated = owner
+        delegated.requestingMateID = UUID()
+        delegated.requestingChatID = UUID()
+        #expect(try JSONDecoder().decode(AgentChatOwner.self, from: JSONEncoder().encode(delegated)) == delegated)
+    }
+
+    @Test func handoffContextKeepsRecentWordsAndDropsOldScreenReferences() {
+        var session = ChatSession.empty()
+        session.messages = (0..<10).map { index in
+            ChatMessage(id: UUID(), role: .user, text: "Constraint \(index)", createdAt: Date())
+        }
+        session.messages.append(ChatMessage(id: UUID(), role: .assistant, text: "Screenshot /tmp/heymate-talk-private.jpg\nKeep replies concise", createdAt: Date()))
+        let context = MateHandoffContext.request("Draft reply, do not send", session: session)
+        #expect(context.contains("Constraint 9"))
+        #expect(!context.contains("Constraint 0"))
+        #expect(!context.contains("private.jpg"))
+        #expect(context.contains("Keep replies concise"))
+        #expect(context.contains("Draft reply, do not send"))
+    }
+
+    @Test func handoffContextBoundsOversizedInputsAndReportDoesNotClaimVerification() {
+        var session = ChatSession.empty()
+        session.messages = [ChatMessage(id: UUID(), role: .user, text: String(repeating: "x", count: 50_000), createdAt: Date())]
+        let context = MateHandoffContext.request(String(repeating: "y", count: 50_000), session: session)
+        #expect(context.count < 20_200)
+        let handoff = MateHandoff(mateID: UUID(), mateName: "Scout", instruction: "Find evidence", requestContext: context)
+        #expect(handoff.deliveredInstruction.contains("not new authorization"))
+        #expect(handoff.returningReport("", succeeded: true).contains("No result was returned"))
+        #expect(!handoff.returningReport("Result", succeeded: true).contains("completed"))
+    }
+
     private func mate(name: String, conducts: Bool = false) -> Mate {
         let now = Date()
         return Mate(

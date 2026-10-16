@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 import Testing
 @testable import HeyMate
 
@@ -28,7 +29,7 @@ struct FloatingAgentNoticeTests {
         #expect(store.notices.isEmpty)
     }
 
-    @Test func onlyFreshOwnedSuccessAndFailureCreateUpdates() {
+    @Test func onlyFreshOwnedTerminalResultsCreateUpdates() {
         let store = FloatingAgentNoticeStore(fileURL: nil)
         let success = run()
         let failure = run()
@@ -38,7 +39,7 @@ struct FloatingAgentNoticeTests {
         store.start(runs: [success, failure, cancelled, unowned])
         store.observe(runs: [finish(success), finish(failure, status: .failed),
                              finish(cancelled, status: .cancelled), finish(unowned)])
-        #expect(Set(store.notices.map(\.runID)) == Set([success.id, failure.id]))
+        #expect(Set(store.notices.map(\.runID)) == Set([success.id, failure.id, cancelled.id]))
     }
 
     @Test func repeatedPublicationsAndDismissalCannotReplaySameResult() throws {
@@ -124,4 +125,48 @@ struct FloatingAgentNoticeTests {
         let rows = FloatingAgentPresentation.rows(runs: [running, approval, completed], updates: [item])
         #expect(rows.map(\.id) == ["run:\(approval.id)", "update:\(notice.id)", "run:\(running.id)"])
     }
+    @Test func reportFallsBackFromWhitespaceAndRedactsFailureDetails() {
+        var failed = run(status: .failed)
+        failed.privateFinalResult = " \n "
+        failed.error = "Authentication failed: api_key=sk-test-secret"
+        let answer = FloatingAgentReportContent.answer(for: failed)
+        #expect(answer.contains("Authentication failed"))
+        #expect(!answer.contains("sk-test-secret"))
+        failed.error = " \n "
+        #expect(!FloatingAgentReportContent.answer(for: failed).isEmpty)
+        let succeeded = run(status: .succeeded)
+        #expect(FloatingAgentReportContent.answer(for: succeeded) == AgentFinalResult.missingMessage)
+    }
+
+    @Test func bubbleExpansionKeepsAvatarCenterAndCompactNativeBounds() {
+        let screen = CGRect(x: -1440, y: 80, width: 1440, height: 900)
+        let compact = FloatingAgentPresentation.bubbleFrame(visibleFrame: screen, index: 1, expanded: false)
+        let expanded = FloatingAgentPresentation.bubbleFrame(visibleFrame: screen, index: 1, expanded: true)
+        #expect(compact.size == CGSize(width: 56, height: 56))
+        #expect(expanded.maxX == compact.maxX)
+        #expect(expanded.midY == compact.midY)
+        #expect(expanded.minX < compact.minX)
+        #expect(screen.contains(expanded))
+        #expect(screen.contains(FloatingAgentPresentation.bubbleFrame(visibleFrame: screen, index: 0, expanded: true)))
+    }
+
+    @Test func completionWhileAppClosedProducesOnePendingUpdate() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("notice-offline-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("updates.json")
+        let active = run()
+        let first = FloatingAgentNoticeStore(fileURL: file)
+        first.start(runs: [active])
+        first.stop()
+        let completed = finish(active)
+        let second = FloatingAgentNoticeStore(fileURL: file)
+        second.start(runs: [completed])
+        let notice = try #require(second.notices.first)
+        #expect(second.notices.count == 1)
+        second.dismiss(id: notice.id)
+        let third = FloatingAgentNoticeStore(fileURL: file)
+        third.start(runs: [completed])
+        #expect(third.notices.isEmpty)
+    }
+
 }

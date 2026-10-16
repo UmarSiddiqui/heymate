@@ -34,6 +34,12 @@
 		AA00BB062F6500060039DA55 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB052F6500050039DA55 /* PostHog */; };
 		AA00BB092F6500090039DA55 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB082F6500080039DA55 /* FluidAudio */; };
 		AA00BB0C2F65000C0039DA55 /* HeyMateComputerUse in Frameworks */ = {isa = PBXBuildFile; productRef = AA00BB0B2F65000B0039DA55 /* HeyMateComputerUse */; };
+		09CA8A8188516C683223EC99 /* DetachedLiveInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0592052F641CB6E24D6C0C8 /* DetachedLiveInput.swift */; };
+		3AE4BA02206E92DA90AD6ADE /* CodexAppServerConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 123FEABD6877237D0FBD5057 /* CodexAppServerConnection.swift */; };
+		5590AC9D3C4A9F33495641AB /* CodexAppServerExecutionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5DF443D2BDD63B707C3A68 /* CodexAppServerExecutionSession.swift */; };
+		151A60A9FBB001C6C5DFD4AE /* CodexExecutionIsolation.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEAE62A263FBC871D3B047EC /* CodexExecutionIsolation.swift */; };
+		CDE8DF3DD215F0E89082C9FD /* CodexPlanningIsolation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A15727D46CB0F40260D7A37 /* CodexPlanningIsolation.swift */; };
+		E76DA6263FD4F257B8FFB78F /* AnthropicWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = 875D178C0090F9829D43E768 /* AnthropicWire.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -101,6 +107,12 @@
 		A10003232F90032300000323 /* HeyMate/DetachedAgentRunnerExecutable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/DetachedAgentRunnerExecutable.swift"; sourceTree = SOURCE_ROOT; };
 		A10003242F90032400000324 /* HeyMate/AgentFinalResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/AgentFinalResult.swift"; sourceTree = SOURCE_ROOT; };
 		A10003252F90032500000325 /* HeyMate/AgentReceiptPrivacy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/AgentReceiptPrivacy.swift"; sourceTree = SOURCE_ROOT; };
+		B0592052F641CB6E24D6C0C8 /* DetachedLiveInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/DetachedLiveInput.swift"; sourceTree = SOURCE_ROOT; };
+		123FEABD6877237D0FBD5057 /* CodexAppServerConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/CodexAppServerConnection.swift"; sourceTree = SOURCE_ROOT; };
+		7B5DF443D2BDD63B707C3A68 /* CodexAppServerExecutionSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/CodexAppServerExecutionSession.swift"; sourceTree = SOURCE_ROOT; };
+		EEAE62A263FBC871D3B047EC /* CodexExecutionIsolation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/CodexExecutionIsolation.swift"; sourceTree = SOURCE_ROOT; };
+		9A15727D46CB0F40260D7A37 /* CodexPlanningIsolation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/CodexPlanningIsolation.swift"; sourceTree = SOURCE_ROOT; };
+		875D178C0090F9829D43E768 /* AnthropicWire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/AnthropicWire.swift"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -195,6 +207,12 @@
 		A10005012F90050100000501 /* HeyMateAgentRunner */ = {
 			isa = PBXGroup;
 			children = (
+				B0592052F641CB6E24D6C0C8 /* DetachedLiveInput.swift */,
+				123FEABD6877237D0FBD5057 /* CodexAppServerConnection.swift */,
+				7B5DF443D2BDD63B707C3A68 /* CodexAppServerExecutionSession.swift */,
+				EEAE62A263FBC871D3B047EC /* CodexExecutionIsolation.swift */,
+				9A15727D46CB0F40260D7A37 /* CodexPlanningIsolation.swift */,
+				875D178C0090F9829D43E768 /* AnthropicWire.swift */,
 				A10003112F90031100000311 /* HeyMateAgentRunnerMain.swift */,
 				A10003122F90031200000312 /* HeyMate/AgentRuntimeTypes.swift */,
 				A10003132F90031300000313 /* HeyMate/AgentPlanBrief.swift */,
@@ -420,7 +438,13 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */,
+								09CA8A8188516C683223EC99 /* DetachedLiveInput.swift in Sources */,
+				3AE4BA02206E92DA90AD6ADE /* CodexAppServerConnection.swift in Sources */,
+				5590AC9D3C4A9F33495641AB /* CodexAppServerExecutionSession.swift in Sources */,
+				151A60A9FBB001C6C5DFD4AE /* CodexExecutionIsolation.swift in Sources */,
+				CDE8DF3DD215F0E89082C9FD /* CodexPlanningIsolation.swift in Sources */,
+				E76DA6263FD4F257B8FFB78F /* AnthropicWire.swift in Sources */,
+A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */,
 				A10001022F90010200000102 /* HeyMate/AgentRuntimeTypes.swift in Sources */,
 				A10001032F90010300000103 /* HeyMate/AgentPlanBrief.swift in Sources */,
 				A10001042F90010400000104 /* HeyMate/AgentProcessIdentity.swift in Sources */,

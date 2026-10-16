@@ -389,6 +389,9 @@ struct AttachedDesktopChrome<Content: View>: View {
         VStack(spacing: 0) {
             Color.clear.frame(height: neckHeight)
             HStack(spacing: 6) {
+                Text("HeyMate")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.58))
                 Spacer()
                 chromeButton("macwindow.on.rectangle", help: "Detach into a window", action: onDetach)
                 chromeButton("xmark", help: "Close", action: onClose)
@@ -407,12 +410,14 @@ struct AttachedDesktopChrome<Content: View>: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(.white.opacity(0.7))
-                .frame(width: 24, height: 24)
-                .background(Circle().fill(Color.white.opacity(0.08)))
+                .foregroundColor(.white.opacity(0.8))
+                .frame(width: 28, height: 28)
                 .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AttachedChromeButtonStyle())
+        .focusEffectDisabled()
+        .tint(Color(hex: "#B6D3FF"))
+        .pointerCursor()
         .help(help)
         .accessibilityLabel(help)
     }
@@ -421,4 +426,15 @@ struct AttachedDesktopChrome<Content: View>: View {
 extension Notification.Name {
     /// Retarget the desktop window's sidebar from outside SwiftUI.
     static let heyMateDesktopSelectSection = Notification.Name("heyMateDesktopSelectSection")
+}
+
+
+/// Neutral window chrome; keyboard activation remains available without a
+/// system accent halo competing with the companion and primary controls.
+private struct AttachedChromeButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(Circle().fill(Color.white.opacity(configuration.isPressed ? 0.16 : 0.055)))
+            .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.7))
+    }
 }

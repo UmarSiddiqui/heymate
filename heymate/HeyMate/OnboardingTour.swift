@@ -14,6 +14,7 @@
 //  launch. Skip ends the tour from anywhere; nothing here blocks HeyMate.
 //
 
+import AppKit
 import AVFoundation
 import Combine
 import SwiftUI
@@ -29,6 +30,7 @@ enum OnboardingStep: String, CaseIterable, Identifiable {
     case point
     case circle
     case type
+    case firstTask
     case reveal
 
     var id: String { rawValue }
@@ -55,7 +57,7 @@ final class OnboardingTour: ObservableObject {
     /// Which sample is playing on the voice step.
     @Published private(set) var playingSample: VoiceSample?
 
-    enum VoiceSample { case mac, onDevice }
+    enum VoiceSample { case onDevice }
 
     let micCheck = OnboardingMicCheck()
     let companionManager: CompanionManager
@@ -71,7 +73,6 @@ final class OnboardingTour: ObservableObject {
     static let createdMatesKey = "heymate.onboarding.createdMates"
 
     private var samplePlayer: AVAudioPlayer?
-    private let macVoice = MacOSSpeechSynthesizerClient()
 
     private var stepTask: Task<Void, Never>?
     private var watchers: Set<AnyCancellable> = []
@@ -103,6 +104,9 @@ final class OnboardingTour: ObservableObject {
     // MARK: - Moving
 
     func begin() {
+        // A tour starting from the top boots HeyMate up; a resumed one
+        // picks up quietly where it left off.
+        if step == .hello { HeyMateCue.shared.fire(.boot) }
         enter(step)
     }
 
@@ -146,7 +150,7 @@ final class OnboardingTour: ObservableObject {
 
     private func enter(_ newStep: OnboardingStep) {
         leaveStep()
-        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+        withAnimation(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .spring(response: 0.42, dampingFraction: 0.86)) {
             step = newStep
             isStepDone = false
             status = nil
@@ -169,7 +173,7 @@ final class OnboardingTour: ObservableObject {
     }
 
     private func markDone(_ note: String? = nil) {
-        withAnimation(.easeOut(duration: DS.Animation.normal)) {
+        withAnimation(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .easeOut(duration: DS.Animation.normal)) {
             isStepDone = true
             if let note { status = note }
         }
@@ -206,9 +210,9 @@ final class OnboardingTour: ObservableObject {
             if store.speakState.isInstalled {
                 await say("Pick the voice you like. Tap one to hear it.")
             } else if store.isSupportedOnThisMac {
-                await say("Right now I sound like this, a bit robotic. Download my on-device voice and I'll sound much better. Or we can just type.")
+                await say("My local voice is downloading. Keep going while it gets ready, or type any time.")
             } else {
-                await say("This is my Mac voice. You can keep it, or we can just type.")
+                await say("Local voice is unavailable on this Mac. You can type, or set up ElevenLabs in Settings.")
             }
 
         case .permissions:
@@ -279,6 +283,9 @@ final class OnboardingTour: ObservableObject {
                 .store(in: &watchers)
             await say("Not in the mood to talk? Tap the key twice, quickly, and type instead.")
 
+        case .firstTask:
+            await say("Try one small real task. Type it here, review any approval, then see the result. You can skip this step.")
+
         case .reveal:
             markDone()
             let mates = createdMateNames
@@ -290,18 +297,17 @@ final class OnboardingTour: ObservableObject {
         }
     }
 
-    // MARK: Voice
-
-    func playMacSample() {
-        stopSamples()
-        playingSample = .mac
-        Task { [weak self] in
-            guard let self else { return }
-            try? await self.macVoice.speakText("Hi, I'm HeyMate. This is my built-in Mac voice.")
-            while self.macVoice.isPlaying { try? await Task.sleep(for: .milliseconds(120)) }
-            if self.playingSample == .mac { self.playingSample = nil }
-        }
+    func firstTaskFinished() {
+        guard step == .firstTask else { return }
+        markDone("Your result stays in chat.")
     }
+
+    func skipFirstTask() {
+        guard step == .firstTask else { return }
+        markDone("Continue whenever you are ready. Work already sent stays in chat.")
+    }
+
+    // MARK: Voice
 
     func playOnDeviceSample() {
         stopSamples()
@@ -319,7 +325,6 @@ final class OnboardingTour: ObservableObject {
     private func stopSamples() {
         samplePlayer?.stop()
         samplePlayer = nil
-        macVoice.stopPlayback()
         playingSample = nil
     }
 

@@ -107,12 +107,42 @@ final class ComposioConnectionsRuntime: ObservableObject {
 
     var isConfigured: Bool { apiKey != nil }
 
+    @Published private(set) var availableAccounts: [String: [ComposioConnectedAccountSummary]] = [:]
+    private var accountOperations: [String: UUID] = [:]
+
+    /// Select only an account returned for this installation's user, and prove
+    /// it is still active before replacing routing. No remote deletion.
+    func selectAccount(_ account: ComposioConnectedAccountSummary) async {
+        let slug = account.toolkitSlug
+        guard state(for: slug) != .connecting,
+              availableAccounts[slug]?.contains(account) == true,
+              let apiKey else { return }
+        let operation = UUID()
+        accountOperations[slug] = operation
+        states[slug] = .connecting
+        do {
+            let status = try await broker.connectionStatus(apiKey: apiKey, connectedAccountID: account.connectedAccountID)
+            guard accountOperations[slug] == operation else { return }
+            guard status == ComposioAuthBroker.activeStatus else { throw ComposioAuthError.connectionFailed(status) }
+            store(ComposioConnectionRecord(toolkitSlug: slug, connectedAccountID: account.connectedAccountID,
+                                          displayName: account.displayName))
+            states[slug] = .connected
+            await onConnectedToolkitsChanged?()
+        } catch {
+            guard accountOperations[slug] == operation else { return }
+            states[slug] = .needsAttention(reason: "Could not select account. Reconnect or try another active account.")
+        }
+    }
+
     // MARK: Connecting
 
     /// Create the toolkit's auth config if it has none, open the consent URL
     /// in the user's own browser, then poll until Composio reports ACTIVE.
-    func connect(_ toolkit: ComposioToolkit) async {
-        if records[toolkit.slug] != nil, state(for: toolkit.slug).isConnected {
+    func connect(_ toolkit: ComposioToolkit, replacingAccount: Bool = false) async {
+        guard state(for: toolkit.slug) != .connecting else { return }
+        let operation = UUID()
+        accountOperations[toolkit.slug] = operation
+        if !replacingAccount, records[toolkit.slug] != nil, state(for: toolkit.slug).isConnected {
             return
         }
         guard let apiKey else {
@@ -147,6 +177,7 @@ final class ComposioConnectionsRuntime: ObservableObject {
                 connectedAccountID: request.connectedAccountID,
                 displayName: toolkit.name
             )
+            guard accountOperations[toolkit.slug] == operation else { return }
             guard status == ComposioAuthBroker.activeStatus else {
                 throw ComposioAuthError.connectionFailed(status)
             }
@@ -160,11 +191,14 @@ final class ComposioConnectionsRuntime: ObservableObject {
             states[toolkit.slug] = .connected
             await onConnectedToolkitsChanged?()
         } catch {
+            guard accountOperations[toolkit.slug] == operation else { return }
             states[toolkit.slug] = .needsAttention(reason: error.localizedDescription)
         }
     }
 
     func disconnect(_ toolkitSlug: String) async {
+        guard state(for: toolkitSlug) != .connecting else { return }
+        accountOperations[toolkitSlug] = UUID()
         guard let record = records[toolkitSlug] else {
             states[toolkitSlug] = .notConnected
             return
@@ -201,23 +235,32 @@ final class ComposioConnectionsRuntime: ObservableObject {
                 apiKey: apiKey,
                 userID: ComposioSessionStore.userID()
             )
-            for activeConnection in activeConnections {
-                synchronizedAccountIDs.insert(activeConnection.connectedAccountID)
-                let existingDisplayName = records[activeConnection.toolkitSlug]?.displayName
-                store(
-                    ComposioConnectionRecord(
-                        toolkitSlug: activeConnection.toolkitSlug,
-                        connectedAccountID: activeConnection.connectedAccountID,
-                        displayName: existingDisplayName ?? activeConnection.displayName
-                    )
-                )
-                states[activeConnection.toolkitSlug] = .connected
+            availableAccounts = Dictionary(grouping: activeConnections, by: \.toolkitSlug)
+            for (slug, accounts) in availableAccounts {
+                guard state(for: slug) != .connecting else { continue }
+                if let existing = records[slug] {
+                    // Keep explicit selection. An inactive selected account
+                    // requires user choice; enumeration order grants nothing.
+                    if accounts.contains(where: { $0.connectedAccountID == existing.connectedAccountID }) {
+                        synchronizedAccountIDs.insert(existing.connectedAccountID)
+                        states[slug] = .connected
+                    }
+                } else if accounts.count == 1, let account = accounts.first {
+                    synchronizedAccountIDs.insert(account.connectedAccountID)
+                    store(ComposioConnectionRecord(toolkitSlug: slug, connectedAccountID: account.connectedAccountID,
+                                                  displayName: account.displayName))
+                    states[slug] = .connected
+                } else {
+                    states[slug] = .needsAttention(reason: "Choose which connected account HeyMate should use.")
+                }
             }
         } catch {
             // Existing records are still checked individually below. A list
             // failure must not turn every known app off at once.
         }
         for (slug, record) in records {
+            guard state(for: slug) != .connecting else { continue }
+            let selection = record.connectedAccountID
             if record.connectedAccountID.isEmpty {
                 states[slug] = .connected
                 continue
@@ -230,10 +273,12 @@ final class ComposioConnectionsRuntime: ObservableObject {
                     apiKey: apiKey,
                     connectedAccountID: record.connectedAccountID
                 )
+                guard records[slug]?.connectedAccountID == selection, state(for: slug) != .connecting else { continue }
                 states[slug] = status == ComposioAuthBroker.activeStatus
                     ? .connected
                     : .needsAttention(reason: "Sign-in is no longer active (\(status)).")
             } catch {
+                guard records[slug]?.connectedAccountID == selection, state(for: slug) != .connecting else { continue }
                 states[slug] = .needsAttention(reason: error.localizedDescription)
             }
         }

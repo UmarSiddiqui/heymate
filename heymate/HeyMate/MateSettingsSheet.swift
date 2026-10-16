@@ -28,9 +28,8 @@ struct MateSettingsSheet: View {
     @State private var selectedFace: String
     @State private var howItWorks: [String]
     @State private var asksFirst: [String]
-    @State private var isShowingLook = false
+    @State private var isShowingCharacterEditor = false
     @State private var isDraftingHabits = false
-    @State private var isImportingPicture = false
     @State private var isConfirmingDelete = false
     @State private var errorText: String?
 
@@ -58,6 +57,14 @@ struct MateSettingsSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            HStack {
+                Text("Agent settings").font(DS.Fonts.title)
+                Spacer()
+                Button("Edit character") { isShowingCharacterEditor = true }
+                    .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)
+            }
+            .padding(20)
+            Divider()
             ScrollView {
                 profileFields
                     .padding(20)
@@ -71,12 +78,15 @@ struct MateSettingsSheet: View {
                 }
                 Spacer()
                 Button("Cancel") { dismiss() }
-                Button("Save") { save() }
+                Button("Save settings") { save() }
                     .keyboardShortcut(.defaultAction)
+                    .dsCapsuleButtonStyle(.primary, height: DS.ControlSize.regular)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
         }
+        .preferredColorScheme(.dark)
+        .background(DS.Colors.background)
         .frame(width: 520)
         .frame(minHeight: 360, idealHeight: 640, maxHeight: 760)
         .confirmationDialog(
@@ -92,32 +102,23 @@ struct MateSettingsSheet: View {
         } message: {
             Text(Mate.deletionWarning)
         }
-        .fileImporter(
-            isPresented: $isImportingPicture,
-            allowedContentTypes: [.image],
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let urls):
-                guard let url = urls.first, let token = MateFaceStore.importImage(from: url) else {
-                    errorText = "That picture could not be saved."
-                    return
-                }
-                selectedFace = token
-                errorText = nil
-            case .failure:
-                errorText = "That picture could not be opened."
+        .sheet(isPresented: $isShowingCharacterEditor) {
+            MiloCharacterEditor(mate: mate, initialToken: selectedFace) { token in
+                let current = companionManager.mates.first { $0.id == mate.id } ?? mate
+                let error = companionManager.updateMateProfile(
+                    id: mate.id, name: current.name, job: current.job,
+                    soul: current.soul, faceAssetName: token
+                )
+                if error == nil { selectedFace = token }
+                return error
             }
         }
+        .tint(DS.Colors.accent)
     }
 
     private var profileFields: some View {
         VStack(alignment: .leading, spacing: 18) {
             identityHeader
-
-            if isShowingLook {
-                lookPanel
-            }
 
             labeled("Personality", hint: "How it talks and behaves") {
                 TextField("Clear and brief", text: $soul, axis: .vertical)
@@ -154,25 +155,24 @@ struct MateSettingsSheet: View {
         }
     }
 
-    /// Face, name and role together, the way the agent appears everywhere
-    /// else. The face opens the look controls instead of leading the sheet.
+    /// Appearance saves independently; personality and habits stay in this form.
     private var identityHeader: some View {
         HStack(alignment: .center, spacing: 14) {
             Button {
-                UISoundPlayer.shared.playDisclosure(.row, isOpen: !isShowingLook)
-                withAnimation(DS.Animation.controlSpring) { isShowingLook.toggle() }
+                isShowingCharacterEditor = true
             } label: {
                 MateFaceView(mate: preview(selectedFace), size: 64, expression: .idle)
                     .overlay(alignment: .bottomTrailing) {
-                        Image(systemName: isShowingLook ? "chevron.up.circle.fill" : "pencil.circle.fill")
+                        Image(systemName: "paintbrush.pointed.fill")
                             .font(.system(size: 18))
                             .foregroundStyle(DS.Colors.textPrimary, DS.Colors.surface3)
                     }
             }
             .buttonStyle(.plain)
             .pointerCursor()
-            .help(isShowingLook ? "Hide pictures" : "Change picture")
-            .accessibilityLabel(isShowingLook ? "Hide pictures" : "Change picture")
+            .focusEffectDisabled()
+            .help("Edit character")
+            .accessibilityLabel("Edit character for \(mate.name)")
             VStack(alignment: .leading, spacing: 6) {
                 TextField("Name", text: $name)
                     .textFieldStyle(.plain)
@@ -185,50 +185,6 @@ struct MateSettingsSheet: View {
                     .lineLimit(1...2)
             }
         }
-    }
-
-    private var lookPanel: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if MateFaceStore.fileURL(for: selectedFace) != nil {
-                HStack(spacing: 10) {
-                    MateFaceView(mate: preview(selectedFace), size: 40)
-                        .overlay { Circle().stroke(DS.Colors.textPrimary, lineWidth: 2) }
-                    Text("Your picture")
-                        .font(DS.Fonts.headline)
-                        .foregroundColor(DS.Colors.textPrimary)
-                }
-            }
-            LazyVGrid(
-                columns: Array(repeating: GridItem(.fixed(44), spacing: 8), count: 8),
-                alignment: .leading,
-                spacing: 8
-            ) {
-                ForEach(MateFace.packs.flatMap(\.faces)) { face in
-                    Button {
-                        selectedFace = face.assetName
-                    } label: {
-                        MateFaceView(mate: preview(face.assetName), size: 40)
-                            .overlay {
-                                Circle().stroke(
-                                    selectedFace == face.assetName ? DS.Colors.textPrimary : Color.clear,
-                                    lineWidth: 2
-                                )
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                    .help(face.label)
-                    .accessibilityLabel(face.label)
-                }
-            }
-            Button("Use your own picture") { isImportingPicture = true }
-                .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                .fill(DS.Colors.surface1)
-        )
     }
 
     /// Older agents were made before habits existed. One click asks the AI

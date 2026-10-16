@@ -54,7 +54,7 @@ extension View {
     }
 
     /// Click to say hello. Taps pass through to any enclosing button.
-    func mateReactionTaps(enabled: Bool, size: CGFloat, driver: MateReactionDriver) -> some View {
+    func mateReactionTaps(enabled: Bool, size: CGFloat, driver: MateReactionDriver, greeting: MateFaceReaction = .wink) -> some View {
         simultaneousGesture(
             SpatialTapGesture(count: 2).onEnded { _ in
                 guard enabled else { return }
@@ -62,7 +62,8 @@ extension View {
             }
             .exclusively(before: SpatialTapGesture(count: 1).onEnded { value in
                 guard enabled else { return }
-                driver.play(.forTap(count: 1, normalizedY: value.location.y / max(size, 1)))
+                let reaction = MateFaceReaction.forTap(count: 1, normalizedY: value.location.y / max(size, 1))
+                driver.play(reaction == .wink ? greeting : reaction)
             })
         )
     }

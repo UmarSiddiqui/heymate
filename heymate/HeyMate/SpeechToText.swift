@@ -67,17 +67,16 @@ enum SpeechToTextProviders {
         return offlineFallback()
     }
 
-    /// The downloaded on-device model if there is one, else Apple Speech,
-    /// which every Mac has.
+    /// Local voice stays selected while its automatic download prepares.
     static func offlineFallback() -> any SpeechToTextProvider {
         let onDevice = ParakeetTranscriptionProvider()
-        return onDevice.isConfigured ? onDevice : AppleSpeechTranscriptionProvider()
+        return onDevice
     }
 
     /// A different engine to try when `provider` failed to start, or nil
     /// when there is nothing left to fall back to.
     static func fallback(after provider: any SpeechToTextProvider) -> (any SpeechToTextProvider)? {
-        let candidates: [any SpeechToTextProvider] = [offlineFallback(), AppleSpeechTranscriptionProvider()]
+        let candidates: [any SpeechToTextProvider] = [offlineFallback()]
         return candidates.first { $0.displayName != provider.displayName }
     }
 
@@ -85,7 +84,7 @@ enum SpeechToTextProviders {
         switch choice {
         case .elevenLabs: return ElevenLabsScribeTranscriptionProvider()
         case .onDevice: return ParakeetTranscriptionProvider()
-        case .apple: return AppleSpeechTranscriptionProvider()
+        case .apple: return ParakeetTranscriptionProvider()
         }
     }
 }

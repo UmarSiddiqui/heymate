@@ -164,30 +164,60 @@ private struct NotchCameraPreview: NSViewRepresentable {
 struct NotchCameraMirrorView: View {
     @StateObject private var model = NotchCameraMirrorModel()
 
+    /// When set, the mirror is a small 16:9 preview this tall that sits in
+    /// a horizontal row of live tools, instead of a full-width panel.
+    var compactHeight: CGFloat? = nil
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
+        VStack(alignment: .leading, spacing: compactHeight == nil ? 7 : 6) {
             DSSectionLabel(title: "Camera mirror")
+                .frame(height: compactHeight == nil ? nil : 16)
 
             ZStack {
-                RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                    .fill(DSSurface.row.fill(isHighlighted: false))
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(DS.Colors.notchWellFill)
 
                 NotchCameraPreview(session: model.session)
                     .opacity(model.state == .running ? 1 : 0)
 
                 if model.state != .running {
-                    placeholder
+                    if compactHeight == nil {
+                        placeholder
+                    } else {
+                        compactPlaceholder
+                    }
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: 126, maxHeight: 146)
-            .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                    .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
-            )
+            .modifier(MirrorFrame(compactHeight: compactHeight))
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         }
         .onAppear { model.activate() }
         .onDisappear { model.deactivate() }
+    }
+
+    private var cornerRadius: CGFloat {
+        compactHeight == nil ? DS.CornerRadius.large : DS.CornerRadius.small
+    }
+
+    /// One glyph and, when the camera is blocked, the way to Settings —
+    /// the only words that fit in a thumbnail.
+    @ViewBuilder
+    private var compactPlaceholder: some View {
+        if model.state == .denied {
+            Button(action: { model.openCameraSettings() }) {
+                Image(systemName: placeholderSymbol)
+                    .font(DS.Glyph.regular)
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .notchSoftButtonStyle(.rounded)
+            .help("\(placeholderText). Click to open Camera Settings.")
+        } else {
+            Image(systemName: placeholderSymbol)
+                .font(DS.Glyph.regular)
+                .foregroundColor(DS.Colors.textTertiary)
+                .help(placeholderText)
+        }
     }
 
     @ViewBuilder
@@ -207,6 +237,18 @@ struct NotchCameraMirrorView: View {
             }
         }
         .padding(12)
+    }
+
+    private struct MirrorFrame: ViewModifier {
+        let compactHeight: CGFloat?
+
+        func body(content: Content) -> some View {
+            if let compactHeight {
+                content.frame(width: (compactHeight * 16 / 9).rounded(), height: compactHeight)
+            } else {
+                content.frame(maxWidth: .infinity, minHeight: 126, maxHeight: 146)
+            }
+        }
     }
 
     private var placeholderSymbol: String {

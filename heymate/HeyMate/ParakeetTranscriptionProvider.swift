@@ -21,7 +21,7 @@ struct ParakeetTranscriptionProvider: SpeechToTextProvider {
 
     var unavailableExplanation: String? {
         if let reason = ParakeetEngine.unsupportedReason { return reason }
-        return isConfigured ? nil : "Download the on-device voice in Settings to use it."
+        return isConfigured ? nil : "Local voice is preparing. Check download progress in Settings › Voice."
     }
 
     func openSession(

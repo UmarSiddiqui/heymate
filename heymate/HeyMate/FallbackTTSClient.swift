@@ -4,8 +4,7 @@
 //
 //  Speaks with the chosen voice and, if that throws (offline, bad
 //  ElevenLabs key, on-device model deleted), says the same text with the
-//  Mac voice instead. A reply the user waited for should never go
-//  silent because the nicer voice was unavailable.
+//  local voice instead.
 //
 
 import Foundation
@@ -28,7 +27,7 @@ final class FallbackTTSClient: TTSClient {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            HeyMateLog.log("⚠️ Speak: primary voice failed (\(error.localizedDescription)), using the Mac voice")
+            HeyMateLog.log("⚠️ Speak: primary voice failed (\(error.localizedDescription)), using local voice")
             isUsingFallback = true
             try await fallbackClient.speakText(text)
         }

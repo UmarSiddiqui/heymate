@@ -40,7 +40,7 @@ extension CompanionManager {
         guard message.role == .user else { return nil }
         stopReplyIfNeeded()
         var session = currentChat
-        guard let liveIndex = session.messages.firstIndex(where: { $0.id == id }) else { return message.text }
+        guard let liveIndex = session.messages.firstIndex(where: { $0.id == id }) else { return message.visibleText }
         session.messages.removeSubrange(liveIndex...)
         session.updatedAt = Date()
         if session.messages.isEmpty {
@@ -48,7 +48,7 @@ extension CompanionManager {
         }
         currentChat = session
         persistChatTranscriptChange()
-        return message.text
+        return message.visibleText
     }
 
     /// Removes that assistant reply and sends the user message that preceded it.

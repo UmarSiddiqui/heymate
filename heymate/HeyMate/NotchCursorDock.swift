@@ -42,29 +42,17 @@ struct NotchCursorDock: View {
                     .font(DS.Fonts.control)
                     .lineLimit(1)
             }
-            .foregroundColor(phase == .deployed ? DS.Colors.textOnAccent : DS.Colors.textPrimary.opacity(0.85))
-            .padding(.horizontal, 12)
+            .foregroundColor(phase == .deployed ? DS.Colors.textPrimary : DS.Colors.textSecondary)
+            .padding(.horizontal, 10)
             .frame(height: NotchControlMetrics.controlSize)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(
-                        phase == .deployed
-                            ? DS.Colors.accent.opacity(0.30)
-                            : DS.Colors.surface3.opacity(0.7)
-                    )
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke(
-                        phase == .deployed
-                            ? DS.Colors.accent.opacity(0.65)
-                            : DS.Colors.borderStrong.opacity(0.5),
-                        lineWidth: 0.8
-                    )
-            )
         }
-        .buttonStyle(.plain)
-        .pointerCursor()
+        // Borderless like the rest of the notch. A deployed buddy keeps a
+        // soft accent fill so "it is out" still reads at a glance.
+        .notchSoftButtonStyle(
+            .capsule,
+            isActive: phase == .deployed,
+            activeFill: DS.Colors.accent.opacity(0.22)
+        )
         .disabled(!canToggle)
         .help(launcherHelp(for: phase, canToggle: canToggle))
         .accessibilityLabel(launcherTitle(for: phase))

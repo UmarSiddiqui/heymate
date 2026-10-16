@@ -7,9 +7,9 @@
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.productivity</string>
 	<key>VoiceTranscriptionProvider</key>
-	<string>apple</string>
+	<string>parakeet</string>
 	<key>VoiceSpeakProvider</key>
-	<string>macos</string>
+	<string>kokoro</string>
 	<key>WorkerBaseURL</key>
 	<string>http://localhost:8787</string>
 	<!-- release.sh supplies both values together while archiving. They remain

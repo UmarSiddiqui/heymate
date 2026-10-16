@@ -18,7 +18,8 @@ struct FloatingAgentNoticeCard: View {
     @State private var hovered = false
 
     private var tint: Color { run.status == .failed ? DS.Colors.warningText : DS.Colors.accent }
-    private var title: String { run.status == .failed ? "Task needs attention" : "Result ready" }
+    private var title: String { ChatTaskPresentation.noticeTitle(run.status) }
+    private var cueSubject: String { run.id.uuidString }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -33,28 +34,33 @@ struct FloatingAgentNoticeCard: View {
                     }
                     Text(run.title).font(DS.Fonts.body.weight(.medium)).lineLimit(1)
                     Button("Open task report", action: onReport)
-                        .font(DS.Fonts.caption).foregroundStyle(tint)
+                        .buttonStyle(NotchCapsuleControlStyle(height: 24))
                         .help("Open the full task report")
                 }
                 .padding(.horizontal, 16).padding(.vertical, 14)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(DS.Colors.surface1, in: RoundedRectangle(cornerRadius: 18))
+                .background(Color.black, in: RoundedRectangle(cornerRadius: 18))
                 .overlay(RoundedRectangle(cornerRadius: 18).stroke(tint.opacity(0.32), lineWidth: 0.8))
             } else {
                 Spacer(minLength: 0)
                 Button(action: onReport) {
                     Image(systemName: "message.fill").font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(tint).frame(width: 44, height: 44)
-                        .background(DS.Colors.surface1, in: RoundedRectangle(cornerRadius: 14))
+                        .background(Color.black, in: RoundedRectangle(cornerRadius: 14))
                         .overlay(alignment: .topTrailing) {
                             Circle().fill(tint).frame(width: 7, height: 7).padding(5)
                         }
+                        // Done: a pop with one soft ring over the tail.
+                        // Failed: squash, then stretch-pop on the peak.
+                        .overlay { CueProp(kind: .ring, subject: cueSubject) }
+                        .cueMotion(.jobDone, .surprised, subject: cueSubject, anchor: .bottom)
                 }
                 .help("\(mateName): \(run.title). Open task report")
                 .accessibilityLabel("\(mateName), \(title), \(run.title). Open task report")
             }
         }
         .buttonStyle(.plain)
+        .cueMotion(.surprised, part: .prop, subject: cueSubject)
         .frame(height: 84)
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
@@ -67,19 +73,15 @@ struct FloatingAgentNoticeCard: View {
 struct FloatingAgentReportView: View {
     let run: AgentRun
     let mateName: String
+    var manager: CompanionManager? = nil
     @Environment(\.companionSnapshotRendering) private var snapshotRendering
 
-    private var answer: String {
-        if run.status == .failed {
-            return AgentReceiptPrivacy.privateAnswer(run.privateFinalResult ?? run.error)
-        }
-        return run.finalAnswer ?? AgentFinalResult.missingMessage
-    }
+    private var answer: String { FloatingAgentReportContent.answer(for: run) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 10) {
-                Image(systemName: run.status == .failed ? "exclamationmark.bubble" : "checkmark.bubble")
+                Image(systemName: ChatTaskPresentation.icon(run.status))
                     .font(.system(size: 22)).foregroundStyle(DS.Colors.accent)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(run.title).font(DS.Fonts.title)
@@ -93,11 +95,38 @@ struct FloatingAgentReportView: View {
         }
         .padding(24).frame(minWidth: 440, maxWidth: .infinity, minHeight: 320,
                            maxHeight: .infinity, alignment: .topLeading)
-        .foregroundStyle(DS.Colors.textPrimary).background(DS.Colors.surface1)
+        .foregroundStyle(DS.Colors.textPrimary).background(Color.black)
     }
 
     private var reportText: some View {
-        Text(answer).font(DS.Fonts.body).textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        Group {
+            if let manager {
+                ChatTaskCard(run: run, mateName: mateName, manager: manager, initiallyExpanded: true)
+            } else {
+                ChatMarkdownText(text: answer)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+nonisolated enum FloatingAgentReportContent {
+    static func answer(for run: AgentRun) -> String {
+        if run.status == .cancelled {
+            return "Task stopped. " + AgentReceiptPrivacy.privateAnswer(run.latestAction)
+        }
+        if run.status == .failed {
+            for candidate in [run.privateFinalResult, run.error] {
+                guard let candidate else { continue }
+                let safe = AgentReceiptPrivacy.privateAnswer(candidate)
+                if !safe.isEmpty { return safe }
+            }
+            return "The task failed without additional error details. No completed result is available."
+        }
+        guard let answer = run.finalAnswer,
+              !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return AgentFinalResult.missingMessage
+        }
+        return answer
     }
 }

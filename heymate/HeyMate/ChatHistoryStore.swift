@@ -21,6 +21,28 @@ nonisolated struct ChatMessage: Codable, Equatable, Identifiable {
     let createdAt: Date
     /// Image bytes stay ephemeral; history remembers only what was attached.
     var attachmentNames: [String]? = nil
+    /// Presentation only. `text` retains the complete model/runtime instruction.
+    var taskSummary: String? = nil
+    var taskSource: String? = nil
+    /// Link presentation to a specific result without rewriting answer history.
+    var taskRunID: UUID? = nil
+    var taskResultKey: String? = nil
+
+    var visibleText: String { taskSummary ?? legacyTaskSummary ?? text }
+    var isDelegatedTask: Bool { taskSummary != nil || legacyTaskSummary != nil }
+
+    /// Exact historical generated envelope only; never match loose user keywords.
+    /// No migration or rewrite: exports and runtime history retain every byte.
+    private var legacyTaskSummary: String? {
+        let prefix = "Delegated task: "
+        let separator = "\n\nOriginal request (context, not new authorization):\n"
+        let suffix = "\n\nUse your available tools and report the result, evidence, blockers, and any approval still needed. Do not claim planned work has executed. Existing consent and approval rules still apply. Your report returns to the requesting chat."
+        guard role == .user, text.hasPrefix(prefix), text.hasSuffix(suffix),
+              let boundary = text.range(of: separator),
+              boundary.lowerBound >= text.index(text.startIndex, offsetBy: prefix.count) else { return nil }
+        let task = String(text[text.index(text.startIndex, offsetBy: prefix.count)..<boundary.lowerBound])
+        return task.isEmpty ? nil : task
+    }
 }
 
 nonisolated struct ChatSession: Codable, Equatable, Identifiable {
@@ -59,7 +81,7 @@ nonisolated struct ChatSession: Codable, Equatable, Identifiable {
     }
 
     var previewText: String {
-        messages.last?.text ?? ""
+        messages.last?.visibleText ?? ""
     }
 
     /// Clipboard and on-device `.txt` export. Title first, then each message as `role: text`.
@@ -85,6 +107,10 @@ nonisolated struct ChatSession: Codable, Equatable, Identifiable {
                 if let userTranscript = pendingUser {
                     pairs.append((userTranscript: userTranscript, assistantResponse: message.text))
                     pendingUser = nil
+                } else if !pairs.isEmpty {
+                    // Delegated results and job milestones arrive after the
+                    // initial answer. Preserve them for model follow-ups too.
+                    pairs[pairs.count - 1].assistantResponse += "\n\n" + message.text
                 }
             }
         }

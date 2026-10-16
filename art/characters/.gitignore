@@ -1,0 +1,5 @@
+/renders/
+/blender/*-manifest.json
+/blender/rendered-before-resume.json
+*.blend1
+__pycache__/

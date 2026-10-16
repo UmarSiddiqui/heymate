@@ -25,6 +25,7 @@ struct LiveMateFaceView: View {
     let mate: Mate
     let size: CGFloat
     @ObservedObject var manager: CompanionManager
+    var isComposerCompanion = false
     @State private var reaction: MateCompletionReaction?
     @State private var reactionTask: Task<Void, Never>?
     /// The latest finished job as a one-shot reaction. Kept after the 2 s
@@ -32,9 +33,17 @@ struct LiveMateFaceView: View {
     @State private var finishEvent: MateReactionEvent?
 
     var body: some View {
-        MateFaceView(mate: mate, size: size,
-                     expression: manager.state.isIdle ? reaction?.expression ?? .idle : .live(manager.state),
-                     reactionEvent: finishEvent, interactive: true)
+        Group {
+            if isComposerCompanion {
+                MiloCompanionView(mate: mate, size: size,
+                                  expression: manager.state.isIdle ? reaction?.expression ?? .idle : .live(manager.state),
+                                  reactionEvent: finishEvent, interactive: true)
+            } else {
+                MateFaceView(mate: mate, size: size,
+                             expression: manager.state.isIdle ? reaction?.expression ?? .idle : .live(manager.state),
+                             reactionEvent: finishEvent, interactive: true)
+            }
+        }
             .onChange(of: manager.agentRuns) { previous, current in
                 guard manager.state.isIdle,
                       let next = MateCompletionReaction.next(previous: previous, current: current, mateID: mate.id) else { return }

@@ -10,7 +10,7 @@ final class CodexAppServerConnection {
     }
 
     private enum State { case fresh, initializing, ready, closed }
-    private nonisolated enum ServerID: Codable {
+    nonisolated enum ServerID: Codable, Hashable {
         case string(String), integer(Int64)
 
         init(from decoder: Decoder) throws {
@@ -42,6 +42,8 @@ final class CodexAppServerConnection {
     private var write: ((Data) -> Bool)?
     private var stop: (() -> Void)?
     private var process: HeadlessCLIProcess?
+    private var serverRequests = Set<ServerID>()
+    var onServerRequest: ((ServerID, String, JSONValue?) -> Bool)?
     var onNotification: ((String, JSONValue?) -> Void)?
     var onClose: ((Error) -> Void)?
     var onProcessStarted: (() -> Void)?
@@ -57,7 +59,8 @@ final class CodexAppServerConnection {
     func launch(executableURL: URL, workspaceURL: URL,
                 process ownedProcess: HeadlessCLIProcess? = nil,
                 arguments: [String] = ["app-server", "--listen", "stdio://"],
-                environmentKeysToRemove: [String] = []) async throws {
+                environmentKeysToRemove: [String] = [],
+                environmentOverrides: [String: String] = [:]) async throws {
         guard state == .fresh else { throw Failure.alreadyStarted }
         try Task.checkCancellation()
         let child = ownedProcess ?? HeadlessCLIProcess()
@@ -68,6 +71,7 @@ final class CodexAppServerConnection {
                 arguments: arguments,
                 currentDirectoryURL: workspaceURL,
                 environmentKeysToRemove: environmentKeysToRemove,
+                environmentOverrides: environmentOverrides,
                 usesDuplexStandardInput: true,
                 onLine: { [weak self] in self?.receive($0) },
                 onExit: { [weak self] _ in self?.close() }
@@ -163,15 +167,21 @@ final class CodexAppServerConnection {
                 guard let id = try? JSONDecoder().decode(ServerEnvelopeID.self, from: Data(line.utf8)).id else {
                     close(reason: Failure.malformedMessage); return
                 }
-                // Until approval UI is integrated, fail closed. Never manufacture
-                // an approval result or silently leave the server waiting.
-                do {
-                    try writeEncoded(Rejection(id: id, error: .object([
-                        "code": .number(-32601),
-                        "message": .string("Unsupported server request: \(method)")
-                    ])))
-                } catch { close(reason: error) }
+                guard serverRequests.count < 256, serverRequests.insert(id).inserted else {
+                    close(reason: Failure.malformedMessage); return
+                }
+                if onServerRequest?(id, method, fields["params"]) != true {
+                    do {
+                        try writeEncoded(Rejection(id: id, error: .object([
+                            "code": .number(-32601), "message": .string("Unsupported server request: \(method)")
+                        ])))
+                        serverRequests.remove(id)
+                    } catch { close(reason: error) }
+                }
             } else {
+                if method == "serverRequest/resolved", case .object(let params) = fields["params"],
+                   let value = params["requestId"], let data = try? JSONEncoder().encode(value),
+                   let id = try? JSONDecoder().decode(ServerID.self, from: data) { serverRequests.remove(id) }
                 onNotification?(method, fields["params"])
             }
             return
@@ -195,6 +205,13 @@ final class CodexAppServerConnection {
         }
     }
 
+    func respond(to id: ServerID, result: JSONValue) throws {
+        guard serverRequests.contains(id) else { throw Failure.notReady }
+        struct Response: Encodable { let id: ServerID; let result: JSONValue }
+        try writeEncoded(Response(id: id, result: result))
+        serverRequests.remove(id)
+    }
+
     private func finish(_ id: String, result: Result<JSONValue, Error>) {
         guard let request = pending.removeValue(forKey: id) else { return }
         request.timeout.cancel()
@@ -207,6 +224,7 @@ final class CodexAppServerConnection {
         let stop = self.stop
         self.stop = nil
         write = nil
+        serverRequests.removeAll()
         for id in Array(pending.keys) { finish(id, result: .failure(reason)) }
         stop?()
         onClose?(reason)

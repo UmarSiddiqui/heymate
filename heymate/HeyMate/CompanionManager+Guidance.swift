@@ -16,6 +16,7 @@ import Foundation
 
 /// A multi-turn plan the model is guiding the user through.
 struct GuidedWalkthrough: Equatable {
+    let id = UUID()
     var goal: String
     var steps: [String]
     /// 0-based index of the step being guided now.
@@ -152,16 +153,22 @@ extension CompanionManager {
         walkthrough.updatedAt = Date()
         activeWalkthrough = walkthrough
 
+        let walkthroughID = walkthrough.id
+        let walkthroughVersion = walkthrough.updatedAt
+        let walkthroughChatID = currentChat.id
+        let walkthroughMateID = activeMateID
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
             // A click can land while the step is still being spoken; let
             // that turn finish rather than talking over it.
             for _ in 0..<150 {
-                guard let self, self.activeWalkthrough != nil else { return }
+                guard !Task.isCancelled, let self, self.activeWalkthrough?.id == walkthroughID, self.activeWalkthrough?.updatedAt == walkthroughVersion,
+                      self.currentChat.id == walkthroughChatID, self.activeMateID == walkthroughMateID else { return }
                 if !self.isResponseInFlight { break }
                 try? await Task.sleep(nanoseconds: 200_000_000)
             }
-            guard let self, self.activeWalkthrough != nil, !self.isResponseInFlight else { return }
+            guard !Task.isCancelled, let self, self.activeWalkthrough?.id == walkthroughID, self.activeWalkthrough?.updatedAt == walkthroughVersion,
+                  self.currentChat.id == walkthroughChatID, self.activeMateID == walkthroughMateID, !self.isResponseInFlight else { return }
             self.sendTranscriptToClaudeWithScreenshot(
                 transcript: "done — what's next?",
                 shouldCaptureScreen: true

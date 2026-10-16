@@ -166,6 +166,78 @@ struct UISnapshotTests {
         )
     }
 
+    /// The expanded card as it hangs from a 14″ notch: Home and Tools at
+    /// rest, plus three frames of the open morph, all over a grey desktop
+    /// and menu bar so the silhouette (shoulders, corners) is visible.
+    @Test(.enabled(if: outputDirectory != nil))
+    func notchSilhouette() throws {
+        let manager = Self.sampleManager()
+        let screen = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        let inset: CGFloat = 32
+        let auxLeft: CGFloat = 665
+        let auxRight: CGFloat = 850
+        let card = try #require(NotchLayoutMath.expandedFrame(
+            screenFrame: screen, topSafeAreaInset: inset,
+            auxiliaryTopLeftMaxX: auxLeft, auxiliaryTopRightMinX: auxRight
+        ))
+        let pill = try #require(NotchLayoutMath.pillFrame(
+            screenFrame: screen, topSafeAreaInset: inset,
+            auxiliaryTopLeftMaxX: auxLeft, auxiliaryTopRightMinX: auxRight
+        ))
+        let canvas = CGSize(width: card.width + 120, height: card.height + 50)
+
+        func frame(
+            _ windowSize: CGSize,
+            tab: NotchExpandedTab,
+            transition: NotchSurfaceTransitionModel
+        ) -> some View {
+            ZStack(alignment: .top) {
+                LinearGradient(
+                    colors: [Color(white: 0.46), Color(white: 0.30)],
+                    startPoint: .top, endPoint: .bottom
+                )
+                Color(white: 0.58).frame(height: inset)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                NotchExpandedView(
+                    companionManager: manager,
+                    occludedTopInset: inset,
+                    layoutSize: card.size,
+                    hardwareNotchWidth: auxRight - auxLeft,
+                    transitionModel: transition,
+                    initialTab: tab,
+                    onClose: {}
+                )
+                .frame(width: windowSize.width, height: windowSize.height)
+            }
+        }
+
+        for tab in NotchExpandedTab.allCases {
+            let transition = NotchSurfaceTransitionModel()
+            transition.showWithoutAnimation()
+            try Self.render(
+                frame(card.size, tab: tab, transition: transition),
+                size: canvas, dark: true, name: "notch-\(tab == .home ? "home" : "tools")-silhouette"
+            )
+        }
+
+        for percent in [30, 60, 90] {
+            let linear = CGFloat(percent) / 100
+            let transition = NotchSurfaceTransitionModel()
+            transition.prepare()
+            transition.present()
+            transition.updateMorph(easedProgress: NotchLayoutMath.swooshEase(linear), linearProgress: linear)
+            let morph = NotchLayoutMath.interpolatedRect(
+                from: pill, to: card,
+                widthProgress: NotchLayoutMath.swooshEase(linear),
+                heightProgress: NotchLayoutMath.liquidOpenHeightProgress(linearProgress: linear)
+            )
+            try Self.render(
+                frame(morph.size, tab: .home, transition: transition),
+                size: canvas, dark: true, name: "notch-open-\(percent)"
+            )
+        }
+    }
+
     @Test(.enabled(if: outputDirectory != nil))
     func agentBuilder() throws {
         let manager = Self.sampleManager()

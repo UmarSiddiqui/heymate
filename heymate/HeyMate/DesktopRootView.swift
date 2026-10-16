@@ -118,6 +118,11 @@ struct DesktopRootView: View {
     @ObservedObject var companionManager: CompanionManager
 
     @State private var selectedSection: DesktopSection
+    @AppStorage(QuietPolicy.presentationModeKey) private var presentationMode = false
+    @StateObject private var suggestionMemory = WorkSuggestionMemory()
+    @State private var showsSuggestions = false
+    @State private var showsAppHandoff = false
+    @State private var lastCompletedWork = ""
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
     /// Search and scroll-to-row state shared by the Settings rail and page.
     @StateObject private var settingsNavigation = SettingsNavigationModel()
@@ -174,6 +179,37 @@ struct DesktopRootView: View {
                 }
                 .navigationTitle(selectedSection.displayName)
             }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            HStack(spacing: 18) {
+                Button { showsAppHandoff = true } label: {
+                    Label("Hand off images", systemImage: "square.and.arrow.up")
+                }
+                Button { showsSuggestions.toggle() } label: {
+                    Label("Ideas & updates", systemImage: suggestionMemory.newSkillIDs.isEmpty || presentationMode ? "lightbulb" : "sparkles")
+                }
+                .popover(isPresented: $showsSuggestions) {
+                    WorkSuggestionDeck(manager: companionManager, memory: suggestionMemory)
+                }
+                Spacer()
+                if presentationMode {
+                    Button("End presentation mode") { presentationMode = false }
+                }
+            }
+            .buttonStyle(.plain)
+            .font(DS.Fonts.caption)
+            .foregroundStyle(DS.Colors.textSecondary)
+            .padding(.horizontal, 20).padding(.vertical, 8)
+            .background(Color.black)
+            .overlay(alignment: .top) { Rectangle().fill(DS.Colors.borderSubtle).frame(height: 1) }
+        }
+        .sheet(isPresented: $showsAppHandoff) { SelectedAppHandoffView() }
+        .onAppear { suggestionMemory.observeSkills(companionManager.discoveredSkills) }
+        .onChange(of: companionManager.discoveredSkills) { _, skills in suggestionMemory.observeSkills(skills) }
+        .onChange(of: companionManager.agentRuns.filter { $0.status.isTerminal }.map(\.resultDeliveryKey).joined(separator: "|")) { _, value in
+            guard value != lastCompletedWork else { return }
+            lastCompletedWork = value
+            companionManager.reloadSkills()
         }
         .tint(DS.Colors.accent)
         .onReceive(NotificationCenter.default.publisher(for: .heyMateDesktopSelectSection)) { notification in

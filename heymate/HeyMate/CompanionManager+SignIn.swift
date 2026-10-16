@@ -9,11 +9,13 @@
 
 import Foundation
 
-/// The three answers onboarding offers.
+/// Subscription, online free models, and on-device choices.
 nonisolated enum OnboardingAIChoice: String, CaseIterable, Identifiable {
     case claude
     case chatGPT
     case neither
+    case freeModels
+    case openCode
 
     var id: String { rawValue }
 
@@ -21,7 +23,9 @@ nonisolated enum OnboardingAIChoice: String, CaseIterable, Identifiable {
         switch self {
         case .claude: return "Claude"
         case .chatGPT: return "ChatGPT"
-        case .neither: return "Neither"
+        case .neither: return "On this Mac"
+        case .freeModels: return "Free models"
+        case .openCode: return "OpenCode"
         }
     }
 
@@ -30,6 +34,7 @@ nonisolated enum OnboardingAIChoice: String, CaseIterable, Identifiable {
         case .claude: return .claudeCode
         case .chatGPT: return .codex
         case .neither: return .onDevice
+        case .freeModels, .openCode: return .openCode
         }
     }
 
@@ -39,6 +44,7 @@ nonisolated enum OnboardingAIChoice: String, CaseIterable, Identifiable {
         case .claude: return .claudeCode
         case .chatGPT: return .codex
         case .neither: return nil
+        case .freeModels, .openCode: return .openCode
         }
     }
 
@@ -46,7 +52,7 @@ nonisolated enum OnboardingAIChoice: String, CaseIterable, Identifiable {
         switch executor {
         case .claudeCode: self = .claude
         case .codex: self = .chatGPT
-        case .openCode: return nil
+        case .openCode: self = .openCode
         }
     }
 }
@@ -55,6 +61,11 @@ extension CompanionManager {
 
     /// Onboarding answer: pick the brain, then install and sign in its CLI.
     func chooseOnboardingAI(_ choice: OnboardingAIChoice) {
+        if choice == .freeModels || choice == .openCode {
+            subscriptionSignIn.cancel()
+            setSelectedBrain(.openCode, freeModelsOnly: choice == .freeModels)
+            return
+        }
         setSelectedBrain(choice.brain)
         if let executor = choice.executor {
             // One that is already signed in needs nothing more.

@@ -12,7 +12,9 @@ import Foundation
 nonisolated enum DetachedAgentRuntimeProtocol {
     /// Version 3 keeps version 2's durable state, journal, and command shapes.
     /// That lets an updated app reconnect to a version 2 runner which was
-    /// already detached before the update replaced the app bundle.
+    /// already detached before the update replaced the app bundle. Optional
+    /// live-input fields are feature-gated by a new runner's opaque turn token;
+    /// an old runner never receives a live-input command.
     static let currentSchemaVersion = 3
 
     /// Add versions here only after proving their Codable shapes and event and
@@ -200,19 +202,22 @@ nonisolated struct DetachedAgentRuntimeCommand: Codable, Equatable, Sendable {
     let approvalToken: DetachedAgentApprovalToken?
     let approvalDecision: ApprovalDecision?
     let afterSequence: UInt64?
+    let liveSteeringToken: UUID?
 
     private init(
         kind: Kind,
         text: String? = nil,
         approvalToken: DetachedAgentApprovalToken? = nil,
         approvalDecision: ApprovalDecision? = nil,
-        afterSequence: UInt64? = nil
+        afterSequence: UInt64? = nil,
+        liveSteeringToken: UUID? = nil
     ) {
         self.kind = kind
         self.text = text
         self.approvalToken = approvalToken
         self.approvalDecision = approvalDecision
         self.afterSequence = afterSequence
+        self.liveSteeringToken = liveSteeringToken
     }
 
     static let interrupt = Self(kind: .interrupt)
@@ -226,8 +231,8 @@ nonisolated struct DetachedAgentRuntimeCommand: Codable, Equatable, Sendable {
         Self(kind: .resume, afterSequence: afterSequence)
     }
 
-    static func sendFollowUp(_ text: String) -> Self {
-        Self(kind: .sendFollowUp, text: text)
+    static func sendFollowUp(_ text: String, turnToken: UUID? = nil) -> Self {
+        Self(kind: .sendFollowUp, text: text, liveSteeringToken: turnToken)
     }
 
     static func respondToApproval(

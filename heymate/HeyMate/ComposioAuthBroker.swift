@@ -50,7 +50,7 @@ enum ComposioAuthError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .notConfigured:
-            return "Add your Composio API key in Settings → Composio first. The free tier is enough."
+            return "Add your Composio API key in Integrations first. The free tier is enough."
         case .unsupportedToolkit(let name):
             return "\(name) has no Composio toolkit mapped yet."
         case .rejected(let status, let message):

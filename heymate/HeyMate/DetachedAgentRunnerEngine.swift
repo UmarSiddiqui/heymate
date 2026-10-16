@@ -26,7 +26,7 @@ final class DetachedAgentRunnerEngine {
 
     private let request: DetachedAgentLaunchRequest
     private let rootDirectoryURL: URL
-    private let process = HeadlessCLIProcess()
+    private var process = HeadlessCLIProcess()
     private let adapter: HeadlessCLIAdapter
     private let journal: DetachedAgentRuntimeJournal
     private let stateStore: DetachedAgentDurableStateStore
@@ -37,6 +37,7 @@ final class DetachedAgentRunnerEngine {
 
     private var state: DetachedAgentDurableState
     private var finalResult = AgentFinalResult()
+    private var providerFailureMessage: String?
     private var pendingProviderApprovalID: String?
     private var workBudgetRemaining: Duration
     private var workSegmentStartedAt: SuspendingClock.Instant?
@@ -47,6 +48,12 @@ final class DetachedAgentRunnerEngine {
     private var childIdentityTask: Task<Void, Never>?
     private var progressFlushTask: Task<Void, Never>?
     private var pendingProgressSummary: String?
+    private var codexConnection: CodexAppServerConnection?
+    private var codexExecution: CodexAppServerExecutionSession?
+    private var codexStartTask: Task<Void, Never>?
+    private var codexCompleting = false
+    private var codexTurnToken: UUID?
+    private var liveInputTasks: [UUID: Task<Void, Never>] = [:]
     private var isStopping = false
     private var isTerminal = false
 
@@ -99,6 +106,13 @@ final class DetachedAgentRunnerEngine {
             try append(.phaseChanged(.launching)) { state in
                 state.phase = .launching
             }
+            if let launch = request.codexExecution, request.executor == .codex {
+                startCommandLoop()
+                startHeartbeatLoop()
+                resumeWorkTimeout()
+                startCodexExecution(launch)
+                return
+            }
             try process.start(
                 executableURL: request.spec.executableURL,
                 arguments: request.spec.arguments,
@@ -129,6 +143,150 @@ final class DetachedAgentRunnerEngine {
         }
     }
 
+    private func startCodexExecution(_ launch: CodexExecutionLaunch) {
+        codexStartTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let probe = CodexAppServerConnection()
+                self.codexConnection = probe
+                probe.onProcessStarted = { [weak self] in self?.captureChildIdentity() }
+                try await probe.launch(executableURL: self.request.spec.executableURL,
+                    workspaceURL: self.request.spec.currentDirectoryURL, process: self.process,
+                    arguments: CodexPlanningIsolation.arguments,
+                    environmentKeysToRemove: self.request.spec.environmentKeysToRemove,
+                    environmentOverrides: self.request.spec.environmentOverrides)
+                let config = try await probe.request(method: "config/read", params: .object([
+                    "includeLayers": .bool(false), "cwd": .string(self.request.spec.currentDirectoryURL.path)
+                ]))
+                let arguments = try CodexExecutionIsolation.arguments(probe: config, mcpArguments: launch.mcpArguments)
+                guard await probe.shutdown() else { throw CodexPlanningIsolation.Failure.unsafeConfiguration }
+                try Task.checkCancellation()
+                guard !self.isTerminal, !self.isStopping else { return }
+                self.childIdentityTask?.cancel()
+                self.process = HeadlessCLIProcess()
+                let connection = CodexAppServerConnection()
+                self.codexConnection = connection
+                connection.onProcessStarted = { [weak self] in self?.captureChildIdentity() }
+                try await connection.launch(executableURL: self.request.spec.executableURL,
+                    workspaceURL: self.request.spec.currentDirectoryURL, process: self.process, arguments: arguments,
+                    environmentKeysToRemove: self.request.spec.environmentKeysToRemove,
+                    environmentOverrides: self.request.spec.environmentOverrides)
+                let finalConfig = try await connection.request(method: "config/read", params: .object([
+                    "includeLayers": .bool(false), "cwd": .string(self.request.spec.currentDirectoryURL.path)
+                ]))
+                try CodexExecutionIsolation.validate(finalConfig, mcpArguments: launch.mcpArguments)
+                try Task.checkCancellation()
+                guard !self.isTerminal, !self.isStopping else { return }
+                let execution = CodexAppServerExecutionSession(connection: connection)
+                self.codexExecution = execution
+                execution.onProgress = { [weak self] summary in
+                    self?.finalResult.consume(.tool(summary: summary))
+                    self?.recordProgress(summary)
+                }
+                execution.onApproval = { [weak self] approval in
+                    guard let self, !self.codexCompleting, !self.isStopping, !self.isTerminal else { return }
+                    self.beginApprovalWait(providerID: approval.localID, details: approval.details)
+                }
+                execution.onApprovalCleared = { [weak self] id in self?.clearCodexApproval(id) }
+                execution.onOutcome = { [weak self] outcome in self?.finishCodexExecution(outcome) }
+                _ = try await execution.start(launch: launch, workspace: self.request.spec.currentDirectoryURL)
+                try Task.checkCancellation()
+                guard !self.isTerminal, !self.isStopping, !self.codexCompleting else { return }
+                self.codexTurnToken = UUID()
+                if self.state.phase != .waitingForApproval {
+                    try self.append(.phaseChanged(.running)) { state in
+                        state.phase = .running
+                        state.liveSteeringToken = self.codexTurnToken
+                        state.latestSafeSummary = "Working"
+                    }
+                }
+            } catch {
+                guard !self.isTerminal, !self.isStopping, !self.codexCompleting else { return }
+                self.providerFailureMessage = "Could not start isolated Codex execution. " + error.localizedDescription
+                self.finalResult.consume(.failed(message: "Could not start isolated Codex execution."))
+                self.codexCompleting = true
+                let stopped = await self.process.terminateAndWait()
+                guard !self.isTerminal, !self.isStopping else { return }
+                guard stopped else { self.stopAfterPersistenceFailure(); return }
+                self.handleProcessExit(status: 1)
+            }
+        }
+    }
+
+    private func clearCodexApproval(_ id: String) {
+        guard !isTerminal, !isStopping, !codexCompleting, pendingProviderApprovalID == id else { return }
+        pendingProviderApprovalID = nil
+        approvalTimeoutTask?.cancel()
+        do {
+            try append(.phaseChanged(.running)) { state in
+                state.phase = .running
+                state.pendingApprovalToken = nil
+                state.liveSteeringToken = self.codexTurnToken
+                state.latestSafeSummary = "Approval request cleared — continuing"
+            }
+            resumeWorkTimeout()
+        } catch { stopAfterPersistenceFailure() }
+    }
+
+    private func acceptLiveInput(_ command: DetachedAgentRuntimeCommand, messageID: UUID) -> Bool {
+        if state.liveInputReceipts?.contains(where: { $0.messageID == messageID }) == true { return true }
+        guard let token = command.liveSteeringToken else { return true }
+        guard (state.liveInputReceipts?.count ?? 0) < 256 else { return false }
+        let validText = command.text.map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.utf8.count <= 65_536 } ?? false
+        let available = validText && !isStopping && !codexCompleting && state.phase == .running
+            && token == state.liveSteeringToken && codexExecution?.identity != nil
+        let receipt = DetachedLiveInputReceipt(messageID: messageID, turnToken: token,
+                                               status: !validText ? .rejected : (available ? .sending : .unavailable))
+        state.liveInputReceipts = (state.liveInputReceipts ?? []) + [receipt]
+        do { try stateStore.save(state) } catch { stopAfterPersistenceFailure(); return false }
+        guard available, let execution = codexExecution, let identity = execution.identity,
+              let text = command.text else { return true }
+        liveInputTasks[messageID] = Task { [weak self] in
+            let result = await execution.steer(text: text, expectedTurnID: identity.turnID, messageID: messageID)
+            guard let self, !self.isTerminal else { return }
+            if let index = self.state.liveInputReceipts?.firstIndex(where: { $0.messageID == messageID }) {
+                self.state.liveInputReceipts?[index].status = result
+            }
+            do { try self.stateStore.save(self.state) } catch { self.stopAfterPersistenceFailure() }
+            self.liveInputTasks[messageID] = nil
+        }
+        return true
+    }
+
+    private func finishCodexExecution(_ outcome: CodexAppServerExecutionSession.Outcome) {
+        guard !isTerminal, !isStopping, !codexCompleting else { return }
+        codexCompleting = true
+        state.liveSteeringToken = nil
+        pauseWorkTimeout()
+        approvalTimeoutTask?.cancel()
+        do { try stateStore.save(state) } catch { stopAfterPersistenceFailure(); return }
+        Task { [weak self] in
+            guard let self else { return }
+            // Late acknowledgements may follow turn/completed. Keep reading the
+            // connection until every already-dispatched request settles.
+            let pending = Array(self.liveInputTasks.values)
+            for task in pending { await task.value }
+            guard !self.isTerminal, !self.isStopping else { return }
+            do { _ = try self.commandMailbox.drain { self.accept($0.command, messageID: $0.messageID) } }
+            catch { self.stopAfterPersistenceFailure(); return }
+            guard await self.codexConnection?.shutdown() == true else {
+                self.stopAfterPersistenceFailure(); return
+            }
+            guard !self.isTerminal, !self.isStopping else { return }
+            switch outcome {
+            case .completed(let answer):
+                self.finalResult.consume(.text(answer))
+                self.handleProcessExit(status: 0)
+            case .failed(let message):
+                self.providerFailureMessage = message
+                self.finalResult.consume(.failed(message: message))
+                self.handleProcessExit(status: 1)
+            case .interrupted:
+                self.finishTerminal(phase: .cancelled, exitCode: nil, summary: "Interrupted", error: nil)
+            }
+        }
+    }
+
     private func handleStandardOutputLine(_ line: String) {
         guard !isTerminal, !isStopping else { return }
 
@@ -152,7 +310,10 @@ final class DetachedAgentRunnerEngine {
                 recordProgress("Runner received an unsupported plan event")
             case .approvalRequested(let providerID, _):
                 beginApprovalWait(providerID: providerID)
-            case .finished, .failed:
+            case .failed(let message):
+                let safe = AgentReceiptPrivacy.privateAnswer(message)
+                if !safe.isEmpty { providerFailureMessage = safe }
+            case .finished:
                 continue
             }
         }
@@ -163,6 +324,19 @@ final class DetachedAgentRunnerEngine {
         pauseWorkTimeout()
         approvalTimeoutTask?.cancel()
 
+        if status != 0 || finalResult.outcome == .failed {
+            // Failure prose belongs in the private result artifact, never in
+            // the metadata journal. Preserve the actual provider/stderr cause.
+            let headline = status == 0 ? "Coding agent reported an error" : "Coding agent exited with status \(status)"
+            let details = [providerFailureMessage, process.recentStandardErrorSummary]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            let report = headline + "\n\n" + (details.isEmpty
+                ? "The coding agent supplied no additional error details. No completed result is available."
+                : details.joined(separator: "\n\n"))
+            try? AgentPrivateResultStore.save(report, root: rootDirectoryURL,
+                                             runID: request.runID, attemptID: request.attemptID)
+        }
         if finalResult.outcome == .failed {
             finishTerminal(
                 phase: .failed,
@@ -234,16 +408,21 @@ final class DetachedAgentRunnerEngine {
         }
     }
 
-    private func beginApprovalWait(providerID: String) {
+    private func beginApprovalWait(providerID: String, details: String? = nil) {
         guard pendingProviderApprovalID == nil else { return }
         discardPendingProgress()
         pauseWorkTimeout()
         let token = DetachedAgentApprovalToken()
         pendingProviderApprovalID = providerID
         do {
+            if let details {
+                try AgentPrivateApprovalStore.save(details, root: rootDirectoryURL, runID: request.runID,
+                                                   attemptID: request.attemptID, token: token.rawValue)
+            }
             let safeSummary = "Agent needs approval"
             try append(.approvalRequested(token: token, summary: safeSummary)) { state in
                 state.phase = .waitingForApproval
+                state.liveSteeringToken = nil
                 state.pendingApprovalToken = token
                 state.latestSafeSummary = safeSummary
             }
@@ -268,7 +447,7 @@ final class DetachedAgentRunnerEngine {
             while let self, !Task.isCancelled, !self.isTerminal {
                 do {
                     _ = try self.commandMailbox.drain { envelope in
-                        self.accept(envelope.command)
+                        self.accept(envelope.command, messageID: envelope.messageID)
                     }
                 } catch {
                     self.stopAfterPersistenceFailure()
@@ -279,7 +458,7 @@ final class DetachedAgentRunnerEngine {
         }
     }
 
-    private func accept(_ command: DetachedAgentRuntimeCommand) -> Bool {
+    private func accept(_ command: DetachedAgentRuntimeCommand, messageID: UUID = UUID()) -> Bool {
         guard !isTerminal else { return true }
         switch command.kind {
         case .interrupt, .cancel:
@@ -293,8 +472,8 @@ final class DetachedAgentRunnerEngine {
         case .requestSnapshot, .detach, .resume:
             return true
         case .sendFollowUp:
-            // Logical follow-up queue stays in app and starts a fresh attempt.
-            return true
+            guard command.liveSteeringToken != nil else { return true }
+            return acceptLiveInput(command, messageID: messageID)
         }
     }
 
@@ -304,6 +483,24 @@ final class DetachedAgentRunnerEngine {
               command.approvalToken == expectedToken,
               let decision = command.approvalDecision,
               let providerID = pendingProviderApprovalID else { return true }
+
+        if let execution = codexExecution {
+            guard execution.resolveApproval(localID: providerID, approve: decision == .approve) else { return false }
+            approvalTimeoutTask?.cancel()
+            pendingProviderApprovalID = nil
+            if decision == .deny { return beginStop(.cancelled) }
+            do {
+                try append(.phaseChanged(.running)) { state in
+                    state.phase = .running
+                    state.pendingApprovalToken = nil
+                    state.liveSteeringToken = self.codexCompleting ? nil : self.codexTurnToken
+                    state.latestSafeSummary = "Approved — continuing"
+                }
+                resumeWorkTimeout()
+                execution.presentNextApproval()
+                return true
+            } catch { stopAfterPersistenceFailure(); return false }
+        }
 
         if decision == .deny {
             if let payload = adapter.stdinPayloadForApproval(id: providerID, approve: false) {
@@ -335,6 +532,7 @@ final class DetachedAgentRunnerEngine {
     private func beginStop(_ reason: StopReason) -> Bool {
         guard !isTerminal, !isStopping else { return true }
         isStopping = true
+        codexStartTask?.cancel()
         discardPendingProgress()
         pauseWorkTimeout()
         approvalTimeoutTask?.cancel()
@@ -342,6 +540,7 @@ final class DetachedAgentRunnerEngine {
         do {
             try append(.phaseChanged(.interrupting)) { state in
                 state.phase = .interrupting
+                state.liveSteeringToken = nil
                 state.latestSafeSummary = "Stopping safely"
             }
             didPersistStopIntent = true
@@ -353,6 +552,7 @@ final class DetachedAgentRunnerEngine {
 
         Task { [weak self] in
             guard let self else { return }
+            await self.codexExecution?.interrupt()
             let didStop = await self.process.terminateAndWait()
             self.isStopping = false
             guard didStop else {
@@ -522,6 +722,14 @@ final class DetachedAgentRunnerEngine {
         childIdentityTask?.cancel()
         discardPendingProgress()
         pendingProviderApprovalID = nil
+        codexStartTask?.cancel()
+        // A process/connection loss leaves in-flight sends uncertain, never safe
+        // to replay. Preserve definitive receipts already persisted.
+        state.liveInputReceipts = state.liveInputReceipts?.map {
+            var receipt = $0
+            if receipt.status == .sending { receipt.status = .unknown }
+            return receipt
+        }
 
         do {
             let event: DetachedAgentRuntimeEvent = handedOff
@@ -529,6 +737,7 @@ final class DetachedAgentRunnerEngine {
                 : .finished(phase: phase, exitCode: exitCode, summary: summary ?? error)
             try append(event) { state in
                 state.phase = phase
+                state.liveSteeringToken = nil
                 state.pendingApprovalToken = nil
                 state.terminalSafeSummary = summary
                 state.terminalSafeError = error

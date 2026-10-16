@@ -119,11 +119,11 @@ struct NotchSubscriptionChoiceSection: View {
         VStack(alignment: .leading, spacing: 8) {
             DSSectionLabel(title: "Your AI")
 
-            Text("Which AI do you already pay for?")
+            Text("Which AI would you like to use?")
                 .font(DS.Fonts.headline)
                 .foregroundColor(DS.Colors.textPrimary)
 
-            HStack(spacing: 6) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 100))], spacing: 6) {
                 ForEach(OnboardingAIChoice.allCases) { option in
                     Button(option.title) { select(option) }
                         .dsCapsuleButtonStyle(choice == option ? .primary : .secondary)
@@ -133,6 +133,22 @@ struct NotchSubscriptionChoiceSection: View {
 
             if choice == .neither {
                 Text(SubscriptionSignInCopy.neitherExplanation)
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if choice == .freeModels || choice == .openCode {
+                Text(companionManager.openCodeSetupStatusText ?? "Setting up OpenCode…")
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.textSecondary)
+                if companionManager.isOpenCodeSetupInFlight {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button("Retry setup") {
+                        companionManager.beginOpenCodeSetup(freeModelsOnly: choice == .freeModels)
+                    }
+                    .dsCapsuleButtonStyle(.secondary)
+                }
+                Text("Free models run online. Availability and provider limits can change. Some models may use chats for training; HeyMate asks before sending.")
                     .font(DS.Fonts.caption)
                     .foregroundColor(DS.Colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)

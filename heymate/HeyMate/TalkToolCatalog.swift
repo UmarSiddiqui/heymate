@@ -58,12 +58,12 @@ enum TalkToolCatalog {
                 TalkTool(
                     toolDefinition: AssistantToolDefinition(
                         name: namespacedTool.id,
-                        description: "[\(connector.displayName)] \(namespacedTool.tool.description)",
+                        description: "[\(namespacedTool.connectorDisplayName)] \(namespacedTool.tool.description)",
                         inputSchemaJSON: namespacedTool.tool.inputSchemaJSON
                     ),
                     origin: .connector(
                         connectorIdentifier: namespacedTool.connectorID,
-                        connectorDisplayName: connector.displayName,
+                        connectorDisplayName: namespacedTool.connectorDisplayName,
                         maximumRisk: connector.maximumRisk
                     )
                 )

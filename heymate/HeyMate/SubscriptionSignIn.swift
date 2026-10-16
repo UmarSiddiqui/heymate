@@ -129,7 +129,7 @@ nonisolated enum SubscriptionSignInCopy {
             return "\(productName(for: executor)) isn't set up on this Mac yet. "
                 + "\(signInActionTitle(for: executor)) from Settings → AI & Accounts and HeyMate sets it up for you."
         case .openCode:
-            return "OpenCode isn't installed on this Mac. Get it from opencode.ai, then try again."
+            return "OpenCode isn't set up on this Mac yet. Choose OpenCode in Settings → AI & Accounts and HeyMate sets it up for you."
         }
     }
 
@@ -153,8 +153,8 @@ nonisolated enum SubscriptionCLIInstallOutcome: Equatable, Sendable {
     case failed(message: String)
 }
 
-/// The vendors' official installers. Each downloads a signed, checksummed
-/// binary into `~/.local/bin`; neither needs npm, Homebrew, or sudo.
+/// The vendors' official installers. Claude and Codex use `~/.local/bin`;
+/// OpenCode uses `~/.opencode/bin`. No npm, Homebrew, or sudo required.
 nonisolated enum SubscriptionCLIInstaller {
 
     static let installTimeout: TimeInterval = 5 * 60
@@ -168,7 +168,7 @@ nonisolated enum SubscriptionCLIInstaller {
         case .codex:
             return "set -o pipefail; curl -fsSL https://chatgpt.com/codex/install.sh | sh"
         case .openCode:
-            return nil
+            return "set -o pipefail; curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path"
         }
     }
 

@@ -39,7 +39,8 @@ struct DesktopSettingsView: View {
             SettingsDetailView(companionManager: companionManager, navigation: navigation)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(DS.Colors.background)
+        .background(Color.black)
+        .preferredColorScheme(.dark)
     }
 }
 
@@ -79,7 +80,7 @@ struct SettingsDetailView: View {
         }
             .animation(accessibilityReduceMotion ? DS.Animation.reducedMotionFade : DS.Animation.settingsPage, value: selectedTab)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(DS.Colors.background)
+            .background(Color.black)
             .task {
                 // Model catalogs and sign-in status feed the AI and Agents
                 // pages, so they load once for Settings, not per page.
@@ -178,14 +179,7 @@ struct SettingsSidebar: View {
                 .textSelection(.enabled)
         }
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(
-            // Frosted, with a matte tint so it stays on-palette.
-            ZStack {
-                DSVisualEffectBackground(material: .sidebar, blendingMode: .behindWindow)
-                DS.Colors.chromeTint
-            }
-            .ignoresSafeArea()
-        )
+        .background(Color.black.ignoresSafeArea())
         .background(
             // Cmd-F from anywhere in Settings.
             Button("Search settings") { isSearchFieldFocused = true }
@@ -330,20 +324,20 @@ struct SettingsSidebarItem: View {
             HStack(spacing: DS.Spacing.sm + 2) {
                 Image(systemName: symbolName)
                     .font(DS.Glyph.regular)
-                    .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textSecondary)
+                    .foregroundColor(isSelected ? DS.Colors.glassInk : DS.Colors.textSecondary)
                     .frame(width: DS.SettingsLayout.rowIconWidth)
                     .accessibilityHidden(true)
                 Text(title)
                     .font(DS.Fonts.bodyLarge)
                     .fontWeight(isSelected ? .semibold : .regular)
-                    .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textSecondary)
+                    .foregroundColor(isSelected ? DS.Colors.glassInk : DS.Colors.textSecondary)
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 if badge > 0 {
                     Text("\(badge)")
                         .font(DS.Fonts.caption)
                         .monospacedDigit()
-                        .foregroundColor(DS.Colors.textSecondary)
+                        .foregroundColor(isSelected ? DS.Colors.glassInk : DS.Colors.textSecondary)
                 }
             }
             .padding(.horizontal, DS.Spacing.sm + 2)
@@ -363,14 +357,13 @@ struct SettingsSidebarItem: View {
     private var selectionBackground: some View {
         if isSelected {
             if let selectionNamespace {
-                shape
-                    .fill(DS.Colors.selectionFill)
+                DSGlassSurface(cornerRadius: DS.CornerRadius.medium)
                     .matchedGeometryEffect(id: "settingsRailSelection", in: selectionNamespace)
             } else {
-                shape.fill(DS.Colors.selectionFill)
+                DSGlassSurface(cornerRadius: DS.CornerRadius.medium)
             }
         } else if isHovered {
-            shape.fill(DS.Colors.surface2.opacity(0.7))
+            shape.fill(Color.white.opacity(0.07))
         }
     }
 }
