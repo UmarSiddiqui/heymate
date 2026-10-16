@@ -1092,9 +1092,13 @@ private final class SuspendedConversationClient: ToolCallingConversationClient {
     }
 
     func waitForRequest() async throws {
-        for _ in 0..<100 {
+        // Talk may await account context before reaching the client. A fixed
+        // number of yields can expire before that asynchronous work finishes.
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+        while clock.now < deadline {
             if continuation != nil { return }
-            await Task.yield()
+            try await Task.sleep(for: .milliseconds(1))
         }
         throw NSError(domain: "ChatTurnNavigationTests.requestDidNotStart", code: 1)
     }
