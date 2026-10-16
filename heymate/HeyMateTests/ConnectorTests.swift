@@ -391,6 +391,37 @@ struct ConnectorToolRiskInferenceTests {
         ) == .destructive)
     }
 
+    /// "message", "post" and friends are nouns after a read verb. A Gmail
+    /// read used to stop for a "Sends or publishes" approval.
+    @Test func aSendWordAfterAReadVerbIsANoun() {
+        for slug in ["GMAIL_FETCH_MESSAGE_BY_THREAD_ID", "GMAIL_GET_EMAIL", "LINKEDIN_GET_POST", "SLACK_LIST_MESSAGE_REPLY"] {
+            #expect(ConnectorToolRisk.inferred(
+                forToolNamed: "composio__COMPOSIO_MULTI_EXECUTE_TOOL",
+                arguments: ["tools": [["tool_slug": slug]]],
+                ceiling: .destructive
+            ) == .readOnly, "\(slug)")
+        }
+    }
+
+    /// The same words still send when they lead the name or follow a write.
+    @Test func aSendWordAsTheVerbOrAfterAWriteStillAsks() {
+        for slug in ["GMAIL_REPLY_TO_THREAD", "GMAIL_FORWARD_MESSAGE", "LINKEDIN_CREATE_POST", "SLACK_SEND_MESSAGE"] {
+            #expect(ConnectorToolRisk.inferred(
+                forToolNamed: "composio__COMPOSIO_MULTI_EXECUTE_TOOL",
+                arguments: ["tools": [["tool_slug": slug]]],
+                ceiling: .destructive
+            ) == .externalSideEffect, "\(slug)")
+        }
+        #expect(ConnectorToolRisk.inferred(
+            forToolNamed: "composio__COMPOSIO_MULTI_EXECUTE_TOOL",
+            arguments: ["tools": [
+                ["tool_slug": "GMAIL_FETCH_MESSAGE_BY_THREAD_ID"],
+                ["tool_slug": "GMAIL_SEND_EMAIL"]
+            ]],
+            ceiling: .destructive
+        ) == .externalSideEffect)
+    }
+
     @Test func malformedComposioBatchFailsClosed() {
         #expect(ConnectorToolRisk.inferred(
             forToolNamed: "composio__COMPOSIO_MULTI_EXECUTE_TOOL",
@@ -469,5 +500,34 @@ struct TalkWithheldToolTests {
 
     @Test func theCheckIgnoresCase() {
         #expect(CompanionManager.isWithheldFromTalk("composio_manage_connections"))
+    }
+}
+
+// MARK: - Plain approval wording
+
+struct ConnectorToolCallDescriptionTests {
+
+    @Test func composioBatchReadsAsAppAndAction() {
+        let actions = ConnectorToolCallDescription.actions(
+            forToolNamed: "composio__COMPOSIO_MULTI_EXECUTE_TOOL",
+            arguments: ["tools": [
+                ["tool_slug": "GMAIL_FETCH_MESSAGE_BY_THREAD_ID"],
+                ["tool_slug": "GOOGLECALENDAR_LIST_EVENTS"],
+                ["tool_slug": "GITHUB_LIST_WORKFLOW_RUNS"]
+            ], "thought": "ignored"],
+            appNames: ["gmail": "Gmail", "googlecalendar": "Google Calendar"]
+        )
+        #expect(actions == [
+            "Gmail: Fetch message by thread ID",
+            "Google Calendar: List events",
+            "Github: List workflow runs"
+        ])
+    }
+
+    @Test func aPlainToolReadsAsItsAction() {
+        #expect(ConnectorToolCallDescription.actions(
+            forToolNamed: "notion__create_page",
+            arguments: ["title": "x"]
+        ) == ["Create page"])
     }
 }

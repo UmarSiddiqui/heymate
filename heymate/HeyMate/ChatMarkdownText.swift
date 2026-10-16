@@ -129,50 +129,142 @@ nonisolated enum ChatMarkdownParser {
     }
 }
 
+/// Word-by-word reveal for a reply that just arrived (see `CueWordReveal`).
+/// Hidden words keep their place with a clear color, so the bubble is laid
+/// out at its final size from the first frame and nothing reflows.
+nonisolated enum ChatWordReveal {
+
+    /// A reply as rendered: prose blocks (body or heading) and code blocks.
+    enum Block: Equatable {
+        case body(String)
+        case heading(String)
+        case listItem(marker: String, text: String)
+        case quote(String)
+        case code(String)
+    }
+
+    static func blocks(from text: String) -> [Block] {
+        ChatMarkdownParser.segments(from: text).flatMap { segment -> [Block] in
+            switch segment {
+            case .prose(let prose):
+                return ChatMarkdownParser.proseBlocks(from: prose).map { block in
+                    switch block {
+                    case .body(let body): return .body(body)
+                    case .heading(let title): return .heading(title)
+                    case .listItem(let marker, let text): return .listItem(marker: marker, text: text)
+                    case .quote(let text): return .quote(text)
+                    }
+                }
+            case .code(let code):
+                return [.code(code)]
+            }
+        }
+    }
+
+    /// Words a block counts for. A code block appears whole, as one step.
+    static func wordCount(of block: Block) -> Int {
+        switch block {
+        case .body(let text), .heading(let text), .listItem(_, let text), .quote(let text):
+            return wordCount(in: String(ChatMarkdownParser.inlineAttributedString(from: text).characters))
+        case .code:
+            return 1
+        }
+    }
+
+    static func wordCount(in text: String) -> Int {
+        text.split(whereSeparator: \.isWhitespace).count
+    }
+
+    static func totalWords(in text: String) -> Int {
+        blocks(from: text).reduce(0) { $0 + wordCount(of: $1) }
+    }
+
+    /// How many words of each block show when `visibleWords` of the whole
+    /// reply are showing; nil for a block that shows in full.
+    static func budgets(for blocks: [Block], visibleWords: Int?) -> [Int?] {
+        guard var remaining = visibleWords else { return blocks.map { _ in nil } }
+        return blocks.map { block in
+            let count = wordCount(of: block)
+            defer { remaining = max(remaining - count, 0) }
+            return remaining >= count ? nil : remaining
+        }
+    }
+
+    /// Character offset where word number `count + 1` starts, or nil when
+    /// the text has `count` words or fewer.
+    static func hiddenStartOffset(afterWords count: Int, in text: String) -> Int? {
+        var words = 0
+        var isInsideWord = false
+        for (offset, character) in text.enumerated() {
+            if character.isWhitespace {
+                isInsideWord = false
+            } else if !isInsideWord {
+                isInsideWord = true
+                words += 1
+                if words > count { return offset }
+            }
+        }
+        return nil
+    }
+
+    /// The text with everything after its first `count` words made clear.
+    static func hidingWords(after count: Int, in attributed: AttributedString) -> AttributedString {
+        guard let offset = hiddenStartOffset(afterWords: count, in: String(attributed.characters)) else {
+            return attributed
+        }
+        var result = attributed
+        let start = result.characters.index(result.startIndex, offsetBy: offset)
+        result[start..<result.endIndex].foregroundColor = Color.clear
+        return result
+    }
+}
+
 struct ChatMarkdownText: View {
     let text: String
+    /// While a reply reveals word by word, how many words show; nil shows
+    /// everything.
+    var visibleWordCount: Int? = nil
 
     var body: some View {
-        let segments = ChatMarkdownParser.segments(from: text)
+        let blocks = ChatWordReveal.blocks(from: text)
+        let budgets = ChatWordReveal.budgets(for: blocks, visibleWords: visibleWordCount)
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                switch segment {
-                case .prose(let prose):
-                    ForEach(Array(ChatMarkdownParser.proseBlocks(from: prose).enumerated()), id: \.offset) { _, block in
-                        switch block {
-                        case .body(let body):
-                            Text(ChatMarkdownParser.inlineAttributedString(from: body))
-                                .font(DS.Fonts.reading)
-                                .foregroundColor(DS.Colors.textPrimary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        case .listItem(let marker, let body):
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Text(marker)
-                                    .foregroundColor(DS.Colors.textSecondary)
-                                    .frame(minWidth: 14, alignment: .trailing)
-                                Text(ChatMarkdownParser.inlineAttributedString(from: body))
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            .font(DS.Fonts.reading)
-                            .foregroundColor(DS.Colors.textPrimary)
-                        case .quote(let quote):
-                            Text(ChatMarkdownParser.inlineAttributedString(from: quote))
-                                .font(DS.Fonts.reading)
-                                .foregroundColor(DS.Colors.textSecondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .padding(.leading, 12)
-                                .overlay(alignment: .leading) {
-                                    Rectangle().fill(DS.Colors.borderSubtle).frame(width: 2)
-                                }
-                        case .heading(let title):
-                            Text(ChatMarkdownParser.inlineAttributedString(from: title))
-                                .font(DS.Fonts.reading.weight(.semibold))
-                                .foregroundColor(DS.Colors.textPrimary)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .padding(.top, 4)
-                                .accessibilityAddTraits(.isHeader)
-                        }
+            ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
+                let budget = budgets[index]
+                switch block {
+                case .body(let body):
+                    Text(revealed(ChatMarkdownParser.inlineAttributedString(from: body), budget: budget))
+                        .font(DS.Fonts.reading)
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                case .heading(let title):
+                    Text(revealed(ChatMarkdownParser.inlineAttributedString(from: title), budget: budget))
+                        .font(DS.Fonts.reading.weight(.semibold))
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 4)
+                        .accessibilityAddTraits(.isHeader)
+                case .listItem(let marker, let body):
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(marker)
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .frame(minWidth: 14, alignment: .trailing)
+                            .opacity(budget == 0 ? 0 : 1)
+                        Text(revealed(ChatMarkdownParser.inlineAttributedString(from: body), budget: budget))
+                            .fixedSize(horizontal: false, vertical: true)
                     }
+                    .font(DS.Fonts.reading)
+                    .foregroundColor(DS.Colors.textPrimary)
+                case .quote(let quote):
+                    Text(revealed(ChatMarkdownParser.inlineAttributedString(from: quote), budget: budget))
+                        .font(DS.Fonts.reading)
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.leading, 12)
+                        .overlay(alignment: .leading) {
+                            Rectangle().fill(DS.Colors.borderSubtle).frame(width: 2)
+                        }
+                        .opacity(budget == 0 ? 0 : 1)
                 case .code(let code):
                     ScrollView(.horizontal, showsIndicators: true) {
                         Text(code)
@@ -186,6 +278,7 @@ struct ChatMarkdownText: View {
                         RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
                             .fill(DS.Colors.surface2)
                     )
+                    .opacity(budget == 0 ? 0 : 1)
                 }
             }
         }
@@ -193,5 +286,10 @@ struct ChatMarkdownText: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .tint(DS.Colors.accent)
         .textSelection(.enabled)
+    }
+
+    private func revealed(_ attributed: AttributedString, budget: Int?) -> AttributedString {
+        guard let budget else { return attributed }
+        return ChatWordReveal.hidingWords(after: budget, in: attributed)
     }
 }

@@ -38,6 +38,13 @@ struct ChatMarkdownParserTests {
         #expect(plain == "Save first\n- then push")
     }
 
+    @Test func wordRevealPreservesListsQuotesAndCodeOrder() {
+        let blocks = ChatWordReveal.blocks(from: "- First item\n> Quoted text\n```swift\nlet value = 1\n```")
+        #expect(blocks == [.listItem(marker: "•", text: "First item"), .quote("Quoted text"), .code("let value = 1")])
+        #expect(ChatWordReveal.budgets(for: blocks, visibleWords: 3) == [nil, 1, 0])
+        #expect(ChatWordReveal.totalWords(in: "- First item\n> Quoted text\n```swift\nlet value = 1\n```") == 5)
+    }
+
     @Test func headingLinesBecomeHeadingBlocks() {
         let blocks = ChatMarkdownParser.proseBlocks(from: "Step one.\n\n## Findings\n- **Xada:** none\n#hashtag stays")
         #expect(blocks == [

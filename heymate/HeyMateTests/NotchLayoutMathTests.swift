@@ -538,4 +538,147 @@ struct NotchLayoutMathTests {
         }
     }
 
+    // MARK: - Shoulders
+
+    @Test func shouldersGrowWithCardnessAndClamp() {
+        #expect(NotchLayoutMath.cardShoulderRadius == 10)
+        #expect(NotchLayoutMath.shoulderRadius(cardness: 0) == 0)
+        #expect(NotchLayoutMath.shoulderRadius(cardness: 0.5) == 5)
+        #expect(NotchLayoutMath.shoulderRadius(cardness: 1) == NotchLayoutMath.cardShoulderRadius)
+        #expect(NotchLayoutMath.shoulderRadius(cardness: -1) == 0)
+        #expect(NotchLayoutMath.shoulderRadius(cardness: 2) == NotchLayoutMath.cardShoulderRadius)
+    }
+
+    @Test func onlySurfacesUnderARealHousingGetShoulders() {
+        #expect(NotchLayoutMath.shoulderInset(occludedTopInset: Self.notchInset) == NotchLayoutMath.cardShoulderRadius)
+        #expect(NotchLayoutMath.shoulderInset(occludedTopInset: 38) == NotchLayoutMath.cardShoulderRadius)
+        // Software-notch fallback passes no housing.
+        #expect(NotchLayoutMath.shoulderInset(occludedTopInset: 0) == 0)
+    }
+
+    @Test func expandedFrameAddsOneShoulderEachSideAroundTheSameBody() throws {
+        let frame = try #require(NotchLayoutMath.expandedFrame(
+            screenFrame: Self.macBookScreen,
+            topSafeAreaInset: Self.notchInset,
+            auxiliaryTopLeftMaxX: Self.auxLeftMaxX,
+            auxiliaryTopRightMinX: Self.auxRightMinX
+        ))
+        let shoulder = NotchLayoutMath.cardShoulderRadius
+        #expect(frame.width == NotchLayoutMath.expandedWidth + shoulder * 2)
+        let body = frame.insetBy(dx: shoulder, dy: 0)
+        #expect(body.width == NotchLayoutMath.expandedWidth)   // 600pt card body, unchanged
+        #expect(body.midX == frame.midX)
+        #expect(frame.maxY == Self.macBookScreen.maxY)         // shoulders meet the screen top
+        // The extra strip beside the body is just the fillet, nothing more.
+        #expect(frame.width - body.width == 20)
+
+        let compact = try #require(NotchLayoutMath.compactChatFrame(
+            screenFrame: Self.macBookScreen,
+            topSafeAreaInset: Self.notchInset,
+            auxiliaryTopLeftMaxX: Self.auxLeftMaxX,
+            auxiliaryTopRightMinX: Self.auxRightMinX
+        ))
+        #expect(compact.width == NotchLayoutMath.compactChatWidth + shoulder * 2)
+        let suggestion = try #require(NotchLayoutMath.connectorSuggestionFrame(
+            screenFrame: Self.macBookScreen,
+            topSafeAreaInset: Self.notchInset,
+            auxiliaryTopLeftMaxX: Self.auxLeftMaxX,
+            auxiliaryTopRightMinX: Self.auxRightMinX
+        ))
+        #expect(suggestion.width == NotchLayoutMath.connectorSuggestionWidth + shoulder * 2)
+    }
+
+    @Test func fallbackFramesHaveNoShoulderStrip() {
+        let external = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        #expect(NotchLayoutMath.fallbackExpandedFrame(screenFrame: external).width == NotchLayoutMath.expandedWidth)
+        #expect(NotchLayoutMath.fallbackCompactChatFrame(screenFrame: external).width == NotchLayoutMath.compactChatWidth)
+    }
+
+    /// 620×196: the 600×164 card body under a 32pt housing, plus shoulders.
+    private static let cardSize = CGSize(
+        width: NotchLayoutMath.expandedWidth + NotchLayoutMath.cardShoulderRadius * 2,
+        height: 32 + NotchLayoutMath.expandedHeight
+    )
+
+    private static func cardSilhouette() -> CGPath {
+        NotchLayoutMath.silhouettePath(
+            size: cardSize,
+            shoulderRadius: NotchLayoutMath.cardShoulderRadius,
+            bottomRadius: NotchLayoutMath.cardCornerRadius
+        )
+    }
+
+    @Test func silhouetteTopEdgeSpansTheWholeWindow() {
+        let path = Self.cardSilhouette()
+        let bounds = path.boundingBoxOfPath
+        #expect(abs(bounds.minX) < 0.001)
+        #expect(abs(bounds.minY) < 0.001)
+        #expect(abs(bounds.width - Self.cardSize.width) < 0.001)
+        #expect(abs(bounds.height - Self.cardSize.height) < 0.001)
+        // Flush with the screen out to the window's edges: the fillet meets
+        // the top tangentially, so a few points in it is already black.
+        #expect(path.contains(CGPoint(x: 3, y: 0.2)))
+        #expect(path.contains(CGPoint(x: Self.cardSize.width - 3, y: 0.2)))
+        #expect(path.contains(CGPoint(x: Self.cardSize.width / 2, y: 0.5)))
+    }
+
+    @Test func shouldersAreConcaveQuarterCircles() {
+        let path = Self.cardSilhouette()
+        let r = NotchLayoutMath.cardShoulderRadius
+        let w = Self.cardSize.width
+        // Left fillet is centred at (0, r): black outside that circle,
+        // transparent inside it.
+        #expect(path.contains(CGPoint(x: r * 0.8, y: r * 0.2)))     // 11.3pt from centre
+        #expect(!path.contains(CGPoint(x: 2, y: r - 2)))            // 2.8pt from centre
+        #expect(!path.contains(CGPoint(x: r * 0.3, y: r * 0.5)))    // 5.8pt from centre
+        // Mirrored on the right, centred at (w, r).
+        #expect(path.contains(CGPoint(x: w - r * 0.8, y: r * 0.2)))
+        #expect(!path.contains(CGPoint(x: w - 2, y: r - 2)))
+        // Below the shoulder the strip beside the body is empty…
+        #expect(!path.contains(CGPoint(x: r / 2, y: 60)))
+        #expect(!path.contains(CGPoint(x: w - r / 2, y: 60)))
+        // …and the body starts exactly `r` in.
+        #expect(path.contains(CGPoint(x: r + 0.5, y: 60)))
+        #expect(path.contains(CGPoint(x: w - r - 0.5, y: 60)))
+    }
+
+    @Test func silhouetteBottomUsesTheCardRadius() {
+        let path = Self.cardSilhouette()
+        let r = NotchLayoutMath.cardShoulderRadius
+        let h = Self.cardSize.height
+        // The body's bottom-left corner is rounded away.
+        #expect(!path.contains(CGPoint(x: r + 1, y: h - 1)))
+        #expect(path.contains(CGPoint(x: r + NotchLayoutMath.cardCornerRadius, y: h - 1)))
+        #expect(path.contains(CGPoint(x: Self.cardSize.width / 2, y: h - 0.5)))
+    }
+
+    @Test func zeroShoulderIsThePillShape() {
+        // The morph starts here: the pill is the hardware cutout, square on
+        // top, so its full width is filled at every height above the corners.
+        let pill = CGSize(width: Self.hardwareWidth, height: Self.notchInset)
+        let path = NotchLayoutMath.silhouettePath(
+            size: pill,
+            shoulderRadius: NotchLayoutMath.shoulderRadius(cardness: 0),
+            bottomRadius: NotchLayoutMath.pillCornerRadius(forHeight: Self.notchInset)
+        )
+        #expect(path.contains(CGPoint(x: 0.5, y: 0.5)))
+        #expect(path.contains(CGPoint(x: 0.5, y: pill.height / 2)))
+        #expect(path.contains(CGPoint(x: pill.width - 0.5, y: pill.height / 2)))
+        #expect(!path.contains(CGPoint(x: 0.5, y: pill.height - 0.5)))   // rounded bottom corner
+        #expect(abs(path.boundingBoxOfPath.width - pill.width) < 0.001)
+    }
+
+    @Test func silhouetteSurvivesDegenerateSizes() {
+        #expect(NotchLayoutMath.silhouettePath(size: .zero, shoulderRadius: 10, bottomRadius: 24).isEmpty)
+        // A frame narrower than the fillets (early morph) clamps instead of
+        // drawing a self-intersecting outline.
+        let tiny = NotchLayoutMath.silhouettePath(
+            size: CGSize(width: 16, height: 12),
+            shoulderRadius: 10,
+            bottomRadius: 24
+        )
+        #expect(!tiny.isEmpty)
+        #expect(tiny.boundingBoxOfPath.width <= 16.001)
+        #expect(tiny.contains(CGPoint(x: 8, y: 1)))
+    }
 }

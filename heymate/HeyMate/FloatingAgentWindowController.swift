@@ -389,6 +389,8 @@ struct FloatingAgentBubble: View {
                     .frame(width: 40, height: 40)
                     .background(Color.black, in: Circle())
                     .overlay(Circle().stroke(tint, lineWidth: 2))
+                    .overlay { CueProp(kind: .ring, subject: run.id.uuidString) }
+                    .cueMotion(.jobDone, .surprised, subject: run.id.uuidString, anchor: .bottom)
                     .overlay(alignment: .bottomTrailing) {
                         if run.status.needsUser || run.status.isTerminal {
                             Image(systemName: run.status.needsUser ? "hand.raised.fill" :
@@ -429,6 +431,7 @@ struct FloatingAgentBubble: View {
             }
         }
         .onDisappear { collapseTask?.cancel() }
+        .cueMotion(.surprised, part: .prop, subject: run.id.uuidString)
     }
 }
 

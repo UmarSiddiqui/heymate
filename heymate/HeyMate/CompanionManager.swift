@@ -274,13 +274,13 @@ final class CompanionManager: ObservableObject {
     /// Interaction sounds at the two moments users benefit from an audio cue:
     /// the mic opening for a talk request, and the spoken answer arriving.
     /// Dictation/spatial flows stay silent — sound there would be noise.
+    /// UISoundPlayer applies quiet hours to the sound; the motion still plays.
     private func playUISoundForTransition(_ event: CompanionEvent) {
-        guard !QuietPolicy.shouldSilenceAnnouncements() else { return }
         switch event {
         case .startListening(.talk):
-            UISoundPlayer.shared.play(.listenStart)
+            cue(.listenStart)
         case .beginSpeaking:
-            UISoundPlayer.shared.play(.responseReady)
+            cue(.responseReady)
         default:
             break
         }
@@ -690,9 +690,7 @@ final class CompanionManager: ObservableObject {
     }
 
     private func handleTimerCompleted(label: String) {
-        if !QuietPolicy.shouldSilenceAnnouncements() {
-            UISoundPlayer.shared.play(.responseReady)
-        }
+        cue(.responseReady)
         notchActivityCenter.agentActivity = NotchActivity(
             kind: .timer,
             trailingText: "done",
@@ -828,7 +826,7 @@ final class CompanionManager: ObservableObject {
         guard let proposal = standingOrderProposal else { return }
         standingOrderProposal = nil
         notchActivityCenter.agentActivity = nil
-        UISoundPlayer.shared.play(.thumbsUp)
+        cue(.thumbsUp)
         startSandboxAgent(prompt: proposal.task, brief: .standingOrder)
     }
 
@@ -2182,6 +2180,7 @@ final class CompanionManager: ObservableObject {
     func installRemoteSkill(_ descriptor: RemoteSkillDescriptor) throws {
         try skillRegistryInstallationStore.install(descriptor)
         reloadSkills()
+        cue(.levelUp, subject: descriptor.id)
     }
 
     func removeRemoteSkill(_ descriptor: RemoteSkillDescriptor) throws {
@@ -2529,7 +2528,13 @@ final class CompanionManager: ObservableObject {
         ))
         session.updatedAt = Date()
         currentChat = session
-        UISoundPlayer.shared.play(.messageReceived)
+        // A reply that asks something back gets the question cue instead.
+        // One that arrived whole reveals word by word; a streamed one was
+        // already read as it came in.
+        cue(
+            HeyMateCue.asksBack(trimmed) ? .question : .messageReceived,
+            revealsText: streamingAssistantText.isEmpty
+        )
         let captionText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         streamingAssistantText = ""
         lingerCursorCaption(captionText)
@@ -3780,9 +3785,7 @@ final class CompanionManager: ObservableObject {
             let messageWithContext = messageText.appending(contextPreamble(for: contextTokens))
             lastTranscript = messageText
             HeyMateAnalytics.track(.userMessageSent(characterCount: messageText.count))
-            if !QuietPolicy.shouldSilenceAnnouncements() {
-                UISoundPlayer.shared.play(.messageSent)
-            }
+            cue(.messageSent)
             // Not `requiresIdle`: a busy Talk pipeline is something a second
             // question deliberately interrupts, and the states where typing
             // genuinely cannot be served were refused above by name.
@@ -4696,7 +4699,12 @@ final class CompanionManager: ObservableObject {
                     connectorDisplayName: connectorDisplayName,
                     toolName: namespacedToolID,
                     argumentsSummary: TalkToolCatalog.argumentsSummary(arguments),
-                    risk: risk
+                    risk: risk,
+                    actions: ConnectorToolCallDescription.actions(
+                        forToolNamed: namespacedToolID,
+                        arguments: arguments,
+                        appNames: composioConnections.records.mapValues(\.displayName)
+                    )
                 )
             )
             guard wasApproved, !Task.isCancelled, responseIsCurrent?() != false else {
@@ -5181,7 +5189,7 @@ final class CompanionManager: ObservableObject {
 
     /// Per-tool approval inside a running attached job.
     func approveAgent(runID: UUID) {
-        UISoundPlayer.shared.play(.thumbsUp)
+        cue(.thumbsUp, subject: runID.uuidString)
         agentLauncher.resolveApproval(runID: runID, approve: true)
     }
 
@@ -5201,7 +5209,7 @@ final class CompanionManager: ObservableObject {
                 skillsRoot: skillsRoot
             )
         }
-        UISoundPlayer.shared.play(.thumbsUp)
+        cue(.thumbsUp, subject: runID.uuidString)
         agentLauncher.approvePlan(runID: runID)
     }
 
@@ -5213,7 +5221,7 @@ final class CompanionManager: ObservableObject {
 
     /// Throw the job away. Nothing was written, so there is nothing to undo.
     func dismissAgentPlan(runID: UUID) {
-        UISoundPlayer.shared.play(.jobClosed)
+        cue(.jobClosed, subject: runID.uuidString)
         agentLauncher.dismissPlan(runID: runID)
     }
 
@@ -5366,8 +5374,8 @@ final class CompanionManager: ObservableObject {
         if let run = agentRunStore.run(id: runID) {
             agentUserNotifier.handle(run: run, event: event)
         }
-        if let sound = UISoundPlayer.sound(for: event), !QuietPolicy.shouldSilenceAnnouncements() {
-            UISoundPlayer.shared.play(sound)
+        if let sound = UISoundPlayer.sound(for: event) {
+            cue(sound, subject: runID.uuidString)
         }
 
         postMateRunUpdate(runID: runID, event: event)

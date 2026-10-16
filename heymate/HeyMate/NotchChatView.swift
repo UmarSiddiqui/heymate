@@ -138,24 +138,45 @@ struct NotchContentRevealModifier: ViewModifier {
     }
 }
 
+/// The notch silhouette as a SwiftUI shape: flat top flush with the screen,
+/// concave shoulders into the body, rounded bottom. Geometry lives in
+/// `NotchLayoutMath.silhouettePath` so it is unit-tested.
+struct NotchSilhouetteShape: Shape {
+    var shoulderRadius: CGFloat
+    var bottomRadius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let local = NotchLayoutMath.silhouettePath(
+            size: rect.size,
+            shoulderRadius: shoulderRadius,
+            bottomRadius: bottomRadius
+        )
+        return Path(local).offsetBy(dx: rect.minX, dy: rect.minY)
+    }
+}
+
 /// Card window is animated to its real, growing frame by the controller
 /// (`animateFrame`); this surface always renders at the full destination
 /// size and is revealed by that frame growth, like a mask. Three things
 /// keep it reading as the notch itself expanding, not a new panel:
 ///
-///   • The bottom corner radius interpolates pill (live housing radius) → card (24pt) on
-///     the animator's clock, so a pill-sized window still has pill-shaped
-///     corners at the start of the morph.
-///   • Pitch-black fill matches camera housing throughout the morph.
+///   • One silhouette for pill and card. The bottom radius interpolates
+///     pill (8pt) → card (24pt) and the concave top shoulders grow 0 → 10pt
+///     on the animator's clock, so a pill-sized window is still the pill.
+///   • Opaque bezel black, identical to the camera housing, throughout. No
+///     glass, scrim, rim or shadow, so there is no edge to read as a box.
 ///   • The content fade is locked to that same clock, so text never pops
 ///     into a window too small to hold it.
 struct NotchLiquidGlassCardModifier: ViewModifier {
     @ObservedObject var transitionModel: NotchSurfaceTransitionModel
+    /// Kept for the outline preference. The card itself draws no rim: a
+    /// line around the black is exactly what made it read as a box.
     var outlineColor: Color
     var isOutlineEnabled: Bool
 
     /// Height of the camera housing. Needed to derive the pill's bottom
-    /// corner radius — the morph's starting shape.
+    /// corner radius — the morph's starting shape — and whether this
+    /// surface hangs from a real housing (and so gets shoulders).
     var occludedTopInset: CGFloat = 0
 
     @ViewBuilder
@@ -168,13 +189,11 @@ struct NotchLiquidGlassCardModifier: ViewModifier {
                     // does not turn the outline bounds into a larger black
                     // rectangle on the first morph frame. The inset melts
                     // away with the corner transition as the card forms.
-                    let surfaceInset = isOutlineEnabled
-                        ? NotchLayoutMath.outlinePad * (1 - transitionModel.morphCardness)
-                        : 0
+                    let surfaceInset = outlineInset
                     let surfaceWidth = max(geometry.size.width - surfaceInset * 2, 1)
                     let surfaceHeight = max(geometry.size.height - surfaceInset, 1)
 
-                    cardShape(bottomCornerRadius: bottomCornerRadius)
+                    silhouette
                         .fill(Color.black)
                         .frame(width: surfaceWidth, height: surfaceHeight)
                     .frame(
@@ -184,38 +203,75 @@ struct NotchLiquidGlassCardModifier: ViewModifier {
                     )
                 }
             }
-            // Content paints full-bleed backgrounds (the nebula, the bottom
-            // bar), which squared off the card's corners. Clipping to the
-            // same silhouette keeps the rounded bottom through the morph.
-            .clipShape(cardShape(bottomCornerRadius: bottomCornerRadius))
+            // Content paints full-bleed backgrounds (the bottom bar, the
+            // header wing). Clipping to the same silhouette keeps the
+            // shoulders and rounded bottom through the morph.
+            .clipShape(silhouette.inset(horizontal: outlineInset))
             .overlay {
-                cardShape(bottomCornerRadius: bottomCornerRadius)
-                    .strokeBorder(
-                        LinearGradient(colors: [.white.opacity(0.075), .white.opacity(0.16)],
-                                       startPoint: .top, endPoint: .bottom),
-                        lineWidth: 0.6
-                    )
+                silhouette.inset(horizontal: outlineInset)
+                    .stroke(LinearGradient(colors: [.white.opacity(0.075), .white.opacity(0.16)],
+                                           startPoint: .top, endPoint: .bottom), lineWidth: 0.6)
                     .opacity(transitionModel.morphCardness)
                     .allowsHitTesting(false)
             }
     }
 
-    private var bottomCornerRadius: CGFloat {
-        NotchLayoutMath.lerp(
-            NotchLayoutMath.pillCornerRadius(forHeight: occludedTopInset),
-            NotchLayoutMath.cardCornerRadius,
-            transitionModel.morphCardness
-        )
+    private var outlineInset: CGFloat {
+        isOutlineEnabled
+            ? NotchLayoutMath.outlinePad * (1 - transitionModel.morphCardness)
+            : 0
     }
 
-    private func cardShape(bottomCornerRadius: CGFloat) -> UnevenRoundedRectangle {
-        UnevenRoundedRectangle(
-            topLeadingRadius: 0,
-            bottomLeadingRadius: bottomCornerRadius,
-            bottomTrailingRadius: bottomCornerRadius,
-            topTrailingRadius: 0,
-            style: .continuous
+    private var silhouette: NotchSilhouetteShape {
+        NotchSilhouetteShape(
+            shoulderRadius: NotchLayoutMath.shoulderInset(occludedTopInset: occludedTopInset) > 0
+                ? NotchLayoutMath.shoulderRadius(cardness: transitionModel.morphCardness)
+                : 0,
+            bottomRadius: NotchLayoutMath.lerp(
+                NotchLayoutMath.pillCornerRadius(forHeight: occludedTopInset),
+                NotchLayoutMath.cardCornerRadius,
+                transitionModel.morphCardness
+            )
         )
+    }
+}
+
+private extension NotchSilhouetteShape {
+    /// Same silhouette, pulled in from the left, right and bottom by
+    /// `horizontal` (the top stays flush with the screen).
+    func inset(horizontal: CGFloat) -> some Shape {
+        NotchInsetSilhouette(base: self, inset: horizontal)
+    }
+}
+
+private struct NotchInsetSilhouette: Shape {
+    let base: NotchSilhouetteShape
+    let inset: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        guard inset > 0 else { return base.path(in: rect) }
+        let inner = CGRect(
+            x: rect.minX + inset,
+            y: rect.minY,
+            width: max(rect.width - inset * 2, 0),
+            height: max(rect.height - inset, 0)
+        )
+        return base.path(in: inner)
+    }
+}
+
+/// Opaque black behind an overlay that covers a whole surface (approval
+/// prompts), in the card's silhouette, so it never paints the transparent
+/// strips beside the shoulders.
+struct NotchSurfaceBackdrop: View {
+    var occludedTopInset: CGFloat
+
+    var body: some View {
+        NotchSilhouetteShape(
+            shoulderRadius: NotchLayoutMath.shoulderInset(occludedTopInset: occludedTopInset),
+            bottomRadius: NotchLayoutMath.cardCornerRadius
+        )
+        .fill(Color.black)
     }
 }
 
@@ -283,13 +339,19 @@ struct NotchSurfaceRoot: View {
 
     var body: some View {
         ZStack {
+            // Rides on the frame morph: the content lands with the open's
+            // thump and dims on the close's tap.
             surfaceContent
+                .cueMotion(.panelOpen, .panelClose)
             if surface != .connectorSuggestion {
                 NotchHomeResizeChrome(
                     onBegan: onResizeBegan,
                     onChanged: onResizeChanged,
                     onEnded: onResizeEnded
                 )
+                // Straddle the body's edge, not the transparent strip the
+                // shoulders need beside it.
+                .padding(.horizontal, max(NotchLayoutMath.shoulderInset(occludedTopInset: occludedTopInset) - 4, 0))
             }
             if let pendingRequest = computerUseCoordinator.pendingRequest {
                 approvalOverlay(for: pendingRequest)
@@ -353,11 +415,11 @@ struct NotchSurfaceRoot: View {
                     computerUseCoordinator.approvePendingRequest(scope: scope)
                 }
             )
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 14 + NotchLayoutMath.shoulderInset(occludedTopInset: occludedTopInset))
             .padding(.top, 10)
             Spacer(minLength: 0)
         }
-        .background(Color.black.opacity(0.72))
+        .background(NotchSurfaceBackdrop(occludedTopInset: occludedTopInset))
         .transition(.opacity)
     }
 
@@ -369,11 +431,11 @@ struct NotchSurfaceRoot: View {
                 onApprove: { connectorToolCoordinator.approvePendingRequest() },
                 onDeny: { connectorToolCoordinator.denyPendingRequest() }
             )
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 14 + NotchLayoutMath.shoulderInset(occludedTopInset: occludedTopInset))
             .padding(.top, 10)
             Spacer(minLength: 0)
         }
-        .background(Color.black.opacity(0.72))
+        .background(NotchSurfaceBackdrop(occludedTopInset: occludedTopInset))
         .transition(.opacity)
     }
 }
@@ -409,6 +471,7 @@ struct NotchConnectorSuggestionCard: View {
             let contentHeight = size.height
 
             suggestionBody
+                .padding(.horizontal, NotchLayoutMath.shoulderInset(occludedTopInset: occludedTopInset))
                 .frame(width: contentWidth, height: contentHeight, alignment: .top)
                 .background {
                     BrandNebulaSurface.notchCard
@@ -565,6 +628,7 @@ struct NotchCompactChatCard: View {
             let contentHeight = size.height
 
             compactBody
+                .padding(.horizontal, NotchLayoutMath.shoulderInset(occludedTopInset: occludedTopInset))
                 .frame(width: contentWidth, height: contentHeight, alignment: .top)
                 .modifier(NotchContentRevealModifier(transitionModel: transitionModel))
                 .position(x: viewport.size.width / 2, y: contentHeight / 2)

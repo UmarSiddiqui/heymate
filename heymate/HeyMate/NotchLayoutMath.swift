@@ -40,6 +40,92 @@ enum NotchLayoutMath {
     /// Bottom-corner radius of the expanded card.
     nonisolated static let cardCornerRadius: CGFloat = 24
 
+    /// Radius of the concave "shoulders" where an expanded surface meets
+    /// the menu bar. The top edge runs `cardShoulderRadius` past the body
+    /// on each side and curves down into it, so the black reads as the
+    /// camera housing flowing outward rather than a box hung below it.
+    /// 10pt suits the 600×164 card under a 32–38pt housing: big enough to
+    /// read as a fillet, small enough that the extra strip beside the body
+    /// barely covers the menu bar.
+    nonisolated static let cardShoulderRadius: CGFloat = 10
+
+    /// Shoulder radius at this point of the morph. The pill has none (it is
+    /// the hardware cutout), the card has the full fillet, and everything in
+    /// between grows on the same corner clock as the bottom radius.
+    nonisolated static func shoulderRadius(cardness: CGFloat) -> CGFloat {
+        cardShoulderRadius * min(max(cardness, 0), 1)
+    }
+
+    /// How far a hanging surface's body sits in from its window's sides.
+    /// Only surfaces that hang from a real camera housing get shoulders;
+    /// the software-notch fallback floats under the menu bar, where a
+    /// fillet would have nothing to flow out of.
+    nonisolated static func shoulderInset(occludedTopInset: CGFloat) -> CGFloat {
+        screenHasNotch(topSafeAreaInset: occludedTopInset) ? cardShoulderRadius : 0
+    }
+
+    /// The one silhouette every notch surface uses, in a top-left-origin,
+    /// y-down space of `size`: a flat top edge flush with the screen, a
+    /// concave quarter-circle shoulder of `shoulderRadius` at each top
+    /// corner, straight sides `shoulderRadius` in from the edges, and
+    /// circular bottom corners of `bottomRadius`. With a zero shoulder this
+    /// is exactly the pill/card shape the morph already used.
+    nonisolated static func silhouettePath(
+        size: CGSize,
+        shoulderRadius: CGFloat,
+        bottomRadius: CGFloat
+    ) -> CGPath {
+        let width = max(size.width, 0)
+        let height = max(size.height, 0)
+        let path = CGMutablePath()
+        guard width > 0, height > 0 else { return path }
+
+        let shoulder = min(max(shoulderRadius, 0), width / 4, height / 2)
+        let bodyLeft = shoulder
+        let bodyRight = width - shoulder
+        let bodyWidth = bodyRight - bodyLeft
+        let bottom = min(max(bottomRadius, 0), bodyWidth / 2, max(height - shoulder, 0))
+
+        path.move(to: CGPoint(x: 0, y: 0))
+        path.addLine(to: CGPoint(x: width, y: 0))
+        if shoulder > 0 {
+            // Tangent arc centred at (width, shoulder): concave fillet from
+            // the top edge down into the right side of the body.
+            path.addArc(
+                tangent1End: CGPoint(x: bodyRight, y: 0),
+                tangent2End: CGPoint(x: bodyRight, y: shoulder),
+                radius: shoulder
+            )
+        }
+        path.addLine(to: CGPoint(x: bodyRight, y: height - bottom))
+        if bottom > 0 {
+            path.addArc(
+                tangent1End: CGPoint(x: bodyRight, y: height),
+                tangent2End: CGPoint(x: bodyRight - bottom, y: height),
+                radius: bottom
+            )
+        }
+        path.addLine(to: CGPoint(x: bodyLeft + bottom, y: height))
+        if bottom > 0 {
+            path.addArc(
+                tangent1End: CGPoint(x: bodyLeft, y: height),
+                tangent2End: CGPoint(x: bodyLeft, y: height - bottom),
+                radius: bottom
+            )
+        }
+        path.addLine(to: CGPoint(x: bodyLeft, y: shoulder))
+        if shoulder > 0 {
+            // Mirror of the right shoulder, centred at (0, shoulder).
+            path.addArc(
+                tangent1End: CGPoint(x: bodyLeft, y: 0),
+                tangent2End: CGPoint(x: 0, y: 0),
+                radius: shoulder
+            )
+        }
+        path.closeSubpath()
+        return path
+    }
+
     /// Snappy: the frame lands early on the fast-attack swoosh curve and the
     /// content simply fades in over it. Real panel geometry moves on the
     /// display-link clock; content and corners settle with it.
@@ -196,8 +282,9 @@ enum NotchLayoutMath {
             rightMinX: auxiliaryTopRightMinX
         )
         // The card must fully cover the notch it hangs from, even on models
-        // with unusually wide camera housings.
-        let width = max(contentWidth, idleWidth + 40)
+        // with unusually wide camera housings. The shoulders sit outside
+        // the body, so the window is one fillet wider on each side.
+        let width = max(contentWidth, idleWidth + 40) + cardShoulderRadius * 2
 
         let height = topSafeAreaInset + contentHeight
         let notchCenterX = hardwareNotchCenterX(
@@ -226,7 +313,7 @@ enum NotchLayoutMath {
             leftMaxX: auxiliaryTopLeftMaxX,
             rightMinX: auxiliaryTopRightMinX
         )
-        let width = max(contentWidth, idleWidth + 40)
+        let width = max(contentWidth, idleWidth + 40) + cardShoulderRadius * 2
         let height = topSafeAreaInset + contentHeight
         let notchCenterX = hardwareNotchCenterX(
             screenFrame: screenFrame,
@@ -251,7 +338,7 @@ enum NotchLayoutMath {
             leftMaxX: auxiliaryTopLeftMaxX,
             rightMinX: auxiliaryTopRightMinX
         )
-        let width = max(connectorSuggestionWidth, idleWidth + 40)
+        let width = max(connectorSuggestionWidth, idleWidth + 40) + cardShoulderRadius * 2
         let height = topSafeAreaInset + connectorSuggestionHeight
         let notchCenterX = hardwareNotchCenterX(
             screenFrame: screenFrame,
@@ -592,11 +679,10 @@ enum NotchLayoutMath {
         lerp(contentRevealMinScale, 1, min(max(contentOpacity, 0), 1))
     }
 
-    /// Bezel-black cover fade, locked to the same morph clock. The pill is
-    /// solid black (it must merge with the camera bezel); the card is
-    /// translucent glass with a 72% black scrim, which is visibly lighter.
-    /// Without this cover the click flashes black → gray glass → grow, and
-    /// the card reads as a different object than the notch that was clicked.
+    /// Bezel-black cover fade, locked to the same morph clock. Both the pill
+    /// and the card are now opaque bezel black, so this no longer hides a
+    /// colour change; it stays as the clock any future surface tint would
+    /// have to cross-fade on.
     ///
     /// Expand: the cover crossfades out over the first 30% of the duration
     /// so the surface starts indistinguishable from the pill it replaces.

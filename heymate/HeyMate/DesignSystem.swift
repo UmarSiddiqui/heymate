@@ -182,6 +182,21 @@ enum DS {
         /// `borderSubtle`, which outlines things you can click.
         static var hairline: Color { borderSubtle.opacity(0.6) }
 
+        // ── Notch ────────────────────────────────────────────────────
+        // The notch is always bezel black (forced dark), so its controls
+        // float on it with no tiles or outlines: white at low opacity is
+        // the only fill, and only when hovered, pressed or selected.
+
+        /// A notch control under the pointer.
+        static let notchHoverFill = Color.white.opacity(0.08)
+        /// A notch control being pressed.
+        static let notchPressedFill = Color.white.opacity(0.13)
+        /// The selected tab, or a control that is "on".
+        static let notchSelectedFill = Color.white.opacity(0.10)
+        /// A soft well for something you type into or read (the ask box,
+        /// a job card, a live chip). Never stroked.
+        static let notchWellFill = Color.white.opacity(0.06)
+
         // ── Controls ─────────────────────────────────────────────────
         // Matte, not tinted: an "on" switch is ink on paper — black in
         // light mode, white in dark — so settings read calm and the

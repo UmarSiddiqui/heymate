@@ -905,6 +905,7 @@ private struct NativeAppConnectionCard: View {
                     RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
                         .fill(DS.Colors.surface3)
                 )
+                .cueMotion(.levelUp, subject: connector.id, anchor: .bottom)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(connector.displayName)
@@ -1022,6 +1023,7 @@ private struct ConnectorCard: View {
                     RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
                         .fill(DS.Colors.surface3)
                 )
+                .cueMotion(.levelUp, subject: connector.id, anchor: .bottom)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(connector.displayName)

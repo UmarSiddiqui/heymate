@@ -104,6 +104,9 @@ final class OnboardingTour: ObservableObject {
     // MARK: - Moving
 
     func begin() {
+        // A tour starting from the top boots HeyMate up; a resumed one
+        // picks up quietly where it left off.
+        if step == .hello { HeyMateCue.shared.fire(.boot) }
         enter(step)
     }
 

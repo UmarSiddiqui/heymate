@@ -214,6 +214,9 @@ struct ChatTaskCard: View {
         .foregroundStyle(DS.Colors.textPrimary)
         .background(DS.Colors.surface1, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(DS.Colors.borderSubtle, lineWidth: 1))
+        .overlay { CueShimmer(subject: run.id.uuidString).clipShape(RoundedRectangle(cornerRadius: 18)) }
+        .cueGlow(.permissionAsk, subject: run.id.uuidString, cornerRadius: 18)
+        .cueMotion(.jobStarted, .jobDone, .surprised, subject: run.id.uuidString)
         .onAppear { if initiallyExpanded { expanded = true } }
         .onChange(of: current.resultDeliveryKey) { _, _ in showsFollowUp = false; feedback = nil }
     }

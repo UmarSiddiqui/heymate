@@ -3,9 +3,9 @@
 //  HeyMate
 //
 //  "The model wants to call this connector tool. Yes or no?" Mirrors
-//  `ComputerUseApprovalCard`'s austerity on purpose — one sentence for the
-//  call, one for its arguments, two buttons, no default-highlighted
-//  Approve that Return could trigger by accident.
+//  `ComputerUseApprovalCard`'s austerity on purpose — the call in plain
+//  words, the raw tool and arguments behind Details, two buttons, no
+//  default-highlighted Approve that Return could trigger by accident.
 //
 
 import SwiftUI
@@ -33,16 +33,39 @@ struct ConnectorToolApprovalCard: View {
                     .background(Capsule(style: .continuous).fill(riskColor.opacity(0.16)))
             }
 
-            Text("\(request.connectorDisplayName): \(request.toolName)")
+            Text(title)
                 .font(DS.Fonts.title)
                 .foregroundColor(DS.Colors.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text(request.argumentsSummary)
-                .font(DS.Fonts.body)
-                .foregroundColor(DS.Colors.textSecondary)
-                .lineLimit(3)
-                .fixedSize(horizontal: false, vertical: true)
+            if request.actions.count > 1 {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(request.actions.enumerated()), id: \.offset) { _, action in
+                        Text("• \(action)")
+                            .font(DS.Fonts.body)
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+
+            // The raw call stays one click away for anyone who wants to
+            // check exactly what will run.
+            DisclosureGroup(isExpanded: $showsDetails.withDisclosureSound()) {
+                ScrollView {
+                    Text("\(request.toolName)\n\n\(request.argumentsSummary)")
+                        .font(DS.Fonts.mono)
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 140)
+                .padding(.top, 6)
+            } label: {
+                Text("Details")
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.textTertiary)
+            }
 
             HStack(spacing: 8) {
                 Button("Not now", action: onDeny)
@@ -66,6 +89,18 @@ struct ConnectorToolApprovalCard: View {
                 .stroke(riskColor.opacity(0.5), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.5), radius: 18, y: 8)
+    }
+
+    @State private var showsDetails = false
+
+    /// One action reads as the action itself; several get a count and
+    /// the list below. Never the raw tool name.
+    private var title: String {
+        switch request.actions.count {
+        case 0: return "Use \(request.connectorDisplayName)"
+        case 1: return request.actions[0]
+        default: return "\(request.actions.count) actions with \(request.connectorDisplayName)"
+        }
     }
 
     private var riskColor: Color {

@@ -117,7 +117,9 @@ extension CompanionManager: MateRoutineRunning {
         if let starter { firstChat.firstMoment?.starter = starter }
         if rememberConversationsEnabled { chatHistoryStore.upsert(firstChat) }
         syncMatePublications()
-        UISoundPlayer.shared.play(.hatching)
+        // The showpiece plays on the new agent's face in its first chat, so
+        // an agent made in the background only gets the sound.
+        cue(.hatching, subject: mate.id.uuidString)
         if opensChat {
             openMate(id: mate.id)
             currentChat = firstChat
@@ -331,7 +333,7 @@ extension CompanionManager: MateRoutineRunning {
             MateFaceStore.deleteIfCustom(face)
         }
         guard mateDirectory.deleteMate(id: id) else { return false }
-        UISoundPlayer.shared.play(.levelDown)
+        cue(.levelDown, subject: id.uuidString)
         savedChats = rememberConversationsEnabled ? chatHistoryStore.loadAll() : []
         syncMatePublications()
         if viewingDeletedMate {
