@@ -10,6 +10,7 @@ final class FloatingAgentWindowController {
     private var panels: [String: NSPanel] = [:]
     private var expandedPanelIDs = Set<String>()
     private var yielded = false
+    private var lastQuietState: Bool?
     private let noticeStore = FloatingAgentNoticeStore()
     private var reportWindow: NSWindow?
     private var reportNotice: FloatingAgentNotice?
@@ -30,6 +31,19 @@ final class FloatingAgentWindowController {
             NotificationCenter.default.publisher(for: notification).receive(on: RunLoop.main)
                 .sink { [weak self] _ in self?.refresh() }.store(in: &subscriptions)
         }
+        Timer.publish(every: 5, on: .main, in: .common).autoconnect()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                let quiet = QuietPolicy.shouldSilenceAnnouncements()
+                guard quiet != self.lastQuietState else { return }
+                self.lastQuietState = quiet
+                self.refresh()
+            }.store(in: &subscriptions)
+        refresh()
+    }
+
+    func dismissNotice(id: UUID) {
+        noticeStore.dismiss(id: id)
         refresh()
     }
 
@@ -84,7 +98,7 @@ final class FloatingAgentWindowController {
         if let reportNotice {
             if let run = manager.agentRuns.first(where: { reportNotice.matches($0) }),
                let mate = manager.mates.first(where: { $0.id == reportNotice.mateID }) {
-                reportWindow?.contentView = NSHostingView(rootView: FloatingAgentReportView(run: run, mateName: mate.name))
+                reportWindow?.contentView = NSHostingView(rootView: FloatingAgentReportView(run: run, mateName: mate.name, manager: manager))
             } else {
                 reportWindow?.close()
                 reportWindow = nil
@@ -99,10 +113,12 @@ final class FloatingAgentWindowController {
                   let mate = manager.mates.first(where: { $0.id == notice.mateID && !$0.archived }) else { return nil }
             return FloatingAgentNoticeItem(notice: notice, run: run, mateName: mate.name)
         }
+        let visibleNotices = updates.map(\.notice)
+        if manager.taskNotices != visibleNotices { manager.taskNotices = visibleNotices }
         let defaults = UserDefaults.standard
         let enabled = defaults.object(forKey: CompanionAppearancePreference.floatingAgentsKey) == nil
             || defaults.bool(forKey: CompanionAppearancePreference.floatingAgentsKey)
-        guard enabled, !yielded, !runs.isEmpty || !updates.isEmpty else {
+        guard enabled, !yielded, !QuietPolicy.shouldSilenceAnnouncements(), !runs.isEmpty || !updates.isEmpty else {
             panels.values.forEach { $0.orderOut(nil); $0.contentView = nil }
             panels.removeAll()
             expandedPanelIDs.removeAll()
@@ -181,7 +197,7 @@ final class FloatingAgentWindowController {
         window.title = "Task report"
         window.contentMinSize = NSSize(width: 440, height: 320)
         window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: FloatingAgentReportView(run: run, mateName: update.mateName))
+        window.contentView = NSHostingView(rootView: FloatingAgentReportView(run: run, mateName: update.mateName, manager: manager))
         if reportWindow == nil {
             window.center()
             AppPresencePreferences.shared.registerAmbientWindow(window)
@@ -338,7 +354,7 @@ struct FloatingAgentBubble: View {
     private var label: String {
         switch row {
         case .agent: return FloatingAgentPresentation.statusLabel(run.status)
-        case .update: return run.status == .failed ? "Task needs attention" : "Result ready"
+        case .update: return ChatTaskPresentation.noticeTitle(run.status)
         }
     }
     private func open() {
@@ -364,8 +380,8 @@ struct FloatingAgentBubble: View {
                     Button(action: open) {
                         Text(run.status.isTerminal ? "Open task report" :
                              run.status.needsUser ? "Open to review and approve" : "Open mate chat")
-                            .font(DS.Fonts.caption).foregroundStyle(tint).lineLimit(1)
-                    }
+                            .font(DS.Fonts.caption).lineLimit(1)
+                    }.buttonStyle(NotchCapsuleControlStyle(height: 24))
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
             Button(action: open) {
@@ -376,7 +392,7 @@ struct FloatingAgentBubble: View {
                     .overlay(alignment: .bottomTrailing) {
                         if run.status.needsUser || run.status.isTerminal {
                             Image(systemName: run.status.needsUser ? "hand.raised.fill" :
-                                  run.status == .failed ? "exclamationmark" : "checkmark")
+                                  run.status == .failed ? "exclamationmark" : run.status == .cancelled ? "stop.fill" : "checkmark")
                                 .font(.system(size: 10, weight: .bold))
                                 .foregroundStyle(DS.Colors.surface1)
                                 .frame(width: 18, height: 18).background(tint, in: Circle())

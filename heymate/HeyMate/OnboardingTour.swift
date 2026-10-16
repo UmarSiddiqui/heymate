@@ -14,6 +14,7 @@
 //  launch. Skip ends the tour from anywhere; nothing here blocks HeyMate.
 //
 
+import AppKit
 import AVFoundation
 import Combine
 import SwiftUI
@@ -29,6 +30,7 @@ enum OnboardingStep: String, CaseIterable, Identifiable {
     case point
     case circle
     case type
+    case firstTask
     case reveal
 
     var id: String { rawValue }
@@ -145,7 +147,7 @@ final class OnboardingTour: ObservableObject {
 
     private func enter(_ newStep: OnboardingStep) {
         leaveStep()
-        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+        withAnimation(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .spring(response: 0.42, dampingFraction: 0.86)) {
             step = newStep
             isStepDone = false
             status = nil
@@ -168,7 +170,7 @@ final class OnboardingTour: ObservableObject {
     }
 
     private func markDone(_ note: String? = nil) {
-        withAnimation(.easeOut(duration: DS.Animation.normal)) {
+        withAnimation(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil : .easeOut(duration: DS.Animation.normal)) {
             isStepDone = true
             if let note { status = note }
         }
@@ -278,6 +280,9 @@ final class OnboardingTour: ObservableObject {
                 .store(in: &watchers)
             await say("Not in the mood to talk? Tap the key twice, quickly, and type instead.")
 
+        case .firstTask:
+            await say("Try one small real task. Type it here, review any approval, then see the result. You can skip this step.")
+
         case .reveal:
             markDone()
             let mates = createdMateNames
@@ -287,6 +292,16 @@ final class OnboardingTour: ObservableObject {
                 await say("That's the tour. I made you \(mates.count) mates from what you told me. They're waiting in the sidebar.")
             }
         }
+    }
+
+    func firstTaskFinished() {
+        guard step == .firstTask else { return }
+        markDone("Your result stays in chat.")
+    }
+
+    func skipFirstTask() {
+        guard step == .firstTask else { return }
+        markDone("Continue whenever you are ready. Work already sent stays in chat.")
     }
 
     // MARK: Voice

@@ -74,7 +74,7 @@ final class NotchCompanionController {
     /// auto-collapses. Absorbs the two ways a pointer "briefly" leaves the
     /// card in practice: crossing the hairline seam between tab and card,
     /// and overshooting the card's bottom edge mid-scroll.
-    private static let mouseExitCollapseGraceMilliseconds: UInt64 = 180
+    private static let mouseExitCollapseGraceMilliseconds: UInt64 = 220
 
     private var pillPanel: NSPanel?
     private var expandedPanel: NSPanel?
@@ -146,6 +146,7 @@ final class NotchCompanionController {
     /// card is up, so in practice a click anywhere else left it stuck open.
     private var escapeKeyMonitor: Any?
     private var outsideClickMonitor: Any?
+    private var localOutsideClickMonitor: Any?
 
     /// Visual-only hover on the collapsed tab — does not change window frame.
     private var isPillHovered = false
@@ -1220,9 +1221,11 @@ final class NotchCompanionController {
     /// collapse.
     private func collapseAndUnpin(animated: Bool = true) {
         cancelScheduledTransitions()
+        frameAnimator.cancel()
         let wasPinned = isPinned
         isPinned = false
         isPillHovered = false
+        pillModel.isHovered = false
 
         guard isExpanded, let expandedPanel, expandedPanel.isVisible else {
             finishCollapse()
@@ -1387,6 +1390,19 @@ final class NotchCompanionController {
                 return nil
             }
         }
+        if localOutsideClickMonitor == nil {
+            localOutsideClickMonitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.leftMouseDown, .rightMouseDown]
+            ) { [weak self] event in
+                guard let self, self.isExpanded,
+                      self.presentedSurface != .fullChat,
+                      event.window !== self.expandedPanel,
+                      event.window !== self.pillPanel else { return event }
+                self.collapseAndUnpin()
+                // The clicked control still receives its original event.
+                return event
+            }
+        }
         if outsideClickMonitor == nil {
             outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
                 matching: [.leftMouseDown, .rightMouseDown]
@@ -1417,6 +1433,10 @@ final class NotchCompanionController {
             NSEvent.removeMonitor(outsideClickMonitor)
         }
         outsideClickMonitor = nil
+        if let localOutsideClickMonitor {
+            NSEvent.removeMonitor(localOutsideClickMonitor)
+        }
+        localOutsideClickMonitor = nil
     }
 
     private func cancelScheduledTransitions() {

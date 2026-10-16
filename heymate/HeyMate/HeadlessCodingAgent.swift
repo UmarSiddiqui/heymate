@@ -101,6 +101,14 @@ nonisolated struct AgentActivityEntry: Codable, Equatable, Identifiable {
 nonisolated struct AgentChatOwner: Codable, Equatable {
     let mateID: UUID
     let chatID: UUID
+    /// Optional return address for delegated work. Old run records decode unchanged.
+    var requestingMateID: UUID? = nil
+    var requestingChatID: UUID? = nil
+
+    var requester: AgentChatOwner? {
+        guard let requestingMateID, let requestingChatID else { return nil }
+        return AgentChatOwner(mateID: requestingMateID, chatID: requestingChatID)
+    }
 }
 
 /// One persisted agent job. Artifact bytes live in `workspacePath`, not here.
@@ -154,6 +162,12 @@ nonisolated struct AgentRun: Codable, Equatable, Identifiable {
     var privateFinalResult: String? = nil
     /// Set when the user stops the job within `AgentRunRecovery.quickStopThreshold`.
     var stoppedQuickly: Bool = false
+    /// Provider tool activity only; heartbeat writes never touch these dates.
+    var liveSteeringAvailable = false
+    var liveInputDeliveries: [AgentLiveInputDelivery]? = nil
+    var pendingApprovalDetails: String? = nil
+    var lastToolProgressAt: Date? = nil
+    var progressObservationStartedAt: Date? = nil
 
     var finalAnswer: String? {
         if let privateFinalResult, AgentFinalResult.hasUsableAnswer(privateFinalResult) {
@@ -266,9 +280,14 @@ extension AgentRun {
         chatResultDeliveryKey = try container.decodeIfPresent(String.self, forKey: .chatResultDeliveryKey)
         privateFinalResult = try container.decodeIfPresent(String.self, forKey: .privateFinalResult)
         stoppedQuickly = try container.decodeIfPresent(Bool.self, forKey: .stoppedQuickly) ?? false
+        liveSteeringAvailable = try container.decodeIfPresent(Bool.self, forKey: .liveSteeringAvailable) ?? false
+        liveInputDeliveries = try container.decodeIfPresent([AgentLiveInputDelivery].self, forKey: .liveInputDeliveries)
+        pendingApprovalDetails = try container.decodeIfPresent(String.self, forKey: .pendingApprovalDetails)
+        lastToolProgressAt = try container.decodeIfPresent(Date.self, forKey: .lastToolProgressAt)
+        progressObservationStartedAt = try container.decodeIfPresent(Date.self, forKey: .progressObservationStartedAt)
     }
 
-    mutating func appendActivity(
+    nonisolated mutating func appendActivity(
         kind: AgentActivityEntry.Kind,
         text: String,
         createdAt: Date = Date()

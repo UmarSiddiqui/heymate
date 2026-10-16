@@ -46,11 +46,11 @@ enum NotchControlMetrics {
     /// Icon buttons and capsule buttons.
     static let controlSize: CGFloat = DS.ControlSize.regular
     /// Segmented tabs and the status pill in the 32pt header wing.
-    static let compactControlSize: CGFloat = 26
+    static let compactControlSize: CGFloat = 24
     static let glyphSize: CGFloat = 13
     static let labelSize: CGFloat = 12
     /// One regular control plus a 4pt margin above and below it.
-    static let bottomBarHeight: CGFloat = DS.ControlSize.regular + DS.Spacing.sm
+    static let bottomBarHeight: CGFloat = DS.ControlSize.regular + 12
 }
 
 /// Inline text action ("Clear", "Manage", "Sign in"). Looks like a link,
@@ -99,7 +99,7 @@ struct NotchCapsuleButton: View {
 
     var body: some View {
         Button(title, action: action)
-            .dsCapsuleButtonStyle(isProminent ? .primary : .secondary)
+            .buttonStyle(NotchCapsuleControlStyle(isProminent: isProminent))
     }
 }
 
@@ -220,7 +220,7 @@ struct NotchExpandedView: View {
             // bar only carries tools, and neither wing reads as an empty box.
             // Quit takes the top-right corner — there is no Dock icon or
             // menu bar to quit from otherwise.
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Spacer(minLength: 0)
                 headerStatusPill
                 headerIconButton(systemName: "chevron.up", help: "Collapse", action: onClose)
@@ -230,7 +230,7 @@ struct NotchExpandedView: View {
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 16)
         // Pure black, same as the camera housing and the card fill — the
         // old chrome tint drew two visible boxes either side of the notch.
         .background(Color.black)
@@ -238,16 +238,14 @@ struct NotchExpandedView: View {
 
     private var headerStatusPill: some View {
         HStack(spacing: 6) {
-            DSStatusDot(color: statusDotColor, size: 7)
+            DSStatusDot(color: statusDotColor, size: 5)
             Text(headerStatusText)
                 .font(DS.Fonts.control)
                 .foregroundColor(DS.Colors.textSecondary)
                 .lineLimit(1)
         }
-        .padding(.horizontal, 11)
+        .padding(.horizontal, 6)
         .frame(height: NotchControlMetrics.compactControlSize)
-        .background(Capsule().fill(DS.Colors.surface2.opacity(0.8)))
-        .animation(.easeInOut(duration: 0.2), value: companionManager.voiceState)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Status: \(headerStatusText)")
     }
@@ -288,9 +286,15 @@ struct NotchExpandedView: View {
     /// ⌘1–⌘3 shortcuts still work.
     private var doorButtons: some View {
         HStack(spacing: 2) {
-            doorButton(title: "Window", systemName: "macwindow", detail: "chat and history", key: "1") {
+            Button {
                 companionManager.openDesktopWindow(section: .chat)
+            } label: {
+                Label("Open chat", systemImage: "bubble.left.and.bubble.right")
             }
+            .dsCapsuleButtonStyle(.primary, height: DS.ControlSize.regular)
+            .keyboardShortcut("1", modifiers: .command)
+            .help("Open chats, mates, and the character editor")
+            .accessibilityLabel("Open chat and characters")
             doorButton(title: "Integrations", systemName: "puzzlepiece.extension", detail: "apps every agent can use", key: "2") {
                 companionManager.openDesktopWindow(section: .connectors)
             }
@@ -299,7 +303,8 @@ struct NotchExpandedView: View {
             }
         }
         .padding(2)
-        .background(Capsule().fill(DS.Colors.surface3.opacity(0.82)))
+        .background(Capsule().fill(Color.white.opacity(0.035)))
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.075), lineWidth: 0.5))
     }
 
     private func doorButton(
@@ -346,10 +351,11 @@ struct NotchExpandedView: View {
             }
             .padding(.horizontal, 12)
             .frame(height: NotchControlMetrics.controlSize)
-            .background(Capsule().fill(DS.Colors.surface3.opacity(0.82)))
+            .background(Capsule().fill(Color.white.opacity(0.035)))
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.075), lineWidth: 0.5))
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NotchDoorButtonStyle())
         .pointerCursor()
         .help("Choose engine, model, and effort in Settings")
     }
@@ -364,10 +370,9 @@ struct NotchExpandedView: View {
                 .font(DS.Glyph.regular)
                 .foregroundColor(DS.Colors.textSecondary)
                 .frame(width: NotchControlMetrics.controlSize, height: NotchControlMetrics.controlSize)
-                .background(Circle().fill(DS.Colors.surface3.opacity(0.82)))
                 .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NotchDoorButtonStyle())
         .pointerCursor()
         .help(help)
         .accessibilityLabel(help)
@@ -445,6 +450,7 @@ struct NotchExpandedView: View {
 
 private struct NotchTabSwitcher: View {
     @Binding var selectedTab: NotchExpandedTab
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 2) {
@@ -453,7 +459,7 @@ private struct NotchTabSwitcher: View {
             }
         }
         .padding(2)
-        .background(Capsule().fill(DS.Colors.surface2.opacity(0.7)))
+        .background(Capsule().fill(Color.white.opacity(0.035)))
     }
 
     /// The selected tab carries its name so the header says where you are;
@@ -461,7 +467,7 @@ private struct NotchTabSwitcher: View {
     private func tabButton(for tab: NotchExpandedTab) -> some View {
         let isSelected = selectedTab == tab
         return Button(action: {
-            withAnimation(DS.Animation.controlSpring) { selectedTab = tab }
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) { selectedTab = tab }
         }) {
             HStack(spacing: 5) {
                 Image(systemName: tab.iconName)
@@ -475,22 +481,17 @@ private struct NotchTabSwitcher: View {
             }
             .padding(.horizontal, isSelected ? 12 : 0)
             .frame(minWidth: 32, minHeight: NotchControlMetrics.compactControlSize)
-            .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textTertiary)
-            .background(
-                Capsule().fill(isSelected ? DS.Colors.accent.opacity(0.22) : Color.clear)
-            )
-            .overlay(
-                Capsule().stroke(
-                    isSelected ? DS.Colors.accent.opacity(0.45) : Color.white.opacity(0.001),
-                    lineWidth: 0.8
-                )
-            )
+            .foregroundColor(isSelected ? Color(hex: "#12223B") : DS.Colors.textTertiary)
+            .background {
+                if isSelected { DSGlassSurface(cornerRadius: 12) }
+            }
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .pointerCursor()
         .help(tab.title)
         .accessibilityLabel(tab.title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -532,7 +533,7 @@ private struct NotchHomeTab: View {
                                 .foregroundColor(DS.Colors.textSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
                             Button("Continue the tour") { companionManager.openWelcomeTour() }
-                                .dsCapsuleButtonStyle(.primary)
+                                .buttonStyle(NotchCapsuleControlStyle())
                             // Optional: HeyMate works with the Mac voice
                             // straight away, so this is an offer, not a step.
                             if OnDeviceVoiceModelStore.shared.isSupportedOnThisMac {
@@ -635,7 +636,7 @@ private struct NotchHomeTab: View {
                     Button(first.isGrantedInSystemSettings ? "Open \(first.title)" : "Allow") {
                         Task { await permissionGuide.request(first) }
                     }
-                    .dsCapsuleButtonStyle(.primary, height: DS.ControlSize.small)
+                    .buttonStyle(NotchCapsuleControlStyle(height: DS.ControlSize.small))
                     .disabled(permissionGuide.isAllowingAll)
                     if first.breaksShortcuts {
                         Button("Help") {
@@ -742,12 +743,15 @@ private struct NotchHomeTab: View {
             Button(action: sendTypedMessageFromInput) {
                 Image(systemName: "arrow.up")
                     .font(DS.Glyph.regular.weight(.bold))
-                    .foregroundColor(canSendTypedMessage ? DS.Colors.textOnAccent : DS.Colors.textTertiary)
+                    .foregroundColor(canSendTypedMessage ? Color(hex: "#12223B") : DS.Colors.textTertiary)
                     .frame(width: 28, height: 28)
-                    .background(
-                        Circle()
-                            .fill(canSendTypedMessage ? DS.Colors.accent : DS.Colors.surface3)
-                    )
+                    .background {
+                        if canSendTypedMessage {
+                            DSGlassSurface(cornerRadius: 14)
+                        } else {
+                            Circle().fill(DS.Colors.surface3)
+                        }
+                    }
             }
             .buttonStyle(.plain)
             .pointerCursor()
@@ -858,8 +862,8 @@ private struct NotchHomeTab: View {
                     AgentRunCard(
                         run: run,
                         onCancel: { companionManager.cancelAgent(runID: run.id) },
-                        onApprove: { companionManager.approveAgent(runID: run.id) },
-                        onDeny: { companionManager.denyAgent(runID: run.id) },
+                        onApprove: { companionManager.resolvePresentedApproval(run: run, approve: true) },
+                        onDeny: { companionManager.resolvePresentedApproval(run: run, approve: false) },
                         onApprovePlan: { companionManager.approveAgentPlan(runID: run.id) },
                         onDismissPlan: { companionManager.dismissAgentPlan(runID: run.id) },
                         onOpenFolder: { companionManager.revealAgentFolder(runID: run.id) }
@@ -892,12 +896,14 @@ private struct NotchDoorButtonLabel: View {
             .foregroundColor(isHovering ? DS.Colors.textPrimary : DS.Colors.textSecondary)
             .background(
                 Capsule().fill(
-                    configuration.isPressed ? DS.Colors.surface4
-                        : isHovering ? DS.Colors.surface2 : Color.clear
+                    configuration.isPressed ? Color.white.opacity(0.13)
+                        : isHovering ? Color.white.opacity(0.065) : Color.clear
                 )
             )
+            .brightness(configuration.isPressed ? -0.03 : 0)
             .onHover { isHovering = $0 }
-            .animation(reduceMotion ? nil : .easeOut(duration: DS.Animation.fast), value: isHovering)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.14), value: isHovering)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.10), value: configuration.isPressed)
     }
 }
 
@@ -950,11 +956,11 @@ private struct ContextualConnectorSuggestionBanner: View {
                     Button("Not now") { suggestionMonitor.snooze(suggestion) }
                         .dsCapsuleButtonStyle(.secondary)
                     Button("Connect") { connect(suggestion) }
-                        .dsCapsuleButtonStyle(.primary)
+                        .buttonStyle(NotchCapsuleControlStyle())
                 }
             }
             .padding(10)
-            .dsSurface(.tinted(DS.Colors.accent))
+            .dsSurface(.card)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Connect \(suggestion.toolkitName) to HeyMate")
         }
@@ -1046,6 +1052,8 @@ private struct AgentRunCard: View {
                     .dsSurface(.inset)
             }
 
+            if run.status == .waitingForApproval { AgentApprovalDetails(run: run) }
+
             HStack(spacing: 8) {
                 switch run.status {
                 case .running, .queued, .planning:
@@ -1076,18 +1084,7 @@ private struct AgentRunCard: View {
             }
         }
         .padding(12)
-        // The project's own hue washes in from the corner so runs in the
-        // same folder read as siblings; the card itself is the standard one.
-        .background(
-            RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [projectColor.opacity(0.14), .clear],
-                        startPoint: .topLeading,
-                        endPoint: .center
-                    )
-                )
-        )
+        .background(Color.black, in: RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous))
         .dsSurface(.card)
     }
 
@@ -1135,7 +1132,7 @@ private struct AgentRunCard: View {
 
     private func cardButton(_ title: String, isProminent: Bool = false, action: @escaping () -> Void) -> some View {
         Button(title, action: action)
-            .dsCapsuleButtonStyle(isProminent ? .primary : .secondary)
+            .buttonStyle(NotchCapsuleControlStyle(isProminent: isProminent))
     }
 }
 
@@ -1213,7 +1210,7 @@ private struct NotchStatusCard: View {
                         Text("Stop")
                     }
                 }
-                .dsCapsuleButtonStyle(.primary)
+                .buttonStyle(NotchCapsuleControlStyle())
                 .keyboardShortcut(.escape, modifiers: [])
                 .help("Stop listening (Escape)")
                 .accessibilityLabel("Stop listening")
@@ -1221,21 +1218,7 @@ private struct NotchStatusCard: View {
             }
         }
         .padding(DS.Spacing.sm + 2)
-        .background(
-            ZStack {
-                RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous)
-                    .fill(DS.Colors.surface2.opacity(0.9))
-                RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous)
-                    .fill(
-                        RadialGradient(
-                            colors: [DS.Colors.accent.opacity(0.28), Color.clear],
-                            center: .topLeading,
-                            startRadius: 0,
-                            endRadius: 190
-                        )
-                    )
-            }
-        )
+        .background(Color.black, in: RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous)
                 .stroke(DS.Colors.accent.opacity(0.22), lineWidth: 0.7)
@@ -1330,5 +1313,34 @@ private struct NotchWaveformView: View {
     private func barHeight(forWeight weight: CGFloat) -> CGFloat {
         let reactive = min(max(audioPowerLevel - 0.01, 0), 1) * 12
         return 4 + reactive * weight
+    }
+}
+
+
+/// Compact primary controls share the chat composer's icy-blue glass.
+struct NotchCapsuleControlStyle: ButtonStyle {
+    var isProminent = true
+    var height: CGFloat = DS.ControlSize.regular
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(DS.Fonts.control.weight(.semibold))
+            .foregroundStyle(isProminent ? Color(hex: "#12223B") : DS.Colors.textSecondary)
+            .padding(.horizontal, 12)
+            .frame(minHeight: height)
+            .background {
+                if isProminent {
+                    DSGlassSurface(cornerRadius: height / 2, isPressed: configuration.isPressed)
+                } else {
+                    Capsule().fill(Color.white.opacity(configuration.isPressed ? 0.12 : 0.06))
+                        .overlay(Capsule().strokeBorder(Color.white.opacity(0.13), lineWidth: 0.7))
+                }
+            }
+            .contentShape(Capsule())
+            .opacity(isEnabled ? 1 : 0.4)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.985 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }

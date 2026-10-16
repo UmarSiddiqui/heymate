@@ -2,8 +2,8 @@
 //  UISoundPlayer.swift
 //  HeyMate
 //
-//  Interaction sounds imported from the selected HeyMate sound set and
-//  bundled as Apple Lossless asset-catalog data sets. Playback is
+//  Original interaction sounds synthesized by scripts/generate_ui_sounds.py
+//  and bundled as Apple Lossless asset-catalog data sets. Playback is
 //  intentionally minimal: short AVAudioPlayer instances, pruned after each
 //  play, gated by the user's sounds preference.
 //
@@ -93,7 +93,7 @@ final class UISoundPlayer {
     /// should make one sound, not two, so whichever plays first wins.
     private static let answerCues: Set<Sound> = [.responseReady, .messageReceived]
     private static let answerCueWindow: TimeInterval = 3
-    private var lastAnswerCueAt: Date?
+    private var lastAnswerCueAt: TimeInterval?
 
     /// The sound a job event makes, or nil for the chatter in between.
     nonisolated static func sound(for event: AgentEvent) -> Sound? {
@@ -110,6 +110,10 @@ final class UISoundPlayer {
     /// Decoded asset bytes, read once. Loading the data set from the asset
     /// catalog on the first press is what made the first blip late.
     private var soundData: [Sound: Data] = [:]
+
+    /// Keep the warmed decoder, not only its bytes. Throwing prepared players
+    /// away forced the first real interaction to decode the sound again.
+    private var preparedPlayers: [Sound: AVAudioPlayer] = [:]
 
     /// Strong references so players aren't deallocated mid-playback; finished
     /// entries are pruned on every call. Keyed by sound so a burst (say, three
@@ -129,31 +133,39 @@ final class UISoundPlayer {
     func play(_ sound: Sound, volume: Float = 0.5) {
         guard isSoundEnabled else { return }
 
-        if Self.answerCues.contains(sound) {
-            if let last = lastAnswerCueAt, Date().timeIntervalSince(last) < Self.answerCueWindow { return }
-            lastAnswerCueAt = Date()
-        }
+        let now = ProcessInfo.processInfo.systemUptime
+        if Self.answerCues.contains(sound), let last = lastAnswerCueAt,
+           now - last < Self.answerCueWindow { return }
 
         activePlayers.removeAll { !$0.player.isPlaying }
         guard !activePlayers.contains(where: { $0.sound == sound }) else { return }
 
-        guard let data = data(for: sound),
-              let player = try? AVAudioPlayer(data: data) else {
+        guard let player = preparedPlayer(for: sound) else {
             HeyMateLog.log("🔇 UISoundPlayer: missing or unplayable sound asset \(sound.rawValue)")
             return
         }
+        player.currentTime = 0
         player.volume = volume
+        guard player.play() else { return }
         activePlayers.append((sound, player))
-        player.play()
+        // A missing asset or failed playback must not suppress the fallback
+        // answer cue. Monotonic time also survives wall-clock adjustments.
+        if Self.answerCues.contains(sound) { lastAnswerCueAt = now }
     }
 
     /// Loads every sound and primes the audio output so the first blip of
     /// a session plays on time instead of after the device wakes.
     func warmUp() {
         for sound in Sound.allCases {
-            guard let data = data(for: sound), let player = try? AVAudioPlayer(data: data) else { continue }
-            player.prepareToPlay()
+            preparedPlayer(for: sound)?.prepareToPlay()
         }
+    }
+
+    private func preparedPlayer(for sound: Sound) -> AVAudioPlayer? {
+        if let cached = preparedPlayers[sound] { return cached }
+        guard let data = data(for: sound), let player = try? AVAudioPlayer(data: data) else { return nil }
+        preparedPlayers[sound] = player
+        return player
     }
 
     private func data(for sound: Sound) -> Data? {

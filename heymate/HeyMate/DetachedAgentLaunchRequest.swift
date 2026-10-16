@@ -69,6 +69,7 @@ nonisolated struct DetachedAgentLaunchRequest: Codable, Equatable, Sendable {
     let executor: HeadlessExecutor
     let leg: DetachedAgentRunLegKind
     let createdAt: Date
+    let codexExecution: CodexExecutionLaunch?
     let spec: DetachedAgentLaunchSpec
 
     init(
@@ -77,7 +78,8 @@ nonisolated struct DetachedAgentLaunchRequest: Codable, Equatable, Sendable {
         executor: HeadlessExecutor,
         leg: DetachedAgentRunLegKind,
         createdAt: Date = Date(),
-        spec: DetachedAgentLaunchSpec
+        spec: DetachedAgentLaunchSpec,
+        codexExecution: CodexExecutionLaunch? = nil
     ) {
         schemaVersion = DetachedAgentRuntimeProtocol.currentSchemaVersion
         self.runID = runID
@@ -86,6 +88,7 @@ nonisolated struct DetachedAgentLaunchRequest: Codable, Equatable, Sendable {
         self.leg = leg
         self.createdAt = createdAt
         self.spec = spec
+        self.codexExecution = codexExecution
     }
 
     /// Writes one bounded, length-prefixed JSON frame to an inherited pipe or

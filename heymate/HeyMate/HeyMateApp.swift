@@ -53,6 +53,13 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
 
         Task { await OnDeviceVoiceModelStore.shared.downloadAll() }
         companionManager.start()
+        let launchArguments = ProcessInfo.processInfo.arguments
+        if launchArguments.contains("--detached-chat") {
+            DesktopWindowPlacement.isAttached = false
+        }
+        if launchArguments.contains("--show-chat") || launchArguments.contains("--detached-chat") {
+            companionManager.openDesktopWindow(section: .chat)
+        }
         AppPresencePreferences.shared.applyOnLaunch()
         AppUpdateController.shared.start()
     }

@@ -23,6 +23,14 @@ struct DesktopConnectorsView: View {
     @ObservedObject var composioToolkitDirectory: ComposioToolkitDirectory
 
     @State private var searchText = ""
+    @State private var selectedSection: IntegrationSection = .all
+
+    private enum IntegrationSection: String, CaseIterable {
+        case all = "All apps"
+        case web = "Web apps"
+        case mac = "On this Mac"
+        case custom = "Custom tools"
+    }
     @State private var connectorAwaitingKeyEntry: Connector?
     @State private var connectorAwaitingCommandEntry: Connector?
     @State private var apiKeyDraft = ""
@@ -42,19 +50,29 @@ struct DesktopConnectorsView: View {
             subtitle: connectedSummary,
             accessory: AnyView(searchField)
         ) {
+            sectionNavigation
             connectedStrip
-            if composioConnections.isConfigured {
-                composioSection
+            if selectedSection == .all && !composioConnections.isConfigured {
                 localSection
-            } else {
-                // Without a Composio key, lead with what works right now:
-                // the Mac's own apps. The key is an optional extra.
-                localSection
-                composioSetupCard
             }
-            customSection
-            composioKeySection
+            if selectedSection == .all || selectedSection == .web {
+                if composioConnections.isConfigured {
+                    composioSection
+                } else {
+                    composioSetupCard
+                }
+            }
+            if selectedSection == .mac || (selectedSection == .all && composioConnections.isConfigured) {
+                localSection
+            }
+            if selectedSection == .all || selectedSection == .custom {
+                customSection
+            }
+            if selectedSection == .all || selectedSection == .web {
+                composioKeySection
+            }
         }
+        .background(Color.black)
         .sheet(item: $connectorAwaitingKeyEntry) { connector in
             apiKeySheet(for: connector)
         }
@@ -120,9 +138,40 @@ struct DesktopConnectorsView: View {
         }
         .onChange(of: searchText) { _, newValue in
             if !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                selectedSection = .all
                 selectedComposioCategory = "All"
             }
             composioToolkitDirectory.search(newValue, apiKey: composioConnections.apiKey)
+        }
+    }
+
+    private var sectionNavigation: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(IntegrationSection.allCases, id: \.self) { section in
+                    let selected = selectedSection == section
+                    Button { selectedSection = section } label: {
+                        Text(section.rawValue)
+                            .font(DS.Fonts.control)
+                            .fontWeight(selected ? .semibold : .medium)
+                            .foregroundColor(selected ? DS.Colors.glassInk : DS.Colors.textSecondary)
+                            .padding(.horizontal, 15)
+                            .frame(height: 34)
+                            .background {
+                                if selected {
+                                    DSGlassSurface(cornerRadius: 17)
+                                } else {
+                                    Capsule().fill(Color.black)
+                                        .overlay(Capsule().stroke(DS.Colors.borderSubtle, lineWidth: 1))
+                                }
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                }
+            }
+            .padding(.vertical, 4)
         }
     }
 
@@ -288,7 +337,11 @@ struct DesktopConnectorsView: View {
                         toolkit: toolkit,
                         state: composioConnections.state(for: toolkit.slug),
                         onConnect: { Task { await composioConnections.connect(toolkit) } },
-                        onDisconnect: { requestComposioDisconnect(toolkit) }
+                        onDisconnect: { requestComposioDisconnect(toolkit) },
+                        accounts: composioConnections.availableAccounts[toolkit.slug] ?? [],
+                        selectedAccountID: composioConnections.records[toolkit.slug]?.connectedAccountID,
+                        onSelectAccount: { account in Task { await composioConnections.selectAccount(account) } },
+                        onReconnect: { Task { await composioConnections.connect(toolkit, replacingAccount: true) } }
                     )
                 }
             }
@@ -334,13 +387,17 @@ struct DesktopConnectorsView: View {
                     } label: {
                         Text(category)
                             .font(DS.Fonts.sectionLabel)
-                            .foregroundColor(isSelected ? DS.Colors.textOnAccent : DS.Colors.textSecondary)
+                            .foregroundColor(isSelected ? DS.Colors.glassInk : DS.Colors.textSecondary)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 6)
-                            .background(
-                                Capsule(style: .continuous)
-                                    .fill(isSelected ? DS.Colors.accent : DS.Colors.surface2)
-                            )
+                            .background {
+                                if isSelected {
+                                    DSGlassSurface(cornerRadius: 16)
+                                } else {
+                                    Capsule().fill(Color.black)
+                                        .overlay(Capsule().stroke(DS.Colors.borderSubtle, lineWidth: 1))
+                                }
+                            }
                     }
                     .buttonStyle(.plain)
                     .pointerCursor()
@@ -875,7 +932,7 @@ private struct NativeAppConnectionCard: View {
         .padding(13)
         .background(
             RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                .fill(isHovered ? DS.Colors.surface2 : DS.Colors.surface1)
+                .fill(Color.black)
         )
         .overlay(
             RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
@@ -945,7 +1002,7 @@ private struct ConnectorCard: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous)
-                .fill(isHovered ? DS.Colors.surface2 : DS.Colors.surface1)
+                .fill(Color.black)
         )
         .overlay(
             RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous)
@@ -1101,6 +1158,10 @@ private struct ComposioToolkitCard: View {
     let state: ComposioConnectionState
     let onConnect: () -> Void
     let onDisconnect: () -> Void
+    let accounts: [ComposioConnectedAccountSummary]
+    let selectedAccountID: String?
+    let onSelectAccount: (ComposioConnectedAccountSummary) -> Void
+    let onReconnect: () -> Void
 
     @State private var isHovered = false
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
@@ -1128,29 +1189,33 @@ private struct ComposioToolkitCard: View {
 
             Spacer(minLength: 6)
 
+            if !toolkit.requiresNoAuthentication && state != .connecting {
+                Menu("Account") {
+                    ForEach(accounts, id: \.connectedAccountID) { account in
+                        Button {
+                            onSelectAccount(account)
+                        } label: {
+                            Text("\(account.connectedAccountID == selectedAccountID ? "Selected · " : "")Account …\(account.connectedAccountID.suffix(8))")
+                        }
+                    }
+                    Divider()
+                    Button("Sign in another account…", action: onReconnect)
+                }.help("Choose an active account or reconnect. Existing remote accounts are kept.")
+            }
             if state.isConnected {
                 Button("Disconnect", action: onDisconnect)
                     .buttonStyle(ToolkitCardButtonStyle(prominence: .secondary))
             } else if state == .connecting {
                 ProgressView().controlSize(.small)
             } else {
-                Button(state.needsAttention ? "Retry" : "Connect", action: onConnect)
+                Button(state.needsAttention ? "Reconnect" : "Connect", action: onConnect)
                     .buttonStyle(ToolkitCardButtonStyle(prominence: .primary))
             }
         }
         .padding(13)
         .background(
             RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            toolkit.visualAccent.opacity(isHovered ? 0.11 : 0.055),
-                            isHovered ? DS.Colors.surface2 : DS.Colors.surface1
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+                .fill(Color.black)
         )
         .overlay(
             RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
@@ -1163,7 +1228,6 @@ private struct ComposioToolkitCard: View {
                     lineWidth: 1
                 )
         )
-        .shadow(color: toolkit.visualAccent.opacity(isHovered ? 0.14 : 0), radius: 14, y: 6)
         .offset(y: isHovered && !accessibilityReduceMotion ? -1 : 0)
         .animation(accessibilityReduceMotion ? nil : DS.Animation.controlSpring, value: isHovered)
         .onHover { isHovered = $0 }
@@ -1178,6 +1242,7 @@ private struct ToolkitCardButtonStyle: ButtonStyle {
 
     let prominence: Prominence
     @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -1186,11 +1251,17 @@ private struct ToolkitCardButtonStyle: ButtonStyle {
             .frame(minWidth: 72)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(Capsule().fill(backgroundColor(isPressed: configuration.isPressed)))
+            .background {
+                if prominence == .primary {
+                    DSGlassSurface(cornerRadius: 18, isPressed: configuration.isPressed)
+                } else {
+                    Capsule().fill(backgroundColor(isPressed: configuration.isPressed))
+                }
+            }
             .overlay(Capsule().stroke(borderColor, lineWidth: 1))
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(.easeOut(duration: DS.Animation.fast), value: configuration.isPressed)
-            .animation(.easeOut(duration: DS.Animation.fast), value: isHovered)
+            .scaleEffect(configuration.isPressed && !accessibilityReduceMotion ? 0.97 : 1)
+            .animation(accessibilityReduceMotion ? nil : .easeOut(duration: DS.Animation.fast), value: configuration.isPressed)
+            .animation(accessibilityReduceMotion ? nil : .easeOut(duration: DS.Animation.fast), value: isHovered)
             .onHover { hovering in
                 isHovered = hovering
                 if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
@@ -1198,7 +1269,7 @@ private struct ToolkitCardButtonStyle: ButtonStyle {
     }
 
     private var foregroundColor: Color {
-        prominence == .primary ? DS.Colors.textOnAccent : DS.Colors.textSecondary
+        prominence == .primary ? DS.Colors.glassInk : DS.Colors.textSecondary
     }
 
     private var borderColor: Color {
@@ -1279,7 +1350,7 @@ private struct CustomIntegrationChoiceCard: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous)
-                .fill(isHovered ? DS.Colors.surface2 : DS.Colors.surface1)
+                .fill(Color.black)
         )
         .overlay(
             RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous)

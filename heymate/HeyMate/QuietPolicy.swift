@@ -10,9 +10,12 @@ import CoreAudio
 import Foundation
 
 nonisolated enum QuietPolicy {
+    /// Explicit user control while presenting; no claim of Focus/share sensing.
+    static let presentationModeKey = "heymate.presentationMode"
+    static var isPresentationMode: Bool { UserDefaults.standard.bool(forKey: presentationModeKey) }
 
     static func shouldSilenceAnnouncements() -> Bool {
-        shouldSilence(
+        isPresentationMode || shouldSilence(
             callsActive: liveCallsActive(),
             screenSharing: liveScreenSharing(),
             focusActive: liveFocusActive()

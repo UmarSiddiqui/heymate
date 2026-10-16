@@ -29,7 +29,7 @@ struct FloatingAgentNoticeTests {
         #expect(store.notices.isEmpty)
     }
 
-    @Test func onlyFreshOwnedSuccessAndFailureCreateUpdates() {
+    @Test func onlyFreshOwnedTerminalResultsCreateUpdates() {
         let store = FloatingAgentNoticeStore(fileURL: nil)
         let success = run()
         let failure = run()
@@ -39,7 +39,7 @@ struct FloatingAgentNoticeTests {
         store.start(runs: [success, failure, cancelled, unowned])
         store.observe(runs: [finish(success), finish(failure, status: .failed),
                              finish(cancelled, status: .cancelled), finish(unowned)])
-        #expect(Set(store.notices.map(\.runID)) == Set([success.id, failure.id]))
+        #expect(Set(store.notices.map(\.runID)) == Set([success.id, failure.id, cancelled.id]))
     }
 
     @Test func repeatedPublicationsAndDismissalCannotReplaySameResult() throws {
@@ -148,6 +148,25 @@ struct FloatingAgentNoticeTests {
         #expect(expanded.minX < compact.minX)
         #expect(screen.contains(expanded))
         #expect(screen.contains(FloatingAgentPresentation.bubbleFrame(visibleFrame: screen, index: 0, expanded: true)))
+    }
+
+    @Test func completionWhileAppClosedProducesOnePendingUpdate() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("notice-offline-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("updates.json")
+        let active = run()
+        let first = FloatingAgentNoticeStore(fileURL: file)
+        first.start(runs: [active])
+        first.stop()
+        let completed = finish(active)
+        let second = FloatingAgentNoticeStore(fileURL: file)
+        second.start(runs: [completed])
+        let notice = try #require(second.notices.first)
+        #expect(second.notices.count == 1)
+        second.dismiss(id: notice.id)
+        let third = FloatingAgentNoticeStore(fileURL: file)
+        third.start(runs: [completed])
+        #expect(third.notices.isEmpty)
     }
 
 }

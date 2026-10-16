@@ -207,7 +207,7 @@ enum NotchLayoutMath {
         )
         let x = notchCenterX - width / 2
         let y = screenFrame.maxY - height
-        return CGRect(x: x, y: y, width: width, height: height)
+        return fittedSurfaceFrame(CGRect(x: x, y: y, width: width, height: height), on: screenFrame)
     }
 
     /// Compact chat hanging from the camera housing. Same flush-top, centered
@@ -235,7 +235,7 @@ enum NotchLayoutMath {
         )
         let x = notchCenterX - width / 2
         let y = screenFrame.maxY - height
-        return CGRect(x: x, y: y, width: width, height: height)
+        return fittedSurfaceFrame(CGRect(x: x, y: y, width: width, height: height), on: screenFrame)
     }
 
     /// Compact auto-suggestion hanging from the hardware notch.
@@ -258,12 +258,12 @@ enum NotchLayoutMath {
             auxiliaryTopLeftMaxX: auxiliaryTopLeftMaxX,
             auxiliaryTopRightMinX: auxiliaryTopRightMinX
         )
-        return CGRect(
+        return fittedSurfaceFrame(CGRect(
             x: notchCenterX - width / 2,
             y: screenFrame.maxY - height,
             width: width,
             height: height
-        )
+        ), on: screenFrame)
     }
 
     /// True when the display physically has a notch (top safe-area inset).
@@ -366,7 +366,7 @@ enum NotchLayoutMath {
         let height = contentHeight
         let x = screenFrame.midX - width / 2
         let y = screenFrame.maxY - fallbackMenuBarHeight - height
-        return CGRect(x: x, y: y, width: width, height: height)
+        return fittedSurfaceFrame(CGRect(x: x, y: y, width: width, height: height), on: screenFrame)
     }
 
     /// Compact chat for the software-notch fallback: same compact size as
@@ -380,7 +380,7 @@ enum NotchLayoutMath {
         let height = contentHeight
         let x = screenFrame.midX - width / 2
         let y = screenFrame.maxY - fallbackMenuBarHeight - height
-        return CGRect(x: x, y: y, width: width, height: height)
+        return fittedSurfaceFrame(CGRect(x: x, y: y, width: width, height: height), on: screenFrame)
     }
 
     /// Software-notch placement for displays without camera housing.
@@ -389,7 +389,18 @@ enum NotchLayoutMath {
         let height = connectorSuggestionHeight
         let x = screenFrame.midX - width / 2
         let y = screenFrame.maxY - fallbackMenuBarHeight - height
-        return CGRect(x: x, y: y, width: width, height: height)
+        return fittedSurfaceFrame(CGRect(x: x, y: y, width: width, height: height), on: screenFrame)
+    }
+
+    /// Keep controls reachable after display scaling or reconnecting a smaller
+    /// monitor. Preserve the bezel/menu-bar anchor; shrink only as needed and
+    /// shift horizontally only when the camera center would put an edge outside.
+    nonisolated static func fittedSurfaceFrame(_ frame: CGRect, on screenFrame: CGRect) -> CGRect {
+        let top = min(max(frame.maxY, screenFrame.minY), screenFrame.maxY)
+        let width = min(max(frame.width, 0), max(screenFrame.width, 0))
+        let height = min(max(frame.height, 0), max(top - screenFrame.minY, 0))
+        let x = min(max(frame.midX - width / 2, screenFrame.minX), screenFrame.maxX - width)
+        return CGRect(x: x, y: top - height, width: width, height: height)
     }
 
     // MARK: - Motion

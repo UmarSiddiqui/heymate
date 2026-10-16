@@ -163,7 +163,7 @@ struct OnboardingRootView: View {
                     .frame(width: isCurrent ? 18 : 6, height: 6)
             }
         }
-        .animation(DS.Animation.controlSpring, value: tour.stepIndex)
+        .animation(accessibilityReduceMotion ? nil : DS.Animation.controlSpring, value: tour.stepIndex)
         .accessibilityElement()
         .accessibilityLabel("Step \(tour.stepIndex + 1) of \(tour.stepCount)")
     }
@@ -253,6 +253,8 @@ struct OnboardingRootView: View {
                 OnboardingShortcutPrompt(keys: tour.typeKeys, verb: "Tap", phrase: "twice, quickly")
                 OnboardingStatusLine(text: tour.status ?? "waiting for you…", isDone: tour.isStepDone)
             }
+        case .firstTask:
+            OnboardingFirstTaskStep(tour: tour, manager: tour.companionManager)
         case .reveal:
             OnboardingRevealStep(tour: tour)
         }

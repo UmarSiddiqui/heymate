@@ -176,7 +176,11 @@ extension CompanionManager: MateRoutineRunning {
         default:
             return
         }
-        postAgentMessage(owner: owner, text: text)
+        postAgentMessage(owner: owner, text: text, taskRun: run.status.isTerminal ? run : nil)
+        if let requester = owner.requester, requester.chatID != owner.chatID {
+            let specialist = mateDirectory.mates.first { $0.id == owner.mateID }?.name ?? "Specialist"
+            postAgentMessage(owner: requester, text: "\(specialist) work update (specialist report; review evidence before calling the task complete):\n\n\(text)", taskRun: run.status.isTerminal ? run : nil)
+        }
         if run.status.isTerminal {
             _ = agentRunStore.update(id: runID) { $0.chatResultDeliveryKey = run.resultDeliveryKey }
             agentRuns = agentRunStore.loadAll()
@@ -201,8 +205,13 @@ extension CompanionManager: MateRoutineRunning {
 
     /// A deleted chat stays deleted. Never redirect to the newest chat of a
     /// mate, and never save hidden history when conversation storage is off.
-    private func postAgentMessage(owner: AgentChatOwner, text: String) {
+    private func postAgentMessage(owner: AgentChatOwner, text: String, taskRun: AgentRun? = nil) {
         guard mateDirectory.mates.contains(where: { $0.id == owner.mateID }) else { return }
+        if heyMateTalkSession.id == owner.chatID {
+            heyMateTalkSession.messages.append(ChatMessage(id: UUID(), role: .assistant, text: text, createdAt: Date(), taskRunID: taskRun?.id, taskResultKey: taskRun?.resultDeliveryKey))
+            heyMateTalkSession.updatedAt = Date()
+            return
+        }
         let isVisible = currentChat.id == owner.chatID
         let isBackground = backgroundRoutineSession?.id == owner.chatID
         let source: ChatSession?
@@ -212,7 +221,7 @@ extension CompanionManager: MateRoutineRunning {
         else { source = nil }
         guard var session = source,
               (session.mateID ?? mateDirectory.defaultMateID) == owner.mateID else { return }
-        session.messages.append(ChatMessage(id: UUID(), role: .assistant, text: text, createdAt: Date()))
+        session.messages.append(ChatMessage(id: UUID(), role: .assistant, text: text, createdAt: Date(), taskRunID: taskRun?.id, taskResultKey: taskRun?.resultDeliveryKey))
         session.updatedAt = Date()
         if isVisible { currentChat = session }
         if isBackground { backgroundRoutineSession = session }
@@ -233,7 +242,7 @@ extension CompanionManager: MateRoutineRunning {
         var session = sessionForRoutineAppend(mateID: mateID)
         session.messages.append(ChatMessage(id: UUID(), role: .assistant, text: text, createdAt: Date()))
         session.updatedAt = Date()
-        chatHistoryStore.upsert(session)
+        if rememberConversationsEnabled { chatHistoryStore.upsert(session) }
         mateDirectory.incrementUnread(id: mateID)
         savedChats = rememberConversationsEnabled ? chatHistoryStore.loadAll() : []
         syncMatePublications()
@@ -576,6 +585,9 @@ extension CompanionManager: MateRoutineRunning {
 
     func beginHandoff(_ handoff: MateHandoff, deliverySession: ChatSession? = nil) {
         guard mateDirectory.mates.contains(where: { $0.id == handoff.mateID && !$0.archived }) else {
+            if let requester = handoff.requester {
+                postAgentMessage(owner: requester, text: handoff.returningReport("Specialist is no longer available.", succeeded: false))
+            }
             scheduleNextHandoffIfNeeded()
             return
         }
@@ -583,40 +595,62 @@ extension CompanionManager: MateRoutineRunning {
         let session = deliverySession ?? (openMateID == handoff.mateID
             ? currentChat : sessionForRoutineAppend(mateID: handoff.mateID))
         if holdForOpenCodeTrainingConsent(
-            handoff.instruction, imageAttachments: [], handoff: handoff, deliverySession: session,
+            handoff.deliveredInstruction, imageAttachments: handoff.imageAttachments, handoff: handoff, deliverySession: session,
             explicitExecutor: HeadlessExecutor.explicitlyRequested(in: handoff.instruction)
         ) { return }
         activeHandoffMateID = handoff.mateID
         activeHandoffHops = handoff.hops
+        activeHandoff = handoff
+        activeHandoffMessageStart = session.messages.count
+        activeHandoffRunIDs = []
         if session.id != currentChat.id { backgroundRoutineSession = session }
-        let accepted = sendTypedMessage(handoff.deliveredInstruction)
+        let accepted = sendTypedMessage(handoff.deliveredInstruction, imageAttachments: handoff.imageAttachments)
         let startedModelTurn = accepted && isResponseInFlight
         if !startedModelTurn {
-            activeHandoffMateID = nil
-            activeHandoffHops = 0
-            backgroundRoutineSession = nil
+            completeActiveHandoff(succeeded: accepted, failureMessage: accepted ? nil : commandBarFeedback)
             scheduleNextHandoffIfNeeded()
         }
     }
 
-    func completeActiveHandoff(succeeded: Bool) {
+    func completeActiveHandoff(succeeded: Bool, failureMessage: String? = nil) {
         guard let mateID = activeHandoffMateID else { return }
+        let handoff = activeHandoff
+        let session = backgroundRoutineSession ?? currentChat
+        var report = session.messages.dropFirst(activeHandoffMessageStart)
+            .filter { $0.role == .assistant }.map(\.text).joined(separator: "\n\n")
+        if let failureMessage { report += "\n\n\(failureMessage)" }
+        if !activeHandoffRunIDs.isEmpty {
+            report += "\n\nA work run was requested. This is not proof of completed execution. Plan, approval, failure and final-result updates will return here from that run."
+        }
         let visible = backgroundRoutineSession == nil
         if rememberConversationsEnabled, let background = backgroundRoutineSession {
             chatHistoryStore.upsert(background)
         }
         activeHandoffMateID = nil
         activeHandoffHops = 0
+        activeHandoff = nil
+        activeHandoffMessageStart = 0
+        activeHandoffRunIDs = []
         backgroundRoutineSession = nil
         streamingAssistantText = ""
         if !visible {
             mateDirectory.incrementUnread(id: mateID)
         }
-        if !succeeded {
-            pendingHandoffs.removeAll()
+        if let handoff, let requester = handoff.requester, requester.chatID != session.id {
+            postAgentMessage(owner: requester, text: handoff.returningReport(report, succeeded: succeeded))
         }
         savedChats = rememberConversationsEnabled ? chatHistoryStore.loadAll() : []
         syncMatePublications()
+    }
+
+    /// Keep the specialist's own run ownership, plus a persisted return address.
+    /// This grants no new tool permissions or plan approvals.
+    func handoffAwareOwner(_ owner: AgentChatOwner) -> AgentChatOwner {
+        guard let requester = activeHandoff?.requester else { return owner }
+        var result = owner
+        result.requestingMateID = requester.mateID
+        result.requestingChatID = requester.chatID
+        return result
     }
 
     private func acceptMeetingCommand(_ text: String) -> Bool {
@@ -722,7 +756,7 @@ extension CompanionManager: MateRoutineRunning {
     }
 
     func sessionForRoutineAppend(mateID: UUID) -> ChatSession {
-        if let existing = chatHistoryStore.loadAll().first(where: {
+        if rememberConversationsEnabled, let existing = chatHistoryStore.loadAll().first(where: {
             $0.mateID == mateID && !$0.messages.isEmpty
         }) {
             return existing

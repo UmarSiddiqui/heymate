@@ -146,6 +146,15 @@ struct NotchPillView: View {
         .accessibilityLabel(Text(accessibilitySummary))
         .background(housingFill)
         .overlay { if model.isOutlineEnabled { outlineGlow } }
+        .overlay {
+            UnevenRoundedRectangle(
+                topLeadingRadius: 0, bottomLeadingRadius: housingCornerRadius,
+                bottomTrailingRadius: housingCornerRadius, topTrailingRadius: 0,
+                style: .continuous
+            )
+            .strokeBorder(LinearGradient(colors: [.clear, .white.opacity(model.isHovered ? 0.14 : 0.035)], startPoint: .top, endPoint: .bottom), lineWidth: 0.5)
+            .allowsHitTesting(false)
+        }
         .overlay(alignment: .bottom) {
             AgentFilamentStrip(filaments: model.agentFilaments)
                 .padding(.horizontal, 16)
@@ -178,6 +187,7 @@ struct NotchPillView: View {
 
     private var outlineGlow: some View {
         NotchOutlineGlow(color: model.themeColor, cornerRadius: housingCornerRadius)
+            .opacity(model.voiceState == .idle && !model.isDropTargeted ? (model.isHovered ? 0.58 : 0.30) : 0.85)
     }
 
     /// One hairline under the housing, only while a voice interaction is
@@ -194,7 +204,7 @@ struct NotchPillView: View {
         if model.voiceState != .idle {
             return model.themeColor.opacity(0.5)
         }
-        return .clear
+        return Color.white.opacity(model.isHovered ? 0.10 : 0)
     }
 
     /// Slots fade in only once there is real estate to draw them in, so a

@@ -30,44 +30,48 @@ enum DS {
 
     enum Colors {
 
+        /// Chat surfaces stay quiet behind the sculpted companion.
+        static let homeBackground = Color(hex: "#000000")
+        static let homeRail = Color(hex: "#000000")
+        static let glassInk = Color(hex: "#183451")
+
         // ── Backgrounds ──────────────────────────────────────────────
-        // Matte neutrals, layered deepest to most elevated. No hue cast in
-        // either mode: black is black, white is white, and elevation is
-        // carried by lightness alone.
+        // Matte neutrals, layered deepest to most elevated. Principal
+        // surfaces stay black; controls use restrained elevation.
 
         /// The deepest background — used for the main app window fill.
-        static let background = Color(light: "#FFFFFF", dark: "#0A0A0A")
+        static let background = Color(hex: "#000000")
 
         /// First elevation layer — used for cards, sidebar, top bar backgrounds.
-        static let surface1 = Color(light: "#F7F7F8", dark: "#121213")
+        static let surface1 = Color(hex: "#0A0A0A")
 
         /// Second elevation layer — used for input fields, elevated cards, chat bubbles.
-        static let surface2 = Color(light: "#F0F0F2", dark: "#1A1A1C")
+        static let surface2 = Color(hex: "#101010")
 
         /// Third elevation layer — used for hover backgrounds on interactive elements.
-        static let surface3 = Color(light: "#E6E6E9", dark: "#232325")
+        static let surface3 = Color(hex: "#181818")
 
         /// Fourth elevation layer — used for active/pressed states on interactive elements.
-        static let surface4 = Color(light: "#DADADE", dark: "#2D2D30")
+        static let surface4 = Color(hex: "#222222")
 
         // ── Borders ──────────────────────────────────────────────────
 
         /// Subtle border — used for card outlines, dividers, input field borders.
-        static let borderSubtle = Color(light: "#E4E4E7", dark: "#262628")
+        static let borderSubtle = Color(hex: "#262628")
 
         /// Strong border — used for focused inputs, hovered card outlines.
-        static let borderStrong = Color(light: "#C9C9CF", dark: "#3E3E42")
+        static let borderStrong = Color(hex: "#3E3E42")
 
         // ── Text ─────────────────────────────────────────────────────
 
         /// Primary text — main body text, titles, headings.
-        static let textPrimary = Color(light: "#111113", dark: "#F5F5F7")
+        static let textPrimary = Color(hex: "#F5F5F7")
 
         /// Secondary text — descriptions, hints, muted labels.
-        static let textSecondary = Color(light: "#52525A", dark: "#B3B3BA")
+        static let textSecondary = Color(hex: "#B3B3BA")
 
         /// Tertiary text — very muted, used for section labels, timestamps, disabled text.
-        static let textTertiary = Color(light: "#8A8A93", dark: "#84848C")
+        static let textTertiary = Color(hex: "#84848C")
 
         /// Text used on top of the accent fill, like the primary button label.
         static let textOnAccent: Color = .white
@@ -115,25 +119,25 @@ enum DS {
         static let destructiveHover = Color(hex: "#F2555A")   // Radix Red 10
 
         /// Destructive used for text on dark backgrounds (brighter for readability).
-        static let destructiveText = Color(light: "#CD2B31", dark: "#FF6369")    // Radix Red 11
+        static let destructiveText = Color(hex: "#FF6369")    // Radix Red 11
 
         /// Success — checkmarks, granted status, completion indicators.
         /// Independent green so success states are visually distinct from the accent.
-        static let success = Color(light: "#18794E", dark: "#34D399")      // Tailwind Emerald 400
+        static let success = Color(hex: "#34D399")      // Tailwind Emerald 400
 
         /// Warning — caution messages, manual verification failure explanations.
         static let warning = Color(hex: "#FFB224")            // Radix Amber 9
 
         /// Warning text — brighter variant for text on dark backgrounds.
-        static let warningText = Color(light: "#AB6400", dark: "#F1A10D")        // Radix Amber 11
+        static let warningText = Color(hex: "#F1A10D")        // Radix Amber 11
 
         /// Info/feature highlight — used for prompt card headers, code highlights.
         /// Lighter than accentText so informational elements are visually distinct
         /// from interactive accent-colored elements.
-        static let info = Color(light: "#0D74CE", dark: "#70B8FF")               // Radix Blue 9
+        static let info = Color(hex: "#70B8FF")               // Radix Blue 9
 
         /// Inline code text color — slightly brighter blue for monospace code snippets.
-        static let codeText = Color(light: "#1859C4", dark: "#9DC2FF")           // Radix Blue 11 variant
+        static let codeText = Color(hex: "#9DC2FF")           // Radix Blue 11 variant
 
         // ── Overlay Cursor ───────────────────────────────────────────
 
@@ -165,7 +169,7 @@ enum DS {
         }
 
         /// Footer/backdrop behind the chat surface.
-        static let helpChatBackdrop = Color(light: "#FFFFFF", dark: "#0A0A0A")
+        static let helpChatBackdrop = Color(hex: "#000000")
 
         /// Text and icons on a disabled control.
         static var disabledText: Color {
@@ -193,7 +197,7 @@ enum DS {
         static var switchKnobOn: Color { .white }
 
         /// Switch knob sitting on the "off" track.
-        static let switchKnobOff = Color(light: "#FFFFFF", dark: "#B3B3BA")
+        static let switchKnobOff = Color(hex: "#B3B3BA")
 
         /// The selected item in a rail or a segmented control.
         static var selectionFill: Color { surface3 }
@@ -206,7 +210,7 @@ enum DS {
 
         /// Under a settings card. Barely there in light mode; dark mode
         /// relies on the lighter card fill instead.
-        static let cardShadow = Color(light: "#000000", dark: "#000000").opacity(0.045)
+        static let cardShadow = Color(hex: "#000000").opacity(0.045)
 
         /// Laid over frosted chrome (the settings rail, the condensed title
         /// bar) so the blur stays matte and on-palette instead of picking up
@@ -711,6 +715,7 @@ private struct DSCapsuleButtonBody: View {
     let height: CGFloat
 
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovered = false
 
     var body: some View {
@@ -720,19 +725,25 @@ private struct DSCapsuleButtonBody: View {
             .foregroundColor(foreground)
             .padding(.horizontal, height >= DS.ControlSize.regular ? 12 : 9)
             .frame(minHeight: height)
-            .background(Capsule(style: .continuous).fill(background))
+            .background {
+                if role == .primary {
+                    DSGlassSurface(cornerRadius: height / 2, isPressed: configuration.isPressed, isHovered: isHovered)
+                } else {
+                    Capsule(style: .continuous).fill(background)
+                }
+            }
             .contentShape(Capsule())
             .opacity(isEnabled ? 1 : 0.45)
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(.easeOut(duration: DS.Animation.fast), value: configuration.isPressed)
-            .animation(.easeOut(duration: DS.Animation.fast), value: isHovered)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: DS.Animation.fast), value: configuration.isPressed)
+            .animation(reduceMotion ? nil : .easeOut(duration: DS.Animation.fast), value: isHovered)
             .onHover { isHovered = $0 && isEnabled }
             .pointerCursor(isEnabled: isEnabled)
     }
 
     private var foreground: Color {
         switch role {
-        case .primary: return DS.Colors.textOnAccent
+        case .primary: return DS.Colors.glassInk
         case .secondary: return DS.Colors.textPrimary.opacity(0.9)
         case .quiet: return isHovered ? DS.Colors.textPrimary : DS.Colors.textSecondary
         case .destructive: return DS.Colors.destructiveText
@@ -814,7 +825,7 @@ private enum DSCapsuleVariant {
 
     func foreground(_ phase: DSButtonPhase) -> Color {
         switch (self, phase) {
-        case (.primary, _): return DS.Colors.textOnAccent
+        case (.primary, _): return DS.Colors.glassInk
         case (.secondary, _): return DS.Colors.textPrimary
         case (.tertiary, .rest): return DS.Colors.textSecondary
         case (.tertiary, .hovered): return DS.Colors.accentText
@@ -831,8 +842,8 @@ private struct DSCapsuleButton: View {
     let isFullWidth: Bool
 
     @State private var isHovered = false
-    @State private var isGlowing = false
-    @State private var isGlowInhaling = false
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var phase: DSButtonPhase {
         configuration.isPressed ? .pressed : isHovered ? .hovered : .rest
@@ -845,36 +856,28 @@ private struct DSCapsuleButton: View {
             .frame(maxWidth: isFullWidth ? .infinity : nil)
             .padding(.horizontal, isFullWidth ? 0 : variant.horizontalPadding)
             .frame(minHeight: DS.ControlSize.large)
-            .background(Capsule().fill(variant.fill(phase)))
+            .background {
+                if variant == .primary {
+                    DSGlassSurface(cornerRadius: DS.ControlSize.large / 2, isPressed: configuration.isPressed, isHovered: isHovered)
+                } else {
+                    Capsule().fill(variant.fill(phase))
+                }
+            }
             .overlay {
                 if let stroke = variant.stroke(phase) {
                     Capsule().stroke(stroke, lineWidth: 1)
                 }
             }
-            .shadow(
-                color: DS.Colors.accent.opacity(isGlowing ? (isGlowInhaling ? 0.32 : 0.18) : 0),
-                radius: isGlowing ? (isGlowInhaling ? 16 : 10) : 0
-            )
-            // Pressing sinks it a little; there's no hover swell, since these
-            // often sit side by side.
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(.easeOut(duration: variant == .primary ? 0.1 : DS.Animation.fast), value: configuration.isPressed)
+            .opacity(isEnabled ? 1 : 0.45)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: isHovered)
             .onHover(perform: hoverChanged)
             .pointerCursor()
     }
 
     private func hoverChanged(_ hovering: Bool) {
-        withAnimation(.easeOut(duration: DS.Animation.fast)) { isHovered = hovering }
-        guard variant == .primary else { return }
-        // The glow gathers slowly, leaves quickly, and breathes on a slow
-        // loop in between.
-        withAnimation(.easeInOut(duration: hovering ? 0.6 : 0.3)) { isGlowing = hovering }
-        if hovering {
-            withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) { isGlowInhaling = true }
-        } else {
-            // A finite animation replaces the repeating one, so it stops cleanly.
-            withAnimation(.easeOut(duration: 0.3)) { isGlowInhaling = false }
-        }
+        isHovered = hovering && isEnabled
     }
 }
 
@@ -1175,5 +1178,52 @@ extension Color {
         guard let rgb = NSColor(self).usingColorSpace(.sRGB) else { return self }
         func dim(_ component: CGFloat) -> Double { component * (1 - fraction) }
         return Color(red: dim(rgb.redComponent), green: dim(rgb.greenComponent), blue: dim(rgb.blueComponent))
+    }
+}
+
+/// Icy glass treatment shared by the real voice control and selected chat rows.
+struct DSGlassSurface: View {
+    var cornerRadius: CGFloat = 12
+    var isPressed = false
+    var isHovered = false
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        shape.fill(LinearGradient(
+            stops: [.init(color: Color(hex: "#F0F7FF"), location: 0),
+                    .init(color: Color(hex: "#CCDEFF"), location: 0.27),
+                    .init(color: Color(hex: "#A8CBFA"), location: 0.62),
+                    .init(color: Color(hex: "#76ACEB"), location: 1)],
+            startPoint: .top, endPoint: .bottom
+        ))
+        .overlay(alignment: .top) {
+            Capsule().fill(LinearGradient(colors: [.white.opacity(0.20), .white.opacity(0.92), .white.opacity(0.20)], startPoint: .leading, endPoint: .trailing))
+                .frame(height: 3).padding(.horizontal, max(12, cornerRadius * 0.7)).padding(.top, 4)
+        }
+        .overlay(alignment: .bottom) {
+            Capsule().fill(Color(hex: "#4C89D3").opacity(0.55))
+                .frame(height: 2).padding(.horizontal, max(10, cornerRadius * 0.65)).padding(.bottom, 2)
+        }
+        .overlay(shape.strokeBorder(LinearGradient(colors: [Color(hex: "#D9DCFF"), Color(hex: "#8F9DE9"), Color(hex: "#B8CCFF")], startPoint: .top, endPoint: .bottom), lineWidth: 1.1))
+        .clipShape(shape)
+        .brightness(isPressed ? -0.055 : isHovered ? 0.025 : 0)
+        .shadow(color: Color.black.opacity(isPressed ? 0.12 : 0.28), radius: isPressed ? 2 : 5, y: isPressed ? 1 : 3)
+        .shadow(color: Color(hex: "#A9CCFF").opacity(isHovered && !isPressed ? 0.15 : 0), radius: 9, y: 1)
+        .allowsHitTesting(false)
+    }
+}
+
+struct MateSelectionSurface: View {
+    var selected: Bool
+    var hovered: Bool
+    var body: some View {
+        Group {
+            if selected {
+                DSGlassSurface(cornerRadius: DS.CornerRadius.large)
+            } else {
+                RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                    .fill(hovered ? DS.Colors.surface2 : Color.clear)
+            }
+        }.allowsHitTesting(false)
     }
 }

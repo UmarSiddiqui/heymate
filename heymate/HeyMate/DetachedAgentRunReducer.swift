@@ -71,6 +71,12 @@ nonisolated enum DetachedAgentRunReducer {
         }
 
         var reduced = run
+        // Even journal records already covered by snapshot provide the actual
+        // tool timestamp. Snapshot updatedAt advances on heartbeats.
+        if let toolAt = journal.filter({ $0.kind == .progress }).map(\.emittedAt).max(),
+           toolAt >= (run.progressObservationStartedAt ?? .distantPast) {
+            reduced.lastToolProgressAt = max(run.lastToolProgressAt ?? .distantPast, toolAt)
+        }
         apply(state, to: &reduced)
         reduced.lastDetachedJournalSequence = state.lastJournalSequence
 
@@ -84,6 +90,34 @@ nonisolated enum DetachedAgentRunReducer {
             reduced.lastDetachedJournalSequence = record.sequence
         }
 
+        reduced.liveSteeringAvailable = state.liveSteeringToken != nil && state.phase == .running && !reduced.status.isTerminal
+        // Receipts bind exact local input + attempt + opaque turn capability.
+        // Merge before terminal delivery so an explicitly unavailable send can
+        // enter the existing approval-gated follow-up queue exactly once.
+        if var deliveries = reduced.liveInputDeliveries {
+            for index in deliveries.indices where deliveries[index].attemptID == state.attemptID {
+                guard deliveries[index].status == .sending || deliveries[index].status == .unknown else { continue }
+                let old = deliveries[index].status
+                if let receipt = state.liveInputReceipts?.first(where: {
+                    $0.messageID == deliveries[index].id && $0.turnToken == deliveries[index].turnToken
+                }) {
+                    switch receipt.status {
+                    case .sending:
+                        if reduced.status.isTerminal { deliveries[index].status = .unknown }
+                    case .accepted: deliveries[index].status = .accepted
+                    case .rejected: deliveries[index].status = .failed
+                    case .unknown: deliveries[index].status = .unknown
+                    case .unavailable:
+                        if reduced.status == .running || reduced.status == .waitingForApproval || reduced.status == .succeeded {
+                            deliveries[index].status = .queued
+                            reduced.queuedFollowUpInstructions.append(deliveries[index].text)
+                        } else { deliveries[index].status = .failed }
+                    }
+                } else if reduced.status.isTerminal { deliveries[index].status = .unknown }
+                if old != deliveries[index].status { reduced.appendActivity(kind: .status, text: deliveries[index].summary) }
+            }
+            reduced.liveInputDeliveries = deliveries
+        }
         return reduced
     }
 

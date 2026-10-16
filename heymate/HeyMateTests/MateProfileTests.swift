@@ -11,11 +11,11 @@ struct MateProfileTests {
 
     @Test func chosenFaceWinsAndAnUnknownFaceFallsBack() {
         var hey = sample(name: Mate.defaultName)
-        #expect(MateFace.assetName(for: hey) == "MateFaceLilac")
-        hey.faceAssetName = "MateFaceAmber"
-        #expect(MateFace.assetName(for: hey) == "MateFaceAmber")
+        #expect(MateFace.assetName(for: hey) == MiloLook.defaultLook.assetName)
+        hey.faceAssetName = MiloLook.defaultLook(for: .nova).assetName
+        #expect(MateFace.assetName(for: hey) == MiloLook.defaultLook(for: .nova).assetName)
         hey.faceAssetName = "not-a-face"
-        #expect(MateFace.assetName(for: hey) == "MateFaceLilac")
+        #expect(MateFace.assetName(for: hey) == MiloLook.defaultLook.assetName)
     }
 
     @Test func saveKeepsMemoryAndFolderAndRejectsATakenName() {
@@ -28,7 +28,7 @@ struct MateProfileTests {
                 name: " Mail Scout ",
                 job: " Watch mail ",
                 soul: " warm and brief ",
-                faceAssetName: "MateFaceStar"
+                faceAssetName: MiloLook.defaultLook(for: .nova).assetName
             ),
             to: mate,
             now: now,
@@ -41,7 +41,7 @@ struct MateProfileTests {
         #expect(updated.name == "Mail Scout")
         #expect(updated.job == "Watch mail")
         #expect(updated.soul == "warm and brief")
-        #expect(updated.faceAssetName == "MateFaceStar")
+        #expect(updated.faceAssetName == MiloLook.defaultLook(for: .nova).assetName)
         #expect(updated.memoryNote == "prefers short notes")
         #expect(updated.folderPath == "/tmp/inbox")
         #expect(updated.updatedAt == now)
@@ -82,7 +82,7 @@ struct MateProfileTests {
         #expect(updated.updatedAt == mate.updatedAt)
     }
 
-    @Test func aCustomPictureIsKeptOnlyWhenTheFileIsReal() {
+    @Test func customPicturesStaySavedWhenOfflineAndRejectUnsafePaths() {
         #expect(MateFaceStore.fileName(in: "custom:abc.png") == "abc.png")
         #expect(MateFaceStore.fileName(in: "custom:../abc.png").isEmpty)
         #expect(MateFaceStore.fileName(in: "MateFaceLilac").isEmpty)
@@ -90,8 +90,9 @@ struct MateProfileTests {
             MateFace.persistedName("custom:abc.png", customFileExists: { $0 == "custom:abc.png" })
                 == "custom:abc.png"
         )
-        #expect(MateFace.persistedName("custom:missing.png", customFileExists: { _ in false }) == nil)
-        #expect(MateFace.persistedName("MateFaceRobot", customFileExists: { _ in false }) == "MateFaceRobot")
+        #expect(MateFace.persistedName("custom:missing.png", customFileExists: { _ in false }) == "custom:missing.png")
+        #expect(MateFace.persistedName("custom:../abc.png", customFileExists: { _ in true }) == nil)
+        #expect(MateFace.persistedName("MateFaceRobot", customFileExists: { _ in false }) == MiloLook.defaultLook.assetName)
     }
 
     @Test func nameAndJobStayPresentBeforeAPersonalityIsWritten() throws {

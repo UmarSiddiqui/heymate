@@ -58,6 +58,7 @@ struct CompanionCursorView: View {
     @State private var pointingLabelOpacity: Double = 0
     @State private var pointingLabelScale: CGFloat = 1
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var captionSize: CGSize = .zero
 
     @State private var trackingTimer: Timer?
@@ -184,7 +185,7 @@ struct CompanionCursorView: View {
                 .lineSpacing(2)
                 .lineLimit(8)
         }
-        .frame(maxWidth: 300, alignment: .leading)
+        .frame(maxWidth: max(80, min(300, screenFrame.width - 50)), alignment: .leading)
         .padding(.horizontal, 13)
         .padding(.vertical, 9)
         .background(
@@ -200,16 +201,20 @@ struct CompanionCursorView: View {
         .onGeometryChange(for: CGSize.self) { $0.size } action: { captionSize = $0 }
         .position(captionPosition)
         .transition(.scale(scale: 0.92, anchor: .topLeading).combined(with: .opacity))
-        .animation(.easeOut(duration: 0.16), value: companionManager.cursorCaptionText.isEmpty)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: companionManager.cursorCaptionText.isEmpty)
         .allowsHitTesting(false)
     }
 
     private var captionPosition: CGPoint {
         let half = CGSize(width: captionSize.width / 2, height: captionSize.height / 2)
         let margin: CGFloat = 12
+        let desiredX = position.x + captionSize.width + 20 > screenFrame.width - margin
+            ? position.x - 20 - half.width : position.x + 20 + half.width
+        let desiredY = position.y + captionSize.height + 22 > screenFrame.height - margin
+            ? position.y - 22 - half.height : position.y + 22 + half.height
         return CGPoint(
-            x: min(max(position.x + 20 + half.width, half.width + margin), screenFrame.width - half.width - margin),
-            y: min(max(position.y + 22 + half.height, half.height + margin), screenFrame.height - half.height - margin)
+            x: min(max(desiredX, half.width + margin), max(half.width + margin, screenFrame.width - half.width - margin)),
+            y: min(max(desiredY, half.height + margin), max(half.height + margin, screenFrame.height - half.height - margin))
         )
     }
 

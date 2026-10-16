@@ -22,6 +22,8 @@ nonisolated enum ChatMarkdownSegment: Equatable {
 nonisolated enum ChatProseBlock: Equatable {
     case body(String)
     case heading(String)
+    case listItem(marker: String, text: String)
+    case quote(String)
 }
 
 nonisolated enum ChatMarkdownParser {
@@ -90,12 +92,31 @@ nonisolated enum ChatMarkdownParser {
                 flushBody()
                 let title = trimmed.dropFirst(hashes).trimmingCharacters(in: .whitespaces)
                 if !title.isEmpty { blocks.append(.heading(title)) }
+            } else if trimmed.isEmpty {
+                flushBody()
+            } else if trimmed.hasPrefix("> ") {
+                flushBody()
+                blocks.append(.quote(String(trimmed.dropFirst(2))))
+            } else if let item = listItem(from: trimmed) {
+                flushBody()
+                blocks.append(.listItem(marker: item.marker, text: item.text))
             } else {
                 bodyLines.append(line)
             }
         }
         flushBody()
         return blocks
+    }
+
+    private static func listItem(from line: String) -> (marker: String, text: String)? {
+        for prefix in ["- ", "* ", "+ "] where line.hasPrefix(prefix) {
+            return ("•", String(line.dropFirst(2)))
+        }
+        let digits = line.prefix { $0.isNumber }
+        guard !digits.isEmpty else { return nil }
+        let remainder = line.dropFirst(digits.count)
+        guard remainder.hasPrefix(". ") || remainder.hasPrefix(") ") else { return nil }
+        return (String(digits) + ".", String(remainder.dropFirst(2)))
     }
 
     /// Inline markdown with line breaks kept. Falls back to the raw text if
@@ -113,7 +134,7 @@ struct ChatMarkdownText: View {
 
     var body: some View {
         let segments = ChatMarkdownParser.segments(from: text)
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
                 switch segment {
                 case .prose(let prose):
@@ -124,6 +145,25 @@ struct ChatMarkdownText: View {
                                 .font(DS.Fonts.reading)
                                 .foregroundColor(DS.Colors.textPrimary)
                                 .fixedSize(horizontal: false, vertical: true)
+                        case .listItem(let marker, let body):
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text(marker)
+                                    .foregroundColor(DS.Colors.textSecondary)
+                                    .frame(minWidth: 14, alignment: .trailing)
+                                Text(ChatMarkdownParser.inlineAttributedString(from: body))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .font(DS.Fonts.reading)
+                            .foregroundColor(DS.Colors.textPrimary)
+                        case .quote(let quote):
+                            Text(ChatMarkdownParser.inlineAttributedString(from: quote))
+                                .font(DS.Fonts.reading)
+                                .foregroundColor(DS.Colors.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.leading, 12)
+                                .overlay(alignment: .leading) {
+                                    Rectangle().fill(DS.Colors.borderSubtle).frame(width: 2)
+                                }
                         case .heading(let title):
                             Text(ChatMarkdownParser.inlineAttributedString(from: title))
                                 .font(DS.Fonts.reading.weight(.semibold))
@@ -134,7 +174,7 @@ struct ChatMarkdownText: View {
                         }
                     }
                 case .code(let code):
-                    ScrollView(.horizontal, showsIndicators: false) {
+                    ScrollView(.horizontal, showsIndicators: true) {
                         Text(code)
                             .font(DS.Fonts.code)
                             .foregroundColor(DS.Colors.textPrimary)
@@ -149,6 +189,9 @@ struct ChatMarkdownText: View {
                 }
             }
         }
+        .lineSpacing(4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .tint(DS.Colors.accent)
         .textSelection(.enabled)
     }
 }

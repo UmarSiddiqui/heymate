@@ -47,6 +47,8 @@ final class FileMateStore {
     @discardableResult
     func upsert(_ mate: Mate) -> Bool {
         if isNameTaken(mate.name, excluding: mate.id) { return false }
+        var mate = mate
+        mate.faceAssetName = MateFace.migratedBuiltInName(mate.faceAssetName)
         catalog.mates.removeAll { $0.id == mate.id }
         catalog.mates.append(mate)
         persist()
@@ -99,6 +101,11 @@ final class FileMateStore {
     /// still conducts.
     static func promoted(_ catalog: MateCatalogFile) -> MateCatalogFile {
         var catalog = catalog
+        // Appearance migration changes only retired built-in tokens. Keep
+        // names, jobs, memories, preferences, dates and custom photos intact.
+        for index in catalog.mates.indices {
+            catalog.mates[index].faceAssetName = MateFace.migratedBuiltInName(catalog.mates[index].faceAssetName)
+        }
         guard let index = catalog.mates.firstIndex(where: { $0.id == catalog.defaultMateID }) else {
             return catalog
         }

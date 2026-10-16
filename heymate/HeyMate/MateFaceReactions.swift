@@ -5,6 +5,8 @@ import Foundation
 /// once and settles back to the resting pose.
 nonisolated enum MateFaceReaction: String, CaseIterable, Equatable {
     case wink
+    case hello
+    case approval
     case boop
     case giggle
     case celebrate
@@ -12,6 +14,8 @@ nonisolated enum MateFaceReaction: String, CaseIterable, Equatable {
 
     var duration: Double {
         switch self {
+        case .hello: return 0.9
+        case .approval: return 0.85
         case .wink: return 0.6
         case .boop: return 0.65
         case .giggle: return 0.8
@@ -62,6 +66,18 @@ nonisolated struct MateReactionPose: Equatable {
         guard let reaction, elapsed.isFinite, elapsed >= 0, elapsed < reaction.duration else { return Self() }
         var pose = Self()
         switch reaction {
+        case .hello:
+            let progress = elapsed / reaction.duration
+            pose.tilt = sin(progress * .pi * 2) * 5 * (1 - progress)
+            pose.lift = -sin(progress * .pi) * 0.025
+            pose.rightEyeOpen = 1 - 0.85 * bump(min(elapsed / 0.5, 1))
+            pose.flush = 0.35 * bump(progress)
+        case .approval:
+            let progress = elapsed / reaction.duration
+            pose.tilt = 6 * bump(progress)
+            pose.squashY = 1 + 0.02 * bump(progress)
+            pose.leftEyeOpen = 1 - 0.15 * bump(progress)
+            pose.rightEyeOpen = pose.leftEyeOpen
         case .wink:
             pose.rightEyeOpen = 1 - 0.94 * bump(elapsed / reaction.duration)
             pose.flush = 0.4 * bump(elapsed / reaction.duration)

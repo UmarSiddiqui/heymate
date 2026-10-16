@@ -2,10 +2,8 @@
 //  MateFace.swift
 //  HeyMate
 //
-//  Three drawn packs (Signal, Margin, Instrument) sit beside the original
-//  color faces and portraits. HeyMate keeps the lilac one. Every other mate
-//  keeps the face that belongs to its id, hashed only against the original
-//  twenty, so a new pack does not reshuffle anyone.
+//  Milo and Nova are the visible built-in character packs. Retired tokens
+//  migrate to Milo without changing mate identity or custom photographs.
 //
 
 import AppKit
@@ -50,58 +48,43 @@ enum MateFace {
         "MateFaceOrb"
     ]
 
+    /// Compatibility inventory for saved profiles and older internal callers.
+    /// These assets are not selectable in the character catalog.
+    static let retiredAssetNames = Set(legacyAssetNames + [
+        "MateFaceSignalPointer", "MateFaceSignalComet", "MateFaceSignalOrbit",
+        "MateFaceMarginQuill", "MateFaceMarginSeal", "MateFaceMarginBoat",
+        "MateFaceInstrumentLens", "MateFaceInstrumentBell", "MateFaceInstrumentFork"
+    ])
+
     static let packs: [MateFacePack] = [
         MateFacePack(
-            id: "signal",
-            name: "Signal",
-            summary: "Night shapes. A cursor, a comet, and an orbit.",
-            faces: [
-                MateFaceChoice(assetName: "MateFaceSignalPointer", label: "Pointer"),
-                MateFaceChoice(assetName: "MateFaceSignalComet", label: "Comet"),
-                MateFaceChoice(assetName: "MateFaceSignalOrbit", label: "Orbit")
-            ]
+            id: "milo",
+            name: "Milo",
+            summary: "An original companion. Choose hair, skin, eyes, and outfit.",
+            faces: MiloLook.allLooks.filter { $0.characterPack == .milo }
+                .map { MateFaceChoice(assetName: $0.assetName, label: $0.label) }
         ),
         MateFacePack(
-            id: "margin",
-            name: "Margin",
-            summary: "Paper, wax, and a folded boat.",
-            faces: [
-                MateFaceChoice(assetName: "MateFaceMarginQuill", label: "Quill"),
-                MateFaceChoice(assetName: "MateFaceMarginSeal", label: "Seal"),
-                MateFaceChoice(assetName: "MateFaceMarginBoat", label: "Boat")
-            ]
-        ),
-        MateFacePack(
-            id: "instrument",
-            name: "Instrument",
-            summary: "A lens, a bell, and a tuning fork.",
-            faces: [
-                MateFaceChoice(assetName: "MateFaceInstrumentLens", label: "Lens"),
-                MateFaceChoice(assetName: "MateFaceInstrumentBell", label: "Bell"),
-                MateFaceChoice(assetName: "MateFaceInstrumentFork", label: "Fork")
-            ]
-        ),
-        MateFacePack(
-            id: "original",
-            name: "Original",
-            summary: "Color circles and the earlier portraits.",
-            faces: legacyAssetNames.map { name in
-                let raw = name.replacingOccurrences(of: "MateFace", with: "")
-                let label = raw.unicodeScalars.reduce(into: "") { result, scalar in
-                    if CharacterSet.uppercaseLetters.contains(scalar), !result.isEmpty {
-                        result.append(" ")
-                    }
-                    result.append(Character(scalar))
-                }
-                return MateFaceChoice(assetName: name, label: label)
-            }
+            id: "nova",
+            name: "Nova",
+            summary: "An original feminine companion. Choose hair, skin, eyes, and outfit.",
+            faces: MiloLook.allLooks.filter { $0.characterPack == .nova }
+                .map { MateFaceChoice(assetName: $0.assetName, label: $0.label) }
         )
     ]
+
+    /// Only a known retired built-in changes. Custom tokens and every other
+    /// saved field remain untouched, including photographs temporarily offline.
+    static func migratedBuiltInName(_ raw: String?) -> String? {
+        guard let raw, retiredAssetNames.contains(raw) else { return raw }
+        return MiloLook.defaultLook.assetName
+    }
 
     static let assetNames: [String] = packs.flatMap { $0.faces.map(\.assetName) }
 
     static func label(for assetName: String) -> String {
-        packs.flatMap(\.faces).first { $0.assetName == assetName }?.label ?? assetName
+        if let look = MiloLook(assetName: assetName) { return look.label }
+        return packs.flatMap(\.faces).first { $0.assetName == assetName }?.label ?? assetName
     }
 
     /// The first six originals are flat circles. Portraits and the drawn
@@ -112,17 +95,18 @@ enum MateFace {
     }
 
     static func storedAssetName(_ raw: String?) -> String? {
-        guard let raw, assetNames.contains(raw) else { return nil }
-        return raw
+        guard let migrated = migratedBuiltInName(raw), MiloLook(assetName: migrated) != nil else { return nil }
+        return migrated
     }
 
-    /// A catalog asset, or a `custom:` picture that is still on disk.
+    /// A catalog asset or valid custom photo token. Missing photo files use a
+    /// display fallback without erasing the user's saved selection.
     static func persistedName(
         _ raw: String?,
-        customFileExists: (String) -> Bool = MateFaceStore.fileExists
+        customFileExists _: (String) -> Bool = MateFaceStore.fileExists
     ) -> String? {
         if let asset = storedAssetName(raw) { return asset }
-        guard let raw, !MateFaceStore.fileName(in: raw).isEmpty, customFileExists(raw) else { return nil }
+        guard let raw, !MateFaceStore.fileName(in: raw).isEmpty else { return nil }
         return raw
     }
 
@@ -132,8 +116,7 @@ enum MateFace {
 
     static func assetName(for mate: Mate) -> String {
         if let chosen = storedAssetName(mate.faceAssetName) { return chosen }
-        if mate.name == Mate.defaultName || mate.name == Mate.previousDefaultName { return legacyAssetNames[0] }
-        return legacyAssetNames[index(for: mate.id)]
+        return MiloLook.defaultLook.assetName
     }
 
     static func index(for id: UUID) -> Int {
@@ -142,7 +125,10 @@ enum MateFace {
     }
 
     static func pack(containing assetName: String) -> MateFacePack? {
-        packs.first { pack in pack.faces.contains { $0.assetName == assetName } }
+        if let look = MiloLook(assetName: assetName) {
+            return packs.first { $0.id == look.characterPack.rawValue.lowercased() }
+        }
+        return packs.first { pack in pack.faces.contains { $0.assetName == assetName } }
     }
 }
 
@@ -216,7 +202,13 @@ struct MateFaceView: View {
 
     var body: some View {
         Group {
-            if expression != .still, size >= 28,
+            if let look = MiloLook(assetName: MateFace.selectionToken(for: mate)) {
+                // Editor assets are transparent head portraits, not full-body renders.
+                LookArtworkView(look: look, kind: .head)
+                    .frame(width: size, height: size)
+                    .background(DS.Colors.accent.opacity(0.08), in: Circle())
+                    .clipShape(Circle())
+            } else if expression != .still, size >= 28,
                mate.faceAssetName.flatMap(MateFaceStore.fileURL) == nil {
                 if MateFace.fillsFrame(MateFace.assetName(for: mate)) {
                     MateLiveFace(assetName: MateFace.assetName(for: mate), size: size, expression: expression,
@@ -259,7 +251,8 @@ struct MateFaceView: View {
            let picture = NSImage(contentsOf: url) {
             return Image(nsImage: picture)
         }
-        return Image(MateFace.assetName(for: mate))
+        let token = MateFace.assetName(for: mate)
+        return Image(MiloLook(assetName: token)?.headAssetName ?? token)
     }
 
     private var cropScale: CGFloat {

@@ -1804,6 +1804,7 @@ final class CompanionManager: ObservableObject {
     private var pendingOpenCodeTrainingSend: PendingOpenCodeSend?
     private var pendingOpenCodeTrainingImages: [ChatImageAttachment] = []
     var pendingHandoffs: [MateHandoff] = []
+    var handoffDispatchScheduled = false
     /// Set when a walkthrough turn is still in flight and the user acts.
     var guidedClickLandedDuringTurn = false
     @Published var pendingDestructiveConfirmation: PendingDestructiveWork?
@@ -1820,6 +1821,9 @@ final class CompanionManager: ObservableObject {
     }
     var activeHandoffMateID: UUID?
     var activeHandoffHops = 0
+    var activeHandoff: MateHandoff?
+    var activeHandoffMessageStart = 0
+    var activeHandoffRunIDs: [UUID] = []
     let meetingNotes = MeetingNotes(fileURL: MeetingNotes.appSupportFileURL())
     private let onDeviceLanguageClient = OnDeviceLanguageClient()
 
@@ -1935,9 +1939,15 @@ final class CompanionManager: ObservableObject {
     }
 
     func scheduleNextHandoffIfNeeded() {
-        guard activeHandoffMateID == nil, activeRoutineTurn == nil, !pendingHandoffs.isEmpty else { return }
-        let next = pendingHandoffs.removeFirst()
+        guard !handoffDispatchScheduled, activeHandoffMateID == nil, activeRoutineTurn == nil,
+              !isResponseInFlight, openCodeTrainingNotice == nil, !pendingHandoffs.isEmpty else { return }
+        handoffDispatchScheduled = true
         Task { @MainActor in
+            self.handoffDispatchScheduled = false
+            guard self.activeHandoffMateID == nil, self.activeRoutineTurn == nil,
+                  !self.isResponseInFlight, self.openCodeTrainingNotice == nil,
+                  !self.pendingHandoffs.isEmpty else { return }
+            let next = self.pendingHandoffs.removeFirst()
             self.beginHandoff(next)
         }
     }
@@ -2012,6 +2022,8 @@ final class CompanionManager: ObservableObject {
 
     /// Newest-first snapshot of agent jobs for the Agents tab.
     @Published var agentRuns: [AgentRun] = []
+    @Published var taskNotices: [FloatingAgentNotice] = []
+    @Published var focusedTaskRunID: UUID?
 
     /// Exactly one proactive nudge at a time. Matching a rule only populates
     /// this value; approval starts normal read-only planning.
@@ -2384,6 +2396,9 @@ final class CompanionManager: ObservableObject {
         } else if activeHandoffMateID != nil {
             completeActiveHandoff(succeeded: false)
         }
+        // Explicit Stop cancels queued delegation too. Provider failures do
+        // not come through this path and must not erase unrelated tasks.
+        pendingHandoffs.removeAll()
         guard resetInteractionState else { return }
         dispatch(.cancel)
         // The reply task calls beginContextCapture before it notices cancellation.
@@ -2414,7 +2429,9 @@ final class CompanionManager: ObservableObject {
                 role: .user,
                 text: trimmed,
                 createdAt: Date(),
-                attachmentNames: names
+                attachmentNames: names,
+                taskSummary: activeHandoff.flatMap { $0.deliveredInstruction == trimmed ? $0.instruction : nil },
+                taskSource: activeHandoff.flatMap { $0.deliveredInstruction == trimmed ? $0.fromMateName : nil }
             ))
             heyMateTalkSession.updatedAt = Date()
             if isRecordingMeeting {
@@ -2433,11 +2450,13 @@ final class CompanionManager: ObservableObject {
             role: .user,
             text: trimmed,
             createdAt: Date(),
-            attachmentNames: names
+            attachmentNames: names,
+            taskSummary: activeHandoff.flatMap { $0.deliveredInstruction == trimmed ? $0.instruction : nil },
+            taskSource: activeHandoff.flatMap { $0.deliveredInstruction == trimmed ? $0.fromMateName : nil }
         ))
         session.updatedAt = Date()
         if session.title == ChatSession.defaultTitle {
-            session.title = ChatSession.title(from: trimmed)
+            session.title = ChatSession.title(from: session.messages.last?.visibleText ?? trimmed)
         }
         currentChat = session
         persistCurrentChatIfNeeded()
@@ -2458,11 +2477,13 @@ final class CompanionManager: ObservableObject {
             role: .user,
             text: trimmed,
             createdAt: Date(),
-            attachmentNames: attachmentNames
+            attachmentNames: attachmentNames,
+            taskSummary: activeHandoff.flatMap { $0.deliveredInstruction == trimmed ? $0.instruction : nil },
+            taskSource: activeHandoff.flatMap { $0.deliveredInstruction == trimmed ? $0.fromMateName : nil }
         ))
         session.updatedAt = Date()
         if session.title == ChatSession.defaultTitle {
-            session.title = ChatSession.title(from: trimmed)
+            session.title = ChatSession.title(from: session.messages.last?.visibleText ?? trimmed)
         }
         backgroundRoutineSession = session
         if rememberConversationsEnabled {
@@ -3956,7 +3977,12 @@ final class CompanionManager: ObservableObject {
             return
         }
         if continueFailedRunIfRetry(transcript) { return }
-        switch VoiceRouter.decide(transcript) {
+        // Classify the actual delegated request. The app-added history envelope
+        // is reference data and contains safety wording, not another action.
+        let routingTranscript = activeHandoff.flatMap { handoff in
+            handoff.deliveredInstruction == transcript ? handoff.instruction : nil
+        } ?? transcript
+        switch VoiceRouter.decide(routingTranscript) {
         case .local(let action):
             performLocalVoiceAction(action)
         case .agent:
@@ -4018,6 +4044,8 @@ final class CompanionManager: ObservableObject {
                         let succeeded: Bool
                         if case .success = outcome { succeeded = true } else { succeeded = false }
                         self.completeActiveHandoff(succeeded: succeeded)
+                        completion.didComplete = true
+                        self.scheduleNextHandoffIfNeeded()
                     }
                 }
             }
@@ -4109,7 +4137,9 @@ final class CompanionManager: ObservableObject {
         )
         sendTranscriptToClaudeWithScreenshot(
             transcript: transcript,
-            shouldCaptureScreen: TalkContextPolicy.allowCapture(
+            // A delegated request must not inspect whichever unrelated app
+            // happens to be foreground now. Only its explicit attachments travel.
+            shouldCaptureScreen: activeHandoffMateID == nil && TalkContextPolicy.allowCapture(
                 wantsScreen: wantsScreen,
                 typedInsideHeyMate: typedInsideHeyMate,
                 frontmostIsHeyMate: frontmostIsHeyMate,
@@ -4381,7 +4411,18 @@ final class CompanionManager: ObservableObject {
                     senderHops: activeHandoffMateID == nil ? 0 : activeHandoffHops
                 )
                 if !handoff.handoffs.isEmpty {
-                    pendingHandoffs.append(contentsOf: handoff.handoffs)
+                    let requester = activeHandoff?.requester ?? AgentChatOwner(
+                        mateID: turnSession.mateID ?? mateDirectory.defaultMateID,
+                        chatID: turnSession.id
+                    )
+                    pendingHandoffs.append(contentsOf: handoff.handoffs.map { parsed in
+                        var delivery = parsed
+                        delivery.requester = requester
+                        delivery.requestContext = activeHandoff?.requestContext
+                            ?? MateHandoffContext.request(transcript, session: turnSession)
+                        delivery.imageAttachments = activeHandoff?.imageAttachments ?? imageAttachments
+                        return delivery
+                    })
                 }
                 let work = MateWorkParser.extract(from: handoff.spokenText)
                 let spokenText = blocks.presentedSummary ?? work.spokenText
@@ -4416,7 +4457,10 @@ final class CompanionManager: ObservableObject {
                     }
                     if activeRoutineTurn != nil {
                         completeActiveRoutineTurn(.success(spokenText))
+                    } else if activeHandoffMateID != nil {
+                        completeActiveHandoff(succeeded: true)
                     }
+                    scheduleNextHandoffIfNeeded()
                     return
                 }
 
@@ -4479,7 +4523,7 @@ final class CompanionManager: ObservableObject {
                 if activeRoutineTurn != nil {
                     completeActiveRoutineTurn(.failure(error.localizedDescription))
                 } else if activeHandoffMateID != nil {
-                    completeActiveHandoff(succeeded: false)
+                    completeActiveHandoff(succeeded: false, failureMessage: error.localizedDescription)
                 } else {
                     // A turn typed in the window is read, not heard, so an
                     // expired login has to say what to do in the chat too.
@@ -4998,7 +5042,7 @@ final class CompanionManager: ObservableObject {
             ?? defaultHeadlessExecutor
         guard !refusesUnapprovedOpenCodeJob(executor: resolvedExecutor) else { return nil }
         HeyMateLog.log("🤖 Agent: starting sandbox (\(resolvedExecutor.displayName))")
-        let owner = chatOwner ?? prepareAgentChatOwner(prompt: prompt)
+        let owner = handoffAwareOwner(chatOwner ?? prepareAgentChatOwner(prompt: prompt))
         computerUseCoordinator.conversationID = owner.chatID
         let mate = mateDirectory.mates.first { $0.id == owner.mateID }
         let notedPrompt = notedUserMessage(
@@ -5016,6 +5060,7 @@ final class CompanionManager: ObservableObject {
             screenContext: currentAgentScreenContext(),
             chatOwner: owner
         )
+        if activeHandoff != nil { activeHandoffRunIDs.append(runID) }
         shouldRevealAgentsTab = true
         if suspendsTalk { speakAgentStartedAck() }
         scheduleTransientHideIfNeeded()
@@ -5060,7 +5105,7 @@ final class CompanionManager: ObservableObject {
             ?? brain.executor
             ?? defaultHeadlessExecutor
         guard !refusesUnapprovedOpenCodeJob(executor: resolvedExecutor) else { return nil }
-        let owner = chatOwner ?? prepareAgentChatOwner(prompt: prompt)
+        let owner = handoffAwareOwner(chatOwner ?? prepareAgentChatOwner(prompt: prompt))
         computerUseCoordinator.conversationID = owner.chatID
         let mate = mateDirectory.mates.first { $0.id == owner.mateID }
         let notedPrompt = notedUserMessage(
@@ -5079,8 +5124,36 @@ final class CompanionManager: ObservableObject {
             screenContext: currentAgentScreenContext(),
             chatOwner: owner
         )
+        if activeHandoff != nil { activeHandoffRunIDs.append(runID) }
         shouldRevealAgentsTab = true
         return runID
+    }
+
+    func dismissTaskNotice(id: UUID) {
+        floatingAgentWindowController.dismissNotice(id: id)
+    }
+
+    /// Exact persisted ownership only. A missing/deleted chat is never replaced.
+    @discardableResult
+    func openTaskChat(runID: UUID) -> Bool {
+        guard let run = agentRuns.first(where: { $0.id == runID }), let owner = run.chatOwner,
+              let mate = mates.first(where: { $0.id == owner.mateID && !$0.archived }) else { return false }
+        let stored = chatHistoryStore.session(id: owner.chatID)
+        guard let chatID = FloatingAgentPresentation.ownedChatID(
+            for: run, mate: mate, currentChat: currentChat, storedChat: stored,
+            defaultMateID: mateDirectory.defaultMateID
+        ) else { return false }
+        if currentChat.id != chatID { openChat(id: chatID) }
+        focusedTaskRunID = runID
+        openDesktopWindow(section: .chat)
+        return true
+    }
+
+    @discardableResult
+    func retryTask(runID: UUID) -> Bool {
+        let accepted = agentLauncher.retryFailedRun(runID: runID)
+        if !accepted { agentRevealErrorText = "This task cannot be retried. Start a new request." }
+        return accepted
     }
 
     func cancelAgent(runID: UUID) {

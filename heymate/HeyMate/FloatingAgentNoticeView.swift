@@ -18,7 +18,7 @@ struct FloatingAgentNoticeCard: View {
     @State private var hovered = false
 
     private var tint: Color { run.status == .failed ? DS.Colors.warningText : DS.Colors.accent }
-    private var title: String { run.status == .failed ? "Task needs attention" : "Result ready" }
+    private var title: String { ChatTaskPresentation.noticeTitle(run.status) }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -33,7 +33,7 @@ struct FloatingAgentNoticeCard: View {
                     }
                     Text(run.title).font(DS.Fonts.body.weight(.medium)).lineLimit(1)
                     Button("Open task report", action: onReport)
-                        .font(DS.Fonts.caption).foregroundStyle(tint)
+                        .buttonStyle(NotchCapsuleControlStyle(height: 24))
                         .help("Open the full task report")
                 }
                 .padding(.horizontal, 16).padding(.vertical, 14)
@@ -67,6 +67,7 @@ struct FloatingAgentNoticeCard: View {
 struct FloatingAgentReportView: View {
     let run: AgentRun
     let mateName: String
+    var manager: CompanionManager? = nil
     @Environment(\.companionSnapshotRendering) private var snapshotRendering
 
     private var answer: String { FloatingAgentReportContent.answer(for: run) }
@@ -74,7 +75,7 @@ struct FloatingAgentReportView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 10) {
-                Image(systemName: run.status == .failed ? "exclamationmark.bubble" : "checkmark.bubble")
+                Image(systemName: ChatTaskPresentation.icon(run.status))
                     .font(.system(size: 22)).foregroundStyle(DS.Colors.accent)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(run.title).font(DS.Fonts.title)
@@ -92,13 +93,22 @@ struct FloatingAgentReportView: View {
     }
 
     private var reportText: some View {
-        Text(answer).font(DS.Fonts.body).textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        Group {
+            if let manager {
+                ChatTaskCard(run: run, mateName: mateName, manager: manager, initiallyExpanded: true)
+            } else {
+                ChatMarkdownText(text: answer)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
 nonisolated enum FloatingAgentReportContent {
     static func answer(for run: AgentRun) -> String {
+        if run.status == .cancelled {
+            return "Task stopped. " + AgentReceiptPrivacy.privateAnswer(run.latestAction)
+        }
         if run.status == .failed {
             for candidate in [run.privateFinalResult, run.error] {
                 guard let candidate else { continue }

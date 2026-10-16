@@ -277,10 +277,11 @@ struct ChatTurnNavigationTests {
         """)
         let result = await drafting.value
         #expect(result.usedModel)
-        let mate = try #require(manager.createAgent(from: result.draft, faceAssetName: "MateFaceSignalPointer"))
+        let face = MiloLook.defaultLook(for: .nova).assetName
+        let mate = try #require(manager.createAgent(from: result.draft, faceAssetName: face))
         #expect(mate.name == "Inbox Ivy")
         #expect(mate.soul == "Warm and brief.")
-        #expect(mate.faceAssetName == "MateFaceSignalPointer")
+        #expect(mate.faceAssetName == face)
         #expect(manager.agentHabits(for: mate).asksFirst == ["Sending email"])
         #expect(manager.currentChat.firstMoment?.starter?.prompt == "Draft replies to today's customer emails")
         #expect(fixture.client.requests.count == 1)
@@ -925,6 +926,113 @@ struct ChatTurnNavigationTests {
         #expect(fixture.client.requests.isEmpty)
     }
 
+    @Test func parsedDelegationForwardsCurrentExplicitImageAndReturnsResult() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        _ = fixture.addMate(name: "Scout", brain: .onDevice)
+        let originalChatID = manager.currentChat.id
+        let image = ChatImageAttachment(id: UUID(), data: Data([1, 2, 3]), fileName: "user-provided.png", pixelWidth: 1, pixelHeight: 1)
+        manager.sendTranscriptToClaudeWithScreenshot(transcript: "Explain this attachment. Do not send anything externally.", shouldCaptureScreen: false, imageAttachments: [image])
+        let firstTask = try #require(manager.currentResponseTask)
+        try await fixture.client.waitForRequest()
+        fixture.client.finish(text: "Asking Scout. [ASK:Scout: Explain the attachment, preserve the user's constraints.]")
+        await firstTask.value
+        try await fixture.client.waitForRequest()
+        let workerTask = try #require(manager.currentResponseTask)
+        #expect(manager.activeHandoff?.imageAttachments == [image])
+        #expect(manager.activeHandoff?.requester?.chatID == originalChatID)
+        let request = try #require(fixture.client.requests.last)
+        #expect(request.userPrompt.contains("Do not send anything externally"))
+        #expect(request.imageLabels.filter { $0.contains("user-provided.png") }.count == 1)
+        fixture.client.finish(text: "Attachment reviewed. No external sends.")
+        await workerTask.value
+        #expect(manager.currentChat.id == originalChatID)
+        #expect(manager.currentChat.messages.last?.text.contains("Scout reported on delegated task") == true)
+        #expect(manager.chatHistoryStore.loadAll().flatMap(\.messages).allSatisfy { !$0.text.contains("AQID") })
+    }
+
+    @Test func delegatedReportReturnsToOriginalChatWithoutSwitchingVisibleMate() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        let requester = manager.currentChat
+        let worker = fixture.addMate(name: "Scout", brain: .onDevice)
+        let handoff = MateHandoff(mateID: worker.id, mateName: worker.name, instruction: "Explain account terminology.",
+                                  requestContext: "Explain account terminology without changing anything.",
+                                  requester: AgentChatOwner(mateID: requester.mateID ?? manager.mateDirectory.defaultMateID, chatID: requester.id))
+        manager.beginHandoff(handoff)
+        let task = try #require(manager.currentResponseTask)
+        try await fixture.client.waitForRequest()
+        #expect(fixture.client.requests.last?.userPrompt.contains("without changing anything") == true)
+        #expect(manager.currentChat.id == requester.id)
+        fixture.client.finish(text: "A workspace groups account projects. No changes made.")
+        await task.value
+        #expect(manager.activeHandoff == nil)
+        #expect(manager.currentChat.id == requester.id)
+        let report = try #require(manager.currentChat.messages.last)
+        #expect(report.text.contains("Scout reported on delegated task"))
+        #expect(report.text.contains("No changes made"))
+        #expect(manager.chatHistoryStore.loadAll().contains { $0.mateID == worker.id && $0.messages.last?.text.contains("No changes made") == true })
+    }
+
+    @Test func failedHandoffReportsFailureAndKeepsUnrelatedPendingWork() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        let worker = fixture.addMate(name: "Scout", brain: .onDevice)
+        let requester = AgentChatOwner(mateID: manager.currentChat.mateID ?? manager.mateDirectory.defaultMateID, chatID: manager.currentChat.id)
+        let handoff = MateHandoff(mateID: worker.id, mateName: worker.name, instruction: "Explain account terminology.", requester: requester)
+        manager.activeHandoff = handoff
+        manager.activeHandoffMateID = worker.id
+        manager.backgroundRoutineSession = ChatSession.empty()
+        manager.pendingHandoffs = [handoff]
+        manager.completeActiveHandoff(succeeded: false)
+        #expect(manager.pendingHandoffs == [handoff])
+        #expect(manager.currentChat.messages.last?.text.contains("Scout could not finish") == true)
+        #expect(manager.currentChat.messages.last?.text.contains("No result was returned") == true)
+        manager.cancelInFlightChatTurn()
+        #expect(manager.pendingHandoffs.isEmpty)
+    }
+
+    @Test func delegatedRunReturnsTerminalResultOnceToRequesterAndSpecialist() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        let requester = manager.currentChat
+        let worker = fixture.addMate(name: "Scout", brain: .onDevice)
+        let workerChat = fixture.addChat(mateID: worker.id)
+        var run = AgentRun.queued(id: UUID(), title: "Check evidence", prompt: "Check evidence", workspaceURL: fixture.root,
+                                 executor: .codex, origin: .sandbox, createdAt: Date())
+        run.chatOwner = AgentChatOwner(mateID: worker.id, chatID: workerChat.id,
+                                      requestingMateID: requester.mateID ?? manager.mateDirectory.defaultMateID, requestingChatID: requester.id)
+        run.status = .succeeded
+        run.privateFinalResult = "Evidence checked: 3 records. No sends."
+        manager.agentRunStore.upsert(run)
+        manager.postMateRunUpdate(runID: run.id, event: .finished(summary: "Done"))
+        let count = manager.currentChat.messages.count
+        #expect(manager.currentChat.messages.last?.text.contains("Evidence checked: 3 records") == true)
+        #expect(manager.currentChat.messages.last?.text.contains("review evidence") == true)
+        #expect(manager.chatHistoryStore.session(id: workerChat.id)?.messages.last?.text.contains("Evidence checked") == true)
+        manager.postMateRunUpdate(runID: run.id, event: .finished(summary: "Done"))
+        #expect(manager.currentChat.messages.count == count)
+    }
+
+    @Test func removedRequesterChatIsNotResurrectedByHandoffReport() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        let worker = fixture.addMate(name: "Scout", brain: .onDevice)
+        let removed = fixture.addChat(mateID: manager.mateDirectory.defaultMateID)
+        manager.chatHistoryStore.delete(id: removed.id)
+        manager.activeHandoff = MateHandoff(mateID: worker.id, mateName: worker.name, instruction: "Check", requester: AgentChatOwner(mateID: manager.mateDirectory.defaultMateID, chatID: removed.id))
+        manager.activeHandoffMateID = worker.id
+        manager.backgroundRoutineSession = ChatSession.empty()
+        manager.completeActiveHandoff(succeeded: true)
+        #expect(manager.chatHistoryStore.session(id: removed.id) == nil)
+        #expect(manager.currentChat.messages.isEmpty)
+    }
+
     @MainActor
     private final class Fixture {
         let root: URL
@@ -955,6 +1063,10 @@ struct ChatTurnNavigationTests {
             )
             manager.rememberConversationsEnabled = true
             manager.selectedBrain = .onDevice
+            // Routing tests must not read the real user's Mail/Calendar when
+            // a synthetic request mentions replies or account terminology.
+            manager.setChatConnectorEnabled(false, selectionID: CompanionManager.chatConnectorSelectionID(forConnectorID: "apple-mail"))
+            manager.setChatConnectorEnabled(false, selectionID: CompanionManager.chatConnectorSelectionID(forConnectorID: "apple-calendar"))
         }
 
         func addMate(name: String, brain: AgentBrain, exclusions: [String] = []) -> Mate {
@@ -1027,9 +1139,9 @@ private final class SuspendedIntentRequest {
     }
 
     func waitForRequest() async throws {
-        for _ in 0..<100 {
+        for _ in 0..<200 {
             if continuation != nil { return }
-            await Task.yield()
+            try await Task.sleep(for: .milliseconds(10))
         }
         throw NSError(domain: "IntentRequestDidNotStart", code: 1)
     }
@@ -1051,7 +1163,7 @@ private final class SuspendedIntentRequest {
 @MainActor
 private final class SuspendedConversationClient: ToolCallingConversationClient {
     var model = "navigation-test"
-    struct Request { let systemPrompt: String; let userPrompt: String }
+    struct Request { let systemPrompt: String; let userPrompt: String; let imageLabels: [String] }
     var requests: [Request] = []
     var approvalRequest: (ConnectorToolCoordinator, ConnectorToolApprovalRequest)?
     var approvalDecision: Bool?
@@ -1073,7 +1185,7 @@ private final class SuspendedConversationClient: ToolCallingConversationClient {
                                conversationHistory: [(userPlaceholder: String, assistantResponse: String)], userPrompt: String,
                                availableTools: [AssistantToolDefinition], onTextChunk: @MainActor @Sendable (String) -> Void,
                                onToolCallRequested: @MainActor @Sendable (AssistantToolCall) async -> (text: String, isError: Bool)) async throws -> (text: String, duration: TimeInterval) {
-        requests.append(Request(systemPrompt: systemPrompt, userPrompt: userPrompt))
+        requests.append(Request(systemPrompt: systemPrompt, userPrompt: userPrompt, imageLabels: images.map(\.label)))
         if let (coordinator, request) = approvalRequest {
             approvalDecision = await coordinator.requestApproval(for: request)
             return ("Approval test completed", 0)

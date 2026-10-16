@@ -176,23 +176,36 @@ final class PathMateNetworkMonitor: MateNetworkMonitoring, @unchecked Sendable {
 @MainActor
 final class WorkspaceMateWakeSource: MateWakeSource {
     private var tokens: [NSObjectProtocol] = []
+    private var settleTask: Task<Void, Never>?
+    private var generation = 0
     /// Wi-Fi and the display take a moment after wake; checking straight
     /// away would mark every due routine as waiting for the internet.
     static let settleDelay: Duration = .seconds(5)
 
     func start(onWake: @escaping () -> Void) {
         guard tokens.isEmpty else { return }
+        generation += 1
+        let currentGeneration = generation
         let center = NSWorkspace.shared.notificationCenter
         tokens = [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification].map { name in
-            center.addObserver(forName: name, object: nil, queue: .main) { _ in
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in
-                    try? await Task.sleep(for: Self.settleDelay)
-                    onWake()
+                    guard let self, self.generation == currentGeneration else { return }
+                    self.settleTask?.cancel()
+                    self.settleTask = Task { [weak self] in
+                        try? await Task.sleep(for: Self.settleDelay)
+                        guard !Task.isCancelled, let self, self.generation == currentGeneration else { return }
+                        onWake()
+                        self.settleTask = nil
+                    }
                 }
             }
         }
     }
     func stop() {
+        generation += 1
+        settleTask?.cancel()
+        settleTask = nil
         tokens.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
         tokens.removeAll()
     }

@@ -80,6 +80,7 @@ final class HeadlessAgentLauncher {
     /// processes owned by the app so session selection stays unchanged.
     var detachedExecutionEnabled = true
     var codexLivePlanningEnabled = true
+    var codexLiveExecutionEnabled = true
     var detachedRuntimeRootURL = DetachedAgentRuntimePaths.defaultRootURL
     var detachedRunnerExecutableURL: () -> URL? = {
         DetachedAgentRunnerExecutable.bundledURL()
@@ -410,12 +411,21 @@ final class HeadlessAgentLauncher {
                 return true
             }
 
+            if run.executor == .codex, run.detachedAttemptID != nil, run.status == .running,
+               let sent = sendDetachedExecutionSteer(run: run, instruction: trimmedInstruction) {
+                return sent
+            }
+
             _ = store.update(id: runID) { current in
                 current.queuedFollowUpInstructions.append(trimmedInstruction)
                 current.appendActivity(kind: .user, text: trimmedInstruction)
                 current.appendActivity(
                     kind: .status,
-                    text: "Follow-up queued for after the current step"
+                    text: current.status == .waitingForApproval
+                        ? "Update queued after the current step. Pending action still needs its own approval."
+                        : (current.executor == .codex
+                            ? "Update queued after the current step; the live turn is not available."
+                            : "Queued for after the current step; this executor cannot accept live execution updates.")
                 )
             }
             onRunsChanged?()
@@ -465,7 +475,7 @@ final class HeadlessAgentLauncher {
         let elapsedSentence = elapsedMinutes < 1
             ? " Running for under a minute."
             : " Running for \(elapsedMinutes) minute\(elapsedMinutes == 1 ? "" : "s")."
-        return statusLead + stepSentence + elapsedSentence
+        return statusLead + stepSentence + elapsedSentence + AgentProgressHealth.summary(for: run, now: now)
     }
 
     /// Busy jobs accept queued turns. Finished jobs need a captured session so
@@ -815,6 +825,19 @@ final class HeadlessAgentLauncher {
     // MARK: - Spawning one leg
 
     private func spawn(runID: UUID, leg: AgentRunLeg) {
+        _ = store.update(id: runID) {
+            $0.progressObservationStartedAt = Date()
+            $0.lastToolProgressAt = nil
+            $0.liveSteeringAvailable = false
+            $0.pendingApprovalDetails = nil
+            if let previous = $0.liveInputDeliveries {
+                $0.liveInputDeliveries = Array(previous.suffix(64)).map { delivery in
+                    var delivery = delivery
+                    if delivery.status == .sending { delivery.status = .unknown }
+                    return delivery
+                }
+            }
+        }
         guard let run = store.run(id: runID) else { return }
         lastCodexPlanningAttempt[runID] = nil
         let shouldDetachExecution = detachedExecutionEnabled && leg == .execute
@@ -1112,6 +1135,56 @@ final class HeadlessAgentLauncher {
 
     // MARK: - Detached execute runtime
 
+    private func codexExecutionMCPArguments(from arguments: [String]) -> [String] {
+        var result: [String] = []
+        for index in arguments.indices where arguments[index] == "-c" && index + 1 < arguments.count {
+            if arguments[index + 1].hasPrefix("mcp_servers.") { result += ["-c", arguments[index + 1]] }
+        }
+        return result
+    }
+
+    /// Nil means transport unavailable before any attempt was submitted; caller
+    /// may use its existing local queue. False preserves the composer's input.
+    private func sendDetachedExecutionSteer(run: AgentRun, instruction: String) -> Bool? {
+        guard instruction.utf8.count <= 65_536, let attemptID = run.detachedAttemptID else { return false }
+        guard let state = try? DetachedAgentDurableStateStore.loadReadOnly(rootDirectoryURL: detachedRuntimeRootURL,
+                runID: run.id, attemptID: attemptID), state.phase == .running,
+              persistedRunnerIsVerifiedLive(runID: run.id, state: state), let token = state.liveSteeringToken else { return nil }
+        guard (run.liveInputDeliveries ?? []).filter({ $0.attemptID == attemptID }).count < 256 else { return false }
+        let messageID = UUID()
+        let delivery = AgentLiveInputDelivery(id: messageID, attemptID: attemptID, turnToken: token,
+                                             text: instruction, status: .sending)
+        var persisted = false
+        do {
+            guard try store.updateDurably(id: run.id, mutate: { current in
+                guard current.detachedAttemptID == attemptID, current.status == .running else { return }
+                current.liveInputDeliveries = (current.liveInputDeliveries ?? []) + [delivery]
+                current.appendActivity(kind: .user, text: instruction)
+                current.appendActivity(kind: .status, text: delivery.summary)
+            })?.liveInputDeliveries?.contains(where: { $0.id == messageID }) == true else { return false }
+            persisted = true
+            let mailbox = try DetachedAgentCommandMailbox(rootDirectoryURL: detachedRuntimeRootURL,
+                                                          runID: run.id, attemptID: attemptID)
+            _ = try mailbox.enqueue(DetachedAgentCommandEnvelope(schemaVersion: state.schemaVersion,
+                runID: run.id, attemptID: attemptID, messageID: messageID,
+                command: .sendFollowUp(instruction, turnToken: token)))
+            onRunsChanged?()
+            return true
+        } catch {
+            guard persisted else { return false }
+            // A durable enqueue error can be ambiguous after atomic rename.
+            // Do not queue or resend; report uncertainty on the same input ID.
+            _ = store.update(id: run.id) { current in
+                if let index = current.liveInputDeliveries?.firstIndex(where: { $0.id == messageID }) {
+                    current.liveInputDeliveries?[index].status = .unknown
+                    if let summary = current.liveInputDeliveries?[index].summary { current.appendActivity(kind: .status, text: summary) }
+                }
+            }
+            onRunsChanged?()
+            return true
+        }
+    }
+
     private enum DetachedRefreshOutcome {
         case activeVerified
         case pending
@@ -1145,7 +1218,12 @@ final class HeadlessAgentLauncher {
                 temporaryDirectoriesToRemove: launchSpec.temporaryDirectoriesToRemove,
                 usesDuplexStandardInput: launchSpec.usesDuplexStandardInput,
                 runtimeLimit: runtimeLimitForLeg(.execute)
-            )
+            ),
+            codexExecution: run.executor == .codex && codexLiveExecutionEnabled ? CodexExecutionLaunch(
+                threadID: run.sessionIdentifier, model: codexModelIdentifier(), effort: codexReasoningEffort(),
+                mcpArguments: codexExecutionMCPArguments(from: launchSpec.arguments),
+                approvalPolicy: run.origin == .attached ? "untrusted" : "on-request"
+            ) : nil
         )
 
         cleanupDetachedTracking(runID: run.id)
@@ -1372,6 +1450,12 @@ final class HeadlessAgentLauncher {
                 projected.summary = AgentFinalResult.missingMessage
                 projected.latestAction = AgentFinalResult.missingMessage
             }
+        }
+        projected.pendingApprovalDetails = nil
+        if projected.status == .waitingForApproval, let attempt = projected.detachedAttemptID,
+           let token = UUID(uuidString: projected.pendingApprovalID) {
+            projected.pendingApprovalDetails = AgentPrivateApprovalStore.load(root: detachedRuntimeRootURL,
+                runID: projected.id, attemptID: attempt, token: token)
         }
         let statusChanged = previous.status != projected.status
         let actionChanged = previous.latestAction != projected.latestAction
@@ -1887,6 +1971,7 @@ final class HeadlessAgentLauncher {
             _ = store.update(id: runID) { current in
                 guard !current.status.isTerminal else { return }
                 current.latestAction = summary
+                current.lastToolProgressAt = Date()
                 current.appendActivity(kind: .progress, text: summary)
             }
         case .text(let text):

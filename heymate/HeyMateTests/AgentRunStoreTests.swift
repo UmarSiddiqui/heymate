@@ -561,7 +561,7 @@ struct HeadlessAgentLauncherTests {
         #expect(accepted)
         #expect(store.run(id: run.id)?.status == .running)
         #expect(store.run(id: run.id)?.queuedFollowUpInstructions == ["Also add dark mode"])
-        #expect(store.run(id: run.id)?.activity.last?.text == "Follow-up queued for after the current step")
+        #expect(store.run(id: run.id)?.activity.last?.text == "Queued for after the current step; this executor cannot accept live execution updates.")
     }
 
     @Test func statusQuestionAnswersImmediatelyWithoutQueueingWork() {

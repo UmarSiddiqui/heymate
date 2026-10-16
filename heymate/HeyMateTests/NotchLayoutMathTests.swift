@@ -498,4 +498,44 @@ struct NotchLayoutMathTests {
         #expect(NotchLayoutMath.menuBarHeight(screenFrame: screen, visibleFrame: hiddenBar, systemThickness: 24) == 24)
         #expect(NotchLayoutMath.menuBarHeight(screenFrame: screen, visibleFrame: hiddenBar, systemThickness: 0) == NotchLayoutMath.fallbackMenuBarHeight)
     }
+
+    @Test func savedLargeHomeFitsSmallerDisplayWithoutMovingTopAnchor() throws {
+        let screen = CGRect(x: -1024, y: 200, width: 1024, height: 768)
+        let frame = try #require(NotchLayoutMath.expandedFrame(
+            screenFrame: screen, topSafeAreaInset: 32,
+            contentWidth: 1800, contentHeight: 1200
+        ))
+        #expect(frame == screen)
+    }
+
+    @Test func offCenterHousingKeepsEntireCardReachable() throws {
+        let screen = CGRect(x: -800, y: -200, width: 800, height: 600)
+        let frame = try #require(NotchLayoutMath.compactChatFrame(
+            screenFrame: screen, topSafeAreaInset: 32,
+            auxiliaryTopLeftMaxX: -200, auxiliaryTopRightMinX: -20,
+            contentWidth: 680, contentHeight: 250
+        ))
+        #expect(frame.maxX == screen.maxX)
+        #expect(frame.minX >= screen.minX)
+        #expect(frame.maxY == screen.maxY)
+        // The frame still covers the actual camera housing.
+        #expect(frame.minX <= -200)
+        #expect(frame.maxX >= -20)
+    }
+
+    @Test func everySoftwareSurfaceFitsSmallDisplayAndKeepsMenuBarClear() {
+        let screen = CGRect(x: -500, y: -700, width: 500, height: 400)
+        let frames = [
+            NotchLayoutMath.fallbackExpandedFrame(screenFrame: screen, contentWidth: 1100, contentHeight: 820),
+            NotchLayoutMath.fallbackCompactChatFrame(screenFrame: screen, contentWidth: 680, contentHeight: 500),
+            NotchLayoutMath.fallbackConnectorSuggestionFrame(screenFrame: screen)
+        ]
+        for frame in frames {
+            #expect(frame.minX >= screen.minX)
+            #expect(frame.maxX <= screen.maxX)
+            #expect(frame.minY >= screen.minY)
+            #expect(frame.maxY == screen.maxY - NotchLayoutMath.fallbackMenuBarHeight)
+        }
+    }
+
 }

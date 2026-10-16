@@ -143,7 +143,7 @@ struct NotchContentRevealModifier: ViewModifier {
 /// size and is revealed by that frame growth, like a mask. Three things
 /// keep it reading as the notch itself expanding, not a new panel:
 ///
-///   • The bottom corner radius interpolates pill (8pt) → card (18pt) on
+///   • The bottom corner radius interpolates pill (live housing radius) → card (24pt) on
 ///     the animator's clock, so a pill-sized window still has pill-shaped
 ///     corners at the start of the morph.
 ///   • Pitch-black fill matches camera housing throughout the morph.
@@ -188,6 +188,16 @@ struct NotchLiquidGlassCardModifier: ViewModifier {
             // bar), which squared off the card's corners. Clipping to the
             // same silhouette keeps the rounded bottom through the morph.
             .clipShape(cardShape(bottomCornerRadius: bottomCornerRadius))
+            .overlay {
+                cardShape(bottomCornerRadius: bottomCornerRadius)
+                    .strokeBorder(
+                        LinearGradient(colors: [.white.opacity(0.075), .white.opacity(0.16)],
+                                       startPoint: .top, endPoint: .bottom),
+                        lineWidth: 0.6
+                    )
+                    .opacity(transitionModel.morphCardness)
+                    .allowsHitTesting(false)
+            }
     }
 
     private var bottomCornerRadius: CGFloat {
@@ -427,7 +437,7 @@ struct NotchConnectorSuggestionCard: View {
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Connect \(suggestion.toolkitName) to HeyMate")
-                            .font(DS.Fonts.title)
+                            .font(DS.Fonts.body.weight(.semibold))
                             .foregroundColor(DS.Colors.textPrimary)
                             .lineLimit(1)
                         Text("Use HeyMate with this \(suggestion.toolkitName) page")
@@ -463,8 +473,8 @@ struct NotchConnectorSuggestionCard: View {
                 }
                 .frame(height: 22)
             }
-            .padding(.horizontal, 14)
-            .padding(.bottom, 8)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 10)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Connect \(suggestion.toolkitName) to HeyMate")
         }
@@ -519,7 +529,7 @@ struct NotchConnectorSuggestionCard: View {
                 Text(title)
             }
         }
-        .dsCapsuleButtonStyle(isPrimary ? .primary : .secondary)
+        .buttonStyle(NotchCapsuleControlStyle(isProminent: isPrimary))
     }
 
     private func connect(_ suggestion: ContextualConnectorSuggestion) {

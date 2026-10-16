@@ -43,7 +43,8 @@ struct ChatMarkdownParserTests {
         #expect(blocks == [
             .body("Step one."),
             .heading("Findings"),
-            .body("- **Xada:** none\n#hashtag stays")
+            .listItem(marker: "•", text: "**Xada:** none"),
+            .body("#hashtag stays")
         ])
     }
 }

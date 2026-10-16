@@ -425,7 +425,24 @@ final class ConnectorRuntime: ObservableObject {
               let client = mcpClients[namespaced.connectorID] else {
             throw ConnectorRuntimeError.unknownTool(namespacedID)
         }
-        return try await client.callTool(named: namespaced.tool.name, arguments: arguments)
+        do {
+            return try await client.callTool(named: namespaced.tool.name, arguments: arguments)
+        } catch {
+            // Never replay a timed-out call: a write may have reached the
+            // service even though its response did not reach this process.
+            if case MCPClientError.timedOut = error {
+                throw ConnectorRuntimeError.callOutcomeUnknown(namespaced.connectorDisplayName)
+            }
+            // A dead session must not keep advertising working tools or a
+            // green Connected badge until the next app launch.
+            if case MCPClientError.notRunning = error {
+                mcpClients.removeValue(forKey: namespaced.connectorID)
+                store.markFailed(connectorID: namespaced.connectorID, reason: error.localizedDescription)
+                await client.stop()
+                await refreshAvailableMCPTools()
+            }
+            throw error
+        }
     }
 }
 
@@ -444,6 +461,7 @@ enum ConnectorRuntimeError: LocalizedError {
     case missingAPIKey(String)
     case misconfigured(String)
     case unknownTool(String)
+    case callOutcomeUnknown(String)
 
     var errorDescription: String? {
         switch self {
@@ -466,6 +484,8 @@ enum ConnectorRuntimeError: LocalizedError {
             return "\(name) is missing configuration."
         case .unknownTool(let toolID):
             return "No connected server provides \(toolID)."
+        case .callOutcomeUnknown(let name):
+            return "\(name) timed out. The action's outcome is unknown; check the service before repeating it."
         }
     }
 }
