@@ -21,11 +21,10 @@ struct HeadlessCLILaunchSpec {
     /// Process-private scratch configuration roots. The process owner removes
     /// these after exit (or a failed launch) so one job cannot seed another.
     let temporaryDirectoriesToRemove: [URL]
-    /// Whether the child reads stdin. Only attached jobs do — they answer tool
-    /// approvals over `--input-format stream-json`. A sandbox job handed an
-    /// idle pipe makes `claude -p` wait for input that is never coming, so
-    /// those get /dev/null instead.
+    /// Working Claude legs keep stdin open for scoped permission responses.
+    /// Read-only legs close it to avoid waiting for an unused input stream.
     let usesDuplexStandardInput: Bool
+    var initialStandardInput: Data? = nil
 }
 
 nonisolated enum OpenCodeRuntimeIsolation {
@@ -105,7 +104,7 @@ protocol HeadlessCLIAdapter {
 let headlessAgentBlockedMarker = "HEYMATE_BLOCKED:"
 
 let headlessAgentExecuteInstruction = """
-Execute the approved plan now. Do not expand its scope. Begin your final message with \(AgentFinalResult.marker) followed by the answer to the original request and the checks actually performed. For read-only questions, include the requested totals or findings even when no files changed. Never substitute a generic completion message or file-change count for the answer. Do not include credentials, private paths, account identifiers, or unrelated conversation. If any part of the plan could not be completed or verified, such as a permission refusal or a missing tool, begin your final message with \(headlessAgentBlockedMarker) and a one-line reason instead. After that answer, you may append any of these blocks and leave out the ones you do not need: <SUMMARY>one sentence</SUMMARY> <NEXT_ACTIONS>up to four imperative phrases, one per line</NEXT_ACTIONS> <ARTIFACTS>paths or http(s) URLs, one per line</ARTIFACTS> <DONE_TITLE>short title</DONE_TITLE> <ROUTINE>a JSON object with action create, update, pause, resume, or delete, and optional every_minutes, title, task, and new_title</ROUTINE> <COMPUTER_USE_REQUEST>what you would do on this Mac and why</COMPUTER_USE_REQUEST>.
+Execute the approved plan now. Do not expand its scope. Begin your final message with \(AgentFinalResult.marker) followed by the answer to the original request and the checks actually performed. For read-only questions, include the requested totals or findings even when no files changed. Never substitute a generic completion message or file-change count for the answer. Include the verified absolute filename of each requested deliverable in the answer and ARTIFACTS block. Do not include credentials, unrelated private paths, account identifiers, or unrelated conversation. If any part of the plan could not be completed or verified, such as a permission refusal or a missing tool, begin your final message with \(headlessAgentBlockedMarker) and a one-line reason instead. After that answer, you may append any of these blocks and leave out the ones you do not need: <SUMMARY>one sentence</SUMMARY> <NEXT_ACTIONS>up to four imperative phrases, one per line</NEXT_ACTIONS> <ARTIFACTS>paths or http(s) URLs, one per line</ARTIFACTS> <DONE_TITLE>short title</DONE_TITLE> <ROUTINE>a JSON object with action create, update, pause, resume, or delete, and optional every_minutes, title, task, and new_title</ROUTINE> <COMPUTER_USE_REQUEST>what you would do on this Mac and why</COMPUTER_USE_REQUEST>.
 """
 
 /// True when an agent's final message reports that it could not finish.
@@ -294,13 +293,19 @@ struct ClaudePrintAdapter: HeadlessCLIAdapter {
         case .followUp(let instruction):
             arguments.append(contentsOf: ["-p", instruction])
         case .execute:
-            arguments.append(contentsOf: ["-p", headlessAgentExecuteInstruction])
+            // In duplex mode Claude waits for a JSON user frame; an argv
+            // prompt alone does not start the turn while stdin stays open.
+            arguments.append("-p")
         }
 
         arguments.append(contentsOf: [
             "--output-format", "stream-json",
             "--verbose",
             "--name", title,
+            // Each leg supplies a different contract. Current Claude otherwise
+            // replays the first system prompt snapshot, including plan-only
+            // restrictions, when the approved session resumes for execution.
+            "--system-prompt-snapshot", "off",
             // User/project settings can install hooks before a model ever
             // gets a tool decision. HeyMate supplies no ambient setting
             // source; working legs add only reviewed MCP below.
@@ -359,17 +364,13 @@ struct ClaudePrintAdapter: HeadlessCLIAdapter {
             arguments.append(contentsOf: ["--permission-mode", "plan"])
         case .execute:
             arguments.append(contentsOf: ["--resume", sessionIdentifier])
-            switch origin {
-            case .sandbox:
-                arguments.append(contentsOf: ["--permission-mode", "acceptEdits"])
-            case .attached:
-                // Someone else's repo still asks per tool, on top of the plan
-                // the user already approved.
-                arguments.append(contentsOf: [
-                    "--permission-mode", "manual",
-                    "--input-format", "stream-json"
-                ])
-            }
+            // acceptEdits covers file edits, not shell commands. Both origins
+            // need the SDK permission transport for remaining tool decisions.
+            arguments.append(contentsOf: [
+                "--permission-mode", origin == .sandbox ? "acceptEdits" : "manual",
+                "--input-format", "stream-json",
+                "--permission-prompt-tool", "stdio"
+            ])
 
         }
 
@@ -380,16 +381,27 @@ struct ClaudePrintAdapter: HeadlessCLIAdapter {
             environmentKeysToRemove: executor.environmentKeysToRemove,
             environmentOverrides: workingMCPConfigurationJSON == nil ? [:] : mcpChildEnvironment,
             temporaryDirectoriesToRemove: [],
-            usesDuplexStandardInput: leg == .execute && origin == .attached
+            usesDuplexStandardInput: leg == .execute,
+            initialStandardInput: leg == .execute ? Self.executionInput : nil
         )
     }
 
+    private static var executionInput: Data? {
+        try? JSONSerialization.data(withJSONObject: [
+            "type": "user", "session_id": "",
+            "message": ["role": "user", "content": headlessAgentExecuteInstruction]
+        ])
+    }
+
+    private let permissionInputs = ClaudePermissionInputs()
+
     func events(fromStdoutLine line: String) -> [AgentEvent] {
-        ClaudeStreamJSONParser.events(fromStdoutLine: line)
+        permissionInputs.record(line)
+        return ClaudeStreamJSONParser.events(fromStdoutLine: line)
     }
 
     func stdinPayloadForApproval(id: String, approve: Bool) -> Data? {
-        ClaudeStreamJSONParser.controlResponseJSON(requestID: id, approve: approve)
+        ClaudeStreamJSONParser.controlResponseJSON(requestID: id, approve: approve, updatedInput: permissionInputs.take(id))
     }
 }
 

@@ -104,7 +104,12 @@ struct OnboardingRootView: View {
                 .padding(.bottom, 26)
         }
         .frame(width: 640, height: 680)
-        .background(DS.Colors.background)
+        .background {
+            LinearGradient(
+                colors: [Color(hex: "#131820"), Color(hex: "#101112"), DS.Colors.background],
+                startPoint: .top, endPoint: .bottom
+            )
+        }
         .preferredColorScheme(.dark)
     }
 
@@ -158,9 +163,14 @@ struct OnboardingRootView: View {
         HStack(spacing: 5) {
             ForEach(Array(OnboardingStep.allCases.enumerated()), id: \.element) { offset, _ in
                 let isCurrent = offset == tour.stepIndex
-                Capsule(style: .continuous)
-                    .fill(isCurrent ? DS.Colors.accent : (offset < tour.stepIndex ? DS.Colors.textTertiary : DS.Colors.surface4))
-                    .frame(width: isCurrent ? 18 : 6, height: 6)
+                Group {
+                    if offset <= tour.stepIndex {
+                        DSGlassSurface(cornerRadius: 3)
+                    } else {
+                        Capsule(style: .continuous).fill(DS.Colors.surface3)
+                    }
+                }
+                .frame(width: isCurrent ? 18 : 6, height: 6)
             }
         }
         .animation(accessibilityReduceMotion ? nil : DS.Animation.controlSpring, value: tour.stepIndex)
@@ -204,15 +214,19 @@ struct OnboardingRootView: View {
                     .frame(maxWidth: 440)
             }
         case .ai:
-            OnboardingStepFrame(
-                title: "Pick your AI",
-                subtitle: "HeyMate thinks with the plan you already pay for. No API keys."
-            ) {
-                NotchSubscriptionChoiceSection(
-                    companionManager: tour.companionManager,
-                    signIn: tour.companionManager.subscriptionSignIn
-                )
-                .frame(maxWidth: 440)
+            if MateEngine.selected() == .hermes {
+                OnboardingHermesSetupStep(tour: tour)
+            } else {
+                OnboardingStepFrame(
+                    title: "Pick your AI",
+                    subtitle: "HeyMate thinks with the plan you already pay for. No API keys."
+                ) {
+                    NotchSubscriptionChoiceSection(
+                        companionManager: tour.companionManager,
+                        signIn: tour.companionManager.subscriptionSignIn
+                    )
+                    .frame(maxWidth: 440)
+                }
             }
         case .mic:
             OnboardingMicStep(tour: tour, micCheck: tour.micCheck)
@@ -262,6 +276,34 @@ struct OnboardingRootView: View {
 }
 
 // MARK: - Pieces
+
+private struct OnboardingHermesSetupStep: View {
+    @ObservedObject var tour: OnboardingTour
+    @AppStorage(HermesEngineConfiguration.executablePathKey) private var executablePath = ""
+    @AppStorage(HermesEngineConfiguration.profilePathKey) private var profilePath = HermesEngineConfiguration.defaultProfilePath
+    @AppStorage(HermesEngineConfiguration.runtimePathKey) private var runtimePath = ""
+    @State private var isWorking = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: DS.Spacing.md) {
+                Text("Connect Hermes")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundColor(DS.Colors.textPrimary)
+                Text("Use a private Hermes profile. Sign in with ChatGPT for its Codex provider, or connect an OpenAI or Anthropic API key. API keys have separate usage billing.")
+                    .font(DS.Fonts.body)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HermesSetupPane(executablePath: $executablePath, profilePath: $profilePath,
+                    runtimePath: $runtimePath, isWorking: $isWorking,
+                    onReady: { tour.hermesReadinessChanged($0) })
+                OnboardingStatusLine(text: tour.status ?? "Connect Hermes to continue, or skip setup.", isDone: tour.isStepDone)
+            }
+            .frame(maxWidth: 520, alignment: .leading)
+            .padding(.vertical, 20)
+        }
+    }
+}
 
 /// Title, subtitle, then the step's own content in the middle.
 struct OnboardingStepFrame<Content: View>: View {

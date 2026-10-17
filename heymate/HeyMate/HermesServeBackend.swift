@@ -1,0 +1,418 @@
+import Foundation
+import Security
+
+/// Owns one persistent, loopback-only Hermes serve process. It never attaches
+/// to a discovered/shared backend or sends a model request during startup.
+@MainActor
+final class HermesServeBackend {
+    static let shared = HermesServeBackend()
+
+    nonisolated enum Failure: Error, LocalizedError, Equatable {
+        case invalidConfiguration, alreadyRunningDifferentProfile, startupTimedOut, processExited
+        case invalidReadiness, authenticationFailed, identityMismatch, homeMismatch, versionMismatch
+        case invalidResponse, notRunning, unsupportedRuntime
+        case httpStatus(Int)
+        var errorDescription: String? {
+            switch self {
+            case .invalidConfiguration: return "Hermes serve needs a trusted executable and an existing isolated profile."
+            case .alreadyRunningDifferentProfile: return "Another Hermes profile is already owned by this backend. Stop it before changing profiles."
+            case .startupTimedOut: return "Hermes serve did not become ready within the startup time limit. Check the prepared isolated profile."
+            case .processExited: return "The owned Hermes serve process stopped. No other backend was attached."
+            case .invalidReadiness: return "Hermes serve returned an invalid loopback readiness announcement."
+            case .authenticationFailed: return "Hermes serve rejected this owner's fresh session token."
+            case .identityMismatch: return "The listener did not identify itself as this owned Hermes serve process."
+            case .homeMismatch: return "Hermes serve is using a different profile home. The owned process was stopped."
+            case .versionMismatch: return "Hermes serve did not report the expected supported version."
+            case .invalidResponse: return "Hermes serve returned an invalid readiness or status response."
+            case .unsupportedRuntime: return "This Hermes profile selects a nested agent runtime. Choose Hermes native runtime before using it in HeyMate."
+            case .notRunning: return "Start and verify the owned Hermes serve backend before opening a session."
+            case .httpStatus(let status): return "The owned Hermes backend rejected the HTTP request (status \(status))."
+            }
+        }
+    }
+    struct Identity: Equatable {
+        let pid: Int32
+        let port: Int
+        let home: URL
+        let version: String
+        let commit: String?
+        let protocolVersion: Int
+    }
+    private let processFactory: @MainActor () -> HeadlessCLIProcess
+    private var process: HeadlessCLIProcess?
+    private var configuration: HermesEngineLaunchConfiguration?
+    private var startTask: Task<Identity, Error>?
+    private var readiness: CheckedContinuation<Int, Error>?
+    private var readinessTimeout: Task<Void, Never>?
+    private var token: String?
+    private var http: URLSession?
+    private var directory: URL?
+    private var stopped = false
+    private var generation = UUID()
+    private(set) var identity: Identity?
+    private var sockets: [UUID: HermesServeWebSocket] = [:]
+    var onStopped: (() -> Void)?
+
+    init(processFactory: @escaping @MainActor () -> HeadlessCLIProcess = { HeadlessCLIProcess() }) {
+        self.processFactory = processFactory
+    }
+
+    isolated deinit {
+        readinessTimeout?.cancel()
+        startTask?.cancel()
+        sockets.values.forEach { $0.close() }
+        process?.terminateThenKill()
+        http?.invalidateAndCancel()
+        if let directory { try? FileManager.default.removeItem(at: directory) }
+    }
+
+    func start(configuration launch: HermesEngineLaunchConfiguration, expectedVersion: String? = nil,
+               expectedCommit: String? = nil, timeout: Duration = .seconds(60)) async throws -> Identity {
+        try Task.checkCancellation()
+        let expectedCommit = expectedCommit ?? launch.expectedCommit
+        // Revalidate the public launch value at the ownership boundary, including
+        // launchers that override HERMES_HOME. Attestation is not a substitute
+        // for rejecting a known isolation override before it can start.
+        _ = try HermesEngineConfiguration(executablePath: launch.executableURL.path,
+            profilePath: launch.profileDirectoryURL.path).resolveLaunchConfiguration(
+                loginPATH: { launch.environment["PATH"] ?? "" })
+        guard timeout > .zero, timeout <= .seconds(120), launch.executableURL.isFileURL,
+              launch.profileDirectoryURL.isFileURL,
+              FileManager.default.isExecutableFile(atPath: launch.executableURL.path),
+              FileManager.default.fileExists(atPath: launch.profileDirectoryURL.path),
+              launch.profileDirectoryURL.resolvingSymlinksInPath().standardizedFileURL
+                != FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".hermes").resolvingSymlinksInPath().standardizedFileURL else {
+            throw Failure.invalidConfiguration
+        }
+        if stopped, process?.isProcessRunning == true { throw Failure.notRunning }
+        if let configuration, configuration != launch { throw Failure.alreadyRunningDifferentProfile }
+        if let identity, process?.isProcessRunning == true {
+            if let expectedVersion, expectedVersion != identity.version { throw Failure.versionMismatch }
+            if let expectedCommit, expectedCommit != identity.commit { throw Failure.versionMismatch }
+            try await verifyHermesRuntime()
+            return identity
+        }
+        if let startTask {
+            let result = try await startTask.value
+            try Task.checkCancellation()
+            if let expectedVersion, expectedVersion != result.version { throw Failure.versionMismatch }
+            if let expectedCommit, expectedCommit != result.commit { throw Failure.versionMismatch }
+            try await verifyHermesRuntime()
+            return result
+        }
+        self.configuration = launch
+        generation = UUID()
+        stopped = false
+        let task = Task { try await self.launchAndVerify(launch, expectedVersion: expectedVersion, expectedCommit: expectedCommit, timeout: timeout) }
+        startTask = task
+        do {
+            let result = try await withTaskCancellationHandler {
+                let result = try await task.value
+                try Task.checkCancellation()
+                return result
+            } onCancel: {
+                Task { @MainActor [weak self] in self?.stop() }
+            }
+            startTask = nil
+            return result
+        } catch {
+            startTask = nil
+            stop()
+            throw error
+        }
+    }
+
+    private func launchAndVerify(_ launch: HermesEngineLaunchConfiguration, expectedVersion: String?, expectedCommit: String?, timeout: Duration) async throws -> Identity {
+        let ownedGeneration = generation
+        let token = try Self.freshToken()
+        self.token = token
+        let work = FileManager.default.temporaryDirectory.appendingPathComponent("heymate-hermes-serve-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        directory = work
+        let child = processFactory()
+        process = child
+        var environment = launch.environment
+        environment["HERMES_HOME"] = launch.profileDirectoryURL.resolvingSymlinksInPath().path
+        environment["PYTHONPYCACHEPREFIX"] = launch.profileDirectoryURL
+            .appendingPathComponent("cache/heymate-python", isDirectory: true).path
+        environment["HERMES_DASHBOARD_SESSION_TOKEN"] = token
+        environment["HERMES_DISABLE_LAZY_INSTALLS"] = "1"
+        environment["HERMES_DESKTOP"] = "1"
+        let port = try await withCheckedThrowingContinuation { continuation in
+            readiness = continuation
+            readinessTimeout = Task { [weak self] in
+                do { try await ContinuousClock().sleep(for: timeout) } catch { return }
+                self?.finishReadiness(.failure(Failure.startupTimedOut))
+            }
+            do {
+                try child.start(executableURL: launch.executableURL,
+                    arguments: ["serve", "--isolated", "--host", "127.0.0.1", "--port", "0", "--no-open"],
+                    currentDirectoryURL: work, environmentKeysToRemove: HeadlessExecutor.codex.environmentKeysToRemove,
+                    environmentOverrides: environment,
+                    onLine: { [weak self] line in
+                        guard let self, self.generation == ownedGeneration else { return }
+                        self.receiveReadiness(line)
+                    },
+                    onExit: { [weak self] _ in
+                        guard let self, self.generation == ownedGeneration else { return }
+                        self.processDidExit()
+                    })
+            } catch { finishReadiness(.failure(error)) }
+        }
+        try Task.checkCancellation()
+        guard !stopped, child.isProcessRunning else { throw Failure.processExited }
+        let settings = URLSessionConfiguration.ephemeral
+        settings.timeoutIntervalForRequest = 5
+        settings.timeoutIntervalForResource = 30
+        settings.connectionProxyDictionary = [:]
+        settings.httpCookieStorage = nil
+        settings.urlCache = nil
+        let http = URLSession(configuration: settings, delegate: HermesServeNoRedirectDelegate(), delegateQueue: nil)
+        self.http = http
+        let root = URL(string: "http://127.0.0.1:\(port)")!
+        let proof = try await fetch(root.appendingPathComponent("api/host/identity"), session: http, token: token)
+        guard proof["ok"] == .bool(true), proof["protocolVersion"] == .number(1),
+              proof["pid"] == .number(Double(child.processIdentifier)), proof["servesSpa"] == .bool(false),
+              case .string(let role) = proof["role"], ["serve", "desktop-serve"].contains(role) else {
+            throw Failure.identityMismatch
+        }
+        let health = try await fetch(root.appendingPathComponent("api/health"), session: http, token: token)
+        guard health["ok"] == .bool(true) else { throw Failure.invalidResponse }
+        let status = try await fetch(root.appendingPathComponent("api/status"), session: http, token: token)
+        guard case .string(let home) = status["hermes_home"], home.hasPrefix("/"),
+              URL(fileURLWithPath: home).resolvingSymlinksInPath().standardizedFileURL.path
+                == launch.profileDirectoryURL.resolvingSymlinksInPath().standardizedFileURL.path else { throw Failure.homeMismatch }
+        let version = try Self.validatedVersion(health: health, status: status, expectedVersion: expectedVersion,
+                                                expectedCommit: expectedCommit)
+        let commit: String?
+        if case .string(let value) = health["commit"] { commit = value }
+        else { commit = nil }
+        try Task.checkCancellation()
+        guard !stopped, child.isProcessRunning else { throw Failure.processExited }
+        let verified = Identity(pid: child.processIdentifier, port: port,
+                                home: launch.profileDirectoryURL.resolvingSymlinksInPath().standardizedFileURL,
+                                version: version, commit: commit, protocolVersion: 1)
+        identity = verified
+        try await verifyHermesRuntime()
+        return verified
+    }
+
+    static func validatedVersion(health: [String: JSONValue], status: [String: JSONValue],
+                                 expectedVersion: String? = nil, expectedCommit: String? = nil) throws -> String {
+        guard let base = health["version"], base == status["version"] else { throw Failure.versionMismatch }
+        let commit: String?
+        if case .string(let value) = health["commit"] { commit = value } else { commit = nil }
+        guard expectedCommit == nil || expectedCommit == commit else { throw Failure.versionMismatch }
+        let version: String
+        if case .string(let value) = base, value.count <= 128,
+           value.range(of: #"^[0-9]+\.[0-9]+(?:\.[0-9]+)?(?:[-+._a-zA-Z0-9]*)$"#, options: .regularExpression) != nil {
+            version = value
+        } else {
+            // Official sealed commit-builds deliberately keep baseVersion unknown.
+            // Their display identity is accepted only when tied to the booted commit.
+            let display = health["displayVersion"] ?? base
+            guard base == .null || base == .string("unknown") || base == display,
+                  case .string(let value) = display,
+                  value.range(of: #"^git\.[0-9a-f]{7,40}$"#, options: .regularExpression) != nil,
+                  let commit, commit.range(of: #"^[0-9a-f]{40}$"#, options: .regularExpression) != nil,
+                  commit.hasPrefix(String(value.dropFirst(4))) else { throw Failure.versionMismatch }
+            version = value
+        }
+        guard expectedVersion == nil || expectedVersion == version else { throw Failure.versionMismatch }
+        return version
+    }
+
+    private func fetch(_ url: URL, session: URLSession, token: String) async throws -> [String: JSONValue] {
+        var request = URLRequest(url: url)
+        request.setValue(token, forHTTPHeaderField: "X-Hermes-Session-Token")
+        let (data, response) = try await session.data(for: request)
+        guard let response = response as? HTTPURLResponse else { throw Failure.invalidResponse }
+        guard response.statusCode != 401, response.statusCode != 403 else { throw Failure.authenticationFailed }
+        guard response.statusCode == 200, data.count <= 262_144,
+              case .object(let fields) = try JSONDecoder().decode(JSONValue.self, from: data) else { throw Failure.invalidResponse }
+        return fields
+    }
+
+    /// Bounded authenticated REST access for native setup, limited to relative
+    /// API routes on this attested loopback owner. No redirects or token URLs.
+    func requestHTTP(path: String, method: String = "GET", body: JSONValue? = nil,
+                     queryItems: [URLQueryItem] = [], timeout: Duration = .seconds(10)) async throws -> JSONValue {
+        let components = timeout.components
+        let timeoutSeconds = Double(components.seconds) + Double(components.attoseconds) / 1e18
+        guard timeoutSeconds > 0, timeoutSeconds <= 30 else { throw Failure.invalidConfiguration }
+        guard let identity, let token, let http, process?.isProcessRunning == true, !stopped else { throw Failure.notRunning }
+        guard path.hasPrefix("/api/"), !path.contains("//"), !path.contains("\\"), !path.contains("%"),
+              path.range(of: #"^/api/[a-zA-Z0-9_/-]+$"#, options: .regularExpression) != nil,
+              !path.split(separator: "/").contains(where: { $0 == "." || $0 == ".." }),
+              ["GET", "POST", "PUT", "PATCH", "DELETE"].contains(method) else { throw Failure.invalidConfiguration }
+        guard queryItems.count <= 16, queryItems.allSatisfy({ item in
+            let name = item.name.lowercased()
+            return !name.isEmpty && name.count <= 128 && (item.value?.utf8.count ?? 0) <= 4_096
+                && !["token", "authorization", "password", "secret", "api_key", "apikey"].contains(where: name.contains)
+                && !item.name.unicodeScalars.contains(where: { $0.value < 32 })
+                && !(item.value ?? "").unicodeScalars.contains(where: { $0.value < 32 })
+        }) else { throw Failure.invalidConfiguration }
+        var urlComponents = URLComponents(string: "http://127.0.0.1:\(identity.port)" + path)!
+        if !queryItems.isEmpty { urlComponents.queryItems = queryItems }
+        var request = URLRequest(url: urlComponents.url!)
+        request.httpMethod = method
+        request.timeoutInterval = timeoutSeconds
+        request.setValue(token, forHTTPHeaderField: "X-Hermes-Session-Token")
+        if let body {
+            let data = try JSONEncoder().encode(body)
+            guard data.count <= 262_144 else { throw Failure.invalidResponse }
+            request.httpBody = data
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        let (data, response) = try await http.data(for: request)
+        guard let response = response as? HTTPURLResponse else { throw Failure.invalidResponse }
+        guard (200..<300).contains(response.statusCode) else { throw Failure.httpStatus(response.statusCode) }
+        guard data.count <= 1_024 * 1_024 else { throw Failure.invalidResponse }
+        if data.isEmpty, response.statusCode == 204 { return .null }
+        return try JSONDecoder().decode(JSONValue.self, from: data)
+    }
+
+    func openSession() throws -> HermesServeSession {
+        let session = HermesServeSession(connection: try openWebSocket(), reconnect: { [weak self] in
+            guard let self else { throw Failure.notRunning }
+            return try self.openWebSocket()
+        }, stopOwner: { [weak self] in
+            await self?.shutdown() ?? true
+        }, runtimeGuard: { [weak self] in
+            guard let self else { throw Failure.notRunning }
+            try await self.verifyHermesRuntime()
+        }, recoverDurable: { [weak self] storedID, userRowID in
+            guard let self else { throw Failure.notRunning }
+            return try await self.recoverDurableResult(storedID: storedID, userRowID: userRowID)
+        })
+        return session
+    }
+
+    func verifyHermesRuntime() async throws {
+        try Self.validateHermesRuntime(try await requestHTTP(path: "/api/config"))
+    }
+    static func validateHermesRuntime(_ config: JSONValue) throws {
+        guard case .object(let fields) = config else { throw Failure.invalidResponse }
+        guard let model = fields["model"] else { return }
+        if case .string = model { return } // Legacy model-name scalar uses native defaults.
+        guard case .object(let values) = model else { throw Failure.invalidResponse }
+        for key in ["openai_runtime", "api_mode"] {
+            if case .string(let value) = values[key],
+               value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex_app_server" {
+                throw Failure.unsupportedRuntime
+            }
+        }
+    }
+
+    /// Read-only reconciliation after the replay epoch died. Never calls session.resume:
+    /// Hermes can auto-continue a durable interrupted marker during resume.
+    func recoverDurableResult(storedID: String, userRowID: Int) async throws -> HermesServeSession.Result? {
+        guard let identity, userRowID > 0,
+              storedID.range(of: "^[A-Za-z0-9_-]{1,256}$", options: .regularExpression) != nil else {
+            throw Failure.invalidConfiguration
+        }
+        let markerURL = identity.home.appendingPathComponent("desktop/interrupted_turns.json")
+        if FileManager.default.fileExists(atPath: markerURL.path) {
+            let attributes = try FileManager.default.attributesOfItem(atPath: markerURL.path)
+            guard let bytes = attributes[.size] as? NSNumber, bytes.intValue <= 4 * 1_024 * 1_024,
+                  case .object(let markers) = try JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: markerURL)),
+                  markers[storedID] == nil else { return nil }
+        }
+        let page = try await requestHTTP(path: "/api/sessions/\(storedID)/messages/around", queryItems: [
+            URLQueryItem(name: "row_id", value: String(userRowID)), URLQueryItem(name: "limit", value: "120")
+        ])
+        return Self.durableResult(page: page, userRowID: userRowID)
+    }
+
+    /// Require an exact durable prompt boundary and a provider's terminal stop row.
+    /// Missing, compressed, tool-pending, error, or truncated history remains unresolved.
+    static func durableResult(page: JSONValue, userRowID: Int) -> HermesServeSession.Result? {
+        guard case .object(let page) = page, case .array(let rows) = page["messages"],
+              rows.count >= 2, rows.count <= 120, case .object(let pagination) = page["pagination"],
+              pagination["has_newer"] == .bool(false),
+              let firstRow = rows.first, case .object(let first) = firstRow, first["id"] == .number(Double(userRowID)),
+              first["role"] == .string("user"), first["_compressed_summary"] != .bool(true) else { return nil }
+        for row in rows.dropFirst() {
+            guard case .object(let fields) = row, fields["role"] != .string("user"),
+                  fields["_compressed_summary"] != .bool(true) else { return nil }
+        }
+        guard let lastRow = rows.last, case .object(let last) = lastRow, last["role"] == .string("assistant"),
+              last["finish_reason"] == .string("stop"), last["display_kind"] != .string("failed_turn"),
+              case .number(let finalRowID) = last["id"], finalRowID > Double(userRowID), finalRowID.rounded() == finalRowID,
+              last["tool_calls"] == nil || last["tool_calls"] == .null || last["tool_calls"] == .array([]),
+              case .string(let text) = last["content"], !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              text.utf8.count <= 1_048_576 else { return nil }
+        return .init(text: text, status: "complete")
+    }
+
+    func openWebSocket() throws -> HermesServeWebSocket {
+        guard let identity, let token, let http, process?.isProcessRunning == true, !stopped else { throw Failure.notRunning }
+        let id = UUID()
+        let socket = HermesServeWebSocket(baseURL: URL(string: "ws://127.0.0.1:\(identity.port)/api/ws")!, token: token, session: http)
+        socket.onClosed = { [weak self] in self?.sockets.removeValue(forKey: id) }
+        sockets[id] = socket
+        socket.connect()
+        return socket
+    }
+
+    func stop() {
+        guard !stopped else { return }
+        stopped = true
+        finishReadiness(.failure(CancellationError()))
+        startTask?.cancel()
+        for socket in Array(sockets.values) { socket.close() }
+        sockets.removeAll()
+        process?.terminateThenKill()
+        http?.invalidateAndCancel()
+        http = nil
+        token = nil
+        identity = nil
+        configuration = nil
+        onStopped?()
+    }
+
+    @discardableResult
+    func shutdown() async -> Bool {
+        stop()
+        let exited = await process?.terminateAndWait() ?? true
+        if exited {
+            process = nil
+            if let directory { try? FileManager.default.removeItem(at: directory) }
+            directory = nil
+        }
+        return exited
+    }
+
+    private func receiveReadiness(_ line: String) {
+        guard readiness != nil, line.hasPrefix("HERMES_BACKEND_READY") else { return }
+        let prefix = "HERMES_BACKEND_READY port="
+        guard line.hasPrefix(prefix), let port = Int(line.dropFirst(prefix.count)), (1...65_535).contains(port) else {
+            finishReadiness(.failure(Failure.invalidReadiness)); return
+        }
+        finishReadiness(.success(port))
+    }
+    private func finishReadiness(_ result: Result<Int, Error>) {
+        let waiting = readiness
+        readiness = nil
+        readinessTimeout?.cancel()
+        readinessTimeout = nil
+        waiting?.resume(with: result)
+    }
+    private func processDidExit() {
+        finishReadiness(.failure(Failure.processExited))
+        stop()
+    }
+    private nonisolated static func freshToken() throws -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { throw Failure.invalidConfiguration }
+        return Data(bytes).base64EncodedString().replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+    }
+}
+
+private nonisolated final class HermesServeNoRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}

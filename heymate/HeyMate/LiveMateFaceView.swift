@@ -34,7 +34,11 @@ struct LiveMateFaceView: View {
 
     var body: some View {
         Group {
-            if isComposerCompanion {
+            if isComposerCompanion && BlobatarCharacter.contains(MateFace.selectionToken(for: mate)) {
+                BlobatarLiveView(mate: mate, token: MateFace.selectionToken(for: mate), size: size,
+                                 expression: manager.state.isIdle ? reaction?.expression ?? .idle : .live(manager.state),
+                                 reactionEvent: finishEvent, interactive: true, restsOnSurface: true)
+            } else if isComposerCompanion {
                 MiloCompanionView(mate: mate, size: size,
                                   expression: manager.state.isIdle ? reaction?.expression ?? .idle : .live(manager.state),
                                   reactionEvent: finishEvent, interactive: true)

@@ -38,6 +38,7 @@ struct MateHomeView: View {
     @State private var imageAttachments: [ChatImageAttachment] = []
     @State private var isShowingImageImporter = false
     @State private var attachmentErrorText: String?
+    @State private var isConfirmingHermesRecoveryReset = false
     @State private var isImageDropTargeted = false
     /// Catches ⌘V while the chat box has focus, for clipboards that hold
     /// an image and no text. See `ChatImagePaste`.
@@ -172,6 +173,7 @@ struct MateHomeView: View {
         )
         .onAppear {
             installImagePasteMonitor()
+            companionManager.recoverHermesChatIfNeeded(chatID: companionManager.currentChat.id)
             if startsWithDrawerOpen { isDrawerOpen = true }
             typedMessageInput = companionManager.currentChat.draftText ?? ""
             guard shouldFocusComposerOnAppear else { return }
@@ -184,6 +186,7 @@ struct MateHomeView: View {
             removeImagePasteMonitor()
         }
         .onChange(of: companionManager.currentChat.id) { _, _ in
+            companionManager.recoverHermesChatIfNeeded(chatID: companionManager.currentChat.id)
             previewedFilePath = nil
             typedMessageInput = companionManager.currentChat.draftText ?? ""
             isNearBottom = true
@@ -262,9 +265,20 @@ struct MateHomeView: View {
 
     private var mateRail: some View {
         VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                BrandAppIcon(size: 26)
+                    .accessibilityHidden(true)
+                Text("HeyMate")
+                    .font(DS.Fonts.title)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(DS.Colors.textPrimary)
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 18)
+
             railTabBar
                 .padding(.horizontal, 12)
-                .padding(.top, 14)
             .onChange(of: railTabRawValue) { _, _ in
                 searchText = ""
             }
@@ -460,7 +474,7 @@ struct MateHomeView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 8)
-            .padding(.vertical, 8)
+            .padding(.vertical, 7)
             .background(MateSelectionSurface(selected: selected, hovered: hoveredRailChatID == session.id))
             .contentShape(Rectangle())
         }
@@ -1001,7 +1015,7 @@ struct MateHomeView: View {
                 Button {
                     appearanceMate = mate
                 } label: {
-                    liveFace(mate, size: 30)
+                    liveFace(mate, size: hasBlobatarCompanion ? 40 : 30)
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
@@ -1123,6 +1137,53 @@ struct MateHomeView: View {
                     if !companionManager.streamingAssistantText.isEmpty {
                         streamingRow
                             .id("mate-streaming")
+                    }
+                    if !companionManager.hermesActivity.isEmpty {
+                        VStack(alignment: .leading, spacing: 5) {
+                            ForEach(companionManager.hermesActivity.suffix(6)) { entry in
+                                Label(entry.text, systemImage: "gearshape.2")
+                                    .font(DS.Fonts.caption)
+                                    .foregroundStyle(DS.Colors.textSecondary)
+                                    .textSelection(.enabled)
+                            }
+                        }
+                        .frame(maxWidth: 580, alignment: .leading)
+                        // Give the changing progress rows a real AX container.
+                        // Labelling a transparent VStack can forward the label
+                        // back through its AppKit element during AX traversal.
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("hermes-activity")
+                        .id("hermes-activity")
+                    }
+                    if companionManager.hermesRecoveredWorkChatIDs.contains(companionManager.currentChat.id) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Earlier Hermes work is still running. Its result will return to this chat. Stop it before starting another task.")
+                                .font(DS.Fonts.caption)
+                                .foregroundStyle(DS.Colors.textSecondary)
+                            Button("Stop earlier Hermes work") {
+                                companionManager.stopRecoveredHermesWork(chatID: companionManager.currentChat.id)
+                            }
+                            .dsCapsuleButtonStyle(.secondary)
+                        }
+                        .id("hermes-recovered-work")
+                    }
+                    if companionManager.hermesRecoveryBlockedChatIDs.contains(companionManager.currentChat.id) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("The earlier task outcome could not be verified. No task was automatically replayed.")
+                                .font(DS.Fonts.caption)
+                                .foregroundStyle(DS.Colors.textSecondary)
+                            Button("Start new conversation") { isConfirmingHermesRecoveryReset = true }
+                                .dsCapsuleButtonStyle(.secondary)
+                        }
+                        .confirmationDialog("Start a new Hermes conversation?", isPresented: $isConfirmingHermesRecoveryReset, titleVisibility: .visible) {
+                            Button("Start new conversation", role: .destructive) {
+                                companionManager.startNewHermesConversationAfterUnverifiedRecovery(chatID: companionManager.currentChat.id)
+                            }
+                            Button("Cancel", role: .cancel) {}
+                        } message: {
+                            Text("The previous task outcome is unknown. This stops the owned Hermes backend, archives the old task as unverified and starts fresh runtime context for this chat. Existing native messages and files remain. Detached external actions are not proven stopped. No task is automatically replayed; send a new request only after reviewing the earlier work.")
+                        }
+                        .id("hermes-blocked-recovery")
                     }
                     ForEach(chatTasks.filter { !$0.status.isTerminal }) { run in
                         ChatTaskCard(run: run, mateName: taskMateName(run), manager: companionManager)
@@ -1247,6 +1308,9 @@ struct MateHomeView: View {
                 .help("Edit character")
                 .accessibilityLabel("Edit character for \(mate.name)")
             }
+            Text(isMainHeyMateActive ? "What can I take off your plate?" : (activeMate?.name ?? Mate.defaultName))
+                .font(DS.Fonts.hero)
+                .foregroundColor(DS.Colors.textPrimary)
             Text(activeMate?.job ?? Mate.defaultJob)
                 .font(DS.Fonts.reading)
                 .foregroundColor(DS.Colors.textSecondary)
@@ -1492,6 +1556,10 @@ struct MateHomeView: View {
         }
     }
 
+    private var hasBlobatarCompanion: Bool {
+        activeMate.map { BlobatarCharacter.contains(MateFace.selectionToken(for: $0)) } ?? false
+    }
+
     private var composer: some View {
         VStack(alignment: .leading, spacing: 8) {
             if !imageAttachments.isEmpty {
@@ -1500,10 +1568,10 @@ struct MateHomeView: View {
             if showsTalkFirstComposer {
                 talkFirstComposer
             } else {
-                VStack(alignment: .leading, spacing: -18) {
+                VStack(alignment: .leading, spacing: hasBlobatarCompanion ? -8 : -18) {
                     if let mate = activeMate, !isCompactLayout,
-                       MiloLook(assetName: MateFace.selectionToken(for: mate)) != nil {
-                        LiveMateFaceView(mate: mate, size: 108, manager: companionManager, isComposerCompanion: true)
+                       (MiloLook(assetName: MateFace.selectionToken(for: mate)) != nil || hasBlobatarCompanion) {
+                        LiveMateFaceView(mate: mate, size: hasBlobatarCompanion ? 116 : 108, manager: companionManager, isComposerCompanion: true)
                             .padding(.leading, 18).zIndex(1)
                     }
                 VStack(alignment: .leading, spacing: 6) {
@@ -1569,7 +1637,7 @@ struct MateHomeView: View {
                 }
                 .background(
                     RoundedRectangle(cornerRadius: DS.CornerRadius.hero, style: .continuous)
-                        .fill(DS.Colors.surface1.opacity(0.94))
+                        .fill(DS.Colors.surface2)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: DS.CornerRadius.hero, style: .continuous)
@@ -1803,12 +1871,12 @@ struct MateHomeView: View {
                         isComposerExpanded = true
                         DispatchQueue.main.async { isComposerFocused = true }
                     } label: {
-                        Label("Type…", systemImage: "keyboard")
+                        Label("Or type here", systemImage: "keyboard")
                             .font(DS.Fonts.control)
                             .foregroundColor(DS.Colors.textSecondary)
                             .padding(.horizontal, 14)
-                            .frame(height: 40)
-                            .background(Capsule().fill(DS.Colors.surface1.opacity(0.94)))
+                            .frame(height: 44)
+                            .background(Capsule().fill(DS.Colors.surface2))
                             .overlay(Capsule().strokeBorder(DS.Colors.borderSubtle, lineWidth: 1))
                             .contentShape(Capsule())
                     }
@@ -1827,12 +1895,12 @@ struct MateHomeView: View {
     }
 
     /// The companion occupies real layout space so gaze and hello taps work
-    /// above the control. Its hands overlap the bar's top edge by eight points.
+    /// above the control. Blobatars rest on the bar with a small overlap.
     private var voiceEntry: some View {
-        VStack(alignment: .leading, spacing: -18) {
+        VStack(alignment: .leading, spacing: hasBlobatarCompanion ? -8 : -18) {
             if let mate = activeMate, !isCompactLayout {
-                if MiloLook(assetName: MateFace.selectionToken(for: mate)) != nil {
-                    LiveMateFaceView(mate: mate, size: 108, manager: companionManager, isComposerCompanion: true)
+                if MiloLook(assetName: MateFace.selectionToken(for: mate)) != nil || hasBlobatarCompanion {
+                    LiveMateFaceView(mate: mate, size: hasBlobatarCompanion ? 116 : 108, manager: companionManager, isComposerCompanion: true)
                         .padding(.leading, 18).zIndex(1)
                 } else {
                     liveFace(mate, size: 64).padding(.leading, 18).zIndex(1)
@@ -1912,7 +1980,7 @@ struct MateHomeView: View {
                 get: { !companionManager.isSilentModeEnabled },
                 set: { companionManager.isSilentModeEnabled = !$0 }
             ))
-            if companionManager.selectedBrain.offersSubscriptionVoiceChat {
+            if companionManager.offersContinuousVoiceChat {
                 Divider()
                 Button(isVoiceChatActive ? "Stop voice chat" : "Start voice chat") {
                     companionManager.toggleSubscriptionVoiceChat()
@@ -2194,7 +2262,7 @@ struct MateHomeView: View {
                 }
             }
             if let mate = activeMate {
-                liveFace(mate, size: 88)
+                liveFace(mate, size: hasBlobatarCompanion ? 104 : 88)
                     .accessibilityHidden(true)
                 Button {
                     beginMateSettings(mate)

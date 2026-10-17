@@ -5,6 +5,44 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct ChatTurnNavigationTests {
+    @Test func nativeSubscriptionToolScopeRejectsOtherChatsAndExpiresOnNavigation() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        let owner = AgentChatOwner(mateID: manager.currentChat.mateID ?? manager.mateDirectory.defaultMateID,
+                                   chatID: manager.currentChat.id)
+        var job = AgentRun.queued(id: UUID(), title: "Owned page", prompt: "Page", workspaceURL: fixture.root,
+                                  executor: .codex, origin: .sandbox, sessionIdentifier: "persisted", chatOwner: owner)
+        job.status = .succeeded
+        job.privateFinalResult = "Only this chat may read the research."
+        var other = job
+        other = AgentRun.queued(id: UUID(), title: "Private other chat", prompt: "Secret", workspaceURL: fixture.root,
+                                executor: .claudeCode, origin: .sandbox,
+                                chatOwner: AgentChatOwner(mateID: owner.mateID, chatID: UUID()))
+        other.privateFinalResult = "Private unrelated findings."
+        manager.agentRunStore.upsert(job)
+        manager.agentRunStore.upsert(other)
+        manager.agentRuns = manager.agentRunStore.loadAll()
+        manager.sendTranscriptToClaudeWithScreenshot(transcript: "Recall my findings", shouldCaptureScreen: false)
+        let task = try #require(manager.currentResponseTask)
+        try await fixture.client.waitForRequest()
+        let completion = try #require(manager.currentResponseCompletion)
+        let token = manager.registerTalkToolScope(owner: owner, completion: completion)
+        let names = manager.scopedTalkToolDescriptions(token: token).compactMap { $0["name"] as? String }
+        #expect(names.contains("inspect_work"))
+        #expect(names.contains("continue_work"))
+        let result = manager.executeScopedTalkTool(token: token, name: "inspect_work", arguments: [:])
+        #expect(result.text.contains("Only this chat"))
+        #expect(!result.text.contains("Private unrelated"))
+        #expect(manager.scopedTalkToolDescriptions(token: UUID().uuidString).isEmpty)
+        manager.startNewChat()
+        #expect(manager.scopedTalkToolDescriptions(token: token).isEmpty)
+        #expect(manager.executeScopedTalkTool(token: token, name: "open_artifact", arguments: [:]).isError)
+        manager.revokeTalkToolScope(token)
+        fixture.client.finish(text: "Late answer")
+        await task.value
+    }
+
     @Test(arguments: ["new", "open", "mate", "delete", "clear", "clearMate", "stop"],
           ["talk", "agent", "fallback"])
     func navigationRejectsLateIntentClassification(action: String, route: String) async throws {
@@ -1031,6 +1069,132 @@ struct ChatTurnNavigationTests {
         manager.completeActiveHandoff(succeeded: true)
         #expect(manager.chatHistoryStore.session(id: removed.id) == nil)
         #expect(manager.currentChat.messages.isEmpty)
+    }
+
+    @Test func typedHarnessStatusRepliesWithoutLaunchingWork() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        fixture.blockAgentLaunches()
+        let worker = fixture.addMate(name: "Scout", brain: .codex)
+        let input = #"get_mate_status {"agent":"Scout"}"#
+        #expect(manager.sendTypedMessage(input))
+        #expect(manager.currentChat.messages.map(\.text) == [input, "Scout: no recorded jobs."])
+        #expect(manager.agentRunStore.loadAll().isEmpty)
+        #expect(manager.currentResponseTask == nil)
+        #expect(fixture.client.requests.isEmpty)
+        #expect(manager.mates.contains { $0.id == worker.id })
+    }
+
+    @Test func harnessLaunchPassesSpecialistOwnershipToPersistedRun() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        fixture.blockAgentLaunches()
+        var worker = fixture.addMate(name: "Scout", brain: .codex)
+        worker.folderPath = fixture.root.path
+        _ = manager.mateDirectory.upsertMate(worker)
+        manager.syncMatePublications()
+        let workerChat = fixture.addChat(mateID: worker.id)
+        let requester = manager.currentChat
+        _ = manager.beginMateWork(task: "Inspect records", mate: worker, newName: nil,
+                                  suspendsTalk: false, brain: .codex)
+        let run = try #require(manager.agentRunStore.loadAll().first)
+        #expect(run.chatOwner?.mateID == worker.id)
+        #expect(run.chatOwner?.chatID == workerChat.id)
+        #expect(run.chatOwner?.requester?.chatID == requester.id)
+        #expect(manager.currentChat.messages.filter { $0.role == .user && $0.text == "Inspect records" }.count == 1)
+    }
+
+    @Test(arguments: [false, true])
+    func harnessWorkOwnsSpecialistChatAndReturnsResultsToInitiator(background: Bool) throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        let worker = fixture.addMate(name: "Scout", brain: .codex)
+        let workerChat = fixture.addChat(mateID: worker.id)
+        let visible = manager.currentChat
+        let source = background ? fixture.addChat(mateID: manager.mateDirectory.defaultMateID) : visible
+        if background { manager.backgroundRoutineSession = source }
+        let owner = manager.prepareMateWorkChatOwner(task: "Check three records", mateID: worker.id, recordUserMessage: true)
+        #expect(owner.mateID == worker.id)
+        #expect(owner.chatID == workerChat.id)
+        #expect(owner.requester?.chatID == source.id)
+        #expect(owner.requester?.mateID == source.mateID)
+        #expect(manager.currentChat.id == visible.id)
+        let initiating = background ? manager.backgroundRoutineSession : manager.currentChat
+        #expect(initiating?.messages.filter { $0.text == "Check three records" }.count == 1)
+        #expect(manager.chatHistoryStore.session(id: workerChat.id)?.messages.last?.text == "Check three records")
+
+        var run = AgentRun.queued(id: UUID(), title: "Check records", prompt: "Check three records",
+                                 workspaceURL: fixture.root, executor: .codex, origin: .sandbox, createdAt: Date())
+        run.chatOwner = owner
+        run.status = .succeeded
+        run.privateFinalResult = "Three records checked. No changes needed."
+        manager.agentRunStore.upsert(run)
+        manager.postMateRunUpdate(runID: run.id, event: .finished(summary: "Done"))
+        #expect(manager.chatHistoryStore.session(id: workerChat.id)?.messages.last?.text.contains("Three records checked") == true)
+        let delivered = background ? manager.backgroundRoutineSession : manager.currentChat
+        #expect(delivered?.messages.last?.text.contains("Three records checked") == true)
+    }
+
+    @Test func harnessToolWorkPreservesActualUserMessageWithoutAppendingGeneratedTask() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        let worker = fixture.addMate(name: "Scout", brain: .codex)
+        manager.appendUserMessage("Ask Scout to check three records, then report back.")
+        let count = manager.currentChat.messages.count
+        let owner = manager.prepareMateWorkChatOwner(task: "Check three records", mateID: worker.id, recordUserMessage: false)
+        #expect(manager.currentChat.messages.count == count)
+        #expect(manager.currentChat.messages.last?.text == "Ask Scout to check three records, then report back.")
+        #expect(manager.chatHistoryStore.session(id: owner.chatID)?.mateID == worker.id)
+        #expect(owner.requester?.chatID == manager.currentChat.id)
+    }
+
+    @Test func harnessWorkKeepsSameMateChatAndDoesNotPersistHiddenHistory() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        let source = manager.currentChat
+        let sameOwner = manager.prepareMateWorkChatOwner(task: "Check locally", mateID: source.mateID, recordUserMessage: true)
+        #expect(sameOwner.chatID == source.id)
+        #expect(sameOwner.requester == nil)
+        let worker = fixture.addMate(name: "Scout", brain: .codex)
+        manager.rememberConversationsEnabled = false
+        let owner = manager.prepareMateWorkChatOwner(task: "Private task", mateID: worker.id, recordUserMessage: false)
+        #expect(owner.mateID == worker.id)
+        #expect(owner.requester?.chatID == source.id)
+        #expect(manager.chatHistoryStore.session(id: owner.chatID) == nil)
+    }
+
+    @Test func harnessFollowUpSelectsNewestOwnedLiveRunBeforeFinishedSessions() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        let owner = AgentChatOwner(mateID: manager.mateDirectory.defaultMateID, chatID: manager.currentChat.id)
+        func run(at seconds: TimeInterval, status: AgentRunStatus, mateID: UUID? = nil) -> AgentRun {
+            var run = AgentRun.queued(id: UUID(), title: "Run", prompt: "Task", workspaceURL: fixture.root,
+                                     executor: .codex, origin: .sandbox, createdAt: Date(timeIntervalSince1970: seconds))
+            run.chatOwner = mateID.map { AgentChatOwner(mateID: $0, chatID: UUID()) } ?? owner
+            run.status = status
+            run.sessionIdentifier = "session-\(seconds)"
+            return run
+        }
+        let old = run(at: 1, status: .running)
+        let latest = run(at: 3, status: .planning)
+        let finished = run(at: 4, status: .succeeded)
+        let unrelated = run(at: 5, status: .running, mateID: UUID())
+        manager.agentRuns = [old, finished, unrelated, latest]
+        #expect(manager.latestContinuableRun(for: owner.mateID)?.id == latest.id)
+        manager.agentRuns = [old, latest, finished].map { value in
+            var value = value
+            value.status = .succeeded
+            return value
+        }
+        #expect(manager.latestContinuableRun(for: owner.mateID)?.id == finished.id)
+        manager.agentRuns = [unrelated]
+        #expect(manager.latestContinuableRun(for: owner.mateID) == nil)
     }
 
     @MainActor

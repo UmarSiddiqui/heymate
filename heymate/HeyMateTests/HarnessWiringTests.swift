@@ -33,6 +33,7 @@ struct HarnessWiringTests {
         #expect(HarnessToolRequestParser.parse("send_to_mate {\"mate\":\"Ada\",\"message\":\"Status?\"}")?.name == .sendToMate)
         #expect(HarnessToolRequestParser.parse("answer_request {\"mate\":\"Ada\",\"answer\":\"Yes, send it.\"}")?.name == .answerRequest)
         #expect(HarnessToolRequestParser.parse("ask_deeper")?.name == .askDeeper)
+        #expect(HarnessToolRequestParser.parse("get_mate_status {\"agent\":\"Ada\"}")?.name == .getMateStatus)
         #expect(HarnessToolRequestParser.parse("What is on my screen?") == nil)
     }
 
@@ -41,6 +42,7 @@ struct HarnessWiringTests {
         #expect(TalkToolCatalog.sendToMateToolName == HarnessToolName.sendToMate.rawValue)
         #expect(TalkToolCatalog.answerRequestToolName == HarnessToolName.answerRequest.rawValue)
         #expect(TalkToolCatalog.askDeeperToolName == HarnessToolName.askDeeper.rawValue)
+        #expect(TalkToolCatalog.getMateStatusToolName == HarnessToolName.getMateStatus.rawValue)
     }
 
     @Test func everyMinutesBecomesHourlySlots() {

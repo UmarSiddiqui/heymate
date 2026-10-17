@@ -34,12 +34,16 @@ nonisolated enum ClaudeStreamJSONParser {
         }
     }
 
-    /// Stdin payload that answers a `control_request` so attached jobs can
+    /// Stdin payload that answers a `control_request` so working jobs can
     /// Approve / Deny without `--dangerously-skip-permissions`.
-    static func controlResponseJSON(requestID: String, approve: Bool) -> Data? {
-        let permissionResponse: [String: Any]
+    static func controlResponseJSON(requestID: String, approve: Bool, updatedInput: [String: Any]? = nil) -> Data? {
+        var permissionResponse: [String: Any]
         if approve {
-            permissionResponse = ["behavior": "allow", "updatedInput": [:] as [String: String]]
+            permissionResponse = ["behavior": "allow"]
+            // Omitting updatedInput preserves the original input on current CLI.
+            // Echo it when available for older CLI compatibility; never replace
+            // the approved command with an empty object.
+            if let updatedInput { permissionResponse["updatedInput"] = updatedInput }
         } else {
             permissionResponse = ["behavior": "deny", "message": "User denied this tool from HeyMate"]
         }
@@ -104,7 +108,9 @@ nonisolated enum ClaudeStreamJSONParser {
         let toolName = (request?["tool_name"] as? String) ?? "tool"
         let subtype = (request?["subtype"] as? String) ?? "permission"
         let summary = subtype == "can_use_tool"
-            ? "Allow \(toolName)?"
+            ? "Allow \(toolName)?" + (request?["input"].flatMap { input in
+                (try? JSONSerialization.data(withJSONObject: input)).flatMap { String(data: $0, encoding: .utf8) }
+            }.map { "\n" + $0 } ?? "")
             : "Claude Code needs approval (\(subtype))"
         return [.approvalRequested(id: requestID, summary: summary)]
     }
@@ -143,5 +149,31 @@ nonisolated enum ClaudeStreamJSONParser {
         let collapsed = text.replacingOccurrences(of: "\n", with: " ")
         if collapsed.count <= 80 { return collapsed }
         return String(collapsed.prefix(77)) + "…"
+    }
+}
+
+/// Provider inputs remain in memory only, behind opaque request ids. Detached
+/// journals and persisted approval handles must never contain command bodies.
+nonisolated final class ClaudePermissionInputs: @unchecked Sendable {
+    private let lock = NSLock()
+    private var inputs: [String: [String: Any]] = [:]
+
+    func record(_ line: String) {
+        guard let data = line.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              json["type"] as? String == "control_request",
+              let id = json["request_id"] as? String,
+              let request = json["request"] as? [String: Any],
+              request["subtype"] as? String == "can_use_tool",
+              let input = request["input"] as? [String: Any] else { return }
+        lock.lock()
+        inputs[id] = input
+        lock.unlock()
+    }
+
+    func take(_ id: String) -> [String: Any]? {
+        lock.lock()
+        defer { lock.unlock() }
+        return inputs.removeValue(forKey: id)
     }
 }

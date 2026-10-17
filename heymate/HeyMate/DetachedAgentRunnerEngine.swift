@@ -121,6 +121,7 @@ final class DetachedAgentRunnerEngine {
                 environmentOverrides: request.spec.environmentOverrides,
                 temporaryDirectoriesToRemove: request.spec.temporaryDirectoriesToRemove,
                 usesDuplexStandardInput: request.spec.usesDuplexStandardInput,
+                initialStandardInput: request.spec.initialStandardInput,
                 onLine: { [weak self] line in
                     self?.handleStandardOutputLine(line)
                 },
@@ -308,13 +309,16 @@ final class DetachedAgentRunnerEngine {
             case .planReady:
                 // Initial rollout detaches write-enabled execute legs only.
                 recordProgress("Runner received an unsupported plan event")
-            case .approvalRequested(let providerID, _):
-                beginApprovalWait(providerID: providerID)
+            case .approvalRequested(let providerID, let details):
+                beginApprovalWait(providerID: providerID, details: details)
             case .failed(let message):
                 let safe = AgentReceiptPrivacy.privateAnswer(message)
                 if !safe.isEmpty { providerFailureMessage = safe }
             case .finished:
-                continue
+                // A stream-json result ends this one approved turn. Closing
+                // input lets Claude exit normally so exit status still gates
+                // durable success; killing it here would lose that proof.
+                if request.executor == .claudeCode { process.closeStandardInput() }
             }
         }
     }

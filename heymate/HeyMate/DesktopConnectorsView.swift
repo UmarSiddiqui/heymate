@@ -5,11 +5,9 @@
 //  The connector catalog: everything HeyMate can reach, what it would be
 //  allowed to do, and one control to turn it on.
 //
-//  The design rule here is that a person should be able to answer "what
-//  can this thing touch, and what can it do without asking me?" without
-//  opening documentation. So every card states its transport, its highest
-//  risk level, and its approval policy on the face of the card — not
-//  behind a disclosure triangle.
+//  A searchable, grouped app list: connected apps first, then available
+//  apps. Account and connection controls stay with the app they affect;
+//  advanced tool and approval settings expand inside the same row.
 //
 
 import AppKit
@@ -23,19 +21,11 @@ struct DesktopConnectorsView: View {
     @ObservedObject var composioToolkitDirectory: ComposioToolkitDirectory
 
     @State private var searchText = ""
-    @State private var selectedSection: IntegrationSection = .all
-
-    private enum IntegrationSection: String, CaseIterable {
-        case all = "All apps"
-        case web = "Web apps"
-        case mac = "On this Mac"
-        case custom = "Custom tools"
-    }
+    @State private var isShowingWebSetup = false
     @State private var connectorAwaitingKeyEntry: Connector?
     @State private var connectorAwaitingCommandEntry: Connector?
     @State private var apiKeyDraft = ""
     @State private var launchCommandDraft = ""
-    @State private var selectedComposioCategory = "All"
     @State private var areMCPPresetsExpanded = false
     @State private var isShowingAPIContractHelp = false
     @State private var disconnectPrompt: DisconnectPrompt?
@@ -45,34 +35,53 @@ struct DesktopConnectorsView: View {
     @State private var googleAccountOnMac: Bool?
 
     var body: some View {
-        DesktopPage(
-            title: "Integrations",
-            subtitle: connectedSummary,
-            accessory: AnyView(searchField)
-        ) {
-            sectionNavigation
-            connectedStrip
-            if selectedSection == .all && !composioConnections.isConfigured {
-                localSection
-            }
-            if selectedSection == .all || selectedSection == .web {
-                if composioConnections.isConfigured {
-                    composioSection
-                } else {
-                    composioSetupCard
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Integrations").font(DS.Fonts.pageTitle).foregroundStyle(DS.Colors.textPrimary)
+                    Text(MateEngine.selected() == .hermes ? "Your saved HeyMate connections." : "Connect apps your mates can use.")
+                        .font(DS.Fonts.bodyLarge).foregroundStyle(DS.Colors.textSecondary)
                 }
-            }
-            if selectedSection == .mac || (selectedSection == .all && composioConnections.isConfigured) {
-                localSection
-            }
-            if selectedSection == .all || selectedSection == .custom {
-                customSection
-            }
-            if selectedSection == .all || selectedSection == .web {
+                if MateEngine.selected() == .hermes {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Hermes integrations").font(DS.Fonts.control).fontWeight(.semibold)
+                        Text("These connections stay saved in HeyMate. Hermes cannot use them yet. Hermes uses the tools and integrations configured in its own profile; the previous engine can still use saved HeyMate connections.")
+                            .font(DS.Fonts.caption).foregroundStyle(DS.Colors.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .background(DS.Colors.surface1, in: RoundedRectangle(cornerRadius: 16))
+                }
+                HStack(spacing: 10) {
+                    searchField
+                    Button("Add custom connector") { addCustomMCPServer() }
+                        .dsCapsuleButtonStyle(.primary, height: 34)
+                }
+                appCatalog(connected: true)
+                appCatalog(connected: false)
+                if let failure = composioToolkitDirectory.loadFailureMessage {
+                    Text(failure).font(DS.Fonts.caption).foregroundStyle(DS.Colors.warningText)
+                }
+                if !composioConnections.isConfigured { composioSetupCard }
+                DisclosureGroup("Google accounts on this Mac") { googleAccountCard.padding(.top, 12) }
+                    .font(DS.Fonts.control)
+                DisclosureGroup("Custom tools") { customSection.padding(.top, 12) }
+                    .font(DS.Fonts.control)
                 composioKeySection
             }
+            .frame(maxWidth: 680, alignment: .leading)
+            .padding(32)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .background(Color.black)
+        .background(DS.Colors.background)
+        .sheet(isPresented: $isShowingWebSetup) {
+            VStack(alignment: .trailing, spacing: 12) {
+                Button("Done") { isShowingWebSetup = false }.buttonStyle(.plain)
+                composioSetupCard
+            }
+            .padding(24).frame(width: 520)
+            .background(DS.Colors.background)
+        }
         .sheet(item: $connectorAwaitingKeyEntry) { connector in
             apiKeySheet(for: connector)
         }
@@ -137,107 +146,75 @@ struct DesktopConnectorsView: View {
             await composioConnections.revalidate()
         }
         .onChange(of: searchText) { _, newValue in
-            if !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                selectedSection = .all
-                selectedComposioCategory = "All"
-            }
             composioToolkitDirectory.search(newValue, apiKey: composioConnections.apiKey)
         }
     }
 
-    private var sectionNavigation: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(IntegrationSection.allCases, id: \.self) { section in
-                    let selected = selectedSection == section
-                    Button { selectedSection = section } label: {
-                        Text(section.rawValue)
-                            .font(DS.Fonts.control)
-                            .fontWeight(selected ? .semibold : .medium)
-                            .foregroundColor(selected ? DS.Colors.glassInk : DS.Colors.textSecondary)
-                            .padding(.horizontal, 15)
-                            .frame(height: 34)
-                            .background {
-                                if selected {
-                                    DSGlassSurface(cornerRadius: 17)
-                                } else {
-                                    Capsule().fill(Color.black)
-                                        .overlay(Capsule().stroke(DS.Colors.borderSubtle, lineWidth: 1))
-                                }
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                    .accessibilityAddTraits(selected ? .isSelected : [])
-                }
-            }
-            .padding(.vertical, 4)
-        }
-    }
-
-    private var connectedSummary: String {
-        let connectedCount = connectedItems.count
-        if connectedCount == 0 {
-            return "Connect once and every agent can use it. Calendar, Reminders, Notes, and the other Mac apps need no setup."
-        }
-        return "\(connectedCount) connected, shared by every agent. HeyMate can only reach what you turn on."
-    }
-
-    /// What is on right now, at a glance. Integrations are global, so this
-    /// is also the list every agent sees.
     @ViewBuilder
-    private var connectedStrip: some View {
-        let items = connectedItems
-        if !items.isEmpty, searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+    private func appCatalog(connected: Bool) -> some View {
+        let native = filteredConnectors(ConnectorCatalog.appleNativeConnectors + ConnectorCatalog.localCLIConnectors)
+            .filter { store.connectionState(for: $0.id).isConnected == connected }
+            .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+        let web = visibleComposioToolkits
+            .filter { composioConnections.state(for: $0.slug).isConnected == connected }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        if !native.isEmpty || !web.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
-                sectionHeader(title: "On for every agent", subtitle: "\(items.count) connected")
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 170), spacing: 8, alignment: .leading)],
-                    alignment: .leading,
-                    spacing: 8
-                ) {
-                    ForEach(items, id: \.id) { item in
-                        HStack(spacing: 7) {
-                            ComposioToolkitLogoView(
-                                toolkit: .logoOnly(slug: item.logoSlug, name: item.name),
-                                compactSize: 18
+                Text(connected ? "CONNECTED" : "AVAILABLE")
+                    .font(DS.Fonts.sectionLabel).tracking(1)
+                    .foregroundStyle(DS.Colors.textTertiary)
+                    .padding(.leading, 4)
+                LazyVStack(spacing: 0) {
+                    ForEach(native) { connector in
+                        if connector.transport == .appleNative {
+                            NativeAppConnectionCard(
+                                connector: connector, state: store.connectionState(for: connector.id),
+                                onConnect: { connect(connector) }, onDisconnect: { requestDisconnect(connector) }
                             )
-                            Text(item.name)
-                                .font(DS.Fonts.control)
-                                .foregroundColor(DS.Colors.textPrimary)
-                                .lineLimit(1)
-                            Spacer(minLength: 0)
-                            Circle()
-                                .fill(DS.Colors.success)
-                                .frame(width: 6, height: 6)
-                                .accessibilityLabel("Connected")
+                        } else {
+                            ConnectorCard(
+                                connector: connector, state: store.connectionState(for: connector.id),
+                                record: store.record(for: connector.id),
+                                onConnect: { connect(connector) }, onDisconnect: { requestDisconnect(connector) },
+                                onChangePolicy: { store.setApprovalPolicy($0, for: connector.id) },
+                                onAddKey: { beginKeyEntry(for: connector) },
+                                showsReplaceKey: showsReplaceKey(for: connector)
+                            )
                         }
-                        .padding(.horizontal, 10)
-                        .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
-                        .background(Capsule().fill(DS.Colors.surface2))
-                        .overlay(Capsule().stroke(DS.Colors.borderSubtle, lineWidth: 0.8))
+                    }
+                    ForEach(web) { toolkit in
+                        ComposioToolkitCard(
+                            toolkit: toolkit, state: composioConnections.state(for: toolkit.slug),
+                            onConnect: {
+                                if composioConnections.isConfigured {
+                                    Task { await composioConnections.connect(toolkit) }
+                                } else { isShowingWebSetup = true }
+                            },
+                            onDisconnect: { requestComposioDisconnect(toolkit) },
+                            accounts: composioConnections.availableAccounts[toolkit.slug] ?? [],
+                            selectedAccountID: composioConnections.records[toolkit.slug]?.connectedAccountID,
+                            onSelectAccount: { account in Task { await composioConnections.selectAccount(account) } },
+                            onReconnect: {
+                                if composioConnections.isConfigured {
+                                    Task { await composioConnections.connect(toolkit, replacingAccount: true) }
+                                } else { isShowingWebSetup = true }
+                            }
+                        )
                     }
                 }
+                .background(DS.Colors.surface1)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(DS.Colors.borderSubtle, lineWidth: 1))
+            }
+        } else if !connected {
+            if composioToolkitDirectory.isLoading {
+                ProgressView("Loading apps…").controlSize(.small)
+            } else if !searchText.isEmpty,
+                      filteredConnectors(ConnectorCatalog.appleNativeConnectors + ConnectorCatalog.localCLIConnectors).isEmpty,
+                      visibleComposioToolkits.isEmpty {
+                DesktopEmptyState(symbolName: "magnifyingglass", title: "No matches", message: "Try another app name.")
             }
         }
-    }
-
-    private var connectedItems: [(id: String, name: String, logoSlug: String)] {
-        let native = store.activeConnectors
-            .filter { $0.id != ComposioSessionStore.connectorID }
-            .map { (id: "connector:\($0.id)", name: $0.displayName, logoSlug: $0.id.lowercased()) }
-        // The sign-in service itself is plumbing, not an app anyone uses.
-        let web = composioConnections.connectedSlugs.filter { $0.lowercased() != ComposioSessionStore.connectorID }.map { slug in
-            (
-                id: "composio:\(slug)",
-                name: DesktopConnectorScopeMenu.readableName(
-                    composioConnections.records[slug]?.displayName ?? slug, slug: slug
-                ),
-                logoSlug: slug
-            )
-        }
-        // GitHub through `gh` and GitHub through Composio is still one GitHub.
-        return IntegrationOverlap.merged(local: native, web: web)
     }
 
     private var searchField: some View {
@@ -248,7 +225,7 @@ struct DesktopConnectorsView: View {
             TextField("Search integrations", text: $searchText)
                 .textFieldStyle(.plain)
                 .font(DS.Fonts.body)
-                .frame(width: 180)
+                .frame(maxWidth: .infinity)
             if !searchText.isEmpty {
                 Button {
                     searchText = ""
@@ -310,145 +287,13 @@ struct DesktopConnectorsView: View {
         }
     }
 
-    @ViewBuilder
-    private var composioSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(title: "Web apps", subtitle: "Popular first · powered by Composio")
-            composioCategoryChips
-        }
-        if composioToolkitDirectory.isLoading && composioToolkitDirectory.toolkits.isEmpty {
-            ProgressView("Loading apps…")
-                .controlSize(.small)
-        } else if let failure = composioToolkitDirectory.loadFailureMessage {
-            DesktopEmptyState(symbolName: "exclamationmark.triangle", title: "Could not load integrations", message: failure)
-        } else if visibleComposioToolkits.isEmpty {
-            DesktopEmptyState(
-                symbolName: "magnifyingglass",
-                title: "No matches",
-                message: composioEmptyMessage
-            )
-        } else {
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 250), spacing: 10)],
-                spacing: 10
-            ) {
-                ForEach(visibleComposioToolkits) { toolkit in
-                    ComposioToolkitCard(
-                        toolkit: toolkit,
-                        state: composioConnections.state(for: toolkit.slug),
-                        onConnect: { Task { await composioConnections.connect(toolkit) } },
-                        onDisconnect: { requestComposioDisconnect(toolkit) },
-                        accounts: composioConnections.availableAccounts[toolkit.slug] ?? [],
-                        selectedAccountID: composioConnections.records[toolkit.slug]?.connectedAccountID,
-                        onSelectAccount: { account in Task { await composioConnections.selectAccount(account) } },
-                        onReconnect: { Task { await composioConnections.connect(toolkit, replacingAccount: true) } }
-                    )
-                }
-            }
-        }
-    }
-
     private var visibleComposioToolkits: [ComposioToolkit] {
         let offered = IntegrationOverlap.webAppsToList(
             composioToolkitDirectory.toolkits,
             connectedLocalNames: store.activeConnectors.map(\.displayName),
             isConnectedOnWeb: { composioConnections.state(for: $0).isConnected }
         )
-        guard selectedComposioCategory != "All" else {
-            return offered
-        }
-        return offered.filter { toolkit in
-            toolkit.categories.contains(selectedComposioCategory)
-        }
-    }
-
-    private var composioCategoryNames: [String] {
-        let counts = composioToolkitDirectory.toolkits
-            .flatMap(\.categories)
-            .reduce(into: [String: Int]()) { counts, category in
-                counts[category, default: 0] += 1
-            }
-        let popularCategories = counts.keys.sorted { firstCategory, secondCategory in
-            let firstCount = counts[firstCategory, default: 0]
-            let secondCount = counts[secondCategory, default: 0]
-            if firstCount != secondCount { return firstCount > secondCount }
-            return firstCategory < secondCategory
-        }
-        return ["All"] + Array(popularCategories.prefix(6))
-    }
-
-    private var composioCategoryChips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 7) {
-                ForEach(composioCategoryNames, id: \.self) { category in
-                    let isSelected = selectedComposioCategory == category
-                    Button {
-                        selectedComposioCategory = category
-                    } label: {
-                        Text(category)
-                            .font(DS.Fonts.sectionLabel)
-                            .foregroundColor(isSelected ? DS.Colors.glassInk : DS.Colors.textSecondary)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background {
-                                if isSelected {
-                                    DSGlassSurface(cornerRadius: 16)
-                                } else {
-                                    Capsule().fill(Color.black)
-                                        .overlay(Capsule().stroke(DS.Colors.borderSubtle, lineWidth: 1))
-                                }
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                }
-            }
-            .padding(.vertical, 1)
-        }
-    }
-
-    private var composioEmptyMessage: String {
-        let trimmedSearchText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedSearchText.isEmpty {
-            return "No one-click integration matches “\(trimmedSearchText)”."
-        }
-        return "No one-click integration appears in \(selectedComposioCategory)."
-    }
-
-    @ViewBuilder
-    private var localSection: some View {
-        let nativeApps = filteredConnectors(ConnectorCatalog.appleNativeConnectors)
-        let localTools = filteredConnectors(ConnectorCatalog.localCLIConnectors)
-
-        if !nativeApps.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
-                sectionHeader(title: "Mac apps", subtitle: "Work right away. No account or key needed")
-
-                googleAccountCard
-
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 250), spacing: 10)],
-                    spacing: 10
-                ) {
-                    ForEach(nativeApps) { connector in
-                        NativeAppConnectionCard(
-                            connector: connector,
-                            state: store.connectionState(for: connector.id),
-                            onConnect: { connect(connector) },
-                            onDisconnect: { requestDisconnect(connector) }
-                        )
-                    }
-                }
-            }
-        }
-
-        if !localTools.isEmpty {
-            connectorSection(
-                title: "Local tools",
-                subtitle: "Command-line tools already signed in locally",
-                connectors: localTools
-            )
-        }
+        return offered
     }
 
     /// Gmail and Google Calendar the free way: the user adds Google to
@@ -632,35 +477,6 @@ struct DesktopConnectorsView: View {
         guard !trimmed.isEmpty else { return connectors }
         let matchingIDs = Set(ConnectorCatalog.search(trimmed).map(\.id))
         return connectors.filter { matchingIDs.contains($0.id) }
-    }
-
-    @ViewBuilder
-    private func connectorSection(title: String, subtitle: String, connectors: [Connector]) -> some View {
-        if !connectors.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
-                sectionHeader(title: title, subtitle: subtitle)
-
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 340), spacing: 12)],
-                    spacing: 12
-                ) {
-                    ForEach(connectors) { connector in
-                        ConnectorCard(
-                            connector: connector,
-                            state: store.connectionState(for: connector.id),
-                            record: store.record(for: connector.id),
-                            onConnect: { connect(connector) },
-                            onDisconnect: { requestDisconnect(connector) },
-                            onChangePolicy: { policy in
-                                store.setApprovalPolicy(policy, for: connector.id)
-                            },
-                            onAddKey: { beginKeyEntry(for: connector) },
-                            showsReplaceKey: showsReplaceKey(for: connector)
-                        )
-                    }
-                }
-            }
-        }
     }
 
     private func sectionHeader(title: String, subtitle: String) -> some View {
@@ -912,10 +728,13 @@ private struct NativeAppConnectionCard: View {
                     .font(DS.Fonts.headline)
                     .foregroundColor(DS.Colors.textPrimary)
                     .lineLimit(1)
-                Text(nativeAppStatus)
-                    .font(DS.Fonts.caption)
-                    .foregroundColor(state.tintColor)
+                Text(connector.summary)
+                    .font(DS.Fonts.body)
+                    .foregroundColor(DS.Colors.textSecondary)
                     .lineLimit(2)
+                if state.isConnected || state != .notConnected {
+                    Text(nativeAppStatus).font(DS.Fonts.caption).foregroundStyle(state.tintColor)
+                }
             }
 
             Spacer(minLength: 6)
@@ -930,19 +749,13 @@ private struct NativeAppConnectionCard: View {
                     .buttonStyle(ToolkitCardButtonStyle(prominence: .primary))
             }
         }
-        .padding(13)
-        .background(
-            RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                .fill(Color.black)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                .stroke(
-                    state.isConnected ? DS.Colors.success.opacity(0.48) : DS.Colors.borderSubtle,
-                    lineWidth: 1
-                )
-        )
-        .offset(y: isHovered && !accessibilityReduceMotion ? -1 : 0)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(isHovered ? Color.white.opacity(0.025) : Color.clear)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(DS.Colors.borderSubtle).frame(height: 1).padding(.leading, 67)
+        }
         .animation(accessibilityReduceMotion ? nil : DS.Animation.controlSpring, value: isHovered)
         .onHover { isHovered = $0 }
     }
@@ -979,66 +792,52 @@ private struct ConnectorCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            header
-            Text(connector.summary)
-                .font(DS.Fonts.body)
-                .foregroundColor(DS.Colors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            capabilityChips
-
-            if let errorMessage = record.lastErrorMessage, record.isEnabled {
-                Text(errorMessage)
-                    .font(DS.Fonts.caption)
-                    .foregroundColor(DS.Colors.warningText)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Divider().opacity(0.3)
-            footer
-            if onEditCommand != nil || onRemoveCommand != nil {
-                commandActions
-            }
-        }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous)
-                .fill(Color.black)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous)
-                .stroke(state.isConnected ? DS.Colors.success.opacity(0.4) : DS.Colors.borderSubtle, lineWidth: 1)
-        )
-        .animation(.easeOut(duration: DS.Animation.fast), value: isHovered)
-        .onHover { isHovered = $0 }
-    }
-
-    private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: connector.symbolName)
-                .font(DS.Fonts.title)
-                .foregroundColor(DS.Colors.textPrimary)
-                .frame(width: 30, height: 30)
-                .background(
-                    RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                        .fill(DS.Colors.surface3)
-                )
-                .cueMotion(.levelUp, subject: connector.id, anchor: .bottom)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(connector.displayName)
-                    .font(DS.Fonts.headline)
-                    .foregroundColor(DS.Colors.textPrimary)
-                HStack(spacing: 5) {
-                    Circle().fill(state.tintColor).frame(width: 5, height: 5)
-                    Text(state.displayName)
-                        .font(DS.Fonts.statusWord)
-                        .foregroundColor(state.tintColor)
-                        .lineLimit(1)
+            HStack(spacing: 13) {
+                Image(systemName: connector.symbolName)
+                    .font(.system(size: 20)).foregroundStyle(DS.Colors.textPrimary)
+                    .frame(width: 38, height: 38)
+                    .background(DS.Colors.surface3, in: RoundedRectangle(cornerRadius: 10))
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(connector.displayName).font(DS.Fonts.headline).foregroundStyle(DS.Colors.textPrimary)
+                        if state.isConnected {
+                            Circle().fill(DS.Colors.success).frame(width: 5, height: 5)
+                            Text("Connected").font(DS.Fonts.caption).foregroundStyle(DS.Colors.success)
+                        }
+                    }
+                    Text(connector.summary).font(DS.Fonts.body)
+                        .foregroundStyle(DS.Colors.textSecondary).lineLimit(2)
+                }
+                Spacer(minLength: 6)
+                if state.isConnected {
+                    Button("Disconnect", action: onDisconnect)
+                        .buttonStyle(ToolkitCardButtonStyle(prominence: .secondary))
+                } else if case .connecting = state {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button(state == .notConnected ? "Connect" : "Retry", action: onConnect)
+                        .buttonStyle(ToolkitCardButtonStyle(prominence: .primary))
                 }
             }
-            Spacer(minLength: 0)
-            riskBadge
+            if let errorMessage = record.lastErrorMessage, record.isEnabled {
+                Text(errorMessage).font(DS.Fonts.caption).foregroundStyle(DS.Colors.warningText)
+                    .padding(.leading, 51)
+            }
+            if state.isConnected || onEditCommand != nil {
+                DisclosureGroup("Connection settings") {
+                    capabilityChips.padding(.top, 6)
+                    riskBadge
+                    footer
+                    if onEditCommand != nil || onRemoveCommand != nil { commandActions }
+                }
+                .font(DS.Fonts.caption).foregroundStyle(DS.Colors.textSecondary)
+                .padding(.leading, 51)
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 14)
+        .background(DS.Colors.surface1)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(DS.Colors.borderSubtle).frame(height: 1).padding(.leading, 67)
         }
     }
 
@@ -1169,71 +968,79 @@ private struct ComposioToolkitCard: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
     var body: some View {
-        HStack(spacing: 13) {
-            ComposioToolkitLogoView(toolkit: toolkit, isConnected: state.isConnected)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(toolkit.name)
-                    .font(DS.Fonts.headline)
-                    .foregroundColor(DS.Colors.textPrimary)
-                    .lineLimit(1)
-                Text(toolkit.description.isEmpty ? "Connect through Composio" : toolkit.description)
-                    .font(DS.Fonts.caption)
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .lineLimit(2)
-                if case .needsAttention(let reason) = state {
-                    Text(reason)
-                        .font(DS.Fonts.micro)
-                        .foregroundColor(DS.Colors.warningText)
-                        .lineLimit(2)
-                }
-            }
-
-            Spacer(minLength: 6)
-
-            if !toolkit.requiresNoAuthentication && state != .connecting {
-                Menu("Account") {
-                    ForEach(accounts, id: \.connectedAccountID) { account in
-                        Button {
-                            onSelectAccount(account)
-                        } label: {
-                            Text("\(account.connectedAccountID == selectedAccountID ? "Selected · " : "")Account …\(account.connectedAccountID.suffix(8))")
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 13) {
+                ComposioToolkitLogoView(toolkit: toolkit, isConnected: state.isConnected)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(toolkit.name).font(DS.Fonts.headline).foregroundStyle(DS.Colors.textPrimary)
+                        if state.isConnected {
+                            Circle().fill(DS.Colors.success).frame(width: 5, height: 5)
+                            Text("Connected").font(DS.Fonts.caption).foregroundStyle(DS.Colors.success)
                         }
                     }
-                    Divider()
-                    Button("Sign in another account…", action: onReconnect)
-                }.help("Choose an active account or reconnect. Existing remote accounts are kept.")
+                    Text(toolkit.description.isEmpty ? "Connect this app to HeyMate." : toolkit.description)
+                        .font(DS.Fonts.body).foregroundStyle(DS.Colors.textSecondary).lineLimit(2)
+                    if case .needsAttention(let reason) = state {
+                        Text(reason).font(DS.Fonts.caption).foregroundStyle(DS.Colors.warningText)
+                    }
+                }
+                Spacer(minLength: 6)
+                if state == .connecting {
+                    ProgressView().controlSize(.small)
+                } else if !state.isConnected {
+                    Button(state.needsAttention ? "Reconnect" : "Connect", action: onConnect)
+                        .buttonStyle(ToolkitCardButtonStyle(prominence: .primary))
+                }
             }
             if state.isConnected {
-                Button("Disconnect", action: onDisconnect)
-                    .buttonStyle(ToolkitCardButtonStyle(prominence: .secondary))
-            } else if state == .connecting {
-                ProgressView().controlSize(.small)
-            } else {
-                Button(state.needsAttention ? "Reconnect" : "Connect", action: onConnect)
-                    .buttonStyle(ToolkitCardButtonStyle(prominence: .primary))
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "person.crop.circle").font(.system(size: 24)).foregroundStyle(DS.Colors.textSecondary)
+                        if !toolkit.requiresNoAuthentication && !accounts.isEmpty {
+                            Menu {
+                                ForEach(accounts, id: \.connectedAccountID) { account in
+                                    Button(account.displayName) { onSelectAccount(account) }
+                                }
+                            } label: {
+                                Text(accounts.first { $0.connectedAccountID == selectedAccountID }?.displayName ?? "Connected account")
+                                    .font(DS.Fonts.headline)
+                            }
+                            .menuStyle(.borderlessButton)
+                            .help("Choose the account HeyMate uses")
+                        } else {
+                            Text("Connected to HeyMate").font(DS.Fonts.headline)
+                        }
+                        Spacer(minLength: 4)
+                        Button("Disconnect", action: onDisconnect)
+                            .buttonStyle(ToolkitCardButtonStyle(prominence: .secondary))
+                    }
+                    .padding(12)
+                    if !toolkit.requiresNoAuthentication {
+                        Divider().overlay(DS.Colors.borderSubtle)
+                        Button(action: onReconnect) {
+                            Label("Add another account", systemImage: "plus.circle.dashed")
+                                .font(DS.Fonts.control).foregroundStyle(DS.Colors.textSecondary)
+                                .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                        }
+                        .buttonStyle(.plain).pointerCursor()
+                    }
+                }
+                .background(DS.Colors.surface2, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(DS.Colors.borderStrong.opacity(0.6), lineWidth: 1))
+                .padding(.leading, 51)
             }
         }
-        .padding(13)
-        .background(
-            RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                .fill(Color.black)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                .stroke(
-                    state.isConnected
-                        ? DS.Colors.success.opacity(0.48)
-                        : isHovered
-                            ? toolkit.visualAccent.opacity(0.38)
-                            : DS.Colors.borderSubtle,
-                    lineWidth: 1
-                )
-        )
-        .offset(y: isHovered && !accessibilityReduceMotion ? -1 : 0)
+        .padding(.horizontal, 16).padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(isHovered ? Color.white.opacity(0.025) : Color.clear)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(DS.Colors.borderSubtle).frame(height: 1).padding(.leading, 67)
+        }
         .animation(accessibilityReduceMotion ? nil : DS.Animation.controlSpring, value: isHovered)
         .onHover { isHovered = $0 }
     }
+
 }
 
 private struct ToolkitCardButtonStyle: ButtonStyle {
@@ -1352,7 +1159,7 @@ private struct CustomIntegrationChoiceCard: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous)
-                .fill(Color.black)
+                .fill(DS.Colors.surface1)
         )
         .overlay(
             RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous)

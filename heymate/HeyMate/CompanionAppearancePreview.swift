@@ -71,7 +71,7 @@ private struct AppearanceFixture: View {
         let arguments = CommandLine.arguments
         let index = arguments.firstIndex(of: "--appearance-pack")
         let requested = index.flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil } ?? "colors"
-        let allowed = ["colors", "signal", "margin", "instrument", "portraits"]
+        let allowed = ["colors", "signal", "margin", "instrument", "portraits", "blobatar"]
         _selectedPack = State(initialValue: allowed.contains(requested) ? requested : "colors")
     }
 

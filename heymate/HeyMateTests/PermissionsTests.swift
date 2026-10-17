@@ -20,10 +20,36 @@ struct PermissionsTests {
         #expect(MacPermissions.route(hasPermission: true, alreadyPrompted: true) == .alreadyGranted)
     }
 
-    @Test func earlierScreenRecordingGrantCoversALaggingLiveCheck() {
-        #expect(MacPermissions.screenRecordingCountsAsGranted(grantedNow: false, confirmedBefore: true))
+    @Test func earlierScreenRecordingGrantDoesNotOverrideLiveDenial() {
+        #expect(!MacPermissions.screenRecordingCountsAsGranted(grantedNow: false, confirmedBefore: true))
         #expect(MacPermissions.screenRecordingCountsAsGranted(grantedNow: true, confirmedBefore: false))
         #expect(!MacPermissions.screenRecordingCountsAsGranted(grantedNow: false, confirmedBefore: false))
+    }
+
+    @Test func automaticCaptureRejectsRepeatedDenialWithoutRequesting() {
+        var checks = 0
+        for _ in 0..<3 {
+            #expect(throws: ScreenCapture.Failure.permissionRequired) {
+                try ScreenCapture.requirePermission(isTestHost: false, preflight: { checks += 1; return false })
+            }
+        }
+        #expect(checks == 3)
+        #expect(throws: Never.self) {
+            try ScreenCapture.requirePermission(isTestHost: false, preflight: { true })
+        }
+    }
+
+    @Test func testHostNeverChecksOrRequestsCapturePermission() {
+        var checked = false
+        #expect(throws: ScreenCapture.Failure.captureDisabledInTests) {
+            try ScreenCapture.requirePermission(isTestHost: true, preflight: { checked = true; return true })
+        }
+        #expect(!checked)
+    }
+
+    @Test func realCaptureEntrypointsAreDisabledInHostedTests() async {
+        await #expect(throws: ScreenCapture.Failure.captureDisabledInTests) { try await ScreenCapture.allScreens() }
+        await #expect(throws: ScreenCapture.Failure.captureDisabledInTests) { try await ScreenCapture.focusedWindow() }
     }
 
     @Test func promptAnswerIsRememberedEvenWhenPreflightLags() {

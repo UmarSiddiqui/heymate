@@ -105,11 +105,25 @@ struct DesktopSettingsAccountsTab: View {
     /// Posted with `["executor": HeadlessExecutor.rawValue]`. Handled by the
     /// subscription sign-in coordinator.
     @State private var showsOtherEngines = false
+    @State private var hermesSetupBusy = false
+    @AppStorage(MateEngine.preferenceKey) private var mateEngine = (MateEngine.bundledRuntimeAvailable ? MateEngine.hermes : MateEngine.native).rawValue
+    @AppStorage(HermesEngineConfiguration.executablePathKey) private var hermesExecutablePath = ""
+    @AppStorage(HermesEngineConfiguration.profilePathKey) private var hermesProfilePath = HermesEngineConfiguration.defaultProfilePath
+    @AppStorage(HermesEngineConfiguration.runtimePathKey) private var hermesRuntimePath = ""
 
     private static let beginSubscriptionSignInNotification = Notification.Name("heyMateBeginSubscriptionSignIn")
 
     var body: some View {
         SettingsPage(tab: .accounts, navigation: navigation) {
+            if mateEngine == MateEngine.hermes.rawValue {
+                SettingsSection("Model access", footer: "Hermes runs the agent. Choose the account and model it uses here.") {
+                    HermesSetupPane(executablePath: $hermesExecutablePath, profilePath: $hermesProfilePath,
+                                    runtimePath: $hermesRuntimePath, isWorking: $hermesSetupBusy)
+                        .settingsRowContentInsets()
+                        .disabled(companionManager.isResponseInFlight || companionManager.isHermesTurnInFlight
+                                  || !companionManager.hermesRecoveryBlockedChatIDs.isEmpty)
+                }
+            } else {
             yourAISection
             selectedBrainSection
             if companionManager.selectedBrain.offersSubscriptionVoiceChat {
@@ -117,6 +131,7 @@ struct DesktopSettingsAccountsTab: View {
             }
             otherEnginesSection
             helperAppsSection
+            }
         }
     }
 

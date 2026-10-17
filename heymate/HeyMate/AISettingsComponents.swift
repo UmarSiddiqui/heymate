@@ -22,6 +22,7 @@ enum AISettingsRefresh {
     /// Everything the AI and Agents pages read from a CLI or a probe. Run
     /// once when Settings appears; the Google row refreshes its own status.
     static func refreshCatalogsAndReadiness(_ companionManager: CompanionManager) async {
+        guard MateEngine.selected() == .native else { return }
         await companionManager.refreshClaudeModelCatalog()
         await companionManager.refreshCodexModelCatalog()
         await companionManager.refreshOpenCodeServerStatus()

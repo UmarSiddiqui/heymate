@@ -433,6 +433,7 @@ final class HeadlessAgentLauncher {
         }
 
         _ = store.update(id: runID) { current in
+            current.privateArtifactPaths = AgentWorkResults.artifactURLs(in: current).map(\.path)
             current.status = .planning
             current.planText = ""
             current.summary = ""
@@ -671,7 +672,7 @@ final class HeadlessAgentLauncher {
         return restoredEntry
     }
 
-    /// Per-tool approval inside leg two, which only attached folders ask for.
+    /// Per-tool approval inside leg two, including Claude shell commands in sandbox jobs.
     func resolveApproval(runID: UUID, approve: Bool) {
         guard pendingStops[runID] == nil,
               let run = store.run(id: runID),
@@ -914,6 +915,7 @@ final class HeadlessAgentLauncher {
                 environmentOverrides: spec.environmentOverrides,
                 temporaryDirectoriesToRemove: spec.temporaryDirectoriesToRemove,
                 usesDuplexStandardInput: spec.usesDuplexStandardInput,
+                initialStandardInput: spec.initialStandardInput,
                 onLine: { [weak self] line in
                     Task { @MainActor in
                         self?.handleStdout(runID: runID, line: line)
@@ -1217,6 +1219,7 @@ final class HeadlessAgentLauncher {
                 environmentOverrides: launchSpec.environmentOverrides,
                 temporaryDirectoriesToRemove: launchSpec.temporaryDirectoriesToRemove,
                 usesDuplexStandardInput: launchSpec.usesDuplexStandardInput,
+                initialStandardInput: launchSpec.initialStandardInput,
                 runtimeLimit: runtimeLimitForLeg(.execute)
             ),
             codexExecution: run.executor == .codex && codexLiveExecutionEnabled ? CodexExecutionLaunch(
@@ -2054,6 +2057,7 @@ final class HeadlessAgentLauncher {
 
         _ = store.update(id: runID) { current in
             current.queuedFollowUpInstructions.removeFirst()
+            current.privateArtifactPaths = AgentWorkResults.artifactURLs(in: current).map(\.path)
             current.status = .planning
             current.planText = ""
             current.summary = ""

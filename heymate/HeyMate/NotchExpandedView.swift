@@ -219,6 +219,7 @@ extension View {
 // MARK: - Root
 
 struct NotchExpandedView: View {
+    @AppStorage(MateEngine.preferenceKey) private var mateEngine = MateEngine.selected().rawValue
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var companionManager: CompanionManager
 
@@ -466,12 +467,13 @@ struct NotchExpandedView: View {
     private var engineChip: some View {
         Button(action: {
             companionManager.openDesktopWindow(section: .settings)
+            DesktopSection.openSettings(tab: DesktopSettingsTab.agents.rawValue)
         }) {
             HStack(spacing: 6) {
                 Image(systemName: "cpu")
                     .font(DS.Glyph.small)
                     .foregroundColor(DS.Colors.accentText)
-                Text(companionManager.selectedBrain.displayName)
+                Text(mateEngine == MateEngine.hermes.rawValue ? "Hermes" : companionManager.selectedBrain.displayName)
                     .font(DS.Fonts.control)
                     .foregroundColor(DS.Colors.textSecondary)
                     .lineLimit(1)
@@ -487,7 +489,7 @@ struct NotchExpandedView: View {
         }
         .buttonStyle(NotchDoorButtonStyle())
         .pointerCursor()
-        .help("Choose engine, model, and effort in Settings")
+        .help(mateEngine == MateEngine.hermes.rawValue ? "Hermes model access and skills" : "Choose engine, model, and effort in Settings")
     }
 
     private func headerIconButton(

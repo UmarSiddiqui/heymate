@@ -249,6 +249,7 @@
 				28F22CBB2F56440300A0FC59 /* Sources */,
 				28F22CBC2F56440300A0FC59 /* Frameworks */,
 				28F22CBD2F56440300A0FC59 /* Resources */,
+				B77D00012F90080100000801 /* Embed Hermes Runtime */,
 				A10004012F90040100000401 /* Embed Agent Runner */,
 			);
 			buildRules = (
@@ -411,6 +412,21 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+        B77D00012F90080100000801 /* Embed Hermes Runtime */ = {
+            isa = PBXShellScriptBuildPhase;
+            alwaysOutOfDate = 1;
+            buildActionMask = 2147483647;
+            files = ();
+            inputPaths = ();
+            name = "Embed Hermes Runtime";
+            outputPaths = ();
+            runOnlyForDeploymentPostprocessing = 0;
+            shellPath = /bin/bash;
+            shellScript = "set -euo pipefail\nif [[ -n \"${HEYMATE_HERMES_RUNTIME:-}\" ]]; then\n  /usr/bin/python3 \"${SRCROOT}/scripts/hermes-runtime-stage.py\" --source \"${HEYMATE_HERMES_RUNTIME}\" --destination \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Hermes\"\nelif [[ \"${CONFIGURATION}\" == Release && \"${HEYMATE_ALLOW_EXTERNAL_RUNTIME:-NO}\" != YES ]]; then\n  echo \"error: Release requires HEYMATE_HERMES_RUNTIME pointing to the prepared sealed Hermes payload.\" >&2\n  exit 1\nfi\n";
+        };
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		28F22CBB2F56440300A0FC59 /* Sources */ = {
@@ -625,6 +641,7 @@ A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */,
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "HeyMate/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = HeyMate;
@@ -643,7 +660,8 @@ A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */,
 					"-weak_framework",
 					ImagePlayground,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.heymate.app;
+				HEYMATE_APP_BUNDLE_IDENTIFIER = com.heymate.app;
+                PRODUCT_BUNDLE_IDENTIFIER = "$(HEYMATE_APP_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = HeyMate;
 				REGISTER_APP_GROUPS = YES;
 				SPARKLE_FEED_URL = "";
@@ -671,6 +689,7 @@ A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */,
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "HeyMate/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = HeyMate;
@@ -689,7 +708,8 @@ A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */,
 					"-weak_framework",
 					ImagePlayground,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.heymate.app;
+				HEYMATE_APP_BUNDLE_IDENTIFIER = com.heymate.app;
+                PRODUCT_BUNDLE_IDENTIFIER = "$(HEYMATE_APP_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = HeyMate;
 				REGISTER_APP_GROUPS = YES;
 				SPARKLE_FEED_URL = "";

@@ -221,6 +221,10 @@ final class OnboardingTour: ObservableObject {
             await say("First, a few permissions so I can hear you and see your screen. One at a time.")
 
         case .ai:
+            if MateEngine.selected() == .hermes {
+                status = "Connect Hermes to continue, or skip setup."
+                return
+            }
             let signIn = companionManager.subscriptionSignIn
             if signIn.phase.isReady { markDone() }
             signIn.$phase
@@ -343,6 +347,17 @@ final class OnboardingTour: ObservableObject {
         if typing {
             stopSamples()
             companionManager.stopSpeaking()
+        }
+    }
+
+    /// Hermes readiness cannot be replaced by an unrelated native CLI login.
+    func hermesReadinessChanged(_ ready: Bool) {
+        guard step == .ai, MateEngine.selected() == .hermes else { return }
+        if ready {
+            markDone("Hermes is connected.")
+        } else {
+            isStepDone = false
+            status = "Connect Hermes to continue, or skip setup."
         }
     }
 
@@ -520,12 +535,10 @@ final class OnboardingTour: ObservableObject {
     }
 
     private func createMates(_ suggestions: [OnboardingMateSuggestion]) {
-        let faces = MateFace.packs.flatMap(\.faces).map(\.assetName).shuffled()
         var made: [String] = []
-        for (offset, suggestion) in suggestions.enumerated() {
-            let face = faces.isEmpty ? nil : faces[offset % faces.count]
+        for suggestion in suggestions {
             if let mate = companionManager.createMate(
-                name: suggestion.name, job: suggestion.job, opensChat: false, faceAssetName: face
+                name: suggestion.name, job: suggestion.job, opensChat: false
             ) {
                 made.append(mate.name)
             }

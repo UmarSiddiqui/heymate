@@ -2,7 +2,7 @@
 //  MateFace.swift
 //  HeyMate
 //
-//  Milo and Nova are the visible built-in character packs. Retired tokens
+//  Milo, Nova, and Blobatar are the visible built-in character packs. Retired tokens
 //  migrate to Milo without changing mate identity or custom photographs.
 //
 
@@ -70,7 +70,8 @@ enum MateFace {
             summary: "An original feminine companion. Choose hair, skin, eyes, and outfit.",
             faces: MiloLook.allLooks.filter { $0.characterPack == .nova }
                 .map { MateFaceChoice(assetName: $0.assetName, label: $0.label) }
-        )
+        ),
+        BlobatarCharacter.pack
     ]
 
     /// Only a known retired built-in changes. Custom tokens and every other
@@ -83,6 +84,9 @@ enum MateFace {
     static let assetNames: [String] = packs.flatMap { $0.faces.map(\.assetName) }
 
     static func label(for assetName: String) -> String {
+        if BlobatarCharacter.contains(assetName) {
+            return BlobatarCharacter.faces.first { $0.assetName == assetName }?.label ?? "Your Blobatar"
+        }
         if let look = MiloLook(assetName: assetName) { return look.label }
         return packs.flatMap(\.faces).first { $0.assetName == assetName }?.label ?? assetName
     }
@@ -95,7 +99,8 @@ enum MateFace {
     }
 
     static func storedAssetName(_ raw: String?) -> String? {
-        guard let migrated = migratedBuiltInName(raw), MiloLook(assetName: migrated) != nil else { return nil }
+        guard let migrated = migratedBuiltInName(raw),
+              MiloLook(assetName: migrated) != nil || BlobatarCharacter.contains(migrated) else { return nil }
         return migrated
     }
 
@@ -125,6 +130,7 @@ enum MateFace {
     }
 
     static func pack(containing assetName: String) -> MateFacePack? {
+        if BlobatarCharacter.contains(assetName) { return BlobatarCharacter.pack }
         if let look = MiloLook(assetName: assetName) {
             return packs.first { $0.id == look.characterPack.rawValue.lowercased() }
         }
@@ -202,9 +208,12 @@ struct MateFaceView: View {
 
     var body: some View {
         Group {
-            if let look = MiloLook(assetName: MateFace.selectionToken(for: mate)) {
+            if BlobatarCharacter.contains(MateFace.selectionToken(for: mate)) {
+                BlobatarLiveView(mate: mate, token: MateFace.selectionToken(for: mate), size: size,
+                                 expression: expression, reactionEvent: reactionEvent, interactive: interactive)
+            } else if let look = MiloLook(assetName: MateFace.selectionToken(for: mate)) {
                 // Editor assets are transparent head portraits, not full-body renders.
-                LookArtworkView(look: look, kind: .head)
+                MiloPortraitGazeView(look: look)
                     .frame(width: size, height: size)
                     .background(DS.Colors.accent.opacity(0.08), in: Circle())
                     .clipShape(Circle())
@@ -229,7 +238,9 @@ struct MateFaceView: View {
             }
         }
             .overlay {
-                Circle().stroke(ringColor, lineWidth: expression == .still ? 0.6 : 1.4)
+                if !BlobatarCharacter.contains(MateFace.selectionToken(for: mate)) {
+                    Circle().stroke(ringColor, lineWidth: expression == .still ? 0.6 : 1.4)
+                }
             }
             .accessibilityHidden(true)
     }
@@ -252,7 +263,7 @@ struct MateFaceView: View {
             return Image(nsImage: picture)
         }
         let token = MateFace.assetName(for: mate)
-        return Image(MiloLook(assetName: token)?.headAssetName ?? token)
+        return Image(MiloLook(assetName: token)?.headAssetName ?? BlobatarCharacter.artwork(for: token, expression: expression))
     }
 
     private var cropScale: CGFloat {

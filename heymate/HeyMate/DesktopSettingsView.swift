@@ -39,7 +39,7 @@ struct DesktopSettingsView: View {
             SettingsDetailView(companionManager: companionManager, navigation: navigation)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(Color.black)
+        .background(DS.Colors.background)
         .preferredColorScheme(.dark)
     }
 }
@@ -80,7 +80,7 @@ struct SettingsDetailView: View {
         }
             .animation(accessibilityReduceMotion ? DS.Animation.reducedMotionFade : DS.Animation.settingsPage, value: selectedTab)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(Color.black)
+            .background(DS.Colors.background)
             .task {
                 // Model catalogs and sign-in status feed the AI and Agents
                 // pages, so they load once for Settings, not per page.
@@ -179,7 +179,7 @@ struct SettingsSidebar: View {
                 .textSelection(.enabled)
         }
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(Color.black.ignoresSafeArea())
+        .background(DS.Colors.background.ignoresSafeArea())
         .background(
             // Cmd-F from anywhere in Settings.
             Button("Search settings") { isSearchFieldFocused = true }

@@ -107,7 +107,7 @@ struct ChatTaskCard: View {
     private var artifacts: [URL] {
         let blocks = AgentReplyBlocks.extract(from: current.privateFinalResult ?? current.summary)
         var seen = Set<URL>()
-        return (artifactPaths + blocks.presentedArtifacts).compactMap {
+        return (artifactPaths + (current.privateArtifactPaths ?? []) + blocks.presentedArtifacts).compactMap {
             ChatTaskPresentation.artifactURL($0, workspace: current.workspaceURL)
         }.filter { seen.insert($0).inserted }
     }
@@ -148,6 +148,13 @@ struct ChatTaskCard: View {
                     Text(answer).font(DS.Fonts.reading).lineSpacing(3).lineLimit(3)
                         .foregroundStyle(DS.Colors.textSecondary)
                 }
+                // Keep the exact deliverable address visible even when the
+                // answer is collapsed; the private chat owns these references.
+                ForEach(Array(artifacts.filter(\.isFileURL).prefix(4)), id: \.absoluteString) { url in
+                    Text(AgentWorkResults.verifiedFile(url) ? url.path : url.path + " (missing or unreadable)")
+                        .font(DS.Fonts.code).foregroundStyle(DS.Colors.textSecondary)
+                        .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                }
                 HStack(spacing: 12) {
                     Button(expanded ? "Hide result" : "Open result") { expanded.toggle() }
                     Button("Follow up") { showsFollowUp.toggle() }
@@ -182,7 +189,7 @@ struct ChatTaskCard: View {
                             Label(url.isFileURL ? url.lastPathComponent : (url.host ?? "Open link"),
                                   systemImage: url.isFileURL ? "doc" : "link")
                                 .font(DS.Fonts.caption).lineLimit(1)
-                        }.buttonStyle(.plain).help(url.isFileURL ? url.lastPathComponent : url.absoluteString)
+                        }.buttonStyle(.plain).help(url.isFileURL ? url.path : url.absoluteString)
                     }
                     Button("Show task files in Finder") { manager.revealAgentFolder(runID: current.id) }
                         .buttonStyle(.plain).font(DS.Fonts.caption)

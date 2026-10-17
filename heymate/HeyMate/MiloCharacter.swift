@@ -171,6 +171,10 @@ struct MiloLook: Equatable, Hashable {
         return updated
     }
 
+    var supportsPortraitGaze: Bool { eyewear == .none }
+    var portraitGazeBaseAssetName: String { "\(characterPack.rawValue)GazeHead-\(hairstyle.rawValue)-\(hair.rawValue)-\(skin.rawValue)" }
+    var portraitGazeEyesAssetName: String { "\(characterPack.rawValue)GazeHeadEyes-\(eye.rawValue)" }
+
     var gazeBaseAssetName: String { "\(characterPack.rawValue)GazePeek-\(hairstyle.rawValue)-\(hair.rawValue)-\(skin.rawValue)-\(eye.rawValue)" }
     var gazeEyesAssetName: String { "\(characterPack.rawValue)GazeEyes-\(eye.rawValue)" }
     var perchedAssetName: String { "\(characterPack.rawValue)Peek-\(hairstyle.rawValue)-\(hair.rawValue)-\(skin.rawValue)-\(eye.rawValue)" }
@@ -459,7 +463,7 @@ struct MiloCharacterEditor: View {
         .preferredColorScheme(.dark)
         .onChange(of: look) { _, updated in selectedToken = updated.assetName; errorText = nil }
         .onChange(of: section) { _, updated in
-            if updated == .customize { selectedToken = look.assetName }
+            if updated == .customize && !BlobatarCharacter.contains(selectedToken) { selectedToken = look.assetName }
         }
         .fileImporter(isPresented: $importingPhoto, allowedContentTypes: [.image], allowsMultipleSelection: false) { result in
             switch result {
@@ -508,6 +512,8 @@ struct MiloCharacterEditor: View {
                 if let selectedLook = MiloLook(assetName: selectedToken) {
                     LookArtworkView(look: selectedLook, kind: .body)
                         .accessibilityLabel(selectedLook.label)
+                } else if BlobatarCharacter.contains(selectedToken) {
+                    BlobatarLiveView(mate: mate, token: selectedToken, size: 280, interactive: true)
                 } else if let url = MateFaceStore.fileURL(for: selectedToken), let photo = NSImage(contentsOf: url) {
                     Image(nsImage: photo).resizable().interpolation(.high).scaledToFit()
                         .padding(24).accessibilityLabel("Your picture")
@@ -520,9 +526,13 @@ struct MiloCharacterEditor: View {
             Text(MiloLook(assetName: selectedToken)?.outfit.label ?? (MateFaceStore.fileURL(for: selectedToken) == nil ? MateFace.label(for: selectedToken) : "Your picture"))
                 .font(DS.Fonts.caption).foregroundStyle(DS.Colors.textSecondary)
             Button {
-                look = .random(characterPack: look.characterPack)
-                selectedToken = look.assetName
-                section = .customize
+                if BlobatarCharacter.contains(selectedToken) {
+                    selectedToken = BlobatarCharacter.randomToken()
+                } else {
+                    look = .random(characterPack: look.characterPack)
+                    selectedToken = look.assetName
+                    section = .customize
+                }
                 errorText = nil
             } label: {
                 Label("Randomize character", systemImage: "dice")
@@ -530,7 +540,7 @@ struct MiloCharacterEditor: View {
                     .padding(.horizontal, 17).padding(.vertical, 11)
                     .background(DS.Colors.surface2, in: Capsule())
                     .overlay(Capsule().stroke(DS.Colors.borderStrong, lineWidth: 1))
-            }.buttonStyle(.plain).accessibilityLabel("Randomize \(look.characterPack.label)’s hair, colors, and outfit")
+            }.buttonStyle(.plain).accessibilityLabel(BlobatarCharacter.contains(selectedToken) ? "Randomize Blobatar character" : "Randomize \(look.characterPack.label)’s hair, colors, and outfit")
             Spacer(minLength: 18)
         }.padding(.horizontal, 18).frame(width: 340)
     }
@@ -538,72 +548,77 @@ struct MiloCharacterEditor: View {
     private var customization: some View {
         Group {
             if supportsPacks { packChoices }
-            Text("Make \(look.characterPack.label) yours").font(DS.Fonts.headline)
-            Text("Choose each detail. Your saved look follows your mate.")
-                .font(DS.Fonts.caption).foregroundStyle(DS.Colors.textSecondary)
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Hairstyle").font(DS.Fonts.headline)
-                HStack(spacing: 12) {
-                    ForEach(MiloLook.Hairstyle.allCases) { style in
-                        let preview = MiloLook(characterPack: look.characterPack, hairstyle: style, hair: look.hair, skin: look.skin, eye: look.eye, outfit: look.outfit, hat: look.hat, eyewear: look.eyewear)
-                        Button { look.hairstyle = style } label: {
-                            VStack(spacing: 5) {
-                                LookArtworkView(look: preview, kind: .head).frame(height: 90)
-                                Text(look.hairstyleLabel(style)).font(DS.Fonts.caption)
-                            }.frame(maxWidth: .infinity).padding(10)
-                                .background(DS.Colors.surface1, in: RoundedRectangle(cornerRadius: 12))
-                                .overlay(selection(look.hairstyle == style))
-                        }.buttonStyle(.plain).accessibilityLabel(look.hairstyleLabel(style))
-                            .accessibilityAddTraits(look.hairstyle == style ? .isSelected : [])
+            if BlobatarCharacter.contains(selectedToken) {
+                blobatarChoices
+            } else {
+                Text("Make \(look.characterPack.label) yours").font(DS.Fonts.headline)
+                Text("Choose each detail. Your saved look follows your mate.")
+                    .font(DS.Fonts.caption).foregroundStyle(DS.Colors.textSecondary)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Hairstyle").font(DS.Fonts.headline)
+                    HStack(spacing: 12) {
+                        ForEach(MiloLook.Hairstyle.allCases) { style in
+                            let preview = MiloLook(characterPack: look.characterPack, hairstyle: style, hair: look.hair, skin: look.skin, eye: look.eye, outfit: look.outfit, hat: look.hat, eyewear: look.eyewear)
+                            Button { look.hairstyle = style } label: {
+                                VStack(spacing: 5) {
+                                    LookArtworkView(look: preview, kind: .head).frame(height: 90)
+                                    Text(look.hairstyleLabel(style)).font(DS.Fonts.caption)
+                                }.frame(maxWidth: .infinity).padding(10)
+                                    .background(DS.Colors.surface1, in: RoundedRectangle(cornerRadius: 12))
+                                    .overlay(selection(look.hairstyle == style))
+                            }.buttonStyle(.plain).accessibilityLabel(look.hairstyleLabel(style))
+                                .accessibilityAddTraits(look.hairstyle == style ? .isSelected : [])
+                        }
                     }
                 }
-            }
-            swatches("Hair color", options: MiloLook.Hair.allCases, selected: $look.hair, label: { look.hairLabel($0) }, color: { look.hairColor($0) })
-            swatches("Skin tone", options: MiloLook.Skin.allCases, selected: $look.skin, label: { $0.label }, color: { $0.color })
-            swatches("Eye color", options: MiloLook.Eye.allCases, selected: $look.eye, label: { $0.label }, color: { $0.color })
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Outfit").font(DS.Fonts.headline)
-                HStack(spacing: 12) {
-                    ForEach(MiloLook.Outfit.allCases) { outfit in
-                        let preview = MiloLook(characterPack: look.characterPack, hairstyle: look.hairstyle, hair: look.hair, skin: look.skin, eye: look.eye, outfit: outfit, hat: look.hat, eyewear: look.eyewear)
-                        Button { look.outfit = outfit } label: {
-                            VStack(spacing: 5) {
-                                LookArtworkView(look: preview, kind: .body).frame(height: 125)
-                                Text(outfit.label).font(DS.Fonts.caption)
-                            }.frame(maxWidth: .infinity).padding(10)
-                                .background(DS.Colors.surface1, in: RoundedRectangle(cornerRadius: 12))
-                                .overlay(selection(look.outfit == outfit))
-                        }.buttonStyle(.plain).accessibilityLabel("Outfit: \(outfit.label)")
-                            .accessibilityAddTraits(look.outfit == outfit ? .isSelected : [])
+                swatches("Hair color", options: MiloLook.Hair.allCases, selected: $look.hair, label: { look.hairLabel($0) }, color: { look.hairColor($0) })
+                swatches("Skin tone", options: MiloLook.Skin.allCases, selected: $look.skin, label: { $0.label }, color: { $0.color })
+                swatches("Eye color", options: MiloLook.Eye.allCases, selected: $look.eye, label: { $0.label }, color: { $0.color })
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Outfit").font(DS.Fonts.headline)
+                    HStack(spacing: 12) {
+                        ForEach(MiloLook.Outfit.allCases) { outfit in
+                            let preview = MiloLook(characterPack: look.characterPack, hairstyle: look.hairstyle, hair: look.hair, skin: look.skin, eye: look.eye, outfit: outfit, hat: look.hat, eyewear: look.eyewear)
+                            Button { look.outfit = outfit } label: {
+                                VStack(spacing: 5) {
+                                    LookArtworkView(look: preview, kind: .body).frame(height: 125)
+                                    Text(outfit.label).font(DS.Fonts.caption)
+                                }.frame(maxWidth: .infinity).padding(10)
+                                    .background(DS.Colors.surface1, in: RoundedRectangle(cornerRadius: 12))
+                                    .overlay(selection(look.outfit == outfit))
+                            }.buttonStyle(.plain).accessibilityLabel("Outfit: \(outfit.label)")
+                                .accessibilityAddTraits(look.outfit == outfit ? .isSelected : [])
+                        }
                     }
                 }
-            }
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Hat").font(DS.Fonts.headline)
-                HStack(spacing: 12) {
-                    ForEach(MiloLook.Hat.allCases) { hat in
-                        let preview = look.wearing(hat: hat)
-                        accessoryTile(label: hat.label, preview: preview, selected: look.hat == hat) { look.hat = hat }
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Hat").font(DS.Fonts.headline)
+                    HStack(spacing: 12) {
+                        ForEach(MiloLook.Hat.allCases) { hat in
+                            let preview = look.wearing(hat: hat)
+                            accessoryTile(label: hat.label, preview: preview, selected: look.hat == hat) { look.hat = hat }
+                        }
                     }
                 }
-            }
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Eyewear").font(DS.Fonts.headline)
-                HStack(spacing: 12) {
-                    ForEach(MiloLook.Eyewear.allCases) { eyewear in
-                        let preview = look.wearing(eyewear: eyewear)
-                        accessoryTile(label: eyewear.label, preview: preview, selected: look.eyewear == eyewear) { look.eyewear = eyewear }
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Eyewear").font(DS.Fonts.headline)
+                    HStack(spacing: 12) {
+                        ForEach(MiloLook.Eyewear.allCases) { eyewear in
+                            let preview = look.wearing(eyewear: eyewear)
+                            accessoryTile(label: eyewear.label, preview: preview, selected: look.eyewear == eyewear) { look.eyewear = eyewear }
+                        }
                     }
                 }
+                Text("Custom looks keep a neutral expression.")
+                    .font(DS.Fonts.caption).foregroundStyle(DS.Colors.textSecondary)
             }
-            Text("Custom looks keep a neutral expression.")
-                .font(DS.Fonts.caption).foregroundStyle(DS.Colors.textSecondary)
         }
     }
 
     private var characterPacks: some View {
         Group {
             packChoices
+            blobatarChoices
             Text("Your picture").font(DS.Fonts.headline)
             Text("Keep your own photo, or choose a new one. Existing saved pictures stay available.")
                 .font(DS.Fonts.caption).foregroundStyle(DS.Colors.textSecondary)
@@ -617,6 +632,39 @@ struct MiloCharacterEditor: View {
             if MateFaceStore.fileURL(for: selectedToken) != nil {
                 Label("Your picture is selected", systemImage: "checkmark.circle.fill")
                     .font(DS.Fonts.caption).foregroundStyle(DS.Colors.accentText)
+            }
+        }
+    }
+
+    private var blobatarChoices: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(BlobatarCharacter.pack.name).font(DS.Fonts.headline)
+            Text(BlobatarCharacter.pack.summary)
+                .font(DS.Fonts.caption).foregroundStyle(DS.Colors.textSecondary)
+            HStack {
+                Button("Use bot identity") { selectedToken = BlobatarCharacter.automaticToken; errorText = nil }
+                    .buttonStyle(.plain).font(DS.Fonts.control)
+                    .foregroundStyle(DS.Colors.accentText)
+                Spacer()
+                Button { selectedToken = BlobatarCharacter.randomToken(); errorText = nil } label: {
+                    Label("New look", systemImage: "dice").font(DS.Fonts.control)
+                }.buttonStyle(.plain).foregroundStyle(DS.Colors.accentText)
+            }
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                ForEach(BlobatarCharacter.faces) { face in
+                    Button {
+                        selectedToken = face.assetName
+                        errorText = nil
+                    } label: {
+                        VStack(spacing: 8) {
+                            BlobatarLiveView(mate: mate, token: face.assetName, size: 80)
+                            Text(face.label.replacingOccurrences(of: "Blobatar ", with: "")).font(DS.Fonts.caption)
+                        }.frame(maxWidth: .infinity).padding(10)
+                            .background(DS.Colors.surface1, in: RoundedRectangle(cornerRadius: 12))
+                            .overlay(selection(selectedToken == face.assetName))
+                    }.buttonStyle(.plain).accessibilityLabel("Choose \(face.label)")
+                        .accessibilityAddTraits(selectedToken == face.assetName ? .isSelected : [])
+                }
             }
         }
     }
@@ -644,6 +692,23 @@ struct MiloCharacterEditor: View {
                     }.buttonStyle(.plain).accessibilityLabel("Choose \(pack.label) character pack")
                         .accessibilityAddTraits(MiloLook(assetName: selectedToken)?.characterPack == pack ? .isSelected : [])
                 }
+                Button {
+                    selectedToken = BlobatarCharacter.automaticToken
+                    section = .packs
+                    errorText = nil
+                } label: {
+                    VStack(spacing: 8) {
+                        BlobatarLiveView(mate: mate, token: BlobatarCharacter.contains(selectedToken) ? selectedToken : BlobatarCharacter.automaticToken, size: 120)
+                            .frame(height: 145)
+                        Text("Blobatar").font(DS.Fonts.headline)
+                        Text("Unique look. Eyes follow you.")
+                            .font(DS.Fonts.caption).foregroundStyle(DS.Colors.textSecondary)
+                            .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                    }.frame(maxWidth: .infinity).padding(12)
+                        .background(DS.Colors.surface1, in: RoundedRectangle(cornerRadius: 12))
+                        .overlay(selection(BlobatarCharacter.contains(selectedToken)))
+                }.buttonStyle(.plain).accessibilityLabel("Choose Blobatar character pack")
+                    .accessibilityAddTraits(BlobatarCharacter.contains(selectedToken) ? .isSelected : [])
             }
         }
     }

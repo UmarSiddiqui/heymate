@@ -5,8 +5,8 @@
 //  What the Talk model can call mid-answer, beyond text.
 //
 //  Local actions are always available — start a timer, set a reminder,
-//  open an app, change the volume, and four session choices (start mate
-//  work, message a mate, answer a mate, ask on the fast or deep path) —
+//  open an app, change the volume, start/continue durable work, inspect jobs
+//  and owned results, open/reveal deliverables, and choose a conversation path —
 //  plus one entry per tool every connected MCP connector currently
 //  exposes through `ConnectorRuntime`. One catalog so the system prompt's
 //  "connected tools" list, the JSON schema sent to the model, and
@@ -43,6 +43,7 @@ enum TalkToolCatalog {
     static let setSystemVolumeToolName = "set_volume"
     static let startMateWorkToolName = HarnessToolName.startMateWork.rawValue
     static let sendToMateToolName = HarnessToolName.sendToMate.rawValue
+    static let getMateStatusToolName = HarnessToolName.getMateStatus.rawValue
     static let answerRequestToolName = HarnessToolName.answerRequest.rawValue
     static let askDeeperToolName = HarnessToolName.askDeeper.rawValue
 
@@ -100,7 +101,27 @@ enum TalkToolCatalog {
             .joined(separator: ", ")
     }
 
-    private static let localTools: [TalkTool] = [
+    static let localTools: [TalkTool] = [
+        TalkTool(toolDefinition: AssistantToolDefinition(
+            name: HarnessToolName.continueWork.rawValue,
+            description: "Revise or continue a persisted job owned by this exact chat, preserving its provider session and approval gate.",
+            inputSchemaJSON: #"{"type":"object","properties":{"run_id":{"type":"string"},"instruction":{"type":"string"}},"required":["instruction"]}"#
+        ), origin: .local),
+        TalkTool(toolDefinition: AssistantToolDefinition(
+            name: HarnessToolName.inspectWork.rawValue,
+            description: "Inspect persisted jobs and readable artifact text owned by this exact chat. Use for prior findings, full paths, or missing files.",
+            inputSchemaJSON: #"{"type":"object","properties":{"run_id":{"type":"string"}}}"#
+        ), origin: .local),
+        TalkTool(toolDefinition: AssistantToolDefinition(
+            name: HarnessToolName.openArtifact.rawValue,
+            description: "Ask macOS to open a verified artifact owned by this exact chat. Returns real success or failure.",
+            inputSchemaJSON: #"{"type":"object","properties":{"path":{"type":"string"},"run_id":{"type":"string"}}}"#
+        ), origin: .local),
+        TalkTool(toolDefinition: AssistantToolDefinition(
+            name: HarnessToolName.revealArtifact.rawValue,
+            description: "Ask Finder to reveal a verified artifact owned by this exact chat.",
+            inputSchemaJSON: #"{"type":"object","properties":{"path":{"type":"string"},"run_id":{"type":"string"}}}"#
+        ), origin: .local),
         TalkTool(
             toolDefinition: AssistantToolDefinition(
                 name: startTimerToolName,
@@ -147,6 +168,16 @@ enum TalkToolCatalog {
                 description: "Start durable work on a named agent. Creates an agent only when new_name is set and no agent already matches.",
                 inputSchemaJSON: """
                 {"type":"object","properties":{"agent":{"type":"string","description":"Existing agent name"},"task":{"type":"string","description":"What the agent should do"},"new_name":{"type":"string","description":"Name to create when no agent matches"}},"required":["task"]}
+                """
+            ),
+            origin: .local
+        ),
+        TalkTool(
+            toolDefinition: AssistantToolDefinition(
+                name: getMateStatusToolName,
+                description: "Read persisted job status and available final answers without starting or messaging an agent. Omit agent to inspect all agents. A succeeded status means the agent reported completion; review its evidence before claiming the task is verified.",
+                inputSchemaJSON: """
+                {"type":"object","properties":{"agent":{"type":"string","description":"Existing agent name; omit for all agents"}},"required":[]}
                 """
             ),
             origin: .local

@@ -270,9 +270,14 @@ nonisolated enum HeyMateMCPServer {
     // say why, but it may not press it.
 
     import { createInterface } from "node:readline";
+    import { readFileSync } from "node:fs";
 
-    const BRIDGE_URL = (process.env.HEYMATE_BRIDGE_URL || "http://127.0.0.1:18732").replace(/\/$/, "");
-    const BRIDGE_TOKEN = process.env.HEYMATE_BRIDGE_TOKEN || "";
+    const bridgeContext = process.env.HEYMATE_BRIDGE_CONTEXT_FILE
+      ? JSON.parse(readFileSync(process.env.HEYMATE_BRIDGE_CONTEXT_FILE, "utf8")) : {};
+    const BRIDGE_URL = (bridgeContext.HEYMATE_BRIDGE_URL || process.env.HEYMATE_BRIDGE_URL || "http://127.0.0.1:18732").replace(/\/$/, "");
+    const BRIDGE_TOKEN = bridgeContext.HEYMATE_BRIDGE_TOKEN || process.env.HEYMATE_BRIDGE_TOKEN || "";
+    const TALK_SCOPE = process.env.HEYMATE_TALK_SCOPE || "";
+    const SCOPED_ONLY = process.env.HEYMATE_SCOPED_ONLY === "1";
     const PROTOCOL_VERSION_FALLBACK = "2025-06-18";
 
     const TOOLS = [
@@ -409,13 +414,29 @@ nonisolated enum HeyMateMCPServer {
       }
     }
 
+    async function fetchTalkTools() {
+      if (!TALK_SCOPE) return [];
+      try {
+        const parsed = JSON.parse(await callBridge(SCOPED_ONLY ? "/talk/connector-tools" : "/talk/tools", { scope: TALK_SCOPE }));
+        return Array.isArray(parsed.tools) ? parsed.tools.map(tool => ({ ...tool, talk: true })) : [];
+      } catch { return []; }
+    }
+
+    let talkToolNames = new Set();
+
     async function handleToolCall(id, params) {
       const name = params?.name;
-      const tool = TOOLS.find((candidate) => candidate.name === name);
+      const tool = SCOPED_ONLY ? undefined : TOOLS.find((candidate) => candidate.name === name);
+      if (SCOPED_ONLY && !talkToolNames.has(name)) {
+        respond(id, { content: [{ type: "text", text: "Tool is unavailable in this conversation scope." }], isError: true });
+        return;
+      }
 
       try {
         if (!tool) {
-          const raw = await callBridge("/connector/call", {
+          const isTalk = talkToolNames.has(name);
+          const raw = await callBridge(isTalk ? (SCOPED_ONLY ? "/talk/connector-call" : "/talk/call") : "/connector/call", {
+            ...(isTalk ? { scope: TALK_SCOPE } : {}),
             tool: name,
             arguments: JSON.stringify(params?.arguments || {})
           });
@@ -462,9 +483,11 @@ nonisolated enum HeyMateMCPServer {
           respond(id, {});
           return;
         case "tools/list": {
-          const connectorTools = await fetchConnectorTools();
+          const connectorTools = SCOPED_ONLY ? [] : await fetchConnectorTools();
+          const talkTools = await fetchTalkTools();
+          talkToolNames = new Set(talkTools.map(tool => tool.name));
           respond(id, {
-            tools: TOOLS.concat(connectorTools).map(({ name, description, inputSchema }) => ({
+            tools: [...new Map((SCOPED_ONLY ? talkTools : TOOLS.concat(connectorTools, talkTools)).map(tool => [tool.name, tool])).values()].map(({ name, description, inputSchema }) => ({
               name,
               description,
               inputSchema

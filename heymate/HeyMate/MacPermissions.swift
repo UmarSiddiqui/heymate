@@ -122,8 +122,8 @@ enum MacPermissions {
         return granted
     }
 
-    /// Whether to go ahead as if Screen Recording is granted: it is now, or
-    /// it was confirmed before and the live check is just lagging.
+    /// Historical grants are not authorization for this process. A revoked
+    /// grant or a different signing identity must remain visibly unavailable.
     static func screenRecordingLooksGranted() -> Bool {
         screenRecordingCountsAsGranted(
             grantedNow: hasScreenRecordingPermission(),
@@ -175,7 +175,7 @@ enum MacPermissions {
     }
 
     static func screenRecordingCountsAsGranted(grantedNow: Bool, confirmedBefore: Bool) -> Bool {
-        grantedNow || confirmedBefore
+        grantedNow
     }
 
     /// The prompt's own answer counts even when the live check still says no.

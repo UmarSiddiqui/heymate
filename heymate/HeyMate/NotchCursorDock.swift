@@ -171,6 +171,7 @@ private struct RocketLaunchBayGlyph: View {
 
 struct NotchModelPickerPanel: View {
     @ObservedObject var companionManager: CompanionManager
+    @AppStorage(MateEngine.preferenceKey) private var mateEngine = MateEngine.selected().rawValue
     @State private var searchText = ""
     @State private var hoveredBrain: AgentBrain?
     @State private var hoveredCodexModelID: String?
@@ -178,6 +179,23 @@ struct NotchModelPickerPanel: View {
     @State private var hoveredOpenCodeModelID: String?
 
     var body: some View {
+        if mateEngine == MateEngine.hermes.rawValue {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Hermes").font(DS.Fonts.titleCompact)
+                Text("Every mate uses one Hermes engine. Model access and skills belong to your private Hermes profile.")
+                    .font(DS.Fonts.caption).foregroundColor(DS.Colors.textSecondary)
+                Button("Model access and skills…") {
+                    companionManager.openDesktopWindow(section: .settings)
+                    DesktopSection.openSettings(tab: DesktopSettingsTab.agents.rawValue)
+                }.dsCapsuleButtonStyle(.secondary)
+                Spacer()
+            }.padding(16)
+        } else {
+            nativePicker
+        }
+    }
+
+    private var nativePicker: some View {
         HStack(alignment: .top, spacing: 0) {
             providerRail
 

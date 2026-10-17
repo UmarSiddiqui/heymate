@@ -564,7 +564,42 @@ struct HeadlessAgentLauncherTests {
         #expect(store.run(id: run.id)?.activity.last?.text == "Queued for after the current step; this executor cannot accept live execution updates.")
     }
 
-    @Test func statusQuestionAnswersImmediatelyWithoutQueueingWork() {
+    @Test(arguments: [
+        "Add a status page",
+        "Show a progress bar while uploading",
+        "Fix the status endpoint",
+        "What are you doing? Also add dark mode",
+        "Status, then fix the failing tests",
+        "Are you done with the status page? Finish it if not."
+    ])
+    func statusWordsInWorkInstructionsStillQueue(instruction: String) {
+        let storeFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("launcher-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: storeFileURL) }
+        let store = FileAgentRunStore(fileURL: storeFileURL)
+        let undoLedger = FileAgentUndoLedger(rootDirectoryURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("undo-\(UUID().uuidString)", isDirectory: true))
+        var run = AgentRun.queued(
+            id: UUID(), title: "Build site", prompt: "Build a site",
+            workspaceURL: URL(fileURLWithPath: "/tmp/build-site", isDirectory: true),
+            executor: .claudeCode, origin: .sandbox
+        )
+        run.status = .running
+        store.upsert(run)
+        let launcher = HeadlessAgentLauncher(store: store, undoLedger: undoLedger)
+
+        #expect(launcher.sendFollowUp(runID: run.id, instruction: instruction))
+        #expect(store.run(id: run.id)?.queuedFollowUpInstructions == [instruction])
+        #expect(store.run(id: run.id)?.status == .running)
+        #expect(store.run(id: run.id)?.activity.last?.kind == .status)
+    }
+
+    @Test(arguments: [
+        "What are you up to, isn't it done?", "Status?", "Any progress?",
+        "  Please, what’s the status?  ", "Please give me a status update.",
+        "How is it going? Are you done?"
+    ])
+    func statusQuestionAnswersImmediatelyWithoutQueueingWork(instruction: String) {
         let storeFileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("launcher-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: storeFileURL) }
@@ -587,7 +622,7 @@ struct HeadlessAgentLauncherTests {
         store.upsert(run)
         let launcher = HeadlessAgentLauncher(store: store, undoLedger: undoLedger)
 
-        let accepted = launcher.sendFollowUp(runID: run.id, instruction: "What are you up to, isn't it done?")
+        let accepted = launcher.sendFollowUp(runID: run.id, instruction: instruction)
 
         #expect(accepted)
         #expect(store.run(id: run.id)?.queuedFollowUpInstructions.isEmpty == true)

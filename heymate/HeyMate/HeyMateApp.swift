@@ -51,7 +51,11 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        Task { await OnDeviceVoiceModelStore.shared.downloadAll() }
+        // Scratch QA runs use their selected Mac voice and must not download
+        // large optional voice models into the user's installation.
+        if !HeyMateDataDirectory.isHostingTests {
+            Task { await OnDeviceVoiceModelStore.shared.downloadAll() }
+        }
         companionManager.start()
         let launchArguments = ProcessInfo.processInfo.arguments
         if launchArguments.contains("--detached-chat") {
@@ -59,6 +63,11 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         }
         if launchArguments.contains("--show-chat") || launchArguments.contains("--detached-chat") {
             companionManager.openDesktopWindow(section: .chat)
+        }
+        if MateEngine.selected() == .hermes,
+           (try? HermesEngineConfiguration.load().resolveLaunchConfiguration()) == nil {
+            companionManager.openDesktopWindow(section: .settings)
+            DesktopSection.openSettings(tab: DesktopSettingsTab.agents.rawValue)
         }
         AppPresencePreferences.shared.applyOnLaunch()
         AppUpdateController.shared.start()
@@ -101,12 +110,23 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         guard !isHostingUnitTests else { return }
         companionManager.stop()
+        HermesServeBackend.shared.stop()
     }
 
     /// Verified detached execute legs survive Cmd-Q. Planning, legacy work, and
     /// launch races still stay attached to HeyMate and must finish or cancel.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !isHostingUnitTests else { return .terminateNow }
+        if companionManager.isHermesTurnInFlight {
+            companionManager.openDesktopWindow(section: .chat)
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Hermes is still working"
+            alert.informativeText = "Keep HeyMate open until this turn finishes, or stop it from the chat before quitting."
+            alert.addButton(withTitle: "Show chat")
+            alert.runModal()
+            return .terminateCancel
+        }
         let activeCount = companionManager.activeProcessBackedAgentRunCount
         guard activeCount > 0 else { return .terminateNow }
 

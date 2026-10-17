@@ -25,6 +25,7 @@ nonisolated struct DetachedAgentLaunchSpec: Codable, Equatable, Sendable {
     let environmentOverrides: [String: String]
     let temporaryDirectoriesToRemove: [URL]
     let usesDuplexStandardInput: Bool
+    var initialStandardInput: Data? = nil
     let runtimeLimit: TimeInterval
 
     init(
@@ -35,6 +36,7 @@ nonisolated struct DetachedAgentLaunchSpec: Codable, Equatable, Sendable {
         environmentOverrides: [String: String] = [:],
         temporaryDirectoriesToRemove: [URL] = [],
         usesDuplexStandardInput: Bool = false,
+        initialStandardInput: Data? = nil,
         runtimeLimit: TimeInterval
     ) {
         self.executableURL = executableURL
@@ -44,6 +46,7 @@ nonisolated struct DetachedAgentLaunchSpec: Codable, Equatable, Sendable {
         self.environmentOverrides = environmentOverrides
         self.temporaryDirectoriesToRemove = temporaryDirectoriesToRemove
         self.usesDuplexStandardInput = usesDuplexStandardInput
+        self.initialStandardInput = initialStandardInput
         self.runtimeLimit = runtimeLimit
     }
 }

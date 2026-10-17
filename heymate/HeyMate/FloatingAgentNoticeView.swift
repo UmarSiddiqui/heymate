@@ -39,14 +39,14 @@ struct FloatingAgentNoticeCard: View {
                 }
                 .padding(.horizontal, 16).padding(.vertical, 14)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.black, in: RoundedRectangle(cornerRadius: 18))
+                .background(DS.Colors.background, in: RoundedRectangle(cornerRadius: 18))
                 .overlay(RoundedRectangle(cornerRadius: 18).stroke(tint.opacity(0.32), lineWidth: 0.8))
             } else {
                 Spacer(minLength: 0)
                 Button(action: onReport) {
                     Image(systemName: "message.fill").font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(tint).frame(width: 44, height: 44)
-                        .background(Color.black, in: RoundedRectangle(cornerRadius: 14))
+                        .background(DS.Colors.background, in: RoundedRectangle(cornerRadius: 14))
                         .overlay(alignment: .topTrailing) {
                             Circle().fill(tint).frame(width: 7, height: 7).padding(5)
                         }
@@ -95,7 +95,7 @@ struct FloatingAgentReportView: View {
         }
         .padding(24).frame(minWidth: 440, maxWidth: .infinity, minHeight: 320,
                            maxHeight: .infinity, alignment: .topLeading)
-        .foregroundStyle(DS.Colors.textPrimary).background(Color.black)
+        .foregroundStyle(DS.Colors.textPrimary).background(DS.Colors.background)
     }
 
     private var reportText: some View {

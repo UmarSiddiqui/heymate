@@ -109,7 +109,7 @@ extension CompanionManager: MateRoutineRunning {
             soul: soul
         )
         var created = mate
-        created.faceAssetName = faceAssetName
+        created.faceAssetName = faceAssetName ?? BlobatarCharacter.automaticToken
         guard mateDirectory.upsertMate(created) else { return nil }
         ensureMateFolder(id: mate.id)
         let saved = mateDirectory.mates.first { $0.id == mate.id } ?? created
@@ -158,7 +158,14 @@ extension CompanionManager: MateRoutineRunning {
     /// Reports a run's milestones in the chat that asked for it, so the mate
     /// comes back with results instead of waiting to be asked.
     func postMateRunUpdate(runID: UUID, event: AgentEvent) {
-        guard let run = agentRunStore.run(id: runID), let owner = run.chatOwner else { return }
+        guard var run = agentRunStore.run(id: runID), let owner = run.chatOwner else { return }
+        if run.status.isTerminal {
+            let paths = AgentWorkResults.artifactURLs(in: run).map(\.path)
+            if !paths.isEmpty, paths != run.privateArtifactPaths {
+                run.privateArtifactPaths = paths
+                _ = agentRunStore.update(id: runID) { $0.privateArtifactPaths = paths }
+            }
+        }
         if run.status.isTerminal, run.chatResultDeliveryKey == run.resultDeliveryKey { return }
         let text: String
         switch event {
@@ -178,7 +185,9 @@ extension CompanionManager: MateRoutineRunning {
         default:
             return
         }
-        postAgentMessage(owner: owner, text: text, taskRun: run.status.isTerminal ? run : nil)
+        let paths = run.status.isTerminal ? AgentWorkResults.deliveryPaths(run) : ""
+        let ownerText = paths.isEmpty ? text : text + "\n\nArtifacts:\n" + paths
+        postAgentMessage(owner: owner, text: ownerText, taskRun: run.status.isTerminal ? run : nil)
         if let requester = owner.requester, requester.chatID != owner.chatID {
             let specialist = mateDirectory.mates.first { $0.id == owner.mateID }?.name ?? "Specialist"
             postAgentMessage(owner: requester, text: "\(specialist) work update (specialist report; review evidence before calling the task complete):\n\n\(text)", taskRun: run.status.isTerminal ? run : nil)

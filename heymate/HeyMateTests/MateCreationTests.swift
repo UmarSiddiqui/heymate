@@ -238,6 +238,7 @@ struct MateCreationCommandTests {
         defer { fixture.cleanUp() }
         let manager = fixture.manager
         let mate = try #require(manager.createMate(name: "Mira", job: "a patient design tutor"))
+        #expect(mate.faceAssetName == BlobatarCharacter.automaticToken)
         let original = manager.currentChat
         manager.openMate(id: manager.mateDirectory.defaultMateID)
         manager.openMate(id: mate.id)

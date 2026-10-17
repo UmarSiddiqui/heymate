@@ -79,8 +79,12 @@ struct AgentApprovalLaunchSpecTests {
         #expect(arguments.contains(sessionIdentifier))
         #expect(arguments.contains("--session-id") == false)
         #expect(arguments.contains("acceptEdits"))
+        #expect(arguments.contains("--system-prompt-snapshot"))
+        #expect(arguments.contains("off"))
         #expect(arguments.contains("--safe-mode"))
-        #expect(arguments.contains(headlessAgentExecuteInstruction))
+        let input = claudeSpec(leg: .execute).initialStandardInput
+        let payload = input.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        #expect((payload?["message"] as? [String: String])?["content"] == headlessAgentExecuteInstruction)
     }
 
     @Test func claudeReplanLegStaysReadOnlyInTheSameSession() {

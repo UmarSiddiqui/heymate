@@ -30,13 +30,17 @@ nonisolated struct ScreenSnapshot: Sendable {
 }
 
 enum ScreenCapture {
-    enum Failure: LocalizedError {
+    enum Failure: LocalizedError, Equatable {
+        case permissionRequired
+        case captureDisabledInTests
         case noDisplay
         case nothingCaptured
         case encodingFailed
 
         var errorDescription: String? {
             switch self {
+            case .permissionRequired: return "Screen recording is unavailable. Enable it in HeyMate’s permission settings before capturing."
+            case .captureDisabledInTests: return "Screen capture is disabled in the unit-test host."
             case .noDisplay: return "No display available for capture"
             case .nothingCaptured: return "Failed to capture any screen"
             case .encodingFailed: return "Failed to encode the screenshot"
@@ -49,9 +53,20 @@ enum ScreenCapture {
     private nonisolated static let longestEdge = 1280
     private nonisolated static let jpegQuality = 0.8
 
+    /// Content enumeration itself can prompt. Automatic voice/background captures
+    /// must never use it as a permission request, including after a grant was revoked.
+    nonisolated static func requirePermission(
+        isTestHost: Bool = HeyMateDataDirectory.isUnitTestHost,
+        preflight: () -> Bool = { CGPreflightScreenCaptureAccess() }
+    ) throws {
+        guard !isTestHost else { throw Failure.captureDisabledInTests }
+        guard preflight() else { throw Failure.permissionRequired }
+    }
+
     /// Every connected display, the one under the cursor first. Displays are
     /// captured in parallel.
     static func allScreens() async throws -> [ScreenSnapshot] {
+        try requirePermission()
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard !content.displays.isEmpty else { throw Failure.noDisplay }
 
@@ -105,6 +120,7 @@ enum ScreenCapture {
     /// screen when there is no such window (the desktop, or HeyMate itself
     /// in front), so choosing this can never leave Talk blind.
     static func focusedWindow() async throws -> [ScreenSnapshot] {
+        try requirePermission()
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard !content.displays.isEmpty else { throw Failure.noDisplay }
 
