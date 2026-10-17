@@ -20,6 +20,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--payload', type=Path)
     args = parser.parse_args()
+    if args.payload:
+        import platform
+        args.payload = args.payload.resolve()
+        manifest = json.loads((args.payload / 'manifest.json').read_text())
+        if 'payloads' in manifest:
+            arch = 'arm64' if platform.machine().lower() in ('arm64', 'aarch64') else 'x86_64'
+            args.payload = args.payload / manifest['payloads'][arch]
     source = (Path(__file__).resolve().parents[1] / 'HeyMate/HeyMateMCPServer.swift').read_text()
     script = source.split('static let serverSource = #"""', 1)[1].split('"""#', 1)[0]
     # Swift multiline literals strip common indentation.
@@ -66,7 +73,13 @@ def main():
         context.write_text(json.dumps({'HEYMATE_BRIDGE_URL': f'http://127.0.0.1:{server.server_port}',
                                       'HEYMATE_BRIDGE_TOKEN': token}))
         context.chmod(0o600)
-        node = shutil.which('node')
+        if args.payload:
+            manifest = json.loads((args.payload / 'manifest.json').read_text())
+            tools = args.payload / manifest['runtimePath']
+            facts = json.loads((tools / 'facts.json').read_text())
+            node = str(tools / facts['packages']['node']['entry'] / 'bin/node')
+        else:
+            node = shutil.which('node')
         assert node, 'Node runtime required'
         env = dict(os.environ, HEYMATE_TALK_SCOPE=scope, HEYMATE_SCOPED_ONLY='1', HEYMATE_BRIDGE_CONTEXT_FILE=str(context))
         child = subprocess.Popen([node, str(bridge)], env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -143,7 +156,7 @@ async def probe_hermes(payload, root, node, bridge, context, scope, tool):
                 tested = await rpc('mcp.servers.test', {'name': 'heymate_fixture'})
                 assert tested['ok'] and any(row['name'] == tool['name'] for row in tested['tools']), tested
                 await rpc('mcp.servers.remove', {'name': 'heymate_fixture'})
-                print('PASS: installed Hermes runtime adds, reloads, discovers, removes scoped HeyMate MCP tools; zero model calls')
+                print('PASS: Hermes runtime adds, reloads, discovers, removes scoped HeyMate MCP tools; zero model calls')
         finally:
             child.terminate()
             try:

@@ -9,6 +9,27 @@ final class HermesServeConversationClient: VisionConversationClient {
     var connectorScope: String?
     var verifyReply: (@MainActor (String) -> String)?
 
+    /// Fresh Macs need no system Node installation: Hermes already ships a sealed one.
+    static func bridgeRuntime(environment: [String: String], fallback: () -> URL? = {
+        HeyMateMCPServer.availableRuntime()?.runtimeURL
+    }) -> URL? {
+        if let path = environment["HERMES_RUNTIME_DIR"] {
+            let root = URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL
+            if let data = try? Data(contentsOf: root.appendingPathComponent("facts.json")), data.count <= 262_144,
+               let facts = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let packages = facts["packages"] as? [String: Any], let node = packages["node"] as? [String: Any],
+               let entry = node["entry"] as? String, !entry.isEmpty, !entry.hasPrefix("/"),
+               !entry.split(separator: "/").contains("..") {
+                let executable = root.appendingPathComponent(entry).appendingPathComponent("bin/node")
+                    .resolvingSymlinksInPath().standardizedFileURL
+                if executable.path.hasPrefix(root.path + "/"), FileManager.default.isExecutableFile(atPath: executable.path) {
+                    return executable
+                }
+            }
+        }
+        return fallback()
+    }
+
     static func connectorInstructions(tools: [String], enabledApps: [String]) -> String {
         guard !tools.isEmpty else {
             return "HeyMate connector status: no connector tools are available for this turn. This does not prove the user's account is disconnected. Report a tool-delivery problem if an enabled integration is requested. Your own registered web tools remain available independently."
@@ -244,7 +265,7 @@ final class HermesServeConversationClient: VisionConversationClient {
         defer { if let bridgeContextFile { try? FileManager.default.removeItem(at: bridgeContextFile.deletingLastPathComponent()) } }
         do {
             if let connectorScope {
-                guard let runtime = HeyMateMCPServer.availableRuntime(), let script = HeyMateMCPServer.seedScript() else {
+                guard let runtime = Self.bridgeRuntime(environment: launch.environment), let script = HeyMateMCPServer.seedScript() else {
                     throw HermesServeSession.Failure.remoteFailure("Gmail integration is enabled, but the HeyMate MCP bridge needs Node.js or Bun. No Gmail action was executed.")
                 }
                 // Keep registered Composio action names below providers' 64-character tool-name limit.
@@ -255,7 +276,7 @@ final class HermesServeConversationClient: VisionConversationClient {
                 let contextFile = contextDirectory.appendingPathComponent("context.json")
                 bridgeContextFile = contextFile
                 try DetachedAgentSecureFiles.atomicDurableWrite(JSONEncoder().encode(HeyMateMCPServer.childEnvironment()), to: contextFile)
-                try await active.attachHeyMateBridge(name: name, command: runtime.runtimeURL.path,
+                try await active.attachHeyMateBridge(name: name, command: runtime.path,
                     script: script.path, scope: connectorScope, contextFile: contextFile)
             }
             let rawResult = try await active.prompt(text: prompt, images: images)

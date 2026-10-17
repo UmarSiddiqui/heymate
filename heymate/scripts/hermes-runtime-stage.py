@@ -152,11 +152,16 @@ def main():
             # signed native wheels because those signatures have no Team ID.
             entitlements = Path(scratch) / "python-entitlements.plist"
             entitlements.write_bytes(plistlib.dumps({"com.apple.security.cs.disable-library-validation": True}))
+            node_entitlements = Path(scratch) / "node-entitlements.plist"
+            node_entitlements.write_bytes(plistlib.dumps({"com.apple.security.cs.allow-jit": True}))
             for binary in sorted(binaries, key=lambda path: len(path.parts), reverse=True):
                 command = ["/usr/bin/codesign", "--force", "--sign", identity, "--options", "runtime"]
                 command += ["--timestamp=none"] if identity == "-" else ["--timestamp"]
                 if any(binary.resolve() == python.resolve() for _, python in runtimes):
                     command += ["--entitlements", str(entitlements)]
+                elif binary.name == "node":
+                    # V8 needs MAP_JIT after hardened-runtime re-signing, even for a tiny MCP server.
+                    command += ["--entitlements", str(node_entitlements)]
                 subprocess.run(command + [str(binary)], check=True, stdout=subprocess.DEVNULL)
                 subprocess.run(["/usr/bin/codesign", "--verify", "--strict", str(binary)], check=True,
                                stdout=subprocess.DEVNULL)
