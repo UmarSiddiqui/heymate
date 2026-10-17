@@ -220,6 +220,26 @@ struct HermesServeConversationClientTests {
         #expect(fixture.peers.isEmpty)
     }
 
+    @Test func gmailBridgeUsesBundledNodeWithoutSystemRuntime() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("hermes-node-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let node = root.appendingPathComponent("node-test/bin/node")
+        try FileManager.default.createDirectory(at: node.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: node)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: node.path)
+        try Data(#"{"packages":{"node":{"entry":"node-test"}}}"#.utf8).write(to: root.appendingPathComponent("facts.json"))
+        var fallbackCalled = false
+        let runtime = HermesServeConversationClient.bridgeRuntime(environment: ["HERMES_RUNTIME_DIR": root.path]) {
+            fallbackCalled = true
+            return nil
+        }
+        #expect(runtime == node.resolvingSymlinksInPath().standardizedFileURL)
+        #expect(!fallbackCalled)
+        try Data(#"{"packages":{"node":{"entry":"../outside"}}}"#.utf8).write(to: root.appendingPathComponent("facts.json"))
+        #expect(HermesServeConversationClient.bridgeRuntime(environment: ["HERMES_RUNTIME_DIR": root.path], fallback: { nil }) == nil)
+        #expect(HermesServeConversationClient.bridgeRuntime(environment: [:], fallback: { node }) == node)
+    }
+
     @Test func gmailClaimsRequireMatchingSuccessfulActionReceipts() {
         let args: [String: Any] = ["tools": [["tool_slug": "GMAIL_UPDATE_DRAFT"]]]
         let success = #"{"results":[{"tool_slug":"GMAIL_UPDATE_DRAFT","response":{"successful":true,"data":{"id":"draft-123"}}}]}"#
