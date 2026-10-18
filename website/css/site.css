@@ -586,3 +586,26 @@ kbd[data-key].down { transform: translateY(2px); border-bottom-width: 1px; backg
   .mate-body { animation: none; }
 }
 @media print { .mate { display: none; } }
+
+/* The cast: live Blobatars (js/cast.js + css/vendor/blobatar.css) and Milo and
+   Nova portraits whose irises follow the pointer inside fixed eye masks. */
+.blob, .portrait { position: relative; display: inline-block; flex: none; line-height: 0; cursor: pointer; }
+.blob svg, .blob img { display: block; width: 100%; height: 100%; }
+.blob .mo-eyes { --mo-track-travel: 3px; }
+.blob.boop { animation: cast-boop 0.5s var(--ease); }
+@keyframes cast-boop { 30% { transform: translateY(-6px) scale(1.06, 0.94); } 60% { transform: translateY(0) scale(0.97, 1.03); } }
+.portrait { width: var(--cast, 48px); height: calc(var(--cast, 48px) * 1.0909); }
+.portrait img, .portrait-eye { position: absolute; inset: 0; width: 100%; height: 100%; }
+.portrait-eye img { will-change: transform; }
+.cast-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; flex-basis: 100%; margin-top: 6px; }
+.cast-row .blob { width: 44px; height: 44px; }
+.cast-row .small { flex-basis: 100%; margin: 2px 0 0; }
+.cast-finale { justify-content: center; gap: 14px; margin: 0 0 18px; }
+.cast-finale .blob { width: 64px; height: 64px; }
+.cast-finale .portrait { --cast: 72px; }
+.roster .blob { grid-row: 1 / 3; width: 56px; height: 56px; }
+.faces-row .blob { width: 48px; height: 48px; }
+.faces-row .portrait { --cast: 44px; }
+.faces-row .blob, .faces-row .portrait { transition: transform 0.2s var(--ease); }
+.faces-row .blob:hover, .faces-row .portrait:hover { transform: translateY(-3px) scale(1.06); }
+@media (prefers-reduced-motion: reduce) { .blob.boop { animation: none; } }
