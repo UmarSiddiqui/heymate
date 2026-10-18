@@ -200,7 +200,7 @@ struct DesktopRootView: View {
             .font(DS.Fonts.caption)
             .foregroundStyle(DS.Colors.textSecondary)
             .padding(.horizontal, 20).padding(.vertical, 8)
-            .background(Color.black)
+            .background(DS.Colors.background)
             .overlay(alignment: .top) { Rectangle().fill(DS.Colors.borderSubtle).frame(height: 1) }
         }
         .sheet(isPresented: $showsAppHandoff) { SelectedAppHandoffView() }

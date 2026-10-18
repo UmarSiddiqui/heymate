@@ -961,7 +961,7 @@ extension View {
 
 // MARK: - Switch
 
-/// HeyMate's switch: a matte ink track instead of the system's tinted one.
+/// Shared glass switch, with a recessed off track and a raised knob.
 /// The label sits on the left and the switch on the right, like a row; only
 /// the switch itself is clickable, as on macOS. VoiceOver sees a native
 /// toggle.
@@ -999,10 +999,25 @@ struct DSSwitch: View {
             isOn.toggle()
         } label: {
             ZStack(alignment: isOn ? .trailing : .leading) {
-                Capsule(style: .continuous)
-                    .fill(isOn ? DS.Colors.switchTrackOn : DS.Colors.switchTrackOff)
+                Group {
+                    if isOn {
+                        DSGlassSurface(cornerRadius: DS.SettingsLayout.switchHeight / 2)
+                    } else {
+                        Capsule(style: .continuous)
+                            .fill(LinearGradient(
+                                colors: [DS.Colors.surface2, DS.Colors.surface4],
+                                startPoint: .top, endPoint: .bottom
+                            ))
+                            .overlay(Capsule().strokeBorder(DS.Colors.borderStrong, lineWidth: 0.7))
+                    }
+                }
                 Circle()
-                    .fill(isOn ? DS.Colors.switchKnobOn : DS.Colors.switchKnobOff)
+                    .fill(LinearGradient(
+                        colors: [Color.white, Color(hex: "#D8E3F1")],
+                        startPoint: .top, endPoint: .bottom
+                    ))
+                    .overlay(Circle().strokeBorder(Color.white.opacity(0.8), lineWidth: 0.7))
+                    .shadow(color: .black.opacity(0.28), radius: 1.5, y: 1)
                     .frame(width: knobDiameter, height: knobDiameter)
                     .padding(DS.SettingsLayout.switchKnobInset)
             }
@@ -1029,8 +1044,7 @@ struct DSSegment<Value: Hashable> {
     var help: String?
 }
 
-/// A matte segmented control: a recessed track with the selected segment
-/// raised in the page color.
+/// A recessed segmented control with a raised glass selection.
 struct DSSegmentedControl<Value: Hashable>: View {
     let accessibilityTitle: String
     @Binding var selection: Value
@@ -1060,21 +1074,18 @@ struct DSSegmentedControl<Value: Hashable>: View {
                 .font(DS.Fonts.control)
                 .foregroundColor(
                     isSelected
-                        ? DS.Colors.textPrimary
+                        ? DS.Colors.glassInk
                         : (segment.isEnabled ? DS.Colors.textSecondary : DS.Colors.disabledText)
                 )
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
                 .padding(.horizontal, DS.Spacing.sm)
                 .frame(maxWidth: .infinity, minHeight: DS.ControlSize.small)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(isSelected ? DS.Colors.background : Color.clear)
-                )
-                .overlay(
-                    Capsule(style: .continuous)
-                        .stroke(isSelected ? DS.Colors.borderStrong : Color.clear, lineWidth: 1)
-                )
+                .background {
+                    if isSelected {
+                        DSGlassSurface(cornerRadius: DS.ControlSize.small / 2)
+                    }
+                }
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)

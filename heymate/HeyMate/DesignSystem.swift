@@ -11,7 +11,7 @@
 //  semantic. `warmth` is a decorative lilac kept for illustration — never
 //  status, never chrome.
 //
-//  Type: Avenir Next carries the voice. See `DS.Fonts`.
+//  Type: native system text keeps every surface compact and consistent. See `DS.Fonts`.
 //
 //  All colors, button styles, and interaction states are defined here as
 //  the single source of truth.
@@ -31,36 +31,36 @@ enum DS {
     enum Colors {
 
         /// Chat surfaces stay quiet behind the sculpted companion.
-        static let homeBackground = Color(hex: "#000000")
-        static let homeRail = Color(hex: "#000000")
+        static let homeBackground = Color(hex: "#1E1E1E")
+        static let homeRail = Color(hex: "#202020")
         static let glassInk = Color(hex: "#183451")
 
         // ── Backgrounds ──────────────────────────────────────────────
-        // Matte neutrals, layered deepest to most elevated. Principal
-        // surfaces stay black; controls use restrained elevation.
+        // Charcoal desktop surfaces, with lighter wells and cards.
+        // Hardware-attached notch surfaces keep their explicit black fill.
 
         /// The deepest background — used for the main app window fill.
-        static let background = Color(hex: "#000000")
+        static let background = Color(hex: "#1E1E1E")
 
         /// First elevation layer — used for cards, sidebar, top bar backgrounds.
-        static let surface1 = Color(hex: "#0A0A0A")
+        static let surface1 = Color(hex: "#242424")
 
         /// Second elevation layer — used for input fields, elevated cards, chat bubbles.
-        static let surface2 = Color(hex: "#101010")
+        static let surface2 = Color(hex: "#303030")
 
         /// Third elevation layer — used for hover backgrounds on interactive elements.
-        static let surface3 = Color(hex: "#181818")
+        static let surface3 = Color(hex: "#3A3A3A")
 
         /// Fourth elevation layer — used for active/pressed states on interactive elements.
-        static let surface4 = Color(hex: "#222222")
+        static let surface4 = Color(hex: "#454545")
 
         // ── Borders ──────────────────────────────────────────────────
 
         /// Subtle border — used for card outlines, dividers, input field borders.
-        static let borderSubtle = Color(hex: "#262628")
+        static let borderSubtle = Color(hex: "#38383A")
 
         /// Strong border — used for focused inputs, hovered card outlines.
-        static let borderStrong = Color(hex: "#3E3E42")
+        static let borderStrong = Color(hex: "#505054")
 
         // ── Text ─────────────────────────────────────────────────────
 
@@ -264,58 +264,58 @@ enum DS {
 
     // MARK: - Typography
     //
-    // Avenir Next is HeyMate's voice: humanist, clear, and warm without
+    // Native system text matches the compact macOS controls without
     // leaning playful or editorial. Monospaced technical content stays
     // native. A view should almost never set a raw font outside this scale.
 
     enum Fonts {
         /// Large page titles (desktop pages).
-        static let pageTitle = Font.custom("Avenir Next", size: 25).weight(.semibold)
+        static let pageTitle = Font.system(size: 25).weight(.semibold)
 
         /// Card titles and hero status lines.
-        static let title = Font.custom("Avenir Next", size: 15).weight(.semibold)
+        static let title = Font.system(size: 15).weight(.semibold)
 
         /// Smaller title for compact surfaces (notch card titles).
-        static let titleCompact = Font.custom("Avenir Next", size: 13).weight(.semibold)
+        static let titleCompact = Font.system(size: 13).weight(.semibold)
 
         /// Sentence-case section labels. Replaces tracked-out ALL-CAPS
         /// micro headers: warmer, and easier to read at a glance.
-        static let sectionLabel = Font.custom("Avenir Next", size: 11).weight(.semibold)
+        static let sectionLabel = Font.system(size: 11).weight(.semibold)
 
         /// Emphasized content: row titles, bubble names.
-        static let headline = Font.custom("Avenir Next", size: 13).weight(.semibold)
+        static let headline = Font.system(size: 13).weight(.semibold)
 
         /// Default content text.
-        static let body = Font.custom("Avenir Next", size: 12)
+        static let body = Font.system(size: 12)
 
         /// Roomier content text: composers, notes, settings rows.
-        static let bodyLarge = Font.custom("Avenir Next", size: 13)
+        static let bodyLarge = Font.system(size: 13)
 
         /// Conversation text — chat bubbles and the message composer,
         /// where people read whole paragraphs.
-        static let reading = Font.custom("Avenir Next", size: 15)
+        static let reading = Font.system(size: 15)
 
         /// The one big line on an empty state or a mate's home.
-        static let hero = Font.custom("Avenir Next", size: 20).weight(.semibold)
+        static let hero = Font.system(size: 20).weight(.semibold)
 
         /// Supporting text: subtitles, hints, timestamps.
-        static let caption = Font.custom("Avenir Next", size: 11)
+        static let caption = Font.system(size: 11)
 
         /// The floor. Badge counts, keycaps, tiny metadata. Never body copy.
-        static let micro = Font.custom("Avenir Next", size: 10).weight(.medium)
+        static let micro = Font.system(size: 10).weight(.medium)
 
         /// Status words the buddy reports ("Listening", "Ready").
-        static let statusWord = Font.custom("Avenir Next", size: 11).weight(.semibold)
+        static let statusWord = Font.system(size: 11).weight(.semibold)
 
         /// Every capsule control label — buttons, chips, tabs, the status
         /// pill. One size so notch and window controls read as one family.
-        static let control = Font.custom("Avenir Next", size: 12).weight(.semibold)
+        static let control = Font.system(size: 12).weight(.semibold)
 
         /// Window-scale button labels (`DSPrimaryButtonStyle` and friends).
-        static let controlLarge = Font.custom("Avenir Next", size: 13).weight(.semibold)
+        static let controlLarge = Font.system(size: 13).weight(.semibold)
 
         /// Keycaps, badges, and tags that must stay legible at the floor.
-        static let keycap = Font.custom("Avenir Next", size: 10).weight(.semibold)
+        static let keycap = Font.system(size: 10).weight(.semibold)
 
         /// Numbers that tick — timers, elapsed time, counters. Tabular so
         /// the digits don't jitter.
@@ -333,7 +333,7 @@ enum DS {
 
         /// Long-form editing — the behavior contract and other text files
         /// edited in place.
-        static let editor = Font.custom("Avenir Next", size: 14)
+        static let editor = Font.system(size: 14)
     }
 
     // MARK: - Glyphs

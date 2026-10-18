@@ -52,20 +52,42 @@ nonisolated enum AgentFollowUpIntent {
         let normalizedText = text
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
             .lowercased()
-        let statusPhrases = [
+            .replacingOccurrences(of: "’", with: "'")
+            .replacingOccurrences(of: "'", with: "")
+        // Status replies bypass the execution queue entirely. Recognize whole
+        // questions only: words such as "status" and "progress" also name work
+        // products, and mixed questions/instructions must reach the agent.
+        let statusPhrases: Set<String> = [
             "what are you doing",
             "what are you up to",
             "what are you upto",
             "is it done",
+            "isnt it done",
             "are you done",
             "how is it going",
             "hows it going",
+            "what is the status",
+            "whats the status",
+            "what is your status",
+            "whats your status",
+            "any progress",
+            "what is the progress",
+            "whats the progress",
+            "status update",
+            "give me a status update",
             "status",
             "progress"
         ]
-        return statusPhrases.contains(where: normalizedText.contains)
-            ? .statusQuestion
-            : .workInstruction
+        let clauses = normalizedText.components(separatedBy: CharacterSet(charactersIn: ",;.!?\n"))
+            .map { clause in
+                var words = clause.split(whereSeparator: \.isWhitespace).map(String.init)
+                if words.first == "please" { words.removeFirst() }
+                if words.last == "please" { words.removeLast() }
+                return words.joined(separator: " ")
+            }
+            .filter { !$0.isEmpty }
+        return !clauses.isEmpty && clauses.allSatisfy(statusPhrases.contains)
+            ? .statusQuestion : .workInstruction
     }
 }
 

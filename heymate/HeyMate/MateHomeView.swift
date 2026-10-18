@@ -262,9 +262,20 @@ struct MateHomeView: View {
 
     private var mateRail: some View {
         VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                BrandAppIcon(size: 26)
+                    .accessibilityHidden(true)
+                Text("HeyMate")
+                    .font(DS.Fonts.title)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(DS.Colors.textPrimary)
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 18)
+
             railTabBar
                 .padding(.horizontal, 12)
-                .padding(.top, 14)
             .onChange(of: railTabRawValue) { _, _ in
                 searchText = ""
             }
@@ -460,7 +471,7 @@ struct MateHomeView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 8)
-            .padding(.vertical, 8)
+            .padding(.vertical, 7)
             .background(MateSelectionSurface(selected: selected, hovered: hoveredRailChatID == session.id))
             .contentShape(Rectangle())
         }
@@ -1001,7 +1012,7 @@ struct MateHomeView: View {
                 Button {
                     appearanceMate = mate
                 } label: {
-                    liveFace(mate, size: 30)
+                    liveFace(mate, size: hasBlobatarCompanion ? 40 : 30)
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
@@ -1247,6 +1258,9 @@ struct MateHomeView: View {
                 .help("Edit character")
                 .accessibilityLabel("Edit character for \(mate.name)")
             }
+            Text(isMainHeyMateActive ? "What can I take off your plate?" : (activeMate?.name ?? Mate.defaultName))
+                .font(DS.Fonts.hero)
+                .foregroundColor(DS.Colors.textPrimary)
             Text(activeMate?.job ?? Mate.defaultJob)
                 .font(DS.Fonts.reading)
                 .foregroundColor(DS.Colors.textSecondary)
@@ -1492,6 +1506,10 @@ struct MateHomeView: View {
         }
     }
 
+    private var hasBlobatarCompanion: Bool {
+        activeMate.map { BlobatarCharacter.contains(MateFace.selectionToken(for: $0)) } ?? false
+    }
+
     private var composer: some View {
         VStack(alignment: .leading, spacing: 8) {
             if !imageAttachments.isEmpty {
@@ -1500,10 +1518,10 @@ struct MateHomeView: View {
             if showsTalkFirstComposer {
                 talkFirstComposer
             } else {
-                VStack(alignment: .leading, spacing: -18) {
+                VStack(alignment: .leading, spacing: hasBlobatarCompanion ? -8 : -18) {
                     if let mate = activeMate, !isCompactLayout,
-                       MiloLook(assetName: MateFace.selectionToken(for: mate)) != nil {
-                        LiveMateFaceView(mate: mate, size: 108, manager: companionManager, isComposerCompanion: true)
+                       (MiloLook(assetName: MateFace.selectionToken(for: mate)) != nil || hasBlobatarCompanion) {
+                        LiveMateFaceView(mate: mate, size: hasBlobatarCompanion ? 116 : 108, manager: companionManager, isComposerCompanion: true)
                             .padding(.leading, 18).zIndex(1)
                     }
                 VStack(alignment: .leading, spacing: 6) {
@@ -1569,7 +1587,7 @@ struct MateHomeView: View {
                 }
                 .background(
                     RoundedRectangle(cornerRadius: DS.CornerRadius.hero, style: .continuous)
-                        .fill(DS.Colors.surface1.opacity(0.94))
+                        .fill(DS.Colors.surface2)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: DS.CornerRadius.hero, style: .continuous)
@@ -1803,12 +1821,12 @@ struct MateHomeView: View {
                         isComposerExpanded = true
                         DispatchQueue.main.async { isComposerFocused = true }
                     } label: {
-                        Label("Type…", systemImage: "keyboard")
+                        Label("Or type here", systemImage: "keyboard")
                             .font(DS.Fonts.control)
                             .foregroundColor(DS.Colors.textSecondary)
                             .padding(.horizontal, 14)
-                            .frame(height: 40)
-                            .background(Capsule().fill(DS.Colors.surface1.opacity(0.94)))
+                            .frame(height: 44)
+                            .background(Capsule().fill(DS.Colors.surface2))
                             .overlay(Capsule().strokeBorder(DS.Colors.borderSubtle, lineWidth: 1))
                             .contentShape(Capsule())
                     }
@@ -1827,12 +1845,12 @@ struct MateHomeView: View {
     }
 
     /// The companion occupies real layout space so gaze and hello taps work
-    /// above the control. Its hands overlap the bar's top edge by eight points.
+    /// above the control. Blobatars rest on the bar with a small overlap.
     private var voiceEntry: some View {
-        VStack(alignment: .leading, spacing: -18) {
+        VStack(alignment: .leading, spacing: hasBlobatarCompanion ? -8 : -18) {
             if let mate = activeMate, !isCompactLayout {
-                if MiloLook(assetName: MateFace.selectionToken(for: mate)) != nil {
-                    LiveMateFaceView(mate: mate, size: 108, manager: companionManager, isComposerCompanion: true)
+                if MiloLook(assetName: MateFace.selectionToken(for: mate)) != nil || hasBlobatarCompanion {
+                    LiveMateFaceView(mate: mate, size: hasBlobatarCompanion ? 116 : 108, manager: companionManager, isComposerCompanion: true)
                         .padding(.leading, 18).zIndex(1)
                 } else {
                     liveFace(mate, size: 64).padding(.leading, 18).zIndex(1)
@@ -2194,7 +2212,7 @@ struct MateHomeView: View {
                 }
             }
             if let mate = activeMate {
-                liveFace(mate, size: 88)
+                liveFace(mate, size: hasBlobatarCompanion ? 104 : 88)
                     .accessibilityHidden(true)
                 Button {
                     beginMateSettings(mate)

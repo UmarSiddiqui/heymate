@@ -5558,7 +5558,7 @@ extension CompanionManager {
             hasImages: hasImages,
             imageAttachments: imageAttachments
         )
-        if result.isError {
+        if result.isError || request.name == .getMateStatus {
             appendUserMessage(transcript)
             appendAssistantMessage(result.text)
         }
@@ -5589,8 +5589,27 @@ extension CompanionManager {
                 task: task,
                 mate: mate,
                 newName: newName,
-                suspendsTalk: !fromToolLoop
+                suspendsTalk: !fromToolLoop,
+                recordUserMessage: !fromToolLoop
             ))
+        case .getMateStatus:
+            let name = HarnessToolRequestParser.argument(arguments, keys: ["agent", "agent_name", "mate", "mate_name", "name"])
+            let selected: [Mate]
+            if let name {
+                guard let mate = mateForHarnessWork(named: name) else {
+                    return ("No mate named \(name).", true)
+                }
+                selected = [mate]
+            } else {
+                selected = mates.filter { !$0.archived }
+            }
+            let storedRuns = agentRunStore.loadAll()
+            let report = selected.map { mate in
+                HarnessJobStatus.report(mateName: mate.name, mateID: mate.id, runs: storedRuns)
+            }.joined(separator: "\n\n")
+            return (report.count > 24_000
+                ? String(report.prefix(24_000)) + "\n[Status truncated. Specify an agent to inspect its jobs.]"
+                : report, false)
         case .sendToMate:
             guard let mateName = HarnessToolRequestParser.argument(arguments, keys: ["agent", "agent_name", "mate", "mate_name", "name"]),
                   let message = HarnessToolRequestParser.argument(arguments, keys: ["message", "task", "instruction"]) else {
@@ -5643,7 +5662,7 @@ extension CompanionManager {
     }
 
     @discardableResult
-    fileprivate func beginMateWork(
+    func beginMateWork(
         task: String,
         mate: Mate?,
         newName: String?,
@@ -5661,12 +5680,11 @@ extension CompanionManager {
             }
             resolved = created
         }
-        let source = backgroundRoutineSession ?? currentChat
-        let explicitOwner = AgentChatOwner(
-            mateID: resolved?.id ?? source.mateID ?? mateDirectory.defaultMateID,
-            chatID: source.id
+        let chatOwner = prepareMateWorkChatOwner(
+            task: trimmed,
+            mateID: resolved?.id,
+            recordUserMessage: recordUserMessage
         )
-        let chatOwner: AgentChatOwner? = recordUserMessage ? nil : explicitOwner
         var workspaceURL: URL?
         if let resolved, !resolved.conductsOthers {
             ensureMateFolder(id: resolved.id)
@@ -5704,6 +5722,28 @@ extension CompanionManager {
         return .success("\(name) is planning that. Nothing changes until you approve the plan.")
     }
 
+    /// Keep execution attached to the specialist's own chat, with the initiating
+    /// chat as a return address. A model tool call has already recorded the user.
+    func prepareMateWorkChatOwner(task: String, mateID: UUID?, recordUserMessage: Bool) -> AgentChatOwner {
+        if recordUserMessage { appendUserMessage(task) }
+        let source = backgroundRoutineSession ?? (isHeyMateTalkTurn ? heyMateTalkSession : currentChat)
+        let sourceMateID = source.mateID ?? mateDirectory.defaultMateID
+        let targetMateID = mateID ?? sourceMateID
+        guard targetMateID != sourceMateID else {
+            return AgentChatOwner(mateID: targetMateID, chatID: source.id)
+        }
+        var specialist = sessionForRoutineAppend(mateID: targetMateID)
+        specialist.messages.append(ChatMessage(id: UUID(), role: .user, text: task, createdAt: Date()))
+        specialist.updatedAt = Date()
+        if specialist.title == ChatSession.defaultTitle { specialist.title = ChatSession.title(from: task) }
+        if rememberConversationsEnabled {
+            chatHistoryStore.upsert(specialist)
+            savedChats = chatHistoryStore.loadAll()
+        }
+        return AgentChatOwner(mateID: targetMateID, chatID: specialist.id,
+                              requestingMateID: sourceMateID, requestingChatID: source.id)
+    }
+
     fileprivate func sendFollowUpToMate(named name: String, message: String, fromToolLoop: Bool) -> (text: String, isError: Bool) {
         guard let mate = mateForHarnessWork(named: name) else {
             return ("No mate named \(name).", true)
@@ -5718,7 +5758,8 @@ extension CompanionManager {
             task: message,
             mate: mate,
             newName: nil,
-            suspendsTalk: !fromToolLoop
+            suspendsTalk: !fromToolLoop,
+            recordUserMessage: !fromToolLoop
         ))
     }
 
@@ -5753,7 +5794,8 @@ extension CompanionManager {
         let phrases = ["try again", "retry", "retry that", "run it again"]
         guard phrases.contains(normalized) else { return false }
         guard let mate = mateForHarnessWork(named: nil) else { return false }
-        guard let run = agentRuns.last(where: { $0.chatOwner?.mateID == mate.id && $0.status == .failed }) else { return false }
+        guard let run = agentRuns.filter({ $0.chatOwner?.mateID == mate.id && $0.status == .failed })
+            .max(by: { $0.createdAt < $1.createdAt }) else { return false }
         let instruction = notedUserMessage(
             HarnessTurnNotes.transcript(fromUserMessage: run.prompt),
             mate: mate,
@@ -5777,10 +5819,11 @@ extension CompanionManager {
         return mates.first { $0.id == id }
     }
 
-    fileprivate func latestContinuableRun(for mateID: UUID) -> AgentRun? {
+    func latestContinuableRun(for mateID: UUID) -> AgentRun? {
         let owned = agentRuns.filter { $0.chatOwner?.mateID == mateID }
-        if let live = owned.last(where: { !$0.status.isTerminal }) { return live }
-        return owned.last { !$0.sessionIdentifier.isEmpty }
+            .sorted { $0.createdAt > $1.createdAt }
+        if let live = owned.first(where: { !$0.status.isTerminal }) { return live }
+        return owned.first { !$0.sessionIdentifier.isEmpty }
     }
 
     fileprivate func harnessOutcomeMessage(_ outcome: MateRoutineTurnOutcome) -> (text: String, isError: Bool) {

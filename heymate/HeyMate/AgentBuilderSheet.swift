@@ -20,7 +20,8 @@ struct AgentBuilderSheet: View {
     @State private var draft: AgentDraft?
     @State private var draftUsedModel = true
     @State private var isDrafting = false
-    @State private var faceAssetName = MateFace.packs[0].faces[0].assetName
+    @State private var appearanceID = UUID()
+    @State private var faceAssetName = BlobatarCharacter.automaticToken
     @State private var isPickingFace = false
     @State private var errorText: String?
     @FocusState private var isDescriptionFocused: Bool
@@ -318,7 +319,7 @@ struct AgentBuilderSheet: View {
 
     private func previewMate(_ draft: AgentDraft, asset: String? = nil) -> Mate {
         var mate = Mate(
-            id: UUID(), name: draft.name.isEmpty ? "Agent" : draft.name, job: draft.role,
+            id: appearanceID, name: draft.name.isEmpty ? "Agent" : draft.name, job: draft.role,
             pinned: false, archived: false, unreadCount: 0,
             createdAt: Date(), updatedAt: Date(), memoryNote: ""
         )
@@ -332,7 +333,9 @@ struct AgentBuilderSheet: View {
             errorText = "It needs a name and what it does."
             return
         }
-        if companionManager.createAgent(from: draft, faceAssetName: faceAssetName) != nil {
+        let savedFace = faceAssetName == BlobatarCharacter.automaticToken
+            ? BlobatarCharacter.generatedPrefix + appearanceID.uuidString.lowercased() : faceAssetName
+        if companionManager.createAgent(from: draft, faceAssetName: savedFace) != nil {
             dismiss()
         } else {
             errorText = "That name is already taken."

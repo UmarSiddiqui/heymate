@@ -520,12 +520,10 @@ final class OnboardingTour: ObservableObject {
     }
 
     private func createMates(_ suggestions: [OnboardingMateSuggestion]) {
-        let faces = MateFace.packs.flatMap(\.faces).map(\.assetName).shuffled()
         var made: [String] = []
-        for (offset, suggestion) in suggestions.enumerated() {
-            let face = faces.isEmpty ? nil : faces[offset % faces.count]
+        for suggestion in suggestions {
             if let mate = companionManager.createMate(
-                name: suggestion.name, job: suggestion.job, opensChat: false, faceAssetName: face
+                name: suggestion.name, job: suggestion.job, opensChat: false
             ) {
                 made.append(mate.name)
             }

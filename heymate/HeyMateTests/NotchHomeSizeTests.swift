@@ -3,6 +3,7 @@
 //  HeyMateTests
 //
 
+import CoreGraphics
 import Foundation
 import Testing
 @testable import HeyMate
@@ -76,4 +77,37 @@ struct NotchHomeSizeTests {
             .clampedForChat()
         #expect(shrunk.heightBelowHousing == NotchHomeSize.Chat.minimum.heightBelowHousing)
     }
+    @Test func attachedDesktopResizeKeepsNotchAnchor() {
+        let screen = CGRect(x: -1512, y: 200, width: 1512, height: 982)
+        let requested = AttachedDesktopLayout.standard.unclampedApplying(
+            edge: .bottomRight, translation: CGSize(width: 90, height: 40)
+        )
+        let frame = AttachedDesktopLayout.frame(screen: screen, requested: requested, neckHeight: 42)
+        #expect(frame.width == 1340)
+        #expect(frame.height == 822)
+        #expect(frame.midX == screen.midX)
+        #expect(frame.maxY == screen.maxY)
+    }
+
+    @Test func attachedDesktopResizeFitsSmallDisplays() {
+        let screen = CGRect(x: 0, y: 0, width: 800, height: 600)
+        let frame = AttachedDesktopLayout.frame(screen: screen, requested: .init(width: 4000, heightBelowHousing: 3000), neckHeight: 42)
+        #expect(frame.width == 760)
+        #expect(frame.height == 540)
+        #expect(frame.midX == screen.midX)
+        #expect(frame.maxY == screen.maxY)
+    }
+
+    @Test func attachedDesktopRestoresResizeAndRejectsInvalidSavedSize() {
+        let suite = "NotchHomeSizeTests.attachedDesktop"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let custom = NotchHomeSize(width: 1050, heightBelowHousing: 700)
+        AttachedDesktopLayout.save(custom, defaults: defaults)
+        #expect(AttachedDesktopLayout.storedSize(defaults: defaults) == custom)
+        defaults.set("nan,-20", forKey: AttachedDesktopLayout.storageKey)
+        #expect(AttachedDesktopLayout.storedSize(defaults: defaults) == AttachedDesktopLayout.standard)
+    }
+
 }

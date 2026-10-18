@@ -192,6 +192,35 @@ final class HeyMateDesktopWindowController: NSObject, NSWindowDelegate {
 
     private static let attachedContentSize = CGSize(width: 1_160, height: 740)
     private static let attachedCornerRadius: CGFloat = 22
+    private var attachedResizeStart: NotchHomeSize?
+    private var rememberedAttachedSize: NotchHomeSize { AttachedDesktopLayout.storedSize() }
+
+    private func resizeAttached(edge: NotchHomeEdge, translation: CGSize) {
+        guard let window, let start = attachedResizeStart else { return }
+        placeUnderNotch(window, requested: start.unclampedApplying(edge: edge, translation: translation))
+    }
+
+    private func resizeAttachedBy(edge: NotchHomeEdge, translation: CGSize) {
+        guard let window else { return }
+        attachedResizeStart = NotchHomeSize(
+            width: window.frame.width,
+            heightBelowHousing: window.frame.height - Self.neckHeight(on: Self.notchScreen)
+        )
+        resizeAttached(edge: edge, translation: translation)
+        finishAttachedResize(reset: false)
+    }
+
+    private func finishAttachedResize(reset: Bool) {
+        guard let window else { return }
+        if reset {
+            placeUnderNotch(window, requested: NotchHomeSize(
+                width: Self.attachedContentSize.width, heightBelowHousing: Self.attachedContentSize.height
+            ))
+        }
+        let height = window.frame.height - Self.neckHeight(on: Self.notchScreen)
+        AttachedDesktopLayout.save(NotchHomeSize(width: window.frame.width, heightBelowHousing: height))
+        attachedResizeStart = nil
+    }
 
     private func makeAttachedWindow(
         companionManager: CompanionManager,
@@ -203,9 +232,34 @@ final class HeyMateDesktopWindowController: NSObject, NSWindowDelegate {
             neckHeight: Self.neckHeight(on: screen),
             cornerRadius: Self.attachedCornerRadius,
             onClose: { [weak self] in self?.window?.close() },
-            onDetach: { [weak self] in self?.setAttached(false) }
+            onDetach: { [weak self] in self?.setAttached(false) },
+            onResize: { [weak self] edge, translation in self?.resizeAttachedBy(edge: edge, translation: translation) },
+            onResetSize: { [weak self] in self?.finishAttachedResize(reset: true) }
         ) {
             DesktopRootView(companionManager: companionManager, initialSection: initialSection)
+        }
+        .overlay {
+            NotchHomeResizeChrome(
+                onBegan: { [weak self] in
+                    guard let self, let window = self.window else { return }
+                    self.attachedResizeStart = NotchHomeSize(
+                        width: window.frame.width,
+                        heightBelowHousing: window.frame.height - Self.neckHeight(on: Self.notchScreen)
+                    )
+                },
+                onChanged: { [weak self] edge, translation in self?.resizeAttached(edge: edge, translation: translation) },
+                onEnded: { [weak self] reset in self?.finishAttachedResize(reset: reset) }
+            )
+            .padding(.top, Self.neckHeight(on: screen) + 30)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            Image(systemName: "line.3.horizontal.decrease")
+                .font(.system(size: 10))
+                .rotationEffect(.degrees(-45))
+                .foregroundStyle(.white.opacity(0.35))
+                .padding(9)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
         let panel = AttachedDesktopPanel(
             contentRect: NSRect(origin: .zero, size: Self.attachedContentSize),
@@ -249,15 +303,13 @@ final class HeyMateDesktopWindowController: NSObject, NSWindowDelegate {
         NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main
     }
 
-    private func placeUnderNotch(_ window: NSWindow) {
+    private func placeUnderNotch(_ window: NSWindow, requested: NotchHomeSize? = nil) {
         guard let screen = Self.notchScreen else { return }
-        let frame = screen.frame
-        let size = CGSize(
-            width: min(Self.attachedContentSize.width, frame.width - 40),
-            height: min(Self.attachedContentSize.height + Self.neckHeight(on: screen), frame.height - 60)
-        )
         window.setFrame(
-            NSRect(x: frame.midX - size.width / 2, y: frame.maxY - size.height, width: size.width, height: size.height),
+            AttachedDesktopLayout.frame(
+                screen: screen.frame, requested: requested ?? rememberedAttachedSize,
+                neckHeight: Self.neckHeight(on: screen)
+            ),
             display: true
         )
     }
@@ -312,6 +364,28 @@ final class HeyMateDesktopWindowController: NSObject, NSWindowDelegate {
         DispatchQueue.main.async {
             NSApp.setActivationPolicy(restoredPolicy)
         }
+    }
+}
+
+/// Geometry and persistence for the resizable notch-attached desktop.
+nonisolated enum AttachedDesktopLayout {
+    static let storageKey = "desktopAttachedContentSize"
+    static let standard = NotchHomeSize(width: 1160, heightBelowHousing: 740)
+
+    static func frame(screen: CGRect, requested: NotchHomeSize, neckHeight: CGFloat) -> CGRect {
+        let width = min(max(requested.width, 960), max(1, screen.width - 40))
+        let height = min(max(requested.heightBelowHousing, 620) + neckHeight, max(1, screen.height - 60))
+        return CGRect(x: screen.midX - width / 2, y: screen.maxY - height, width: width, height: height)
+    }
+
+    static func storedSize(defaults: UserDefaults = .standard) -> NotchHomeSize {
+        let values = defaults.string(forKey: storageKey)?.split(separator: ",").compactMap { Double($0) } ?? []
+        guard values.count == 2, values.allSatisfy({ $0.isFinite && $0 > 0 }) else { return standard }
+        return NotchHomeSize(width: values[0], heightBelowHousing: values[1])
+    }
+
+    static func save(_ size: NotchHomeSize, defaults: UserDefaults = .standard) {
+        defaults.set("\(size.width),\(size.heightBelowHousing)", forKey: storageKey)
     }
 }
 
@@ -382,6 +456,8 @@ struct AttachedDesktopChrome<Content: View>: View {
     let cornerRadius: CGFloat
     let onClose: () -> Void
     let onDetach: () -> Void
+    var onResize: ((NotchHomeEdge, CGSize) -> Void)? = nil
+    var onResetSize: (() -> Void)? = nil
     @ViewBuilder let content: () -> Content
 
     var body: some View {
@@ -393,6 +469,25 @@ struct AttachedDesktopChrome<Content: View>: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.58))
                 Spacer()
+                if let onResize {
+                    Menu {
+                        Button("Wider") { onResize(.right, CGSize(width: 40, height: 0)) }
+                        Button("Narrower") { onResize(.right, CGSize(width: -40, height: 0)) }
+                        Button("Taller") { onResize(.bottom, CGSize(width: 0, height: 40)) }
+                        Button("Shorter") { onResize(.bottom, CGSize(width: 0, height: -40)) }
+                        Divider()
+                        Button("Reset size") { onResetSize?() }
+                    } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.8))
+                            .frame(width: 28, height: 28)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .frame(width: 28)
+                    .help("Drag an edge to resize, or choose a size adjustment")
+                    .accessibilityLabel("Resize expanded window")
+                }
                 chromeButton("macwindow.on.rectangle", help: "Detach into a window", action: onDetach)
                 chromeButton("xmark", help: "Close", action: onClose)
             }

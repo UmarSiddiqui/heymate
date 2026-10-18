@@ -30,7 +30,7 @@ enum MatePresence: String, Equatable {
 }
 
 enum MateHomeLayout {
-    static let railWidth: CGFloat = 248
+    static let railWidth: CGFloat = 237
     static let drawerWidth: CGFloat = 280
     static let readingMeasure: CGFloat = 680
 

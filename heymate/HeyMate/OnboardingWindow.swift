@@ -104,7 +104,12 @@ struct OnboardingRootView: View {
                 .padding(.bottom, 26)
         }
         .frame(width: 640, height: 680)
-        .background(DS.Colors.background)
+        .background {
+            LinearGradient(
+                colors: [Color(hex: "#131820"), Color(hex: "#101112"), DS.Colors.background],
+                startPoint: .top, endPoint: .bottom
+            )
+        }
         .preferredColorScheme(.dark)
     }
 
@@ -158,9 +163,14 @@ struct OnboardingRootView: View {
         HStack(spacing: 5) {
             ForEach(Array(OnboardingStep.allCases.enumerated()), id: \.element) { offset, _ in
                 let isCurrent = offset == tour.stepIndex
-                Capsule(style: .continuous)
-                    .fill(isCurrent ? DS.Colors.accent : (offset < tour.stepIndex ? DS.Colors.textTertiary : DS.Colors.surface4))
-                    .frame(width: isCurrent ? 18 : 6, height: 6)
+                Group {
+                    if offset <= tour.stepIndex {
+                        DSGlassSurface(cornerRadius: 3)
+                    } else {
+                        Capsule(style: .continuous).fill(DS.Colors.surface3)
+                    }
+                }
+                .frame(width: isCurrent ? 18 : 6, height: 6)
             }
         }
         .animation(accessibilityReduceMotion ? nil : DS.Animation.controlSpring, value: tour.stepIndex)

@@ -387,7 +387,7 @@ struct FloatingAgentBubble: View {
             Button(action: open) {
                 MateFaceView(mate: mate, size: 36, expression: .agent(run))
                     .frame(width: 40, height: 40)
-                    .background(Color.black, in: Circle())
+                    .background(DS.Colors.background, in: Circle())
                     .overlay(Circle().stroke(tint, lineWidth: 2))
                     .overlay { CueProp(kind: .ring, subject: run.id.uuidString) }
                     .cueMotion(.jobDone, .surprised, subject: run.id.uuidString, anchor: .bottom)
@@ -410,7 +410,7 @@ struct FloatingAgentBubble: View {
         .foregroundStyle(DS.Colors.textPrimary)
         .background {
             if expanded || snapshotRendering {
-                RoundedRectangle(cornerRadius: 22).fill(Color.black)
+                RoundedRectangle(cornerRadius: 22).fill(DS.Colors.background)
                     .overlay(RoundedRectangle(cornerRadius: 22).stroke(tint.opacity(0.35), lineWidth: 1))
             }
         }
@@ -484,7 +484,7 @@ struct FloatingAgentCard: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
-            .background(Color.black, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(DS.Colors.background, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(run.status.needsUser ? DS.Colors.warning.opacity(0.6) : DS.Colors.borderSubtle, lineWidth: 1))
         }

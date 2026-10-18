@@ -109,7 +109,7 @@ extension CompanionManager: MateRoutineRunning {
             soul: soul
         )
         var created = mate
-        created.faceAssetName = faceAssetName
+        created.faceAssetName = faceAssetName ?? BlobatarCharacter.automaticToken
         guard mateDirectory.upsertMate(created) else { return nil }
         ensureMateFolder(id: mate.id)
         let saved = mateDirectory.mates.first { $0.id == mate.id } ?? created
