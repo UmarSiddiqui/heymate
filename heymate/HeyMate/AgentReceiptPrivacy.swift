@@ -50,11 +50,23 @@ nonisolated enum AgentReceiptPrivacy {
     }
 
     /// Private result text may contain ordinary source URLs and email addresses.
-    /// Credentials and local absolute paths are still removed. This value must
+    /// Credentials and prose paths are removed. Explicit ARTIFACTS references
+    /// remain private so the owning chat can retrieve requested deliverables.
+    /// This value must
     /// never enter portable receipts, diagnostics, or the metadata journal.
     static func privateAnswer(_ value: String) -> String {
-        let safe = redactAbsolutePaths(in: redactSecrets(in: value))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let secretSafe = redactSecrets(in: value)
+        let expression = try? NSRegularExpression(pattern: #"<ARTIFACTS>[\s\S]*?</ARTIFACTS>"#)
+        var preserved = ""
+        var cursor = secretSafe.startIndex
+        for match in expression?.matches(in: secretSafe, range: NSRange(secretSafe.startIndex..., in: secretSafe)) ?? [] {
+            guard let range = Range(match.range, in: secretSafe) else { continue }
+            preserved += redactAbsolutePaths(in: String(secretSafe[cursor..<range.lowerBound]))
+            preserved += secretSafe[range]
+            cursor = range.upperBound
+        }
+        preserved += redactAbsolutePaths(in: String(secretSafe[cursor...]))
+        let safe = preserved.trimmingCharacters(in: .whitespacesAndNewlines)
         guard safe.utf8.count > AgentFinalResult.maximumAnswerBytes else { return safe }
         let notice = "\n\n[Result truncated at 32 KiB. Ask the agent for a shorter answer or a specific section.]"
         let bytes = safe.utf8.prefix(AgentFinalResult.maximumAnswerBytes - notice.utf8.count)
@@ -63,6 +75,17 @@ nonisolated enum AgentReceiptPrivacy {
         var prefix = Data(bytes)
         while String(data: prefix, encoding: .utf8) == nil { prefix.removeLast() }
         return (String(data: prefix, encoding: .utf8) ?? "") + notice
+    }
+
+    /// Command approval details are private UI data. Paths are necessary to
+    /// review the exact scope; only credentials are removed here. Never use
+    /// this for receipts, telemetry, metadata journals, or public summaries.
+    static func privateToolDetails(_ value: String) -> String {
+        let safe = redactSecrets(in: value)
+        guard safe.utf8.count > AgentFinalResult.maximumAnswerBytes else { return safe }
+        var prefix = Data(safe.utf8.prefix(AgentFinalResult.maximumAnswerBytes - 100))
+        while String(data: prefix, encoding: .utf8) == nil { prefix.removeLast() }
+        return (String(data: prefix, encoding: .utf8) ?? "") + "\n[Approval details truncated. Deny if the full command scope cannot be reviewed.]"
     }
 
     static func safeRelativePath(_ value: String) -> String? {

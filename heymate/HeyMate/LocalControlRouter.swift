@@ -23,6 +23,10 @@ nonisolated enum LocalControlCommand: Equatable {
     case clear
     /// Every tool the connected accounts expose, so a child CLI can offer
     /// them without opening its own session with the provider.
+    case listTalkTools(scope: String)
+    case callTalkTool(scope: String, name: String, argumentsJSON: String)
+    case listScopedConnectorTools(scope: String)
+    case callScopedConnectorTool(scope: String, name: String, argumentsJSON: String)
     case listConnectorTools
     /// Runs one of those tools on the session HeyMate already holds. The
     /// user's approval policy is applied here, never by the caller.
@@ -35,7 +39,7 @@ nonisolated enum LocalControlCommand: Equatable {
     /// token even when the overlay commands don't.
     var touchesConnectedAccounts: Bool {
         switch self {
-        case .listConnectorTools, .callConnectorTool, .createMate: return true
+        case .listTalkTools, .callTalkTool, .listScopedConnectorTools, .callScopedConnectorTool, .listConnectorTools, .callConnectorTool, .createMate: return true
         default: return false
         }
     }
@@ -95,6 +99,22 @@ nonisolated enum LocalControlRouter {
             return .accepted(.speak(text: text))
         case "/clear":
             return .accepted(.clear)
+        case "/talk/tools":
+            guard let scope = fields.nonBlank("scope") else { return .rejected(statusCode: 403, message: "Missing conversation scope") }
+            return .accepted(.listTalkTools(scope: scope))
+        case "/talk/call":
+            guard let scope = fields.nonBlank("scope"), let name = fields.nonBlank("tool") else {
+                return .rejected(statusCode: 403, message: "Missing conversation scope or tool")
+            }
+            return .accepted(.callTalkTool(scope: scope, name: name, argumentsJSON: fields.string("arguments") ?? "{}"))
+        case "/talk/connector-tools":
+            guard let scope = fields.nonBlank("scope") else { return .rejected(statusCode: 403, message: "Missing conversation scope") }
+            return .accepted(.listScopedConnectorTools(scope: scope))
+        case "/talk/connector-call":
+            guard let scope = fields.nonBlank("scope"), let name = fields.nonBlank("tool") else {
+                return .rejected(statusCode: 403, message: "Missing conversation scope or tool")
+            }
+            return .accepted(.callScopedConnectorTool(scope: scope, name: name, argumentsJSON: fields.string("arguments") ?? "{}"))
         case "/connector/tools":
             return .accepted(.listConnectorTools)
         case "/connector/call":

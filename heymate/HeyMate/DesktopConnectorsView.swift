@@ -39,8 +39,18 @@ struct DesktopConnectorsView: View {
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Integrations").font(DS.Fonts.pageTitle).foregroundStyle(DS.Colors.textPrimary)
-                    Text("Connect apps your mates can use.")
+                    Text(MateEngine.selected() == .hermes ? "Your saved HeyMate connections." : "Connect apps your mates can use.")
                         .font(DS.Fonts.bodyLarge).foregroundStyle(DS.Colors.textSecondary)
+                }
+                if MateEngine.selected() == .hermes {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Hermes integrations").font(DS.Fonts.control).fontWeight(.semibold)
+                        Text("These connections stay saved in HeyMate. Hermes cannot use them yet. Hermes uses the tools and integrations configured in its own profile; the previous engine can still use saved HeyMate connections.")
+                            .font(DS.Fonts.caption).foregroundStyle(DS.Colors.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .background(DS.Colors.surface1, in: RoundedRectangle(cornerRadius: 16))
                 }
                 HStack(spacing: 10) {
                     searchField

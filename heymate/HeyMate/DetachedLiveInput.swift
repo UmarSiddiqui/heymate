@@ -43,7 +43,7 @@ nonisolated enum AgentPrivateApprovalStore {
             .appendingPathComponent("approval-\(token.uuidString.lowercased()).txt")
     }
     static func save(_ text: String, root: URL, runID: UUID, attemptID: UUID, token: UUID) throws {
-        let safe = AgentReceiptPrivacy.privateAnswer(text)
+        let safe = AgentReceiptPrivacy.privateToolDetails(text)
         try DetachedAgentSecureFiles.atomicDurableWrite(Data(safe.utf8), to: url(root: root, runID: runID, attemptID: attemptID, token: token))
     }
     static func load(root: URL, runID: UUID, attemptID: UUID, token: UUID) -> String? {

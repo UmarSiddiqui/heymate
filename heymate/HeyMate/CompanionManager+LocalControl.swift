@@ -51,6 +51,18 @@ extension CompanionManager {
         case .clear:
             clearPointingTarget()
             return .ok(["cleared": true])
+        case .listTalkTools(let scope):
+            return .ok(["tools": scopedTalkToolDescriptions(token: scope)])
+        case .callTalkTool(let scope, let name, let argumentsJSON):
+            let result = executeScopedTalkTool(token: scope, name: name,
+                                               arguments: TalkToolCatalog.arguments(fromInputArgumentsJSON: argumentsJSON))
+            return .ok(["text": result.text, "isError": result.isError])
+        case .listScopedConnectorTools(let scope):
+            return .ok(["tools": scopedConnectorToolDescriptions(token: scope)])
+        case .callScopedConnectorTool(let scope, let name, let argumentsJSON):
+            let result = await executeScopedConnectorTool(token: scope, name: name,
+                arguments: TalkToolCatalog.arguments(fromInputArgumentsJSON: argumentsJSON))
+            return .ok(["text": result.text, "isError": result.isError])
         case .listConnectorTools:
             // A job can start before any chat has opened a connector session.
             await awaitConnectorActivation()

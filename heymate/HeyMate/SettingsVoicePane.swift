@@ -74,18 +74,22 @@ struct SettingsVoicePane: View {
             SettingsDivider()
             SettingsRow(
                 SettingsItem.dictationMode.title,
-                subtitle: "Smart drafts from what's on screen. Literal types exactly what you say.",
+                subtitle: MateEngine.selected() == .hermes
+                    ? "Hermes uses Literal dictation. Smart rewriting is unavailable; your original words are inserted without an AI rewrite."
+                    : "Smart drafts from what's on screen. Literal types exactly what you say.",
                 item: .dictationMode
             ) {
                 DSSegmentedControl(
                     accessibilityTitle: SettingsItem.dictationMode.title,
-                    selection: $companionManager.dictationUsesSmartMode,
+                    selection: Binding(get: { companionManager.effectiveDictationUsesSmartMode },
+                                       set: { companionManager.dictationUsesSmartMode = $0 }),
                     segments: [
                         DSSegment(value: false, title: "Literal"),
                         DSSegment(value: true, title: "Smart")
                     ],
                     width: DS.SettingsLayout.segmentedWidth * 0.75
                 )
+                .disabled(MateEngine.selected() == .hermes)
             }
             SettingsDivider()
             SettingsRow(

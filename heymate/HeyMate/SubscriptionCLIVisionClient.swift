@@ -40,7 +40,19 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
     /// Whether the child gets HeyMate's loopback server at all. Composio is
     /// one reason; a plain MCP connector with a live session is another, and
     /// without it a subscription brain never sees that connector's tools.
-    let carriesConnectedAppTools: Bool
+    private(set) var carriesConnectedAppTools: Bool
+    private var talkToolScope: String?
+
+    func enableTalkToolScope(_ token: String) {
+        talkToolScope = token
+        carriesConnectedAppTools = HeyMateMCPServer.availableRuntime() != nil
+    }
+
+    private var childEnvironment: [String: String] {
+        var environment = HeyMateMCPServer.childEnvironment()
+        if let talkToolScope { environment["HEYMATE_TALK_SCOPE"] = talkToolScope }
+        return environment
+    }
 
     /// The chat this turn belongs to. Turns that share it continue one CLI
     /// session; nil gives every turn a fresh child, as before.
@@ -233,6 +245,7 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
             // there is something to reach. Must precede the positional prompt.
             if carriesConnectedAppTools {
                 codexArguments.append(contentsOf: HeyMateMCPServer.codexConfigurationArguments(
+                    bridgeEnvironment: childEnvironment,
                     enabledTools: nil
                 ))
             }
@@ -257,7 +270,7 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
             // environment. Both `--mcp-config` and `-c` are command-line
             // arguments, and a command line is readable by every process on
             // the Mac.
-            environmentOverrides: HeyMateMCPServer.childEnvironment(),
+            environmentOverrides: childEnvironment,
             parseAsCodexJSONL: backend == .codex
         )
     }
@@ -288,7 +301,7 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
                     streamsInput: true
                 ),
                 environmentKeysToRemove: HeadlessExecutor.claudeCode.environmentKeysToRemove,
-                environmentOverrides: HeyMateMCPServer.childEnvironment()
+                environmentOverrides: childEnvironment
             )
         case .codex:
             guard let executableURL = LoginShellExecutableResolver.resolveExecutable(named: "codex") else { return nil }
@@ -296,13 +309,13 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
                 userMCPServerNames: Self.codexUserMCPServerNames(configTOML: Self.codexUserConfigTOML())
             )
             if carriesConnectedAppTools {
-                arguments.append(contentsOf: HeyMateMCPServer.codexConfigurationArguments(enabledTools: nil))
+                arguments.append(contentsOf: HeyMateMCPServer.codexConfigurationArguments(bridgeEnvironment: childEnvironment, enabledTools: nil))
             }
             return WarmTalkLaunch(
                 executableURL: executableURL,
                 arguments: arguments,
                 environmentKeysToRemove: HeadlessExecutor.codex.environmentKeysToRemove,
-                environmentOverrides: HeyMateMCPServer.childEnvironment(),
+                environmentOverrides: childEnvironment,
                 codexThreadStartParamsJSON: Self.codexThreadStartParamsJSON(model: model, effort: reasoningEffort)
             )
         }
@@ -403,17 +416,21 @@ final class SubscriptionCLIVisionClient: VisionConversationClient {
         let conversationKey = self.conversationKey
         let conversationPosition = self.conversationPosition
 
-        guard let (child, isContinuing) = WarmTalkPool.shared.takeChild(
-            for: launch,
-            conversationKey: conversationKey,
-            position: conversationPosition
-        ) else {
+        // MCP tools/list calls back into the main-actor bridge during the
+        // Codex handshake. Blocking this actor here makes tool discovery
+        // time out and gives the model an empty tool list.
+        let takenChild = await Task.detached(priority: .userInitiated) {
+            WarmTalkPool.shared.takeChild(for: launch, conversationKey: conversationKey, position: conversationPosition)
+        }.value
+        guard let (child, isContinuing) = takenChild else {
             throw NSError(
                 domain: "SubscriptionCLIVisionClient",
                 code: 4,
                 userInfo: [NSLocalizedDescriptionKey: "\(engineName) could not be started."]
             )
         }
+
+        if Task.isCancelled { child.discard(); throw CancellationError() }
 
         // A continuing child already holds the earlier exchanges; replaying
         // them would make it read the whole chat twice.

@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct DesktopChatHeader: View {
+    @AppStorage(MateEngine.preferenceKey) private var mateEngine = MateEngine.selected().rawValue
     @ObservedObject var companionManager: CompanionManager
     @Binding var isShowingHistory: Bool
     @Binding var isShowingInspector: Bool
@@ -19,7 +20,7 @@ struct DesktopChatHeader: View {
                     .font(DS.Fonts.title)
                     .foregroundColor(DS.Colors.textPrimary)
                     .lineLimit(1)
-                Text("\(companionManager.selectedBrain.displayName) · \(companionManager.notchDockModelLabel)")
+                Text(mateEngine == MateEngine.hermes.rawValue ? "Hermes · private profile" : "\(companionManager.selectedBrain.displayName) · \(companionManager.notchDockModelLabel)")
                     .font(DS.Fonts.micro)
                     .foregroundColor(DS.Colors.textTertiary)
                     .lineLimit(1)
@@ -373,6 +374,7 @@ private struct ConnectorScopePickerPanel: View {
 }
 
 struct DesktopComposerModelButton: View {
+    @AppStorage(MateEngine.preferenceKey) private var mateEngine = MateEngine.selected().rawValue
     @ObservedObject var companionManager: CompanionManager
     @State private var isShowingModelPicker = false
 
@@ -382,12 +384,12 @@ struct DesktopComposerModelButton: View {
                 symbolName: "cpu",
                 title: companionManager.notchDockModelLabel,
                 isHighlighted: isShowingModelPicker,
-                brand: companionManager.selectedBrain
+                brand: mateEngine == MateEngine.hermes.rawValue ? nil : companionManager.selectedBrain
             )
         }
         .buttonStyle(.plain)
         .pointerCursor()
-        .help("Choose engine, model, and reasoning effort")
+        .help(mateEngine == MateEngine.hermes.rawValue ? "Hermes model access and skills" : "Choose engine, model, and reasoning effort")
         .disclosureSound(isShowingModelPicker, .popover)
         .popover(isPresented: $isShowingModelPicker, arrowEdge: .bottom) {
             NotchModelPickerPanel(companionManager: companionManager)

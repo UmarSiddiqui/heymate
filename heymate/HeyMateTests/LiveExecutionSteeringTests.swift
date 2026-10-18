@@ -66,6 +66,23 @@ struct LiveExecutionSteeringTests {
         func steerID() -> JSONValue? { sent.last { $0["method"] == .string("turn/steer") }?["id"] }
     }
 
+    @Test func fileApprovalShowsExactPrivatePathWithoutExposingCredentials() async throws {
+        let peer = Peer(); try await peer.connect(); try await peer.start()
+        peer.deliver(.object(["method": .string("item/started"), "params": .object([
+            "threadId": .string("owned-thread"), "turnId": .string("owned-turn"),
+            "item": .object(["id": .string("file-1"), "type": .string("fileChange"),
+                              "changes": .array([.object(["path": .string("/Users/example/output/index.html"),
+                                                          "diff": .string("api_key=sk-test-secret")])])])
+        ])]))
+        peer.deliver(.object(["id": .number(91), "method": .string("item/fileChange/requestApproval"),
+                             "params": .object(["threadId": .string("owned-thread"), "turnId": .string("owned-turn"),
+                                                "itemId": .string("file-1")])]))
+        let approval = try #require(peer.approved.first)
+        #expect(approval.details.contains("/Users/example/output/index.html"))
+        #expect(!approval.details.contains("sk-test-secret"))
+        peer.connection.close()
+    }
+
     @Test func executionResumesOwnedThreadAndReappliesPolicy() async throws {
         let peer = Peer(); try await peer.connect(); try await peer.start()
         #expect(peer.count("thread/resume") == 1 && peer.count("thread/start") == 0)

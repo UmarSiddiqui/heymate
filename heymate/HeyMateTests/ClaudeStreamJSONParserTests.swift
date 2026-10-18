@@ -105,3 +105,39 @@ struct OpenCodeRunParserTests {
         #expect(OpenCodeRunParser.events(fromStdoutLine: line).isEmpty)
     }
 }
+
+@MainActor
+struct ClaudeApprovalTransportRegressionTests {
+    @Test func sandboxAndAttachedExecuteBothUseScopedDuplexApprovals() {
+        let adapter = ClaudePrintAdapter(modelIdentifier: nil)
+        for origin in [AgentRunOrigin.sandbox, .attached] {
+            let spec = adapter.launchSpec(workspaceURL: URL(fileURLWithPath: "/tmp"), leg: .execute,
+                                          origin: origin, title: "Fixture", sessionIdentifier: UUID().uuidString)
+            #expect(spec.usesDuplexStandardInput)
+            #expect(spec.arguments.contains("--permission-prompt-tool"))
+            #expect(spec.arguments.contains("stdio"))
+            #expect(!spec.arguments.contains("--dangerously-skip-permissions"))
+        }
+    }
+
+    @Test func approvalEchoesExactCommandAndDenialDoesNotAllowIt() throws {
+        let adapter = ClaudePrintAdapter(modelIdentifier: nil)
+        let line = #"{"type":"control_request","request_id":"opaque","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"printf fixture","timeout":1000}}}"#
+        let events = adapter.events(fromStdoutLine: line)
+        guard case .approvalRequested(let id, let summary) = try #require(events.first) else {
+            Issue.record("No command approval surfaced")
+            return
+        }
+        #expect(id == "opaque")
+        #expect(summary.contains("printf fixture"))
+        let data = try #require(adapter.stdinPayloadForApproval(id: "opaque", approve: true))
+        let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let envelope = try #require(payload["response"] as? [String: Any])
+        let response = try #require(envelope["response"] as? [String: Any])
+        #expect(response["behavior"] as? String == "allow")
+        #expect((response["updatedInput"] as? [String: Any])?["command"] as? String == "printf fixture")
+        _ = adapter.events(fromStdoutLine: line)
+        let denied = try #require(adapter.stdinPayloadForApproval(id: "opaque", approve: false))
+        #expect(String(decoding: denied, as: UTF8.self).contains("deny"))
+    }
+}

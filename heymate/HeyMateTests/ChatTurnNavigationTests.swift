@@ -5,6 +5,44 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct ChatTurnNavigationTests {
+    @Test func nativeSubscriptionToolScopeRejectsOtherChatsAndExpiresOnNavigation() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        let owner = AgentChatOwner(mateID: manager.currentChat.mateID ?? manager.mateDirectory.defaultMateID,
+                                   chatID: manager.currentChat.id)
+        var job = AgentRun.queued(id: UUID(), title: "Owned page", prompt: "Page", workspaceURL: fixture.root,
+                                  executor: .codex, origin: .sandbox, sessionIdentifier: "persisted", chatOwner: owner)
+        job.status = .succeeded
+        job.privateFinalResult = "Only this chat may read the research."
+        var other = job
+        other = AgentRun.queued(id: UUID(), title: "Private other chat", prompt: "Secret", workspaceURL: fixture.root,
+                                executor: .claudeCode, origin: .sandbox,
+                                chatOwner: AgentChatOwner(mateID: owner.mateID, chatID: UUID()))
+        other.privateFinalResult = "Private unrelated findings."
+        manager.agentRunStore.upsert(job)
+        manager.agentRunStore.upsert(other)
+        manager.agentRuns = manager.agentRunStore.loadAll()
+        manager.sendTranscriptToClaudeWithScreenshot(transcript: "Recall my findings", shouldCaptureScreen: false)
+        let task = try #require(manager.currentResponseTask)
+        try await fixture.client.waitForRequest()
+        let completion = try #require(manager.currentResponseCompletion)
+        let token = manager.registerTalkToolScope(owner: owner, completion: completion)
+        let names = manager.scopedTalkToolDescriptions(token: token).compactMap { $0["name"] as? String }
+        #expect(names.contains("inspect_work"))
+        #expect(names.contains("continue_work"))
+        let result = manager.executeScopedTalkTool(token: token, name: "inspect_work", arguments: [:])
+        #expect(result.text.contains("Only this chat"))
+        #expect(!result.text.contains("Private unrelated"))
+        #expect(manager.scopedTalkToolDescriptions(token: UUID().uuidString).isEmpty)
+        manager.startNewChat()
+        #expect(manager.scopedTalkToolDescriptions(token: token).isEmpty)
+        #expect(manager.executeScopedTalkTool(token: token, name: "open_artifact", arguments: [:]).isError)
+        manager.revokeTalkToolScope(token)
+        fixture.client.finish(text: "Late answer")
+        await task.value
+    }
+
     @Test(arguments: ["new", "open", "mate", "delete", "clear", "clearMate", "stop"],
           ["talk", "agent", "fallback"])
     func navigationRejectsLateIntentClassification(action: String, route: String) async throws {

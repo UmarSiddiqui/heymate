@@ -575,6 +575,46 @@ struct DetachedAgentRunnerEngineTests {
         #expect(wakeCount == 0)
     }
 
+    @Test func claudeStreamStartsFromInputSurfacesApprovalAndExitsAfterResult() async throws {
+        let fixture = try makeFixtureDirectory(named: "claude-stream")
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let runtimeRoot = fixture.appendingPathComponent("runtime")
+        let script = try makeExecutableScript(in: fixture, named: "stream.sh", contents: #"""
+        #!/bin/sh
+        IFS= read -r initial || exit 21
+        case "$initial" in *fixture-prompt*) ;; *) exit 22 ;; esac
+        printf '%s\n' '{"type":"control_request","request_id":"private-permission","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"printf fixture"}}}'
+        IFS= read -r approval || exit 23
+        case "$approval" in *'printf fixture'*) ;; *) exit 24 ;; esac
+        printf '%s\n' '{"type":"result","is_error":false,"result":"HEYMATE_RESULT: Fixture completed after approved command."}'
+        # CLI remains alive until host ends input. Success must await exit 0.
+        while IFS= read -r unused; do :; done
+        exit 0
+        """#)
+        let request = makeRequest(executor: .claudeCode, executableURL: URL(fileURLWithPath: "/bin/sh"),
+                                  arguments: [script.path], workspaceURL: fixture,
+                                  usesDuplexStandardInput: true, initialStandardInput: Data("fixture-prompt".utf8), runtimeLimit: 5)
+        let engine = try DetachedAgentRunnerEngine(request: request, rootDirectoryURL: runtimeRoot,
+                                                   exitProcess: { _ in }, wakeMainApp: {})
+        engine.start()
+        #expect(await waitUntil(timeout: 3) {
+            (try? Self.loadState(root: runtimeRoot, request: request))?.phase == .waitingForApproval
+        })
+        let state = try #require(try Self.loadState(root: runtimeRoot, request: request))
+        let token = try #require(state.pendingApprovalToken)
+        let mailbox = try DetachedAgentCommandMailbox(rootDirectoryURL: runtimeRoot, runID: request.runID, attemptID: request.attemptID)
+        try mailbox.enqueue(DetachedAgentCommandEnvelope(runID: request.runID, attemptID: request.attemptID,
+                                                         command: .respondToApproval(token: token, decision: .approve)))
+        #expect(await waitUntil(timeout: 6) {
+            (try? Self.loadState(root: runtimeRoot, request: request))?.phase.isTerminal == true
+        })
+        let terminal = try #require(try Self.loadState(root: runtimeRoot, request: request))
+        #expect(terminal.phase == .succeeded)
+        #expect(terminal.exitCode == 0)
+        let records = try DetachedAgentRuntimeJournal.loadReadOnly(rootDirectoryURL: runtimeRoot, runID: request.runID, attemptID: request.attemptID)
+        #expect(records.contains { $0.kind == .approvalRequested })
+    }
+
     private func makeRequest(
         executor: HeadlessExecutor = .codex,
         executableURL: URL,
@@ -583,6 +623,7 @@ struct DetachedAgentRunnerEngineTests {
         environmentKeysToRemove: [String] = [],
         environmentOverrides: [String: String] = [:],
         usesDuplexStandardInput: Bool = false,
+        initialStandardInput: Data? = nil,
         runtimeLimit: TimeInterval
     ) -> DetachedAgentLaunchRequest {
         DetachedAgentLaunchRequest(
@@ -597,6 +638,7 @@ struct DetachedAgentRunnerEngineTests {
                 environmentKeysToRemove: environmentKeysToRemove,
                 environmentOverrides: environmentOverrides,
                 usesDuplexStandardInput: usesDuplexStandardInput,
+                initialStandardInput: initialStandardInput,
                 runtimeLimit: runtimeLimit
             )
         )

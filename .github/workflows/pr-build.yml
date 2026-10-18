@@ -49,6 +49,11 @@ jobs:
           key: spm-${{ runner.os }}-${{ hashFiles('heymate/HeyMate.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-${{ runner.os }}-
 
+      - name: Check Hermes runtime packaging and Gmail bridge
+        run: |
+          /usr/bin/python3 heymate/scripts/hermes-runtime-tests.py
+          python3 heymate/scripts/hermes-gmail-bridge-smoke.py
+
       - name: Build app and tests
         run: |
           xcodebuild \
@@ -124,6 +129,7 @@ jobs:
             -derivedDataPath "$DERIVED_DATA" \
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
+            HEYMATE_ALLOW_EXTERNAL_RUNTIME=YES \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY=- \
             DEVELOPMENT_TEAM= \

@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>HeyMateBuildSourceSHA256</key>
+	<string>$(HEYMATE_BUILD_SOURCE_SHA256)</string>
+	<key>HeyMateBuildKind</key>
+	<string>$(HEYMATE_BUILD_KIND)</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>LSApplicationCategoryType</key>

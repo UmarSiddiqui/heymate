@@ -427,6 +427,7 @@ final class HeadlessCLIProcess {
     }
 
     var processIdentifier: Int32 { spawnedProcessIdentifier }
+    var isProcessRunning: Bool { isRunning }
 
     /// True while either output pipe still has a readability callback.
     var hasAttachedOutputReadabilityHandler: Bool {
@@ -448,6 +449,7 @@ final class HeadlessCLIProcess {
         environmentOverrides: [String: String] = [:],
         temporaryDirectoriesToRemove: [URL] = [],
         usesDuplexStandardInput: Bool = false,
+        initialStandardInput: Data? = nil,
         onLine: @escaping (String) -> Void,
         onExit: @escaping (Int32) -> Void
     ) throws {
@@ -507,6 +509,8 @@ final class HeadlessCLIProcess {
             lifetimePipe.fileHandleForReading.closeFile()
             if !usesDuplexStandardInput {
                 stdinPipe.fileHandleForWriting.closeFile()
+            } else if let initialStandardInput {
+                guard writeToStandardInput(initialStandardInput) else { throw POSIXError(.EIO) }
             }
 
             DispatchQueue.global(qos: .utility).async {
@@ -746,7 +750,19 @@ final class HeadlessCLIProcess {
         return terminationSignal
     }
 
+    /// An ACP owner may hand this duplicate to a serial background writer so
+    /// a slow peer cannot block the main actor. The caller owns and closes it.
+    func duplicateStandardInputFileDescriptor() throws -> Int32 {
+        let descriptor = dup(stdinPipe.fileHandleForWriting.fileDescriptor)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        return descriptor
+    }
+
     @discardableResult
+    func closeStandardInput() {
+        try? stdinPipe.fileHandleForWriting.close()
+    }
+
     func writeToStandardInput(_ data: Data) -> Bool {
         do {
             var framedData = data

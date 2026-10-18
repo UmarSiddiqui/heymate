@@ -22,7 +22,12 @@ struct SettingsAgentsPane: View {
     @ObservedObject private var cuaDriverSetup = CuaDriverSetup.shared
 
     @State private var showsBehaviorContractEditor = false
+    @State private var hermesSetupBusy = false
     @State private var showsSafetyRules = false
+    @AppStorage(MateEngine.preferenceKey) private var mateEngine = (MateEngine.bundledRuntimeAvailable ? MateEngine.hermes : MateEngine.native).rawValue
+    @AppStorage(HermesEngineConfiguration.executablePathKey) private var hermesExecutablePath = ""
+    @AppStorage(HermesEngineConfiguration.profilePathKey) private var hermesProfilePath = HermesEngineConfiguration.defaultProfilePath
+    @AppStorage(HermesEngineConfiguration.runtimePathKey) private var hermesRuntimePath = ""
 
     init(companionManager: CompanionManager, navigation: SettingsNavigationModel) {
         self.companionManager = companionManager
@@ -32,20 +37,59 @@ struct SettingsAgentsPane: View {
 
     var body: some View {
         SettingsPage(tab: .agents, navigation: navigation) {
+            engineSection
+            if mateEngine == MateEngine.native.rawValue {
             SettingsSection(
                 "Agents",
                 footer: "Signing in opens Terminal with the AI app's own sign-in. HeyMate never sees your password."
             ) {
                 AgentSignInRows(companionManager: companionManager)
             }
+            }
 
-            computerControlSection
-            behaviorContractSection
+            if mateEngine == MateEngine.native.rawValue {
+                computerControlSection
+                behaviorContractSection
+            } else {
+                SettingsSection("Mac access", footer: "Hermes uses its own tools and profile settings. The previous engine’s computer-control rules do not restrict Hermes shell commands.") {
+                    Text("Microphone, screen recording, and shortcuts still use macOS permissions. Hermes approval requests appear in HeyMate; ordinary tool actions may run without a prompt.")
+                        .font(DS.Fonts.caption).foregroundColor(DS.Colors.textSecondary)
+                        .settingsRowContentInsets()
+                }
+            }
         }
         .disclosureSound(showsBehaviorContractEditor, .sheet)
         .sheet(isPresented: $showsBehaviorContractEditor) {
             BehaviorContractEditorSheet()
         }
+    }
+
+    private var engineSection: some View {
+        SettingsSection("Mate engine", footer: engineSettingsLocked ? "Finish, stop, or resolve earlier work before changing the engine." : "Applies to every mate. Existing chats and native provider preferences stay saved.") {
+            SettingsRow("Engine", subtitle: "Choose what runs mate conversations.", systemImage: "gearshape.2") {
+                Picker("Mate engine", selection: $mateEngine) {
+                    ForEach(MateEngine.allCases) { engine in
+                        Text(engine.displayName).tag(engine.rawValue)
+                    }
+                }
+                .labelsHidden()
+                .disabled(engineSettingsLocked)
+            }
+            if mateEngine == MateEngine.hermes.rawValue {
+                HermesSetupPane(executablePath: $hermesExecutablePath, profilePath: $hermesProfilePath,
+                                runtimePath: $hermesRuntimePath, isWorking: $hermesSetupBusy)
+                    .settingsRowContentInsets()
+                    .disabled(engineWorkLocked)
+            }
+        }
+    }
+
+    private var engineSettingsLocked: Bool {
+        hermesSetupBusy || engineWorkLocked
+    }
+
+    private var engineWorkLocked: Bool {
+        companionManager.isResponseInFlight || companionManager.isHermesTurnInFlight || !companionManager.hermesRecoveryBlockedChatIDs.isEmpty || companionManager.agentRuns.contains { !$0.status.isTerminal }
     }
 
     // MARK: Computer control

@@ -213,7 +213,7 @@ final class CodexAppServerExecutionSession {
                         if detail.utf8.count > 32_000 { break }
                     }
                 }
-                itemDetails[id] = AgentReceiptPrivacy.privateAnswer(detail)
+                itemDetails[id] = AgentReceiptPrivacy.privateToolDetails(detail)
             }
             if method == "item/completed", type == "agentMessage" { consumeMessage(item) }
             else if ["commandExecution", "fileChange", "mcpToolCall", "webSearch", "imageView"].contains(type) {

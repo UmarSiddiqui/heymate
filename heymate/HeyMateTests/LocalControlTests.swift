@@ -14,6 +14,14 @@ import Testing
 @MainActor
 struct LocalControlTests {
 
+    @Test func scopedConnectorRoutesRequireScopeAndAccountAuthentication() {
+        #expect(LocalControlRouter.route(method: "POST", path: "/talk/connector-tools", json: [:]) == .rejected(statusCode: 403, message: "Missing conversation scope"))
+        #expect(LocalControlRouter.route(method: "POST", path: "/talk/connector-tools", json: ["scope": "turn"]) == .accepted(.listScopedConnectorTools(scope: "turn")))
+        #expect(LocalControlRouter.route(method: "POST", path: "/talk/connector-call", json: ["scope": "turn", "tool": "search"]) == .accepted(.callScopedConnectorTool(scope: "turn", name: "search", argumentsJSON: "{}")))
+        #expect(LocalControlCommand.listScopedConnectorTools(scope: "turn").touchesConnectedAccounts)
+        #expect(LocalControlCommand.callScopedConnectorTool(scope: "turn", name: "search", argumentsJSON: "{}").touchesConnectedAccounts)
+    }
+
     @Test func healthPathParsesAndRoutes() {
         let raw = "GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
         let parsed = LocalControlHTTPRequest.parse(Data(raw.utf8))

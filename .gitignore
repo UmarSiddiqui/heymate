@@ -28,3 +28,6 @@ heymate/design/
 
 # LLVM coverage output from Debug runs
 *.profraw
+
+# Prepared Hermes runtime payloads (generated, never profile data)
+/build/hermes-runtime*/

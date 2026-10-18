@@ -194,6 +194,10 @@ enum HarnessToolName: String, Equatable, CaseIterable {
     case getMateStatus = "get_mate_status"
     case answerRequest = "answer_request"
     case askDeeper = "ask_deeper"
+    case inspectWork = "inspect_work"
+    case continueWork = "continue_work"
+    case openArtifact = "open_artifact"
+    case revealArtifact = "reveal_artifact"
 }
 
 struct HarnessToolRequest: Equatable {

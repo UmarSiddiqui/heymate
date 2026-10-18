@@ -182,6 +182,9 @@ nonisolated struct AgentRun: Codable, Equatable, Identifiable {
     /// Private answer prose. Never included in receipts, metadata journals,
     /// telemetry, or activity logs. Nil for older jobs and missing answers.
     var privateFinalResult: String? = nil
+    /// Private deliverable references outlive any one attempt's final prose.
+    /// Never include these in portable receipts or runtime metadata.
+    var privateArtifactPaths: [String]? = nil
     /// Set when the user stops the job within `AgentRunRecovery.quickStopThreshold`.
     var stoppedQuickly: Bool = false
     /// Provider tool activity only; heartbeat writes never touch these dates.
@@ -301,6 +304,7 @@ extension AgentRun {
         chatOwner = try container.decodeIfPresent(AgentChatOwner.self, forKey: .chatOwner)
         chatResultDeliveryKey = try container.decodeIfPresent(String.self, forKey: .chatResultDeliveryKey)
         privateFinalResult = try container.decodeIfPresent(String.self, forKey: .privateFinalResult)
+        privateArtifactPaths = try container.decodeIfPresent([String].self, forKey: .privateArtifactPaths)
         stoppedQuickly = try container.decodeIfPresent(Bool.self, forKey: .stoppedQuickly) ?? false
         liveSteeringAvailable = try container.decodeIfPresent(Bool.self, forKey: .liveSteeringAvailable) ?? false
         liveInputDeliveries = try container.decodeIfPresent([AgentLiveInputDelivery].self, forKey: .liveInputDeliveries)
