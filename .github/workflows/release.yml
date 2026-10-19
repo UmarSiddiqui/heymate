@@ -201,9 +201,11 @@ jobs:
           source heymate/script/code_signature_checks.sh
           heymate_verify_embedded_agent_runner "$APP" release
           ARCHS="arm64 x86_64" /usr/bin/python3 heymate/scripts/hermes-runtime-stage.py --source "$APP/Contents/Resources/Hermes" --destination "$RUNNER_TEMP/verify/Hermes" --verify-only
-          codesign --verify --deep --strict --verbose=2 "$APP"
           # Exercise the signed bundled Node and Hermes MCP path; no system Node,
           # provider credentials, model calls, or real Gmail mutations.
+          # The bundled Python must not write __pycache__ into the signed app:
+          # one stray .pyc breaks the seal and macOS calls the app "damaged".
+          PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX="$RUNNER_TEMP/pycache" \
           /usr/bin/python3 - "$APP/Contents/Resources/Hermes" <<'PY'
           import json, os, pathlib, platform, subprocess, sys
           root = pathlib.Path(sys.argv[1])
@@ -214,9 +216,11 @@ jobs:
               manifest = json.loads((root / "manifest.json").read_text())
           python = root / manifest["runtime"]["storePython"]
           site = root / manifest["runtime"]["sitePackages"]
-          subprocess.run([str(python), "heymate/scripts/hermes-gmail-bridge-smoke.py", "--payload", str(root)],
+          subprocess.run([str(python), "-B", "heymate/scripts/hermes-gmail-bridge-smoke.py", "--payload", str(root)],
                          env=dict(os.environ, PYTHONPATH=str(site)), check=True)
           PY
+          # Verify the seal after everything above has run the bundled code.
+          codesign --verify --deep --strict --verbose=2 "$APP"
           # Permissions survive updates only while this requirement stays put.
           codesign -dr - "$APP" 2>&1 | grep -q 'certificate root = H"a5bc67c8702a1027e762f26cf4f3400686fe7d5e"' \
             || { echo "::error::HeyMate is not signed with the HeyMate Open Source Signing certificate"; codesign -dr - "$APP"; exit 1; }
@@ -260,6 +264,12 @@ jobs:
             hdiutil create -volname "$APP_NAME" -srcfolder "$STAGE" -ov -format UDZO "dist/$APP_NAME.dmg"
           fi
           hdiutil verify "dist/$APP_NAME.dmg"
+          # Check the app people actually download, not just the build output.
+          MOUNT=$(mktemp -d)
+          hdiutil attach "dist/$APP_NAME.dmg" -readonly -nobrowse -mountpoint "$MOUNT" >/dev/null
+          codesign --verify --deep --strict --verbose=2 "$MOUNT/$APP_NAME.app" \
+            || { hdiutil detach "$MOUNT" >/dev/null; echo "::error::The app inside $APP_NAME.dmg fails its code signature check"; exit 1; }
+          hdiutil detach "$MOUNT" >/dev/null
           (cd dist && shasum -a 256 "$APP_NAME.dmg" > "$APP_NAME.dmg.sha256")
           ls -la dist
 
