@@ -3889,7 +3889,9 @@ final class CompanionManager: ObservableObject {
                     onSubmit: { [weak self] finalTranscript in
                         self?.lastTranscript = finalTranscript
                         HeyMateLog.log("🗣️ Companion received transcript (\(finalTranscript.count) characters)")
-                        HeyMateAnalytics.track(.userMessageSent(characterCount: finalTranscript.count))
+                        if !finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            HeyMateAnalytics.track(.userMessageSent(characterCount: finalTranscript.count))
+                        }
                         self?.handleTalkTranscript(finalTranscript)
                     }
                 )
@@ -3967,6 +3969,7 @@ final class CompanionManager: ObservableObject {
             isHeyMateTalkTurn = asHeyMateTalk
             if acceptLocalMateCommand(messageText) { return true }
             if MateEngine.selected() == .hermes {
+                HeyMateAnalytics.track(.userMessageSent(characterCount: messageText.count))
                 commandBarFeedback = nil
                 lastTranscript = messageText
                 sendToTalk(messageText.appending(contextPreamble(for: contextTokens)), requiresIdle: false,

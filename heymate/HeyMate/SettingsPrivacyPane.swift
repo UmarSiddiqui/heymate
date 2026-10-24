@@ -16,6 +16,8 @@ struct SettingsPrivacyPane: View {
     @ObservedObject var navigation: SettingsNavigationModel
     @ObservedObject private var presencePreferences = AppPresencePreferences.shared
 
+    @ObservedObject private var analytics = HeyMateAnalytics.shared
+
     @State private var newBundleIdentifier = ""
     @State private var bundleIdentifierError: String?
     @State private var persistErrorMessage: String?
@@ -26,6 +28,7 @@ struct SettingsPrivacyPane: View {
         SettingsPage(tab: .privacy, navigation: navigation) {
             screenCaptureSection
             chatsAndMemorySection
+            analyticsSection
             whatLeavesSection
             dangerZoneSection
         }
@@ -202,13 +205,25 @@ struct SettingsPrivacyPane: View {
         }
     }
 
+    private var analyticsSection: some View {
+        SettingsSection("Help improve HeyMate", footer: UsageAnalytics.disclosure + " Turning this off cancels pending sends; data already received by PostHog stays in aggregate reports.") {
+            SettingsToggleRow(
+                SettingsItem.usageAnalytics.title,
+                subtitle: analytics.isAvailable ? "Help us understand what gets used and whether people come back." : "Unavailable in this build. Nothing is sent.",
+                item: .usageAnalytics,
+                isOn: Binding(get: { analytics.isOptedIn }, set: { analytics.setOptedIn($0) })
+            )
+            .disabled(!analytics.isAvailable && !analytics.isOptedIn)
+        }
+    }
+
     // MARK: What leaves this Mac
 
     private var whatLeavesSection: some View {
         SettingsSection {
             SettingsDisclosureRow(
                 SettingsItem.whatLeavesThisMac.title,
-                subtitle: "Only the screenshot and words for a turn, and only to the AI you chose.",
+                subtitle: "AI requests go to your chosen provider. Optional usage counts go to PostHog only with your consent.",
                 isExpanded: $showsDataFlowDetails
             ) {
             SettingsDivider()

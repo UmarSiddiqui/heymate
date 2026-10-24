@@ -177,6 +177,14 @@ final class NotchCompanionController {
         self.companionManager = companionManager
         showIfPossible()
         observeStateChanges()
+        NotchUsageStore.shared.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.pillModel.hasUsage = !NotchUsageStore.shared.enabled.isEmpty
+                self?.syncPillFrameToModel()
+            }.store(in: &cancellables)
+        pillModel.hasUsage = !NotchUsageStore.shared.enabled.isEmpty
+        syncPillFrameToModel()
 
         placementObserver = AppPresencePreferences.shared.$noNotchPlacement
             .dropFirst()
@@ -892,10 +900,19 @@ final class NotchCompanionController {
         hostingView.onClick = { [weak self] in self?.pinExpandedCardAndTakeKey() }
         if surface == .fullCard {
             hostingView.registerAsFileDropTarget()
-            hostingView.onDragEnter = { [weak self] in self?.cancelPendingGraceCollapse() }
+            hostingView.onDragEnter = { [weak self] in
+                self?.cancelPendingGraceCollapse()
+                self?.companionManager?.notchActivityCenter.shelfPresentation = .hungry
+            }
             hostingView.onDragExit = { [weak self] in
-                guard self?.isPinned == false else { return }
-                self?.scheduleGraceCollapse()
+                guard let self else { return }
+                if self.isPinned {
+                    if self.companionManager?.notchActivityCenter.shelfPresentation == .hungry {
+                        self.companionManager?.notchActivityCenter.shelfPresentation = .hidden
+                    }
+                } else {
+                    self.scheduleGraceCollapse()
+                }
             }
             hostingView.onFileDrop = { [weak self] droppedURLs in
                 self?.acceptDroppedFiles(droppedURLs) ?? false
@@ -962,10 +979,14 @@ final class NotchCompanionController {
     private func setPillDragTargeting(_ isTargeting: Bool) {
         pillModel.isDropTargeted = isTargeting
         syncPillFrameToModel()
+        if !isTargeting, companionManager?.notchActivityCenter.shelfPresentation == .hungry {
+            scheduleGraceCollapse()
+        }
     }
 
     private func beginShelfDrag() {
         setPillDragTargeting(true)
+        companionManager?.notchActivityCenter.shelfPresentation = .hungry
         companionManager?.shouldRevealAppsTab = true
     }
 
@@ -1002,19 +1023,33 @@ final class NotchCompanionController {
         if !companionManager.notchActivityCenter.isEnabled(.shelf) {
             companionManager.notchActivityCenter.setEnabled(true, for: .shelf)
         }
-        let acceptedCount = shelfStore.accept(fileURLs: droppedURLs)
+        let validURLs = droppedURLs.filter { $0.isFileURL && FileManager.default.fileExists(atPath: $0.path) }
+        guard !validURLs.isEmpty else { return false }
+        let acceptedCount = shelfStore.accept(fileURLs: validURLs)
+        let alreadyStored = validURLs.allSatisfy { url in shelfStore.items.contains { $0.fileURL == url } }
         setPillDragTargeting(false)
-        if acceptedCount > 0 {
+        if acceptedCount > 0 || alreadyStored {
+            if acceptedCount > 0 { HeyMateAnalytics.track(.filesShelved(count: acceptedCount)) }
+            cancelPendingGraceCollapse()
+            companionManager.notchActivityCenter.shelfPresentation = .eating
+            if !isExpanded { presentSurface(.fullCard, pinned: true) }
             isPinned = true
             expandedPanel?.makeKey()
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(450))
+                guard let center = self?.companionManager?.notchActivityCenter,
+                      center.shelfPresentation == .eating else { return }
+                center.shelfPresentation = .stored
+            }
         }
-        return acceptedCount > 0
+        return acceptedCount > 0 || alreadyStored
     }
 
     private func handlePillClick() {
         if isExpanded {
             collapseAndUnpin()
         } else {
+            HeyMateAnalytics.track(.notchOpened)
             presentSurface(.fullCard, pinned: true)
         }
     }
@@ -1272,6 +1307,8 @@ final class NotchCompanionController {
     }
 
     private func finishCollapse() {
+        companionManager?.notchActivityCenter.shelfPresentation = .hidden
+        pillModel.isDropTargeted = false
         removeDismissalMonitors()
         isTransitioning = false
         isExpanded = false
@@ -1284,6 +1321,8 @@ final class NotchCompanionController {
     /// `collapseAndUnpin` this does NOT bring the tab back — used when the
     /// feature is disabled or being torn down.
     private func dismissEverything() {
+        companionManager?.notchActivityCenter.shelfPresentation = .hidden
+        pillModel.isDropTargeted = false
         removeDismissalMonitors()
         cancelScheduledTransitions()
         frameAnimator.cancel()

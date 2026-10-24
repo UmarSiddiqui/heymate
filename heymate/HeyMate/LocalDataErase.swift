@@ -19,7 +19,7 @@ enum LocalDataErase {
     static let restartNote = "Quit and reopen HeyMate to finish erasing agents and their work."
 
     static let confirmationMessage = """
-    This erases mates, chats, routines, memories, agent run history, standing order markdown files in the app's standing-orders folder, behavior contract edits (the file will be re-seeded), connector connection records and their keychain secrets, Composio API key, and custom API key. Project folders under ~/Projects are not deleted.
+    This erases mates, chats, routines, memories, agent run history, standing order markdown files in the app's standing-orders folder, behavior contract edits (the file will be re-seeded), connector connection records and their keychain secrets, Composio API key, and custom API key. Analytics consent and the local analytics identity are also cleared; previously received analytics are not deleted from PostHog. Project folders under ~/Projects are not deleted.
     """
 
     /// Deletes the on-disk data and the in-memory pieces that are safe to
@@ -30,6 +30,7 @@ enum LocalDataErase {
         fileManager: FileManager = .default,
         userDefaults: UserDefaults = .standard
     ) -> String {
+        HeyMateAnalytics.shared.setOptedIn(false)
         removeHeyMateSupportFile(FileMateStore.appSupportFileURL(), fileManager: fileManager)
         removeHeyMateSupportFile(FileChatHistoryStore.appSupportFileURL(), fileManager: fileManager)
         removeHeyMateSupportFile(FileMateRoutineStore.appSupportFileURL(), fileManager: fileManager)

@@ -155,18 +155,18 @@ struct UISnapshotTests {
             name: "notch-home"
         )
         try Self.render(
-            NotchMicroAppsView(companionManager: manager)
+            NotchUsageView(companionManager: manager)
                 .background(Color.black),
             size: CGSize(
                 width: NotchLayoutMath.expandedWidth,
                 height: NotchLayoutMath.expandedHeight - NotchControlMetrics.bottomBarHeight
             ),
             dark: true,
-            name: "notch-tools"
+            name: "notch-usage"
         )
     }
 
-    /// The expanded card as it hangs from a 14″ notch: Home and Tools at
+    /// The expanded card as it hangs from a 14″ notch: Home and Usage at
     /// rest, plus three frames of the open morph, all over a grey desktop
     /// and menu bar so the silhouette (shoulders, corners) is visible.
     @Test(.enabled(if: outputDirectory != nil))

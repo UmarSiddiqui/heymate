@@ -96,6 +96,9 @@ jobs:
       SCHEME: HeyMate
       DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
       APP_NAME: HeyMate
+      # Public ingestion token. Runtime consent remains off by default.
+      POSTHOG_API_KEY: ${{ vars.POSTHOG_API_KEY }}
+      POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
       # In-app updates (Sparkle). The feed is the appcast.xml attached to the
       # latest GitHub Release; the public key is not secret. The matching
       # private key lives in the SPARKLE_PRIVATE_KEY repo secret.
@@ -185,6 +188,8 @@ jobs:
             PROVISIONING_PROFILE_SPECIFIER= \
             MARKETING_VERSION="${{ steps.version.outputs.version }}" \
             CURRENT_PROJECT_VERSION="${{ steps.version.outputs.build }}" \
+            POSTHOG_API_KEY="$POSTHOG_API_KEY" \
+            POSTHOG_HOST="$POSTHOG_HOST" \
             SPARKLE_FEED_URL="$SPARKLE_FEED_URL" \
             SPARKLE_PUBLIC_ED_KEY="$SPARKLE_PUBLIC_ED_KEY" \
             build > build.log 2>&1 || {

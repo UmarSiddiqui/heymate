@@ -2,6 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- Public project token, never a PostHog personal or secret API key. -->
+    <key>POSTHOG_API_KEY</key>
+    <string>$(POSTHOG_API_KEY)</string>
+    <key>POSTHOG_HOST</key>
+    <string>$(POSTHOG_HOST)</string>
 	<key>HeyMateBuildSourceSHA256</key>
 	<string>$(HEYMATE_BUILD_SOURCE_SHA256)</string>
 	<key>HeyMateBuildKind</key>

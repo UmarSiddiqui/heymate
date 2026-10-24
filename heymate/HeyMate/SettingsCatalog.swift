@@ -73,7 +73,7 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
         case .voice:
             return "Choose how HeyMate sounds and how fast it talks."
         case .notch:
-            return "Small things that live around the camera. Each is off until you turn it on."
+            return "Coding usage, reset times, agent activity, and a file shelf that opens when you drag."
         case .accounts:
             return "Which AI answers you, and how hard it thinks."
         case .agents:
@@ -199,6 +199,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
     case screenRecordings
     case saveChats
     case memories
+    case usageAnalytics
     case whatLeavesThisMac
     case eraseData
 
@@ -224,7 +225,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
             return .agents
         case .permissionList, .repairShortcuts:
             return .permissions
-        case .excludedApps, .screenRecordings, .saveChats, .memories, .whatLeavesThisMac, .eraseData:
+        case .excludedApps, .screenRecordings, .saveChats, .memories, .usageAnalytics, .whatLeavesThisMac, .eraseData:
             return .privacy
         }
     }
@@ -261,9 +262,9 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .macVoice: return "Mac voice"
         case .elevenLabsKey: return "ElevenLabs API key"
         case .elevenLabsVoice: return "ElevenLabs voice"
-        case .microApps: return "Micro-apps"
+        case .microApps: return "Coding usage"
         case .hoverOpensCard: return "Open the card on hover"
-        case .notchContent: return "In the notch now"
+        case .notchContent: return "Feed your mate"
         case .yourAI: return "Your AI"
         case .model: return "Model"
         case .effort: return "Effort"
@@ -281,6 +282,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .screenRecordings: return "Show in screen recordings"
         case .saveChats: return "Save chats on this Mac"
         case .memories: return "Memories"
+        case .usageAnalytics: return "Share usage analytics"
         case .whatLeavesThisMac: return "What leaves this Mac"
         case .eraseData: return "Erase HeyMate data"
         }
@@ -318,9 +320,9 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .macVoice: return "system voice premium spoken content"
         case .elevenLabsKey: return "elevenlabs api key cloud voice"
         case .elevenLabsVoice: return "elevenlabs voice id clone"
-        case .microApps: return "shelf timer clipboard battery now playing calendar camera"
+        case .microApps: return "codex claude cursor usage limits rings reset coding"
         case .hoverOpensCard: return "hover peek notch card expand"
-        case .notchContent: return "file shelf clipboard history timer next event"
+        case .notchContent: return "file shelf drag drop mouth feed mate"
         case .yourAI: return "claude chatgpt openai anthropic plan subscription sign in apple intelligence brain engine"
         case .model: return "claude chatgpt gpt sonnet opus haiku model"
         case .effort: return "reasoning thinking effort"
@@ -338,6 +340,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .screenRecordings: return "screenshot share screen hide recording zoom"
         case .saveChats: return "chat history conversations remember save"
         case .memories: return "memory forget remember"
+        case .usageAnalytics: return "analytics consent tracking usage privacy posthog opt in"
         case .whatLeavesThisMac: return "cloud data privacy sent"
         case .eraseData: return "delete reset wipe erase remove all data"
         }
@@ -347,7 +350,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
 // MARK: - Search
 
 enum SettingsSearch {
-    /// Folds case and diacritics so "Micro" finds "micro-apps" and "resume"
+    /// Folds case and diacritics so "usage" finds "Coding usage" and "resume"
     /// would find "résumé".
     static func normalized(_ text: String) -> String {
         text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
