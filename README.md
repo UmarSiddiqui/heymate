@@ -57,13 +57,13 @@ Screen guidance needs a vision-capable provider. The optional Apple Intelligence
 <td width="50%" valign="top">
 
 ### Lives in the notch
-Folds into the camera housing and opens on hover into **Home**, **Apps**, and **Agents**. Macs without a notch get a top-center pill. There is no dock icon and no menu-bar clutter.
+Folds into the camera housing and opens on hover into **Usage** and **Home**. Macs without a notch get a top-center pill. There is no dock icon and no menu-bar clutter.
 
-Micro-apps for the space you never used: File Shelf with AirDrop, focus timers, Clipboard history, Now Playing with album art, Downloads, Camera Mirror, Volume and Brightness HUDs, Bluetooth devices, Battery, Next Event, and Reminders.
+Coding usage rings for **Codex, Claude Code, and Cursor**, with reset times and live HeyMate agent activity. Connect each provider using its existing sign-in; unavailable or stale readings stay clearly marked. Drag a file onto the notch and your mate opens its mouth to keep it on the **File Shelf**. Drag files back out or AirDrop them; originals stay where they are. The shelf only opens through a file drag.
 
 </td>
 <td width="50%" valign="top">
-<img src="website/assets/screens/apps.webp" alt="HeyMate notch Apps page">
+Coding usage inspired by [Codenotch](https://github.com/vinzdg/codenotch), with MIT attribution included in the app.
 </td>
 </tr>
 <tr>
@@ -161,7 +161,7 @@ HeyMate finds CLIs through your login-shell `PATH` (Homebrew, npm, Bun, and `~/.
 - **Voice.** Apple Speech uses on-device recognition when available for your language; otherwise it can use Apple's service. Downloaded Parakeet and Kokoro models run locally. ElevenLabs is optional and receives the audio or text it processes.
 - **Excluded apps.** Password managers and System Settings are never captured by Talk, dictation, or screen-reading standing orders.
 - **Invisible on calls.** One switch hides the notch and cursor from screen shares.
-- **No analytics** unless a build explicitly supplies a PostHog key.
+- **Opt-in usage analytics**, off by default. Configured builds let you share counts and return visits in onboarding or Settings → Privacy & Data. No chat text, screenshots, or files. [Setup and metrics](heymate/docs/usage-analytics.md).
 
 Coding CLIs still run as your macOS user. Plan mode limits writes, not reads.
 

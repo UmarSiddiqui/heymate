@@ -25,14 +25,14 @@ enum NotchExpandedTab: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .home: return "Home"
-        case .apps: return "Tools"
+        case .apps: return "Usage"
         }
     }
 
     var iconName: String {
         switch self {
         case .home: return "house"
-        case .apps: return "square.grid.2x2"
+        case .apps: return "chart.donut"
         }
     }
 }
@@ -241,6 +241,7 @@ struct NotchExpandedView: View {
     /// Called when the user presses the collapse chevron.
     var onClose: () -> Void
 
+    @ObservedObject private var activityCenter: NotchActivityCenter
     @State private var selectedTab: NotchExpandedTab
     @State private var isShowingAboutPopover = false
 
@@ -250,7 +251,7 @@ struct NotchExpandedView: View {
         layoutSize: CGSize = .zero,
         hardwareNotchWidth: CGFloat = 0,
         transitionModel: NotchSurfaceTransitionModel,
-        initialTab: NotchExpandedTab = .home,
+        initialTab: NotchExpandedTab = .apps,
         onClose: @escaping () -> Void
     ) {
         self.companionManager = companionManager
@@ -259,6 +260,7 @@ struct NotchExpandedView: View {
         self.hardwareNotchWidth = hardwareNotchWidth
         self.transitionModel = transitionModel
         self.onClose = onClose
+        self.activityCenter = companionManager.notchActivityCenter
         _selectedTab = State(initialValue: initialTab)
     }
 
@@ -294,11 +296,13 @@ struct NotchExpandedView: View {
                 // Settings and the model picker live in the app window only,
                 // so every engine gets the same full-size controls there.
                 Group {
-                    switch selectedTab {
-                    case .home:
-                        NotchHomeTab(companionManager: companionManager)
-                    case .apps:
-                        NotchMicroAppsView(companionManager: companionManager)
+                    if activityCenter.shelfPresentation.isVisible {
+                        NotchShelfMouthView(center: activityCenter, shelf: activityCenter.shelfStore)
+                    } else {
+                        switch selectedTab {
+                        case .home: NotchHomeTab(companionManager: companionManager)
+                        case .apps: NotchUsageView(companionManager: companionManager)
+                        }
                     }
                 }
                 .frame(maxHeight: .infinity, alignment: .top)
@@ -343,7 +347,10 @@ struct NotchExpandedView: View {
     private var notchWingHeader: some View {
         HStack(spacing: 0) {
             HStack(spacing: 4) {
-                NotchTabSwitcher(selectedTab: $selectedTab)
+                NotchTabSwitcher(selectedTab: Binding(get: { selectedTab }, set: {
+                    activityCenter.shelfPresentation = .hidden
+                    selectedTab = $0
+                }))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -721,12 +728,6 @@ private struct NotchHomeTab: View {
 
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-                            NotchTrayStrip(
-                                activityCenter: companionManager.notchActivityCenter,
-                                onOpenDesktop: { section in
-                                    companionManager.openDesktopWindow(section: section)
-                                }
-                            )
                             NotchMatesPeek(companionManager: companionManager, limit: 2)
                         }
                     }

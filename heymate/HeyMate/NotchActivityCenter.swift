@@ -2,14 +2,9 @@
 //  NotchActivityCenter.swift
 //  HeyMate
 //
-//  Owns the micro-apps that turn the notch from "an AI button" into an
-//  ambient surface, and arbitrates which one gets the pill's trailing slot
-//  at any moment.
-//
-//  Every micro-app is independently switchable and every one of them is
-//  OFF until enabled, so a user who wants only the assistant pays no CPU,
-//  no permission prompts, and no polling for features they never turn on.
-//  That opt-in default is the difference between a super app and bloat.
+//  Retains local shelf storage and agent activity. Legacy micro-app types stay
+//  available to internal tools, but their monitors and notch UI are retired.
+//  Provider usage is owned by NotchUsageStore; the shelf is drag-only.
 //
 
 import AppKit
@@ -121,13 +116,15 @@ enum NotchMicroApp: String, CaseIterable, Identifiable, Sendable {
     /// Defaults chosen so a fresh install feels alive without asking for
     /// anything: shelf and timer are pure local state, battery is a free
     /// IOKit callback.
-    static let defaultEnabled: Set<NotchMicroApp> = [.shelf, .timer, .battery, .downloads]
+    static let defaultEnabled: Set<NotchMicroApp> = [.shelf]
 }
 
 @MainActor
 final class NotchActivityCenter: ObservableObject {
 
     nonisolated static let enabledMicroAppsPreferenceKey = "notchEnabledMicroApps"
+
+    @Published var shelfPresentation: NotchShelfPresentation = .hidden
 
     @Published private(set) var enabledMicroApps: Set<NotchMicroApp>
 
@@ -156,11 +153,9 @@ final class NotchActivityCenter: ObservableObject {
     }
 
     init(userDefaults: UserDefaults = .standard) {
-        if let storedRawValues = userDefaults.array(forKey: Self.enabledMicroAppsPreferenceKey) as? [String] {
-            enabledMicroApps = Set(storedRawValues.compactMap(NotchMicroApp.init(rawValue:)))
-        } else {
-            enabledMicroApps = NotchMicroApp.defaultEnabled
-        }
+        // Legacy micro-app preferences no longer start background monitors.
+        // Keep the file shelf local and available only through file drag.
+        enabledMicroApps = [.shelf]
         observeProducers()
     }
 
@@ -171,6 +166,7 @@ final class NotchActivityCenter: ObservableObject {
     /// outstanding stays dark and reports `needsPermissionPrompt`, which the
     /// next tap on its tile resolves.
     func start() {
+        NotchUsageStore.shared.start()
         for microApp in enabledMicroApps {
             startProducer(for: microApp, promptForPermission: false)
         }
@@ -178,6 +174,7 @@ final class NotchActivityCenter: ObservableObject {
     }
 
     func stop() {
+        NotchUsageStore.shared.stop()
         for microApp in NotchMicroApp.allCases {
             stopProducer(for: microApp)
         }
@@ -187,10 +184,11 @@ final class NotchActivityCenter: ObservableObject {
     // MARK: Enablement
 
     func isEnabled(_ microApp: NotchMicroApp) -> Bool {
-        enabledMicroApps.contains(microApp)
+        microApp == .shelf && enabledMicroApps.contains(microApp)
     }
 
     func setEnabled(_ isEnabled: Bool, for microApp: NotchMicroApp) {
+        guard microApp == .shelf else { return }
         if isEnabled {
             enabledMicroApps.insert(microApp)
             startProducer(for: microApp, promptForPermission: true)
@@ -248,7 +246,7 @@ final class NotchActivityCenter: ObservableObject {
         case .battery: batteryMonitor.stop()
         case .clipboard: clipboardStore.setEnabled(false)
         case .calendar: calendarMonitor.stop()
-        case .shelf: shelfStore.removeAll()
+        case .shelf: break // Quitting must preserve parked files.
         case .timer: timerStore.cancel()
         case .mirror: break
         case .downloads: downloadsMonitor.stop()
@@ -302,7 +300,7 @@ final class NotchActivityCenter: ObservableObject {
     private func recomputeFrontmostActivity() {
         var candidates: [NotchActivity] = []
         if let agentActivity { candidates.append(agentActivity) }
-        if isEnabled(.shelf), let shelfActivity = shelfStore.activity { candidates.append(shelfActivity) }
+        // The shelf never takes over the idle notch; file drags invoke it.
         if isEnabled(.timer), let timerActivity = timerStore.activity { candidates.append(timerActivity) }
         if isEnabled(.media), let mediaActivity = nowPlayingMonitor.activity { candidates.append(mediaActivity) }
         if isEnabled(.battery), let batteryActivity = batteryMonitor.activity { candidates.append(batteryActivity) }

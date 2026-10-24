@@ -52,6 +52,7 @@ final class NotchPillModel: ObservableObject {
     /// A file drag is hovering the notch. Outranks every other visual so
     /// the drop target is unmistakable while the pointer holds a file.
     @Published var isDropTargeted = false
+    @Published var hasUsage = false
 
     /// The card is about to open from this tab. The peek slots blur and fade
     /// out first (the controller waits `NotchLayoutMath.pillYieldDuration`),
@@ -85,7 +86,7 @@ final class NotchPillModel: ObservableObject {
     /// only highlights the housing: widening before a click makes expansion
     /// read as two separate stages instead of one top-centre morph.
     var wantsWidenedFrame: Bool {
-        voiceState != .idle || isDropTargeted || activity != nil
+        voiceState != .idle || isDropTargeted || activity != nil || hasUsage
     }
 }
 
@@ -242,9 +243,10 @@ struct NotchPillView: View {
     @ViewBuilder
     private var leadingSlot: some View {
         if model.isDropTargeted {
-            Image(systemName: "tray.and.arrow.down.fill")
-                .font(DS.Glyph.small)
-                .foregroundColor(model.themeColor)
+            HStack(spacing: 5) {
+                Capsule().fill(.white).frame(width: 4, height: 8)
+                Capsule().fill(.white).frame(width: 4, height: 8)
+            }
         } else {
             switch model.voiceState {
             case .idle:
@@ -275,8 +277,10 @@ struct NotchPillView: View {
     @ViewBuilder
     private var trailingSlot: some View {
         if model.isDropTargeted {
-            pillLabel("drop")
-                .foregroundColor(model.themeColor)
+            Capsule().fill(.black).frame(width: 20, height: 14)
+                .overlay(Capsule().stroke(.white.opacity(0.8), lineWidth: 1.5))
+        } else if model.hasUsage && model.voiceState == .idle {
+            NotchCompactUsage()
         } else {
             switch model.voiceState {
             case .listening:

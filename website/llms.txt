@@ -32,7 +32,7 @@
 - Connector credentials are in a local file restricted to the Mac account, not the Keychain. They authenticate with services the user connects. There is no HeyMate account service storing chats.
 - Apple Speech uses local recognition when available for the language and can otherwise contact Apple. Downloaded Parakeet/Kokoro models process locally when available. Optional ElevenLabs receives the audio or text it processes.
 - Enabled routines, standing orders, and approved coding jobs can run in the background. Do not describe HeyMate as an app where nothing runs in the background.
-- App PostHog events require a configured build key; the current release workflow does not supply one. This is distinct from website Hotjar and Vercel snippets. See the privacy page for details.
+- App PostHog usage events require a configured build key and explicit user opt-in, off by default. Settings > Privacy & Data allows withdrawal. This is distinct from website Hotjar and Vercel snippets. See the privacy page for details.
 
 ## Install
 

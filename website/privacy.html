@@ -92,7 +92,8 @@
         <li>The optional Apple Intelligence brain answers text questions locally on supported Macs. It cannot process screen images.</li>
         <li>ElevenLabs receives audio for transcription or text for speech when you configure and select it. Apple Speech can contact Apple when on-device recognition is unavailable.</li>
         <li>Composio and other connectors only call the apps you connect, and anything that sends, deletes, or pays asks first.</li>
-        <li>App analytics is enabled only in builds configured with a PostHog key. The current release workflow does not supply one. Configured events contain counts and bounded error metadata rather than chat text. This build configuration is not a user consent switch.</li>
+        <li>Optional notch usage rings read the default Codex, Claude Code or Cursor sign-in on this Mac and request usage only from that provider. Credentials are never sent to HeyMate analytics. Only numerical usage readings and reset times are cached locally.</li>
+        <li>App usage analytics is off by default. In configured builds you can opt in during onboarding or in Settings → Privacy &amp; Data, and turn it off there at any time. PostHog receives event names, timestamps, app version, counts and bounded error metadata linked by a random install ID so we can measure active use and return visits. We do not send chat text, screenshots, files, account details or session recordings, and request that PostHog disable location enrichment and person profiles. Turning analytics off cancels pending sends and clears the local ID; events already received by PostHog remain subject to its retention settings. Analytics measures participating installations, not all users.</li>
       </ul>
 
       <h2>This website</h2>

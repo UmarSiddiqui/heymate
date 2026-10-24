@@ -457,6 +457,7 @@ struct OnboardingFace: View {
 // MARK: - Hello
 
 struct OnboardingHelloStep: View {
+    @ObservedObject private var analytics = HeyMateAnalytics.shared
     var body: some View {
         VStack(spacing: 18) {
             Spacer(minLength: 20)
@@ -474,6 +475,19 @@ struct OnboardingHelloStep: View {
             Text("I only look at your screen when you ask. Screenshots are never stored.")
                 .font(DS.Fonts.caption)
                 .foregroundColor(DS.Colors.textTertiary)
+            if analytics.isAvailable {
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle("Share usage analytics", isOn: Binding(
+                        get: { analytics.isOptedIn }, set: { analytics.setOptedIn($0) }
+                    ))
+                    Text(UsageAnalytics.disclosure)
+                        .font(DS.Fonts.caption)
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: 420)
+                .padding(.top, 12)
+            }
             Spacer(minLength: 0)
         }
     }
