@@ -1,6 +1,6 @@
 # Coding usage notch
 
-The normal notch shows usage rings for connected Codex, Claude Code and Cursor accounts. Hover/click opens the Usage card: reported percentages, reset times, and live **HeyMate-managed** agent work, including waiting-for-approval states. Home remains available for mates and approvals. External IDE/CLI session activity is not inferred from whether an app is running.
+The normal notch shows usage rings for connected Codex, Claude Code and Cursor accounts. Hover/click opens the Usage card: one compact row of logo rings with percentages; the chevron expands per-window detail, reset times, and live **HeyMate-managed** agent work, including waiting-for-approval states. Logo outlines are adapted from Codenotch (MIT). Home remains available for mates and approvals. External IDE/CLI session activity is not inferred from whether an app is running.
 
 Each provider is off until Connect or its Settings → Notch switch is selected. The implementation reads only the default profile:
 
@@ -11,6 +11,10 @@ Each provider is off until Connect or its Settings → Notch switch is selected.
 Credentials are never logged, saved by HeyMate, refreshed, or sent to analytics. Requests refuse redirects. Only numeric usage windows and timestamps are cached. Poll every two minutes, retain the last good reading on transient failure, mark readings stale after five minutes or when reset passes, remove cached readings on authentication failure, and persist server rate-limit backoff. Provider endpoints can change; missing data is unavailable, never fabricated zero usage. This is deliberately not full Codenotch provider/profile parity.
 
 Response mappings and session conventions are adapted from https://github.com/vinzdg/codenotch under MIT. `HeyMate/Codenotch-LICENSE.txt` ships with the app.
+
+## Custom sources
+
+Settings → Notch → "Add your own source" connects any JSON usage endpoint: name, URL (HTTPS, or http on localhost), optional token and header name, a dot path to the percent (or used + limit paths), optional reset path (epoch seconds/ms or ISO date), and a logo. The token is stored in the Keychain (`HeyMate Notch Usage`), sent only to that URL, and deleted on Remove. Redirects are refused; a missing or non-numeric field reads as unavailable.
 
 ## Drag-only shelf
 
