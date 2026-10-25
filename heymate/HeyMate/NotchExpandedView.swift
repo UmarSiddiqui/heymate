@@ -32,7 +32,7 @@ enum NotchExpandedTab: String, CaseIterable, Identifiable {
     var iconName: String {
         switch self {
         case .home: return "house"
-        case .apps: return "chart.donut"
+        case .apps: return "gauge.with.needle"
         }
     }
 }
