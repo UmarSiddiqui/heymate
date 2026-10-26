@@ -7,6 +7,7 @@
 //
 
 import CoreGraphics
+import SwiftUI
 import Testing
 @testable import HeyMate
 
@@ -120,7 +121,114 @@ struct NotchLayoutMathTests {
         #expect(active.height == idle.height)
     }
 
+    @Test func threeUsageRingsFitWithoutChangingNotchHeightOrCenter() throws {
+        let frame = try #require(NotchLayoutMath.pillFrame(
+            screenFrame: Self.macBookScreen,
+            topSafeAreaInset: Self.notchInset,
+            auxiliaryTopLeftMaxX: Self.auxLeftMaxX,
+            auxiliaryTopRightMinX: Self.auxRightMinX,
+            activeInteraction: true,
+            usageProviderCount: 3
+        ))
+        let wing: CGFloat = (frame.width - Self.hardwareWidth) / 2
+        let minimumWing: CGFloat = 3 * 17 + 2 * 5 + 12
+        #expect(wing >= minimumWing)
+        #expect(frame.height == Self.notchInset)
+        #expect(frame.midX == (Self.auxLeftMaxX + Self.auxRightMinX) / 2)
+    }
+
+    @Test func extraUsageProvidersUseBoundedOverflowSpace() {
+        #expect(NotchLayoutMath.compactUsageWidth(providerCount: 3) == 61)
+        #expect(NotchLayoutMath.compactUsageWidth(providerCount: 4) > 61)
+        #expect(NotchLayoutMath.compactUsageWidth(providerCount: 100) == NotchLayoutMath.compactUsageWidth(providerCount: 4))
+        #expect(NotchLayoutMath.pillWidthBonus(usageProviderCount: 0) == NotchLayoutMath.activeWidthBonus)
+    }
+
     // MARK: - Expanded card
+
+    @Test func fullChatHasACameraWidthNeckAndTransparentWings() {
+        let path = NotchLayoutMath.chatSilhouettePath(
+            size: CGSize(width: 1160, height: 782), notchWidth: 185,
+            neckHeight: 42, cardness: 1, bottomRadius: 24
+        )
+        #expect(path.contains(CGPoint(x: 580, y: 1)))
+        #expect(!path.contains(CGPoint(x: 480, y: 1)))
+        #expect(!path.contains(CGPoint(x: 680, y: 1)))
+        #expect(!path.contains(CGPoint(x: 200, y: 30)))
+        #expect(path.contains(CGPoint(x: 200, y: 44)))
+        #expect(path.contains(CGPoint(x: 1, y: 80)))
+        #expect(!path.contains(CGPoint(x: 1, y: 781)))
+    }
+
+    @Test func chatNeckMorphStartsAsFullWidthPill() {
+        let path = NotchLayoutMath.chatSilhouettePath(
+            size: CGSize(width: 320, height: 32), notchWidth: 185,
+            neckHeight: 42, cardness: 0, bottomRadius: 8
+        )
+        #expect(path.contains(CGPoint(x: 1, y: 1)))
+        #expect(path.contains(CGPoint(x: 319, y: 1)))
+        #expect(!path.contains(CGPoint(x: 1, y: 31)))
+        #expect(path.boundingBoxOfPath == CGRect(x: 0, y: 0, width: 320, height: 32))
+    }
+
+    @Test func chatNeckRemainsValidAcrossMorphAndSmallViewports() {
+        for progress in stride(from: CGFloat(0), through: 1, by: 0.05) {
+            for size in [CGSize(width: 320, height: 32), CGSize(width: 16, height: 12), CGSize(width: 1160, height: 782)] {
+                let path = NotchLayoutMath.chatSilhouettePath(
+                    size: size, notchWidth: 185, neckHeight: 42,
+                    cardness: progress, bottomRadius: 24
+                )
+                #expect(!path.isEmpty)
+                #expect(path.boundingBoxOfPath.minX >= 0)
+                #expect(path.boundingBoxOfPath.maxX <= size.width)
+                #expect(path.boundingBoxOfPath.minY >= 0)
+                #expect(path.boundingBoxOfPath.maxY <= size.height)
+            }
+        }
+        #expect(NotchLayoutMath.chatSilhouettePath(size: .zero, notchWidth: 185,
+            neckHeight: 42, cardness: 1, bottomRadius: 24).isEmpty)
+    }
+
+    @Test func workspaceFlowStartsAndEndsGentlyWithoutReversing() {
+        #expect(NotchLayoutMath.workspaceMorphProgress(-1) == 0)
+        #expect(NotchLayoutMath.workspaceMorphProgress(2) == 1)
+        #expect(NotchLayoutMath.workspaceMorphProgress(0.01) < 0.00002)
+        #expect(NotchLayoutMath.workspaceMorphProgress(0.99) > 0.99998)
+        var previous: CGFloat = 0
+        for step in 0...120 {
+            let time = CGFloat(step) / 120
+            let progress = NotchLayoutMath.workspaceMorphProgress(time)
+            #expect(progress >= previous)
+            #expect(progress <= 1)
+            #expect(abs(progress + NotchLayoutMath.workspaceMorphProgress(1 - time) - 1) < 0.000001)
+            previous = progress
+        }
+    }
+
+    @Test func workspaceCanReverseMidMorphWithoutNeckOrContentJumping() {
+        let model = NotchSurfaceTransitionModel()
+        model.prepare()
+        model.present()
+        model.updateMorph(easedProgress: 0.3, linearProgress: 0.3, followsFrame: true)
+        let openingShape = model.morphCardness
+        let openingOpacity = model.morphContentOpacity
+        model.dismiss()
+        model.updateMorph(easedProgress: 0, linearProgress: 0, followsFrame: true)
+        #expect(model.morphCardness == openingShape)
+        #expect(model.morphContentOpacity == openingOpacity)
+        model.updateMorph(easedProgress: 0.5, linearProgress: 0.5, followsFrame: true)
+        #expect(abs(model.morphCardness - openingShape / 2) < 0.000001)
+        let closingShape = model.morphCardness
+        let closingOpacity = model.morphContentOpacity
+        model.prepare(preservingMorph: true)
+        model.present()
+        model.updateMorph(easedProgress: 0, linearProgress: 0, followsFrame: true)
+        #expect(model.morphCardness == closingShape)
+        #expect(model.morphContentOpacity == closingOpacity)
+        model.updateMorph(easedProgress: 1, linearProgress: 1, followsFrame: true)
+        #expect(model.morphCardness == 1)
+        #expect(model.morphContentOpacity == 1)
+    }
 
     @Test func expandedCardIsCenteredFlushAndTallerThanHousing() throws {
         let frame = try #require(NotchLayoutMath.expandedFrame(
@@ -375,18 +483,14 @@ struct NotchLayoutMathTests {
         #expect(NotchLayoutMath.morphCardness(linearProgress: 1, isExpanding: false) == 0)
     }
 
-    @Test func morphCornersUseDirectionSpecificDuration() {
-        let expandSettleProgress = CGFloat(NotchLayoutMath.cornerSettleDuration / NotchLayoutMath.expandDuration)
-        let collapseSettleProgress = CGFloat(NotchLayoutMath.cornerSettleDuration / NotchLayoutMath.collapseDuration)
-
-        #expect(NotchLayoutMath.morphCardness(
-            linearProgress: expandSettleProgress,
-            isExpanding: true
-        ) == 1)
-        #expect(NotchLayoutMath.morphCardness(
-            linearProgress: collapseSettleProgress,
-            isExpanding: false
-        ) == 0)
+    @Test func morphCornersFollowTheSamePhysicalSpringAsWindow() {
+        for expanding in [true, false] {
+            for step in 0...20 {
+                let time = CGFloat(step) / 20
+                let progress = min(max(CNNotchMotion.progress(time, expanding: expanding), 0), 1)
+                #expect(NotchLayoutMath.morphCardness(linearProgress: time, isExpanding: expanding) == (expanding ? progress : 1 - progress))
+            }
+        }
     }
 
     @Test func morphContentOpacityOverlapsFrameGrowthOnExpand() {
@@ -406,8 +510,8 @@ struct NotchLayoutMathTests {
         #expect(NotchLayoutMath.pillYieldBlur == 0)
     }
 
-    @Test func openAndCloseAreSnappy() {
-        #expect(NotchLayoutMath.expandDuration <= 0.3)
+    @Test func openAndCloseUseUpstreamSprings() {
+        #expect(NotchLayoutMath.expandDuration == CNNotchMotion.unfoldSpring.settlingDuration)
         #expect(NotchLayoutMath.collapseDuration < NotchLayoutMath.expandDuration)
     }
 
@@ -615,14 +719,15 @@ struct NotchLayoutMathTests {
         #expect(abs(bounds.minY) < 0.001)
         #expect(abs(bounds.width - Self.cardSize.width) < 0.001)
         #expect(abs(bounds.height - Self.cardSize.height) < 0.001)
-        // Flush with the screen out to the window's edges: the fillet meets
-        // the top tangentially, so a few points in it is already black.
-        #expect(path.contains(CGPoint(x: 3, y: 0.2)))
-        #expect(path.contains(CGPoint(x: Self.cardSize.width - 3, y: 0.2)))
+        // The upstream zero-curvature ramp tapers inside the bounding edge.
+        // The body itself must stay flush with the bezel on both sides.
+        let bodyInset = NotchLayoutMath.cardShoulderRadius + 0.5
+        #expect(path.contains(CGPoint(x: bodyInset, y: 0.2)))
+        #expect(path.contains(CGPoint(x: Self.cardSize.width - bodyInset, y: 0.2)))
         #expect(path.contains(CGPoint(x: Self.cardSize.width / 2, y: 0.5)))
     }
 
-    @Test func shouldersAreConcaveQuarterCircles() {
+    @Test func shouldersHaveSmoothConcaveJoins() {
         let path = Self.cardSilhouette()
         let r = NotchLayoutMath.cardShoulderRadius
         let w = Self.cardSize.width

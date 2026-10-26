@@ -15,6 +15,7 @@
 //
 
 import CoreGraphics
+import SwiftUI
 import Foundation
 
 enum NotchLayoutMath {
@@ -31,6 +32,24 @@ enum NotchLayoutMath {
     /// Width available to ONE peek slot at the widened size. Used by tests
     /// and by callers that need to know whether a label will fit.
     nonisolated static var peekSlotWidth: CGFloat { activeWidthBonus / 2 }
+
+    nonisolated static let compactUsageRingSize: CGFloat = 17
+    nonisolated static let compactUsageSpacing: CGFloat = 5
+    nonisolated static let compactUsageLimit = 3
+    nonisolated static let compactUsageOverflowWidth: CGFloat = 26
+
+    nonisolated static func compactUsageWidth(providerCount: Int) -> CGFloat {
+        let count = min(max(providerCount, 0), compactUsageLimit)
+        guard count > 0 else { return 0 }
+        let rings = CGFloat(count) * compactUsageRingSize + CGFloat(count - 1) * compactUsageSpacing
+        return rings + (providerCount > count ? compactUsageSpacing + compactUsageOverflowWidth : 0)
+    }
+
+    nonisolated static func pillWidthBonus(usageProviderCount: Int) -> CGFloat {
+        // Each wing gets half the bonus. Keep the complete strip clear of
+        // the camera housing and the rounded outside edge.
+        max(activeWidthBonus, 2 * (compactUsageWidth(providerCount: usageProviderCount) + 12))
+    }
 
     /// Bottom-corner radius of the collapsed tab. Matches the hardware
     /// cutout's continuous bottom corners (~8 pt); top stays square so the
@@ -75,64 +94,75 @@ enum NotchLayoutMath {
         shoulderRadius: CGFloat,
         bottomRadius: CGFloat
     ) -> CGPath {
-        let width = max(size.width, 0)
-        let height = max(size.height, 0)
+        guard size.width > 0, size.height > 0 else { return CGMutablePath() }
+        return CNSideNotchShape(edge: .top, cornerRadius: bottomRadius,
+                               filletRadius: shoulderRadius, filletDepth: shoulderRadius)
+            .path(in: CGRect(origin: .zero, size: size)).cgPath
+    }
+
+    /// A camera-width neck opens into the workspace below the menu bar.
+    /// The neck starts at the pill's full width and forms on the same clock
+    /// as the frame, so neither open nor close swaps silhouettes abruptly.
+    nonisolated static func chatSilhouettePath(
+        size: CGSize, notchWidth: CGFloat, neckHeight: CGFloat,
+        cardness: CGFloat, bottomRadius: CGFloat
+    ) -> CGPath {
+        guard size.width > 0, size.height > 0 else { return CGMutablePath() }
+        let progress = min(max(cardness, 0), 1)
+        let width = size.width
+        let height = size.height
+        let neck = lerp(width, min(max(notchWidth, 0), width), progress)
+        let top = min(max(neckHeight, 0) * progress, max(height - 1, 0))
+        let side = (width - neck) / 2
+        let flare = min(28 * progress, top, side)
+        let bottom = min(max(bottomRadius, 0), width / 2, (height - top) / 2)
+        let upper = min(bottom, max(side - flare, 0))
+        let left = side
+        let right = width - side
         let path = CGMutablePath()
-        guard width > 0, height > 0 else { return path }
-
-        let shoulder = min(max(shoulderRadius, 0), width / 4, height / 2)
-        let bodyLeft = shoulder
-        let bodyRight = width - shoulder
-        let bodyWidth = bodyRight - bodyLeft
-        let bottom = min(max(bottomRadius, 0), bodyWidth / 2, max(height - shoulder, 0))
-
-        path.move(to: CGPoint(x: 0, y: 0))
-        path.addLine(to: CGPoint(x: width, y: 0))
-        if shoulder > 0 {
-            // Tangent arc centred at (width, shoulder): concave fillet from
-            // the top edge down into the right side of the body.
-            path.addArc(
-                tangent1End: CGPoint(x: bodyRight, y: 0),
-                tangent2End: CGPoint(x: bodyRight, y: shoulder),
-                radius: shoulder
-            )
-        }
-        path.addLine(to: CGPoint(x: bodyRight, y: height - bottom))
-        if bottom > 0 {
-            path.addArc(
-                tangent1End: CGPoint(x: bodyRight, y: height),
-                tangent2End: CGPoint(x: bodyRight - bottom, y: height),
-                radius: bottom
-            )
-        }
-        path.addLine(to: CGPoint(x: bodyLeft + bottom, y: height))
-        if bottom > 0 {
-            path.addArc(
-                tangent1End: CGPoint(x: bodyLeft, y: height),
-                tangent2End: CGPoint(x: bodyLeft, y: height - bottom),
-                radius: bottom
-            )
-        }
-        path.addLine(to: CGPoint(x: bodyLeft, y: shoulder))
-        if shoulder > 0 {
-            // Mirror of the right shoulder, centred at (0, shoulder).
-            path.addArc(
-                tangent1End: CGPoint(x: bodyLeft, y: 0),
-                tangent2End: CGPoint(x: 0, y: 0),
-                radius: shoulder
-            )
-        }
+        path.move(to: CGPoint(x: left, y: 0))
+        path.addLine(to: CGPoint(x: right, y: 0))
+        path.addLine(to: CGPoint(x: right, y: top - flare))
+        let handle = flare * 0.5522847498
+        path.addCurve(to: CGPoint(x: right + flare, y: top),
+            control1: CGPoint(x: right, y: top - flare + handle),
+            control2: CGPoint(x: right + flare - handle, y: top))
+        path.addLine(to: CGPoint(x: width - upper, y: top))
+        path.addQuadCurve(to: CGPoint(x: width, y: top + upper), control: CGPoint(x: width, y: top))
+        path.addLine(to: CGPoint(x: width, y: height - bottom))
+        path.addQuadCurve(to: CGPoint(x: width - bottom, y: height), control: CGPoint(x: width, y: height))
+        path.addLine(to: CGPoint(x: bottom, y: height))
+        path.addQuadCurve(to: CGPoint(x: 0, y: height - bottom), control: CGPoint(x: 0, y: height))
+        path.addLine(to: CGPoint(x: 0, y: top + upper))
+        path.addQuadCurve(to: CGPoint(x: upper, y: top), control: CGPoint(x: 0, y: top))
+        path.addLine(to: CGPoint(x: left - flare, y: top))
+        path.addCurve(to: CGPoint(x: left, y: top - flare),
+            control1: CGPoint(x: left - flare + handle, y: top),
+            control2: CGPoint(x: left, y: top - flare + handle))
         path.closeSubpath()
         return path
     }
 
+    nonisolated static let chatNeckExtension: CGFloat = 10
+
+    /// One gentle clock for workspace frame, neck and corners. Zero speed
+    /// and acceleration at either end avoid a snap as the neck joins or
+    /// releases the camera housing.
+    nonisolated static func workspaceMorphProgress(_ time: CGFloat) -> CGFloat {
+        let t = min(max(time, 0), 1)
+        return t * t * t * (t * (t * 6 - 15) + 10)
+    }
+
+    nonisolated static let workspaceExpandDuration: TimeInterval = 0.52
+    nonisolated static let workspaceCollapseDuration: TimeInterval = 0.34
+
     /// Snappy: the frame lands early on the fast-attack swoosh curve and the
     /// content simply fades in over it. Real panel geometry moves on the
     /// display-link clock; content and corners settle with it.
-    nonisolated static let expandDuration: TimeInterval = 0.26
+    nonisolated static var expandDuration: TimeInterval { CNNotchMotion.unfoldSpring.settlingDuration }
 
     /// Closing is faster than opening, matching pointer intent.
-    nonisolated static let collapseDuration: TimeInterval = 0.18
+    nonisolated static var collapseDuration: TimeInterval { CNNotchMotion.foldSpring.settlingDuration }
 
     /// Preview settles border radius over 180 ms while width/height continue
     /// their final 30 ms. Expressed separately so silhouette lands cleanly.
@@ -403,7 +433,8 @@ enum NotchLayoutMath {
         topSafeAreaInset: CGFloat,
         auxiliaryTopLeftMaxX: CGFloat = 0,
         auxiliaryTopRightMinX: CGFloat = 0,
-        activeInteraction: Bool = false
+        activeInteraction: Bool = false,
+        usageProviderCount: Int = 0
     ) -> CGRect? {
         guard screenHasNotch(topSafeAreaInset: topSafeAreaInset) else { return nil }
 
@@ -412,7 +443,7 @@ enum NotchLayoutMath {
             rightMinX: auxiliaryTopRightMinX
         )
         if activeInteraction {
-            width += activeWidthBonus
+            width += pillWidthBonus(usageProviderCount: usageProviderCount)
         }
 
         let height = topSafeAreaInset
@@ -430,11 +461,12 @@ enum NotchLayoutMath {
     /// after the menu-bar panel is removed.
     nonisolated static func fallbackPillFrame(
         screenFrame: CGRect,
-        activeInteraction: Bool = false
+        activeInteraction: Bool = false,
+        usageProviderCount: Int = 0
     ) -> CGRect {
         var width = fallbackIdleWidth
         if activeInteraction {
-            width += activeWidthBonus
+            width += pillWidthBonus(usageProviderCount: usageProviderCount)
         }
         let height = fallbackPillHeight
         let x = screenFrame.midX - width / 2
@@ -636,12 +668,7 @@ enum NotchLayoutMath {
     /// by a pill-sized window. Radius uses the preview's independent 180 ms
     /// CSS-ease settle; collapse inverts it.
     nonisolated static func morphCardness(linearProgress: CGFloat, isExpanding: Bool) -> CGFloat {
-        let transitionDuration = isExpanding ? expandDuration : collapseDuration
-        let cornerTimeline = min(
-            linearProgress * CGFloat(transitionDuration / cornerSettleDuration),
-            1
-        )
-        let settledProgress = cssEase(cornerTimeline)
+        let settledProgress = min(max(CNNotchMotion.progress(linearProgress, expanding: isExpanding), 0), 1)
         return isExpanding ? settledProgress : 1 - settledProgress
     }
 

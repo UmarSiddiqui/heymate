@@ -54,4 +54,21 @@ struct NotchUsageTests {
         #expect(!center.isEnabled(.clipboard))
         #expect(center.clipboardStore.entries.isEmpty)
     }
+    @MainActor @Test func customSourceReadsPercentOrUsedOverLimit() throws {
+        NotchCustomProviderRegistry.set([
+            NotchCustomProviderSpec(id: "custom.a", name: "Gateway", url: "https://example.com/u", percentPath: "data.pct", resetPath: "data.reset"),
+            NotchCustomProviderSpec(id: "custom.b", name: "Proxy", url: "https://example.com/u", usedPath: "items.0.used", limitPath: "items.0.limit")
+        ])
+        let a = try NotchUsageParser.parse(Data(#"{"data":{"pct":"42.5","reset":1900000000000}}"#.utf8), provider: .init(rawValue: "custom.a"))
+        #expect(a[0].usedPercent == 42.5)
+        #expect(a[0].resetsAt == Date(timeIntervalSince1970: 1900000000))
+        let b = try NotchUsageParser.parse(Data(#"{"items":[{"used":30,"limit":120}]}"#.utf8), provider: .init(rawValue: "custom.b"))
+        #expect(b[0].usedPercent == 25)
+        #expect(throws: (any Error).self) { try NotchUsageParser.parse(Data("{}".utf8), provider: .init(rawValue: "custom.a")) }
+    }
+    @Test func customSourceRefusesPlainHTTPOffLocalhost() {
+        #expect(NotchCustomProviderSpec(id: "x", name: "n", url: "http://example.com/u", percentPath: "p").endpoint == nil)
+        #expect(NotchCustomProviderSpec(id: "x", name: "n", url: "http://localhost:8080/u", percentPath: "p").endpoint != nil)
+        #expect(NotchCustomProviderSpec(id: "x", name: "n", url: "https://u:p@example.com/", percentPath: "p").endpoint == nil)
+    }
 }

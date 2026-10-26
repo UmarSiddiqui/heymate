@@ -32,7 +32,7 @@ enum NotchExpandedTab: String, CaseIterable, Identifiable {
     var iconName: String {
         switch self {
         case .home: return "house"
-        case .apps: return "chart.donut"
+        case .apps: return "gauge.with.needle"
         }
     }
 }
@@ -242,6 +242,7 @@ struct NotchExpandedView: View {
     var onClose: () -> Void
 
     @ObservedObject private var activityCenter: NotchActivityCenter
+    private let permissionGuide: PermissionGuide
     @State private var selectedTab: NotchExpandedTab
     @State private var isShowingAboutPopover = false
 
@@ -252,6 +253,7 @@ struct NotchExpandedView: View {
         hardwareNotchWidth: CGFloat = 0,
         transitionModel: NotchSurfaceTransitionModel,
         initialTab: NotchExpandedTab = .apps,
+        permissionGuide: PermissionGuide = .shared,
         onClose: @escaping () -> Void
     ) {
         self.companionManager = companionManager
@@ -261,6 +263,7 @@ struct NotchExpandedView: View {
         self.transitionModel = transitionModel
         self.onClose = onClose
         self.activityCenter = companionManager.notchActivityCenter
+        self.permissionGuide = permissionGuide
         _selectedTab = State(initialValue: initialTab)
     }
 
@@ -300,7 +303,7 @@ struct NotchExpandedView: View {
                         NotchShelfMouthView(center: activityCenter, shelf: activityCenter.shelfStore)
                     } else {
                         switch selectedTab {
-                        case .home: NotchHomeTab(companionManager: companionManager)
+                        case .home: NotchHomeTab(companionManager: companionManager, permissionGuide: permissionGuide)
                         case .apps: NotchUsageView(companionManager: companionManager)
                         }
                     }
@@ -587,41 +590,46 @@ struct NotchExpandedView: View {
 
 // MARK: - Tab Switcher
 
-private struct NotchTabSwitcher: View {
+struct NotchTabSwitcher: View {
     @Binding var selectedTab: NotchExpandedTab
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            tabs(showsIcons: true)
+            tabs(showsIcons: false)
+        }
+    }
+
+    private func tabs(showsIcons: Bool) -> some View {
         HStack(spacing: 2) {
             ForEach(NotchExpandedTab.allCases) { tab in
-                tabButton(for: tab)
+                tabButton(for: tab, showsIcon: showsIcons)
             }
         }
         .padding(2)
         .background(Capsule().fill(Color.white.opacity(0.035)))
+        .fixedSize(horizontal: true, vertical: false)
     }
 
-    /// The selected tab carries its name so the header says where you are;
-    /// the others stay icon-only to fit the wing beside the camera housing.
-    @ViewBuilder
-    private func tabButton(for tab: NotchExpandedTab) -> some View {
+    /// Both names stay visible. Narrow wings drop icons, never tab labels.
+    private func tabButton(for tab: NotchExpandedTab, showsIcon: Bool) -> some View {
         let isSelected = selectedTab == tab
-        let button = Button(action: {
+        return Button(action: {
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) { selectedTab = tab }
         }) {
             HStack(spacing: 5) {
-                Image(systemName: tab.iconName)
-                    .font(DS.Glyph.regular)
-                if isSelected {
-                    Text(tab.title)
-                        .font(DS.Fonts.control)
-                        .lineLimit(1)
-                        .fixedSize()
+                if showsIcon {
+                    Image(systemName: tab.iconName).font(DS.Glyph.regular)
                 }
+                Text(tab.title)
+                    .font(showsIcon ? DS.Fonts.control : .system(size: 11, weight: .semibold))
+                    .lineLimit(1)
+                    .fixedSize()
             }
-            .padding(.horizontal, isSelected ? 11 : 0)
-            .frame(minWidth: 32, minHeight: NotchControlMetrics.compactControlSize)
-            .foregroundColor(isSelected ? Color(hex: "#12223B") : DS.Colors.textTertiary)
+            .padding(.horizontal, showsIcon ? 8 : 4)
+            .frame(minWidth: 36, minHeight: NotchControlMetrics.compactControlSize)
+            .foregroundColor(isSelected ? Color(hex: "#12223B") : DS.Colors.textSecondary)
             .background {
                 if isSelected { DSGlassSurface(cornerRadius: 12) }
             }
@@ -629,15 +637,8 @@ private struct NotchTabSwitcher: View {
         }
         .notchSoftButtonStyle(.capsule, isActive: isSelected)
         .accessibilityLabel(tab.title)
+        .accessibilityIdentifier("notch-tab-\(tab.rawValue)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-
-        // The selected tab already prints its name, and its tooltip used to
-        // drop over the content below. Only the icon-only tab needs one.
-        if isSelected {
-            button
-        } else {
-            button.help(tab.title)
-        }
     }
 }
 
@@ -649,7 +650,7 @@ private struct NotchHomeTab: View {
 
     @State private var typedMessageInput = ""
     @FocusState private var isComposerFocused: Bool
-    @ObservedObject private var permissionGuide = PermissionGuide.shared
+    @ObservedObject var permissionGuide: PermissionGuide
 
     private var needsSetup: Bool {
         !companionManager.hasCompletedOnboarding
@@ -738,6 +739,8 @@ private struct NotchHomeTab: View {
                 .frame(width: viewport.size.width, height: viewport.size.height, alignment: .top)
             }
         }
+        .onAppear { permissionGuide.startWatching() }
+        .onDisappear { permissionGuide.stopWatching() }
     }
 
     // MARK: Missing permissions
@@ -754,65 +757,34 @@ private struct NotchHomeTab: View {
         missingPermissions.first?.breaksShortcuts == true
     }
 
-    /// A note under the composer when a core permission is off. HeyMate
-    /// keeps working; the note names what is missing and offers the fix.
-    /// The longer how-to lives in its tooltip so the note stays two lines.
+    /// One compact route to the complete permission checklist. The warning
+    /// must fit below the composer even in the minimum-height notch card.
     @ViewBuilder
     private var missingPermissionNote: some View {
-        let missing = missingPermissions
-        if let first = missing.first {
-            VStack(alignment: .leading, spacing: DS.Spacing.xs + 2) {
-                HStack(spacing: DS.Spacing.sm) {
-                    Image(systemName: first.systemImage)
-                        .font(DS.Glyph.small)
-                        .foregroundColor(DS.Colors.warningText)
-                    Text(first.breaksShortcuts ? "Keyboard shortcuts are off" : first.offText)
-                        .font(DS.Fonts.caption.weight(.semibold))
-                        .foregroundColor(DS.Colors.textPrimary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.9)
+        if let first = missingPermissions.first {
+            Button {
+                UserDefaults.standard.set(DesktopSettingsTab.permissions.rawValue,
+                                          forKey: DesktopSettingsTab.storageKey)
+                companionManager.openDesktopWindow(section: .settings)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: first.systemImage).foregroundStyle(DS.Colors.warningText)
+                    ViewThatFits(in: .horizontal) {
+                        Text(first.breaksShortcuts ? "Keyboard shortcuts are off" : first.offText)
+                        Text(first.breaksShortcuts ? "Enable shortcuts" : "Permissions needed")
+                    }
+                    .font(DS.Fonts.caption.weight(.semibold))
+                    .lineLimit(1)
                     Spacer(minLength: 0)
-                    if missing.count > 1 {
-                        Text("+\(missing.count - 1)")
-                            .font(DS.Fonts.keycap)
-                            .foregroundColor(DS.Colors.textTertiary)
-                            .help("\(missing.count - 1) more permission\(missing.count == 2 ? " is" : "s are") off too.")
-                    }
+                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
                 }
-                HStack(spacing: DS.Spacing.xs + 2) {
-                    Button(first.isGrantedInSystemSettings ? "Open \(first.title)" : "Allow") {
-                        Task { await permissionGuide.request(first) }
-                    }
-                    .buttonStyle(NotchCapsuleControlStyle(height: DS.ControlSize.small))
-                    .disabled(permissionGuide.isAllowingAll)
-                    if first.breaksShortcuts {
-                        Button("Help") {
-                            UserDefaults.standard.set(
-                                DesktopSettingsTab.permissions.rawValue,
-                                forKey: DesktopSettingsTab.storageKey
-                            )
-                            companionManager.openDesktopWindow(section: .settings)
-                        }
-                        .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
-                        .help("Settings › Permissions, with a Repair button for shortcuts that stopped working")
-                    }
-                    if missing.count > 1 {
-                        Button(permissionGuide.isAllowingAll ? "Allowing…" : "Allow all") {
-                            Task { await permissionGuide.allowAll(includeExtras: false) }
-                        }
-                        .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)
-                        .disabled(permissionGuide.isAllowingAll)
-                    }
-                }
+                .foregroundStyle(DS.Colors.textSecondary)
+                .padding(.horizontal, 10).padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: DS.CornerRadius.large).fill(DS.Colors.notchWellFill))
             }
-            .padding(.horizontal, DS.Spacing.md - 1)
-            .padding(.vertical, DS.Spacing.sm)
-            .background(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                    .fill(DS.Colors.notchWellFill)
-            )
+            .buttonStyle(.plain)
             .help(permissionNoteHelp(for: first))
-            .onAppear { permissionGuide.startWatching() }
+            .accessibilityLabel("\(first.breaksShortcuts ? "Keyboard shortcuts are off" : first.offText). Open permission settings")
         }
     }
 

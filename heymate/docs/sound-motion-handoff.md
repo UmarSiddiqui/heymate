@@ -119,8 +119,11 @@ drops below about −30 dB.
 
 ## Checks before calling it done
 
-- Build only via `heymate/script/build_and_run.sh` for anything you run (dev
-  signing keeps permissions). Ad-hoc xcodebuild is fine for compile/test only.
+- For anything you run, use `heymate/script/build_and_run.sh --verify`: it keeps
+  the installed certificate and compatible designated requirements, then installs
+  one `/Applications/HeyMate.app`. Check-only: `--check`. A signer migration
+  still needs macOS approval; see [local development](local-development.md).
+  Ad-hoc/unsigned scratch builds are for compile/test only, not daily installs.
 - Tests run in the real app host. Use `HeyMateDataDirectory` paths and confirm
   user prefs are untouched afterwards.
 - Visual verification: computer-use can't drive HeyMate; use screencapture and

@@ -146,7 +146,7 @@ enum HeyMatePermission: String, CaseIterable, Identifiable {
     /// only works again once it is switched off and on.
     var settingsHint: String? {
         guard isGrantedInSystemSettings else { return nil }
-        return "Turn on HeyMate under Privacy & Security › \(title). Already on? Switch it off and on again."
+        return "Enable /Applications/HeyMate.app under Privacy & Security › \(title). If it is missing, add that installed copy. Quit and reopen if macOS requests it."
     }
 
     /// The order "Allow all" walks: quick prompts first, then the ones that
@@ -171,11 +171,14 @@ final class PermissionGuide: ObservableObject {
 
     private var skipRequested = false
     private var pollTask: Task<Void, Never>?
+    private let statusProvider: (@MainActor (HeyMatePermission) async -> Bool)?
 
     /// Reads every permission that can be checked without waiting, so a
     /// "can't hear you" line never flashes before the first refresh.
-    init() {
-        granted = Set(HeyMatePermission.allCases.filter { $0 != .notifications && Self.syncStatus($0) })
+    init(statusProvider: (@MainActor (HeyMatePermission) async -> Bool)? = nil) {
+        self.statusProvider = statusProvider
+        granted = statusProvider == nil
+            ? Set(HeyMatePermission.allCases.filter { $0 != .notifications && Self.syncStatus($0) }) : []
         Task { await refresh() }
     }
 
@@ -222,8 +225,11 @@ final class PermissionGuide: ObservableObject {
 
     func refresh() async {
         var now: Set<HeyMatePermission> = []
-        for permission in HeyMatePermission.allCases where await Self.status(permission) {
-            now.insert(permission)
+        for permission in HeyMatePermission.allCases {
+            let allowed: Bool
+            if let statusProvider { allowed = await statusProvider(permission) }
+            else { allowed = await Self.status(permission) }
+            if allowed { now.insert(permission) }
         }
         if now != granted { granted = now }
     }

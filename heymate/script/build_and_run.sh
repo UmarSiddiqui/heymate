@@ -9,58 +9,56 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DERIVED_DATA="$ROOT_DIR/build/DerivedData"
 APP_BUNDLE="$DERIVED_DATA/Build/Products/Debug/$APP_NAME.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
+INSTALL_BUNDLE="/Applications/$APP_NAME.app"
+INSTALL_BINARY="$INSTALL_BUNDLE/Contents/MacOS/$APP_NAME"
+
+case "$MODE" in
+  run|--debug|debug|--logs|logs|--telemetry|telemetry|--verify|verify|--check|check) ;;
+  *)
+    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--check]" >&2
+    exit 2
+    ;;
+esac
 
 # shellcheck source=process_scope.sh
 source "$ROOT_DIR/script/process_scope.sh"
 # shellcheck source=code_signature_checks.sh
 source "$ROOT_DIR/script/code_signature_checks.sh"
+# shellcheck source=local_install.sh
+source "$ROOT_DIR/script/local_install.sh"
 
-HEYMATE_TEAM="${HEYMATE_DEVELOPMENT_TEAM:-}"
-SIGNING_IDENTITY="${HEYMATE_SIGNING_IDENTITY:-}"
-if [ -z "$SIGNING_IDENTITY" ]; then
-  IDENTITY_LISTING=$(security find-identity -v -p codesigning 2>/dev/null || true)
-  if [ -n "$HEYMATE_TEAM" ]; then
-    SIGNING_IDENTITY=$(printf '%s\n' "$IDENTITY_LISTING" \
-      | grep -F "($HEYMATE_TEAM)" \
-      | sed -n 's/^[[:space:]]*[0-9]*) \([A-F0-9]\{40\}\) "Apple Development:.*/\1/p' \
-      | head -1 || true)
-  else
-    SIGNING_IDENTITY=$(printf '%s\n' "$IDENTITY_LISTING" \
-      | sed -n 's/^[[:space:]]*[0-9]*) \([A-F0-9]\{40\}\) "Apple Development:.*/\1/p' \
-      | head -1)
-  fi
+heymate_resolve_local_signing "$INSTALL_BUNDLE"
+if [ "$MODE" = '--check' ] || [ "$MODE" = 'check' ]; then
+  echo 'Signing preflight passed. No build, install, quit, launch, or privacy changes.'
+  exit 0
 fi
 
-if [ -n "$SIGNING_IDENTITY" ]; then
-  echo "Final app will use local Apple Development identity."
-else
-  echo "No Apple Development identity found; using local ad-hoc signing."
+# One lock across worktrees. Build and stage before asking the running app to
+# quit; a failed build/signature check must not interrupt the user's session.
+INSTALL_LOCK='/Applications/.heymate-local-install.lock'
+if ! mkdir "$INSTALL_LOCK" 2>/dev/null; then
+  heymate_local_error "Cannot acquire $INSTALL_LOCK. Check for another local build or /Applications write access. Never use sudo to build."
+  exit 1
 fi
+STAGE_DIR=''
+cleanup_local_install() {
+  if [ -n "$STAGE_DIR" ]; then rm -rf "$STAGE_DIR"; fi
+  rm -f "$INSTALL_LOCK/pid"
+  rmdir "$INSTALL_LOCK"
+}
+trap cleanup_local_install EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+printf '%s\n' "$$" > "$INSTALL_LOCK/pid"
 
-XCODE_SIGNING_ARGUMENTS=()
-if [ -n "$SIGNING_IDENTITY" ]; then
-  # Supplying the exact identity with manual style avoids Xcode's legacy
-  # "Mac Development" certificate lookup without repairing the bundle after
-  # the build. Xcode signs HeyMate-owned code itself and leaves embedded
-  # Sparkle code with Sparkle's own entitlements and hardened-runtime flags.
-  XCODE_SIGNING_ARGUMENTS=(
-    CODE_SIGN_STYLE=Manual
-    "CODE_SIGN_IDENTITY=$SIGNING_IDENTITY"
-  )
-fi
-
-case "$MODE" in
-  run|--debug|debug|--logs|logs|--telemetry|telemetry|--verify|verify)
-    ;;
-  *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2
-    exit 2
-    ;;
-esac
-
-# Stop only GUI instances from this build. Embedded agent runners use distinct
-# HeyMateAgentRunner executable and remain alive across app rebuilds.
-heymate_stop_ui_app_processes "$APP_NAME" "$APP_BINARY"
+# Xcode signs its own outputs; never recursively re-sign embedded code.
+XCODE_SIGNING_ARGUMENTS=(
+  CODE_SIGN_STYLE=Manual
+  "CODE_SIGN_IDENTITY=$HEYMATE_LOCAL_SIGNER_SHA1"
+  "DEVELOPMENT_TEAM=$HEYMATE_LOCAL_TEAM"
+  PROVISIONING_PROFILE_SPECIFIER=
+  "HEYMATE_APP_BUNDLE_IDENTIFIER=$BUNDLE_ID"
+)
 
 run_xcodebuild() {
   xcodebuild \
@@ -114,12 +112,64 @@ if ! verify_debug_signatures; then
   verify_debug_signatures
 fi
 
+heymate_local_check_candidate "$APP_BUNDLE" "$INSTALL_BUNDLE"
+STAGE_DIR=$(mktemp -d '/Applications/.heymate-stage.XXXXXX')
+STAGED_BUNDLE="$STAGE_DIR/HeyMate.app"
+ditto "$APP_BUNDLE" "$STAGED_BUNDLE"
+heymate_local_check_candidate "$STAGED_BUNDLE" "$INSTALL_BUNDLE"
+
+require_known_ui_apps() {
+  local pid executable arguments
+  while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    arguments=$(heymate_process_arguments "$pid")
+    [ -n "$arguments" ] || continue
+    if heymate_arguments_are_detached_runner "$arguments"; then continue; fi
+    executable=$(heymate_process_executable "$pid")
+    case "$executable" in
+      "$APP_BINARY"|"$INSTALL_BINARY"|'') ;;
+      *) heymate_local_error "Another HeyMate copy is running at $executable (PID $pid). Quit it before installing."; return 1 ;;
+    esac
+  done < <(heymate_pgrep_by_name "$APP_NAME")
+}
+
+quit_known_ui_apps() {
+  local bundle executable pid attempts
+  require_known_ui_apps || return 1
+  for bundle in "$INSTALL_BUNDLE" "$APP_BUNDLE"; do
+    executable="$bundle/Contents/MacOS/$APP_NAME"
+    if heymate_find_first_ui_app_pid "$APP_NAME" "$executable" >/dev/null; then
+      # Normal application quit runs termination/save hooks. If it is refused,
+      # abort rather than force-kill the UI or its detached agent runners.
+      /usr/bin/osascript - "$bundle" <<'APPLESCRIPT' || return 1
+on run argv
+  tell application (item 1 of argv) to quit
+end run
+APPLESCRIPT
+    fi
+    for attempts in {1..15}; do
+      if ! heymate_find_first_ui_app_pid "$APP_NAME" "$executable" >/dev/null; then break; fi
+      sleep 1
+    done
+    if pid=$(heymate_find_first_ui_app_pid "$APP_NAME" "$executable"); then
+      heymate_local_error "HeyMate did not quit (PID $pid). Finish pending work and quit it; installed app left untouched."
+      return 1
+    fi
+  done
+  require_known_ui_apps
+}
+
+quit_known_ui_apps
+BACKUP_BUNDLE="$HOME/Library/Application Support/HeyMate Install Backups/$(date +%Y-%m-%d-%H%M%S)-$$/HeyMate.app"
+heymate_install_local_candidate "$STAGED_BUNDLE" "$INSTALL_BUNDLE" "$BACKUP_BUNDLE"
+
 open_app() {
-  /usr/bin/open -n "$APP_BUNDLE"
+  # Reuse the canonical instance; never create an extra DerivedData instance.
+  /usr/bin/open "$INSTALL_BUNDLE"
 }
 
 find_built_app_pid() {
-  heymate_find_first_ui_app_pid "$APP_NAME" "$APP_BINARY"
+  heymate_find_first_ui_app_pid "$APP_NAME" "$INSTALL_BINARY"
 }
 
 case "$MODE" in
@@ -127,7 +177,7 @@ case "$MODE" in
     open_app
     ;;
   --debug|debug)
-    lldb -- "$APP_BINARY"
+    lldb -- "$INSTALL_BINARY"
     ;;
   --logs|logs)
     open_app
@@ -147,7 +197,7 @@ case "$MODE" in
       sleep 1
     done
     if [ -z "$BUILT_APP_PID" ]; then
-      echo "$APP_NAME did not launch from $APP_BINARY" >&2
+      echo "$APP_NAME did not launch from $INSTALL_BINARY" >&2
       exit 1
     fi
 
@@ -156,11 +206,14 @@ case "$MODE" in
       sleep 1
       CURRENT_EXECUTABLE=$(ps -ww -p "$BUILT_APP_PID" -o comm= 2>/dev/null \
         | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-      if [ "$CURRENT_EXECUTABLE" != "$APP_BINARY" ]; then
+      if [ "$CURRENT_EXECUTABLE" != "$INSTALL_BINARY" ]; then
         echo "$APP_NAME exited during startup verification" >&2
         exit 1
       fi
     done
-    echo "$APP_NAME launched from $APP_BUNDLE and remained alive"
+    require_known_ui_apps
+    INSTANCE_COUNT=$(heymate_find_ui_app_pids "$APP_NAME" "$INSTALL_BINARY" | awk 'END {print NR}')
+    [ "$INSTANCE_COUNT" -eq 1 ] || { heymate_local_error "Expected one installed UI instance; found $INSTANCE_COUNT"; exit 1; }
+    echo "$APP_NAME launched from $INSTALL_BUNDLE and remained alive (PID $BUILT_APP_PID)"
     ;;
 esac

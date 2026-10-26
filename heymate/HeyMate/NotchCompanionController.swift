@@ -180,10 +180,12 @@ final class NotchCompanionController {
         NotchUsageStore.shared.objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                self?.pillModel.hasUsage = !NotchUsageStore.shared.enabled.isEmpty
+                self?.pillModel.hasUsage = !NotchUsageStore.shared.idleProviders.isEmpty
+                self?.pillModel.usageProviderCount = NotchUsageStore.shared.idleProviders.count
                 self?.syncPillFrameToModel()
             }.store(in: &cancellables)
-        pillModel.hasUsage = !NotchUsageStore.shared.enabled.isEmpty
+        pillModel.hasUsage = !NotchUsageStore.shared.idleProviders.isEmpty
+        pillModel.usageProviderCount = NotchUsageStore.shared.idleProviders.count
         syncPillFrameToModel()
 
         placementObserver = AppPresencePreferences.shared.$noNotchPlacement
@@ -402,6 +404,9 @@ final class NotchCompanionController {
     /// show. One widened size, one dormant size — see
     /// `NotchLayoutMath.activeWidthBonus`.
     private func syncPillFrameToModel() {
+        // Provider updates must not cancel the shared animator while it is
+        // growing or closing the workspace, or resize a hidden pill.
+        guard !isExpanded, !isTransitioning else { return }
         guard let pillPanel, let screen = pillPanel.screen else { return }
 
         pillModel.occludedTopInset = notchHousing(for: screen)?.inset ?? 0
@@ -428,7 +433,7 @@ final class NotchCompanionController {
         }
 
         guard let targetScreen = targetScreen(),
-              let pillWindowFrame = pillFrame(for: targetScreen, activeInteraction: false) else {
+              let pillWindowFrame = pillFrame(for: targetScreen, activeInteraction: pillModel.wantsWidenedFrame) else {
             return
         }
 
@@ -596,7 +601,8 @@ final class NotchCompanionController {
             topSafeAreaInset: housing.inset,
             auxiliaryTopLeftMaxX: housing.leftMaxX,
             auxiliaryTopRightMinX: housing.rightMinX,
-            activeInteraction: activeInteraction
+            activeInteraction: activeInteraction,
+            usageProviderCount: pillModel.usageProviderCount
            ) {
             return NotchLayoutMath.outlinePaddedFrame(
                 hardware: pixelAlign(hardwareFrame, on: screen),
@@ -607,7 +613,8 @@ final class NotchCompanionController {
             hardware: pixelAlign(
                 NotchLayoutMath.fallbackPillFrame(
                     screenFrame: screen.frame,
-                    activeInteraction: activeInteraction
+                    activeInteraction: activeInteraction,
+                    usageProviderCount: pillModel.usageProviderCount
                 ),
                 on: screen
             ),
@@ -640,6 +647,15 @@ final class NotchCompanionController {
 
     /// The page the full chat opens on. Read when its surface is built.
     private var fullChatSection: DesktopSection = .chat
+
+    var isFullChatVisible: Bool {
+        presentedSurface == .fullChat && expandedPanel?.isVisible == true
+    }
+
+    func closeFullChat() {
+        guard presentedSurface == .fullChat else { return }
+        collapseAndUnpin()
+    }
 
     /// The workspace, grown out of the notch, on `section`. Pinned and
     /// focused, so the composer takes typing straight away.
@@ -1166,6 +1182,8 @@ final class NotchCompanionController {
             return
         }
 
+        let preservesWorkspaceMorph = surface == .fullChat && presentedSurface == .fullChat
+            && expandedPanel?.isVisible == true
         presentedSurface = surface
         isExpanded = true
         isTransitioning = true
@@ -1197,7 +1215,7 @@ final class NotchCompanionController {
             startFrame = pillFrame(for: targetScreen, activeInteraction: false) ?? destinationFrame
         }
 
-        surfaceTransitionModel.prepare()
+        surfaceTransitionModel.prepare(preservingMorph: preservesWorkspaceMorph)
         expandedPanel.setFrame(startFrame, display: false)
         expandedPanel.contentView = makeExpandedContentView(
             surface: surface,
@@ -1229,16 +1247,16 @@ final class NotchCompanionController {
         // Growing out of the pill: let the card's height settle past its
         // final size and back. Surface-to-surface changes (already open)
         // keep the plain swoosh.
-        let growsFromPill = destinationFrame.height > startFrame.height + 1
         animateFrame(
             of: expandedPanel,
             to: destinationFrame,
-            duration: NotchLayoutMath.expandDuration,
-            curve: growsFromPill ? .liquidOpen : .swoosh,
+            duration: surface == .fullChat ? NotchLayoutMath.workspaceExpandDuration : NotchLayoutMath.expandDuration,
+            curve: surface == .fullChat ? .workspaceMorph : .codenotchUnfold,
             onProgress: { [weak self] easedProgress, linearProgress in
                 self?.surfaceTransitionModel.updateMorph(
                     easedProgress: easedProgress,
-                    linearProgress: linearProgress
+                    linearProgress: linearProgress,
+                    followsFrame: surface == .fullChat
                 )
             },
             completion: { [weak self] in
@@ -1287,17 +1305,19 @@ final class NotchCompanionController {
         // Shrink the real window back toward the pill's own frame, same
         // technique as the expand — a real collapse, not a shape morph.
         let collapseTargetFrame = targetScreen()
-            .flatMap { pillFrame(for: $0, activeInteraction: false) }
+            .flatMap { pillFrame(for: $0, activeInteraction: pillModel.wantsWidenedFrame) }
             ?? expandedPanel.frame
+        let closesWorkspace = presentedSurface == .fullChat
         animateFrame(
             of: expandedPanel,
             to: collapseTargetFrame,
-            duration: NotchLayoutMath.collapseDuration,
-            curve: .swoosh,
+            duration: closesWorkspace ? NotchLayoutMath.workspaceCollapseDuration : NotchLayoutMath.collapseDuration,
+            curve: closesWorkspace ? .workspaceMorph : .codenotchFold,
             onProgress: { [weak self] easedProgress, linearProgress in
                 self?.surfaceTransitionModel.updateMorph(
                     easedProgress: easedProgress,
-                    linearProgress: linearProgress
+                    linearProgress: linearProgress,
+                    followsFrame: closesWorkspace
                 )
             },
             completion: { [weak self] in
@@ -1375,7 +1395,7 @@ final class NotchCompanionController {
     }
 
     private var prefersReducedMotion: Bool {
-        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || NotchUsageStore.shared.reducesMotion
     }
 
     private func framesAreEffectivelyEqual(_ a: CGRect, _ b: CGRect) -> Bool {
@@ -1519,6 +1539,7 @@ private final class NotchFrameAnimator: NSObject {
         /// Swoosh for width and position; height additionally overshoots
         /// by ~3% and settles. The top edge stays flush with the bezel.
         case liquidOpen
+        case codenotchUnfold, codenotchFold, workspaceMorph
     }
 
     private weak var panel: NSPanel?
@@ -1592,7 +1613,10 @@ private final class NotchFrameAnimator: NSObject {
         let easedProgress = eased(linearProgress)
 
         let frame: CGRect
-        if curve == .liquidOpen {
+        if curve == .codenotchUnfold {
+            frame = NotchLayoutMath.interpolatedRect(from: sourceFrame, to: targetFrame,
+                widthProgress: min(easedProgress, 1), heightProgress: easedProgress)
+        } else if curve == .liquidOpen {
             frame = NotchLayoutMath.interpolatedRect(
                 from: sourceFrame,
                 to: targetFrame,
@@ -1632,6 +1656,9 @@ private final class NotchFrameAnimator: NSObject {
         case .easeOutExpo: return NotchLayoutMath.easeOutExpo(linearProgress)
         case .easeInCubic: return NotchLayoutMath.easeInCubic(linearProgress)
         case .swoosh, .liquidOpen: return NotchLayoutMath.swooshEase(linearProgress)
+        case .codenotchUnfold: return CNNotchMotion.progress(linearProgress, expanding: true)
+        case .codenotchFold: return CNNotchMotion.progress(linearProgress, expanding: false)
+        case .workspaceMorph: return NotchLayoutMath.workspaceMorphProgress(linearProgress)
         }
     }
 }
