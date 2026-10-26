@@ -234,6 +234,22 @@ struct NotchLiquidGlassCardModifier: ViewModifier {
                     .stroke(LinearGradient(colors: [.white.opacity(0.075), .white.opacity(0.16)],
                                            startPoint: .top, endPoint: .bottom), lineWidth: 0.6)
                     .opacity(transitionModel.morphCardness)
+                    .mask {
+                        if neckHeight > 0 {
+                            // Full chat has no separate title bar. Hide the rim
+                            // across its neck and shoulders, then restore it
+                            // below the join instead of drawing a bright seam.
+                            GeometryReader { proxy in
+                                let height = max(proxy.size.height, neckHeight + 24)
+                                LinearGradient(stops: [
+                                    .init(color: .clear, location: neckHeight / height),
+                                    .init(color: .black, location: (neckHeight + 24) / height)
+                                ], startPoint: .top, endPoint: .bottom)
+                            }
+                        } else {
+                            Color.white
+                        }
+                    }
                     .allowsHitTesting(false)
             }
     }
@@ -705,9 +721,18 @@ struct NotchCompactChatCard: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             if isFullChat {
-                ZStack {
-                    Color.black
-                    DS.Colors.homeBackground.padding(.top, neckHeight)
+                GeometryReader { proxy in
+                    // This is the active full-chat surface. The older attached
+                    // desktop window's chrome is not used here. Settle to the
+                    // exact content color before its opaque background begins.
+                    let height = max(proxy.size.height, 1)
+                    let start = max(0, occludedTopInset - 18)
+                    let end = max(neckHeight, start + 1)
+                    LinearGradient(stops: [
+                        .init(color: .black, location: start / height),
+                        .init(color: Color(white: 0.045), location: (start + (end - start) * 0.5) / height),
+                        .init(color: DS.Colors.homeBackground, location: end / height)
+                    ], startPoint: .top, endPoint: .bottom)
                 }
             } else {
                 BrandNebulaSurface.notchCard
