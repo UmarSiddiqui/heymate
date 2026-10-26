@@ -35,6 +35,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard !isHostingUnitTests else { return }
         guard !surrenderToRunningInstance() else { return }
+        MateEngine.migrateRetiredSelection()
 
         HeyMateLog.log("🎯 HeyMate: Starting...")
         HeyMateLog.log("🎯 HeyMate: Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown")")
@@ -64,10 +65,9 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         if launchArguments.contains("--show-chat") || launchArguments.contains("--detached-chat") {
             companionManager.openDesktopWindow(section: .chat)
         }
-        if MateEngine.selected() == .hermes,
-           (try? HermesEngineConfiguration.load().resolveLaunchConfiguration()) == nil {
+        if (try? MateAgentEngineConfiguration.load().resolveLaunchConfiguration()) == nil {
             companionManager.openDesktopWindow(section: .settings)
-            DesktopSection.openSettings(tab: DesktopSettingsTab.agents.rawValue)
+            DesktopSection.openSettings(tab: DesktopSettingsTab.brain.rawValue)
         }
         AppPresencePreferences.shared.applyOnLaunch()
         AppUpdateController.shared.start()
@@ -110,18 +110,18 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         guard !isHostingUnitTests else { return }
         companionManager.stop()
-        HermesServeBackend.shared.stop()
+        MateAgentServeBackend.shared.stop()
     }
 
     /// Verified detached execute legs survive Cmd-Q. Planning, legacy work, and
     /// launch races still stay attached to HeyMate and must finish or cancel.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !isHostingUnitTests else { return .terminateNow }
-        if companionManager.isHermesTurnInFlight {
+        if companionManager.isMateAgentTurnInFlight {
             companionManager.openDesktopWindow(section: .chat)
             let alert = NSAlert()
             alert.alertStyle = .warning
-            alert.messageText = "Hermes is still working"
+            alert.messageText = "HeyMate Agent is still working"
             alert.informativeText = "Keep HeyMate open until this turn finishes, or stop it from the chat before quitting."
             alert.addButton(withTitle: "Show chat")
             alert.runModal()

@@ -214,20 +214,9 @@ struct OnboardingRootView: View {
                     .frame(maxWidth: 440)
             }
         case .ai:
-            if MateEngine.selected() == .hermes {
-                OnboardingHermesSetupStep(tour: tour)
-            } else {
-                OnboardingStepFrame(
-                    title: "Pick your AI",
-                    subtitle: "HeyMate thinks with the plan you already pay for. No API keys."
-                ) {
-                    NotchSubscriptionChoiceSection(
-                        companionManager: tour.companionManager,
-                        signIn: tour.companionManager.subscriptionSignIn
-                    )
-                    .frame(maxWidth: 440)
-                }
-            }
+
+                OnboardingMateAgentSetupStep(tour: tour)
+
         case .mic:
             OnboardingMicStep(tour: tour, micCheck: tour.micCheck)
         case .talk:
@@ -277,27 +266,27 @@ struct OnboardingRootView: View {
 
 // MARK: - Pieces
 
-private struct OnboardingHermesSetupStep: View {
+private struct OnboardingMateAgentSetupStep: View {
     @ObservedObject var tour: OnboardingTour
-    @AppStorage(HermesEngineConfiguration.executablePathKey) private var executablePath = ""
-    @AppStorage(HermesEngineConfiguration.profilePathKey) private var profilePath = HermesEngineConfiguration.defaultProfilePath
-    @AppStorage(HermesEngineConfiguration.runtimePathKey) private var runtimePath = ""
+    @AppStorage(MateAgentEngineConfiguration.executablePathKey) private var executablePath = ""
+    @AppStorage(MateAgentEngineConfiguration.profilePathKey) private var profilePath = MateAgentEngineConfiguration.defaultProfilePath
+    @AppStorage(MateAgentEngineConfiguration.runtimePathKey) private var runtimePath = ""
     @State private var isWorking = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.Spacing.md) {
-                Text("Connect Hermes")
+                Text("Connect HeyMate Agent")
                     .font(.system(size: 24, weight: .semibold))
                     .foregroundColor(DS.Colors.textPrimary)
-                Text("Use a private Hermes profile. Sign in with ChatGPT for its Codex provider, or connect an OpenAI or Anthropic API key. API keys have separate usage billing.")
+                Text("Use a private HeyMate agent profile. Sign in with ChatGPT for its Codex provider, or connect an OpenAI or Anthropic API key. API keys have separate usage billing.")
                     .font(DS.Fonts.body)
                     .foregroundColor(DS.Colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                HermesSetupPane(executablePath: $executablePath, profilePath: $profilePath,
+                MateAgentSetupPane(executablePath: $executablePath, profilePath: $profilePath,
                     runtimePath: $runtimePath, isWorking: $isWorking,
-                    onReady: { tour.hermesReadinessChanged($0) })
-                OnboardingStatusLine(text: tour.status ?? "Connect Hermes to continue, or skip setup.", isDone: tour.isStepDone)
+                    onReady: { tour.mateAgentReadinessChanged($0) })
+                OnboardingStatusLine(text: tour.status ?? "Connect HeyMate Agent to continue, or skip setup.", isDone: tour.isStepDone)
             }
             .frame(maxWidth: 520, alignment: .leading)
             .padding(.vertical, 20)

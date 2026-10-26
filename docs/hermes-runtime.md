@@ -1,3 +1,5 @@
+> Historical: Hermes was replaced by [HeyMate’s custom Pi harness](pi-harness.md) on 2026-10-27. Commands and capabilities below describe the retired implementation.
+
 # Bundled native Hermes runtime
 
 HeyMate can stage a sealed, headless Hermes runtime into `Contents/Resources/Hermes`. It contains Python, native wheels, the official engine source snapshot and baseline tools. It does not include Electron, the Hermes SPA, a user profile, credentials, or sessions.

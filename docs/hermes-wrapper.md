@@ -1,3 +1,5 @@
+> Historical: Hermes was replaced by [HeyMate’s custom Pi harness](pi-harness.md) on 2026-10-27. Commands and capabilities below describe the retired implementation.
+
 # Historical ACP wrapper prototype: verified contract
 
 Inspected 2026-10-17. **Historical transport documentation:** the implementation and validation below describe the earlier ACP prototype, not the currently selected Hermes route or current candidate validation.

@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+AGENT_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+if [ -x "$AGENT_ROOT/bin/node" ]; then
+  exec "$AGENT_ROOT/bin/node" "$AGENT_ROOT/src/server.mjs" "$@"
+fi
+exec node "$AGENT_ROOT/src/server.mjs" "$@"

@@ -17,9 +17,8 @@ nonisolated enum BehaviorContract {
     /// after the persona/pointing prompt so these win on conflict. Shipped as
     /// the default, but the app copies this to an editable file on first
     /// launch and reads from there afterward — see `fileURL()`,
-    /// `seedIfNeeded()`, `currentSafetyAndHonestySection()`. hermes has a
-    /// `SOUL.md` the agent always reads; this is the same idea, moved out of
-    /// compiled Swift so it can be edited without a rebuild.
+    /// `seedIfNeeded()`, `currentSafetyAndHonestySection()`. Keep this policy in
+    /// an editable file so it can be changed without a rebuild.
     nonisolated static let bundledSafetyAndHonestySection = """
     honesty and capability:
     - only describe what you can actually see in the attached screenshot(s). if your screen context was removed or unavailable, answer from words alone and never pretend you can see anything.

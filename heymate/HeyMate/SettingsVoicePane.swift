@@ -74,9 +74,7 @@ struct SettingsVoicePane: View {
             SettingsDivider()
             SettingsRow(
                 SettingsItem.dictationMode.title,
-                subtitle: MateEngine.selected() == .hermes
-                    ? "Hermes uses Literal dictation. Smart rewriting is unavailable; your original words are inserted without an AI rewrite."
-                    : "Smart drafts from what's on screen. Literal types exactly what you say.",
+                subtitle: "Literal dictation types your original words. Smart rewriting is currently unavailable.",
                 item: .dictationMode
             ) {
                 DSSegmentedControl(
@@ -89,7 +87,7 @@ struct SettingsVoicePane: View {
                     ],
                     width: DS.SettingsLayout.segmentedWidth * 0.75
                 )
-                .disabled(MateEngine.selected() == .hermes)
+                .disabled(true)
             }
             SettingsDivider()
             SettingsRow(

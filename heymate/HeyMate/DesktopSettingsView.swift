@@ -99,10 +99,8 @@ struct SettingsDetailView: View {
             SettingsVoicePane(companionManager: companionManager, navigation: navigation)
         case .notch:
             SettingsNotchPane(activityCenter: companionManager.notchActivityCenter, navigation: navigation)
-        case .accounts:
+        case .brain:
             DesktopSettingsAccountsTab(companionManager: companionManager, navigation: navigation)
-        case .agents:
-            SettingsAgentsPane(companionManager: companionManager, navigation: navigation)
         case .permissions:
             SettingsPermissionsPane(navigation: navigation)
         case .privacy:

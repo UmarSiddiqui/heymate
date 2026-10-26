@@ -31,3 +31,5 @@ heymate/design/
 
 # Prepared Hermes runtime payloads (generated, never profile data)
 /build/hermes-runtime*/
+/build/pi-runtime*/
+heymate/agent-runtime/node_modules/

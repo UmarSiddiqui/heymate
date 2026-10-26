@@ -27,8 +27,7 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
     case shortcuts
     case voice
     case notch
-    case accounts
-    case agents
+    case brain
     case permissions
     case privacy
 
@@ -36,7 +35,10 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
     static let storageKey = "desktopSettingsSelectedTab"
 
     /// Raw values earlier versions wrote that no longer name a section.
-    static let legacyAliases: [String: DesktopSettingsTab] = [:]
+    static let legacyAliases: [String: DesktopSettingsTab] = ["accounts": .brain, "agents": .brain]
+
+    static var accounts: Self { .brain }
+    static var agents: Self { .brain }
 
     /// Settings sections that became the Integrations page. "advanced" was
     /// a catch-all whose only in-app writer was the Composio prompt.
@@ -56,8 +58,7 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
         case .shortcuts: return "Shortcuts"
         case .voice: return "Voice"
         case .notch: return "Notch"
-        case .accounts: return "AI & Accounts"
-        case .agents: return "Agents & Control"
+        case .brain: return "Brain"
         case .permissions: return "Permissions"
         case .privacy: return "Privacy & Data"
         }
@@ -74,11 +75,8 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
             return "Choose how HeyMate sounds and how fast it talks."
         case .notch:
             return "Coding usage, reset times, agent activity, and a file shelf that opens when you drag."
-        case .accounts:
-            return "Which AI answers you, and how hard it thinks."
-        case .agents:
-            return "Agents that work on their own, and what HeyMate may do on this Mac."
-            return "The apps and services every agent can use, and the keys behind them."
+        case .brain:
+            return "Choose your plan or API provider, then the model HeyMate uses."
         case .permissions:
             return "What macOS lets HeyMate do, and how to fix it when something stops working."
         case .privacy:
@@ -92,8 +90,7 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
         case .shortcuts: return "command"
         case .voice: return "waveform"
         case .notch: return "rectangle.topthird.inset.filled"
-        case .accounts: return "sparkles"
-        case .agents: return "cursorarrow.click.2"
+        case .brain: return "brain"
         case .permissions: return "lock.shield"
         case .privacy: return "hand.raised"
         }
@@ -102,7 +99,7 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
     var group: DesktopSettingsTabGroup {
         switch self {
         case .general, .shortcuts, .voice, .notch: return .heyMate
-        case .accounts, .agents: return .intelligence
+        case .brain: return .intelligence
         case .permissions, .privacy: return .privacy
         }
     }
@@ -220,9 +217,9 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .microApps, .hoverOpensCard, .notchContent:
             return .notch
         case .yourAI, .model, .effort, .voiceChat, .otherEngines, .helperApps:
-            return .accounts
+            return .brain
         case .agentSignIn, .projectFolder, .computerControl, .backgroundAppControl, .behaviorContract:
-            return .agents
+            return .permissions
         case .permissionList, .repairShortcuts:
             return .permissions
         case .excludedApps, .screenRecordings, .saveChats, .memories, .usageAnalytics, .whatLeavesThisMac, .eraseData:
@@ -265,7 +262,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .microApps: return "Coding usage"
         case .hoverOpensCard: return "Open the card on hover"
         case .notchContent: return "Feed your mate"
-        case .yourAI: return "Your AI"
+        case .yourAI: return "Plan or API provider"
         case .model: return "Model"
         case .effort: return "Effort"
         case .voiceChat: return "Voice chat"
@@ -323,7 +320,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .microApps: return "codex claude cursor usage limits rings reset coding"
         case .hoverOpensCard: return "hover peek notch card expand"
         case .notchContent: return "file shelf drag drop mouth feed mate"
-        case .yourAI: return "claude chatgpt openai anthropic plan subscription sign in apple intelligence brain engine"
+        case .yourAI: return "claude chatgpt codex gemini google opencode deepseek api provider model plan subscription sign in brain"
         case .model: return "claude chatgpt gpt sonnet opus haiku model"
         case .effort: return "reasoning thinking effort"
         case .voiceChat: return "voice conversation talk"
@@ -369,7 +366,7 @@ enum SettingsSearch {
         var scored: [(item: SettingsItem, score: Int, order: Int)] = []
 
         for (order, item) in SettingsItem.allCases.enumerated() {
-            guard item != .macVoice else { continue }
+            guard ![SettingsItem.macVoice, .model, .effort, .voiceChat, .otherEngines, .helperApps, .agentSignIn, .projectFolder, .computerControl, .backgroundAppControl, .behaviorContract].contains(item) else { continue }
             let title = normalized(item.title)
             let haystack = [title, normalized(item.keywords), normalized(item.tab.title)]
                 .joined(separator: " ")

@@ -49,10 +49,16 @@ jobs:
           key: spm-${{ runner.os }}-${{ hashFiles('heymate/HeyMate.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-${{ runner.os }}-
 
-      - name: Check Hermes runtime packaging and Gmail bridge
+      - name: Set up pinned harness Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.21.0'
+      - name: Check custom Pi harness
         run: |
-          /usr/bin/python3 heymate/scripts/hermes-runtime-tests.py
-          python3 heymate/scripts/hermes-gmail-bridge-smoke.py
+          python3 heymate/scripts/pi-runtime-tests.py
+          cd heymate/agent-runtime
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm test
 
       - name: Check local signing and install workflow
         run: |

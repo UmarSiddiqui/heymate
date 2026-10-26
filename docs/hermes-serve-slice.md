@@ -1,3 +1,5 @@
+> Historical: Hermes was replaced by [HeyMate’s custom Pi harness](pi-harness.md) on 2026-10-27. Commands and capabilities below describe the retired implementation.
+
 # Persistent Hermes integration
 
 Source status in the isolated `hermes-wrapper` worktree, 2026-10-17. This describes the current implementation, not an installed or published release. The original first-slice evaluation is historical; its test counts and live probes do not establish validation of the current candidate. The current combined tests and candidate build are tracked separately.

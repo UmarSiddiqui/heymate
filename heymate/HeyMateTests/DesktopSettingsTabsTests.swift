@@ -24,14 +24,14 @@ struct DesktopSettingsTabsTests {
 
     @Test func sectionsAreInRailOrder() {
         #expect(DesktopSettingsTab.allCases.map(\.rawValue) == [
-            "general", "shortcuts", "voice", "notch", "accounts", "agents", "permissions", "privacy"
+            "general", "shortcuts", "voice", "notch", "brain", "permissions", "privacy"
         ])
     }
 
     @Test func rawValuesFromEarlierVersionsStillResolve() {
         // Written by older builds and by deep links; must keep landing.
         #expect(DesktopSettingsTab.resolve("general") == .general)
-        #expect(DesktopSettingsTab.resolve("accounts") == .accounts)
+        #expect(DesktopSettingsTab.resolve("accounts") == .brain)
         #expect(DesktopSettingsTab.resolve("notch") == .notch)
         #expect(DesktopSettingsTab.resolve("privacy") == .privacy)
         // Integrations is one page now, outside Settings.
@@ -39,6 +39,15 @@ struct DesktopSettingsTabsTests {
         #expect(DesktopSettingsTab.resolve("advanced") == .general)
         #expect(DesktopSettingsTab.movedToIntegrations == ["connections", "advanced"])
         #expect(DesktopSettingsTab.resolve("not-a-section") == .general)
+    }
+
+    @Test func brainIsTheOnlyIntelligencePageAndOldLinksResolveThere() {
+        #expect(DesktopSettingsTabGroup.intelligence.tabs == [.brain])
+        #expect(DesktopSettingsTab.brain.title == "Brain")
+        #expect(DesktopSettingsTab.resolve("agents") == .brain)
+        #expect(DesktopSettingsTab.resolve("brain") == .brain)
+        #expect(SettingsSearch.results(for: "Other engines").isEmpty)
+        #expect(SettingsSearch.results(for: "DeepSeek").first == .yourAI)
     }
 
     @Test func settingsHasNoSecondIntegrationsPage() {
@@ -57,11 +66,11 @@ struct DesktopSettingsTabsTests {
         #expect(railed == DesktopSettingsTab.allCases)
     }
 
-    @Test func accountsOffersTheThreePlansInOrder() {
-        #expect(DesktopSettingsAccountsTab.everydayBrains == [.claudeCode, .codex, .onDevice])
-        #expect(DesktopSettingsAccountsTab.otherBrains == [.openCode, .customAPI])
+    @Test func accountsOffersOnlyChatGPTAndClaudeSubscriptions() {
+        #expect(DesktopSettingsAccountsTab.everydayBrains == [.claudeCode, .codex])
+        #expect(DesktopSettingsAccountsTab.otherBrains.isEmpty)
         let everyBrain = Set(DesktopSettingsAccountsTab.everydayBrains + DesktopSettingsAccountsTab.otherBrains)
-        #expect(everyBrain == Set(AgentBrain.allCases))
+        #expect(everyBrain == Set([AgentBrain.claudeCode, .codex]))
     }
 
     @Test func signedInClaudeShowsPlanAndEmail() {

@@ -249,7 +249,7 @@
 				28F22CBB2F56440300A0FC59 /* Sources */,
 				28F22CBC2F56440300A0FC59 /* Frameworks */,
 				28F22CBD2F56440300A0FC59 /* Resources */,
-				B77D00012F90080100000801 /* Embed Hermes Runtime */,
+				B77D00012F90080100000801 /* Embed Pi Harness */,
 				A10004012F90040100000401 /* Embed Agent Runner */,
 			);
 			buildRules = (
@@ -414,17 +414,17 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-        B77D00012F90080100000801 /* Embed Hermes Runtime */ = {
+        B77D00012F90080100000801 /* Embed Pi Harness */ = {
             isa = PBXShellScriptBuildPhase;
             alwaysOutOfDate = 1;
             buildActionMask = 2147483647;
             files = ();
             inputPaths = ();
-            name = "Embed Hermes Runtime";
-            outputPaths = ();
+            name = "Embed Pi Harness";
+            outputPaths = ("$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/MateAgent",);
             runOnlyForDeploymentPostprocessing = 0;
             shellPath = /bin/bash;
-            shellScript = "set -euo pipefail\nif [[ -n \"${HEYMATE_HERMES_RUNTIME:-}\" ]]; then\n  /usr/bin/python3 \"${SRCROOT}/scripts/hermes-runtime-stage.py\" --source \"${HEYMATE_HERMES_RUNTIME}\" --destination \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Hermes\"\nelif [[ \"${CONFIGURATION}\" == Release && \"${HEYMATE_ALLOW_EXTERNAL_RUNTIME:-NO}\" != YES ]]; then\n  echo \"error: Release requires HEYMATE_HERMES_RUNTIME pointing to the prepared sealed Hermes payload.\" >&2\n  exit 1\nfi\n";
+            shellScript = "set -euo pipefail\n# Remove only the retired payload inside this generated app bundle.\n/bin/rm -rf -- \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Hermes\"\nif [[ -n \"${HEYMATE_PI_RUNTIME:-}\" ]]; then\n  /usr/bin/python3 \"${SRCROOT}/scripts/pi-runtime-stage.py\" --source \"${HEYMATE_PI_RUNTIME}\" --destination \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/MateAgent\"\nelif [[ \"${CONFIGURATION}\" == Release ]]; then\n  echo \"error: Release requires HEYMATE_PI_RUNTIME pointing to the prepared sealed Pi harness payload.\" >&2\n  exit 1\nfi\n";
         };
 /* End PBXShellScriptBuildPhase section */
 

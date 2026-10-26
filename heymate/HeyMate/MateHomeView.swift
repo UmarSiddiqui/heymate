@@ -39,7 +39,7 @@ struct MateHomeView: View {
     @State private var imageAttachments: [ChatImageAttachment] = []
     @State private var isShowingImageImporter = false
     @State private var attachmentErrorText: String?
-    @State private var isConfirmingHermesRecoveryReset = false
+    @State private var isConfirmingMateAgentRecoveryReset = false
     @State private var isImageDropTargeted = false
     /// Catches ⌘V while the chat box has focus, for clipboards that hold
     /// an image and no text. See `ChatImagePaste`.
@@ -176,7 +176,7 @@ struct MateHomeView: View {
         )
         .onAppear {
             installImagePasteMonitor()
-            companionManager.recoverHermesChatIfNeeded(chatID: companionManager.currentChat.id)
+            companionManager.recoverMateAgentChatIfNeeded(chatID: companionManager.currentChat.id)
             if startsWithDrawerOpen { isDrawerOpen = true }
             typedMessageInput = companionManager.currentChat.draftText ?? ""
             guard shouldFocusComposerOnAppear else { return }
@@ -189,7 +189,7 @@ struct MateHomeView: View {
             removeImagePasteMonitor()
         }
         .onChange(of: companionManager.currentChat.id) { _, _ in
-            companionManager.recoverHermesChatIfNeeded(chatID: companionManager.currentChat.id)
+            companionManager.recoverMateAgentChatIfNeeded(chatID: companionManager.currentChat.id)
             previewedFilePath = nil
             typedMessageInput = companionManager.currentChat.draftText ?? ""
             isNearBottom = true
@@ -1184,9 +1184,9 @@ struct MateHomeView: View {
                         streamingRow
                             .id("mate-streaming")
                     }
-                    if !companionManager.hermesActivity.isEmpty {
+                    if !companionManager.mateAgentActivity.isEmpty {
                         VStack(alignment: .leading, spacing: 5) {
-                            ForEach(companionManager.hermesActivity.suffix(6)) { entry in
+                            ForEach(companionManager.mateAgentActivity.suffix(6)) { entry in
                                 Label(entry.text, systemImage: "gearshape.2")
                                     .font(DS.Fonts.caption)
                                     .foregroundStyle(DS.Colors.textSecondary)
@@ -1198,38 +1198,38 @@ struct MateHomeView: View {
                         // Labelling a transparent VStack can forward the label
                         // back through its AppKit element during AX traversal.
                         .accessibilityElement(children: .contain)
-                        .accessibilityIdentifier("hermes-activity")
-                        .id("hermes-activity")
+                        .accessibilityIdentifier("mateAgent-activity")
+                        .id("mateAgent-activity")
                     }
-                    if companionManager.hermesRecoveredWorkChatIDs.contains(companionManager.currentChat.id) {
+                    if companionManager.mateAgentRecoveredWorkChatIDs.contains(companionManager.currentChat.id) {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Earlier Hermes work is still running. Its result will return to this chat. Stop it before starting another task.")
+                            Text("Earlier HeyMate Agent work is still running. Its result will return to this chat. Stop it before starting another task.")
                                 .font(DS.Fonts.caption)
                                 .foregroundStyle(DS.Colors.textSecondary)
-                            Button("Stop earlier Hermes work") {
-                                companionManager.stopRecoveredHermesWork(chatID: companionManager.currentChat.id)
+                            Button("Stop earlier HeyMate Agent work") {
+                                companionManager.stopRecoveredMateAgentWork(chatID: companionManager.currentChat.id)
                             }
                             .dsCapsuleButtonStyle(.secondary)
                         }
-                        .id("hermes-recovered-work")
+                        .id("mateAgent-recovered-work")
                     }
-                    if companionManager.hermesRecoveryBlockedChatIDs.contains(companionManager.currentChat.id) {
+                    if companionManager.mateAgentRecoveryBlockedChatIDs.contains(companionManager.currentChat.id) {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("The earlier task outcome could not be verified. No task was automatically replayed.")
                                 .font(DS.Fonts.caption)
                                 .foregroundStyle(DS.Colors.textSecondary)
-                            Button("Start new conversation") { isConfirmingHermesRecoveryReset = true }
+                            Button("Start new conversation") { isConfirmingMateAgentRecoveryReset = true }
                                 .dsCapsuleButtonStyle(.secondary)
                         }
-                        .confirmationDialog("Start a new Hermes conversation?", isPresented: $isConfirmingHermesRecoveryReset, titleVisibility: .visible) {
+                        .confirmationDialog("Start a new HeyMate Agent conversation?", isPresented: $isConfirmingMateAgentRecoveryReset, titleVisibility: .visible) {
                             Button("Start new conversation", role: .destructive) {
-                                companionManager.startNewHermesConversationAfterUnverifiedRecovery(chatID: companionManager.currentChat.id)
+                                companionManager.startNewMateAgentConversationAfterUnverifiedRecovery(chatID: companionManager.currentChat.id)
                             }
                             Button("Cancel", role: .cancel) {}
                         } message: {
-                            Text("The previous task outcome is unknown. This stops the owned Hermes backend, archives the old task as unverified and starts fresh runtime context for this chat. Existing native messages and files remain. Detached external actions are not proven stopped. No task is automatically replayed; send a new request only after reviewing the earlier work.")
+                            Text("The previous task outcome is unknown. This stops the owned HeyMate Agent backend, archives the old task as unverified and starts fresh runtime context for this chat. Existing native messages and files remain. Detached external actions are not proven stopped. No task is automatically replayed; send a new request only after reviewing the earlier work.")
                         }
-                        .id("hermes-blocked-recovery")
+                        .id("mateAgent-blocked-recovery")
                     }
                     ForEach(chatTasks.filter { !$0.status.isTerminal }) { run in
                         ChatTaskCard(run: run, mateName: taskMateName(run), manager: companionManager)

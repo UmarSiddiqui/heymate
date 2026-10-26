@@ -221,17 +221,8 @@ final class OnboardingTour: ObservableObject {
             await say("First, a few permissions so I can hear you and see your screen. One at a time.")
 
         case .ai:
-            if MateEngine.selected() == .hermes {
-                status = "Connect Hermes to continue, or skip setup."
-                return
-            }
-            let signIn = companionManager.subscriptionSignIn
-            if signIn.phase.isReady { markDone() }
-            signIn.$phase
-                .receive(on: RunLoop.main)
-                .sink { [weak self] phase in if phase.isReady { self?.markDone() } }
-                .store(in: &watchers)
-            await say("I think with the AI you already pay for. Which one do you have?")
+            status = "Connect ChatGPT or Claude to continue, or skip setup."
+            return
 
         case .mic:
             await say("Can I hear you? Say anything, and watch the bars.")
@@ -350,14 +341,14 @@ final class OnboardingTour: ObservableObject {
         }
     }
 
-    /// Hermes readiness cannot be replaced by an unrelated native CLI login.
-    func hermesReadinessChanged(_ ready: Bool) {
-        guard step == .ai, MateEngine.selected() == .hermes else { return }
+    /// MateAgent readiness cannot be replaced by an unrelated native CLI login.
+    func mateAgentReadinessChanged(_ ready: Bool) {
+        guard step == .ai else { return }
         if ready {
-            markDone("Hermes is connected.")
+            markDone("HeyMate Agent is connected.")
         } else {
             isStepDone = false
-            status = "Connect Hermes to continue, or skip setup."
+            status = "Connect HeyMate Agent to continue, or skip setup."
         }
     }
 

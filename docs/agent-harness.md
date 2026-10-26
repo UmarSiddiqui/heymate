@@ -1,3 +1,5 @@
+> Current implementation: [HeyMate custom Pi harness](pi-harness.md). Hermes integration below is historical.
+
 # HeyMate harness decision
 
 Research date: 2026-10-17. This document records a development decision and acceptance criteria, not a production release or successful live-provider verification.

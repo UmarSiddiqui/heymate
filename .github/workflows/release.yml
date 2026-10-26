@@ -33,10 +33,10 @@ permissions:
   contents: write
 
 jobs:
-  hermes-runtime:
-    name: Prepare Hermes (${{ matrix.arch }})
+  pi-runtime:
+    name: Prepare Pi harness (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
+    timeout-minutes: 20
     permissions:
       contents: read
     strategy:
@@ -47,44 +47,30 @@ jobs:
             runner: macos-26
           - arch: x86_64
             runner: macos-26-intel
-    env:
-      HERMES_SOURCE_COMMIT: d923a5eb487a17c0a68801bba9ef0f56c81040a8
     steps:
       - name: Check out HeyMate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Fetch pinned Hermes source
+      - name: Set up pinned harness Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.21.0'
+      - name: Prepare locked custom harness
         run: |
-          git init "$RUNNER_TEMP/hermes-source"
-          git -C "$RUNNER_TEMP/hermes-source" remote add origin https://github.com/NousResearch/hermes-agent.git
-          git -C "$RUNNER_TEMP/hermes-source" fetch --depth 1 origin "$HERMES_SOURCE_COMMIT"
-          git -C "$RUNNER_TEMP/hermes-source" checkout --detach FETCH_HEAD
-          test "$(git -C "$RUNNER_TEMP/hermes-source" rev-parse HEAD)" = "$HERMES_SOURCE_COMMIT"
-      - name: Build isolated sealed runtime
-        run: |
-          PYTHON=
-          for candidate in python3 python3.14 python3.13 python3.12 python3.11; do
-            if command -v "$candidate" >/dev/null && "$candidate" -c 'import sys; sys.exit(sys.version_info < (3, 11))'; then
-              PYTHON=$(command -v "$candidate")
-              break
-            fi
-          done
-          test -n "$PYTHON" || { echo "::error::Hermes runtime build needs Python 3.11 or later"; exit 1; }
-          "$PYTHON" heymate/scripts/hermes-runtime-build.py \
-            --source "$RUNNER_TEMP/hermes-source" --commit "$HERMES_SOURCE_COMMIT" \
-            --out "$RUNNER_TEMP/Hermes" --bootstrap --allow-downloads
-          /usr/bin/python3 heymate/scripts/hermes-runtime-stage.py \
-            --source "$RUNNER_TEMP/Hermes" --destination "$RUNNER_TEMP/verify/Hermes" --verify-only
-          tar -C "$RUNNER_TEMP" -czf "$RUNNER_TEMP/hermes-${{ matrix.arch }}.tar.gz" Hermes
+          python3 heymate/scripts/pi-runtime-tests.py
+          python3 heymate/scripts/pi-runtime-build.py --out "$RUNNER_TEMP/MateAgent"
+          python3 heymate/scripts/pi-runtime-stage.py --source "$RUNNER_TEMP/MateAgent" --destination "$RUNNER_TEMP/verify/MateAgent" --verify-only
+          (cd heymate/agent-runtime && npm ci --ignore-scripts --no-audit --no-fund && npm test)
+          tar -C "$RUNNER_TEMP" -czf "$RUNNER_TEMP/pi-${{ matrix.arch }}.tar.gz" MateAgent
       - name: Keep runtime payload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: hermes-runtime-${{ matrix.arch }}
-          path: ${{ runner.temp }}/hermes-${{ matrix.arch }}.tar.gz
+          name: pi-runtime-${{ matrix.arch }}
+          path: ${{ runner.temp }}/pi-${{ matrix.arch }}.tar.gz
           retention-days: 2
           if-no-files-found: error
 
   release:
-    needs: hermes-runtime
+    needs: pi-runtime
     runs-on: macos-26
     timeout-minutes: 60
     # Every merge to main reaches users through in-app updates, so a person
@@ -140,24 +126,23 @@ jobs:
           key: spm-${{ runner.os }}-${{ hashFiles('heymate/HeyMate.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-${{ runner.os }}-
 
-      - name: Download prepared Hermes runtimes
+      - name: Download prepared Pi harnesses
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          pattern: hermes-runtime-*
-          path: ${{ runner.temp }}/hermes-artifacts
+          pattern: pi-runtime-*
+          path: ${{ runner.temp }}/pi-artifacts
           merge-multiple: true
-      - name: Assemble universal Hermes resources
+      - name: Assemble universal Pi resources
         run: |
-          mkdir -p "$RUNNER_TEMP/hermes-universal"
+          mkdir -p "$RUNNER_TEMP/pi-universal"
           for ARCH in arm64 x86_64; do
-            mkdir -p "$RUNNER_TEMP/hermes-unpack-$ARCH"
-            tar -xzf "$RUNNER_TEMP/hermes-artifacts/hermes-$ARCH.tar.gz" -C "$RUNNER_TEMP/hermes-unpack-$ARCH"
-            mv "$RUNNER_TEMP/hermes-unpack-$ARCH/Hermes" "$RUNNER_TEMP/hermes-universal/$ARCH"
+            mkdir -p "$RUNNER_TEMP/pi-unpack-$ARCH"
+            tar -xzf "$RUNNER_TEMP/pi-artifacts/pi-$ARCH.tar.gz" -C "$RUNNER_TEMP/pi-unpack-$ARCH"
+            mv "$RUNNER_TEMP/pi-unpack-$ARCH/MateAgent" "$RUNNER_TEMP/pi-universal/$ARCH"
           done
-          /usr/bin/python3 -c 'import json,os,pathlib; p=pathlib.Path(os.environ["RUNNER_TEMP"])/"hermes-universal"/"manifest.json"; p.write_text(json.dumps({"schema":1,"sourceCommit":"d923a5eb487a17c0a68801bba9ef0f56c81040a8","payloads":{"arm64":"arm64","x86_64":"x86_64"}}))'
-          ARCHS="arm64 x86_64" /usr/bin/python3 heymate/scripts/hermes-runtime-stage.py \
-            --source "$RUNNER_TEMP/hermes-universal" --destination "$RUNNER_TEMP/verify/Hermes" --verify-only
-          echo "HEYMATE_HERMES_RUNTIME=$RUNNER_TEMP/hermes-universal" >> "$GITHUB_ENV"
+          python3 -c 'import json,os,pathlib; r=pathlib.Path(os.environ["RUNNER_TEMP"])/"pi-universal"; m=json.loads((r/"arm64/manifest.json").read_text()); (r/"manifest.json").write_text(json.dumps({"schema":1,"engine":"heymate-pi","sourceCommit":m["sourceCommit"],"payloads":{"arm64":"arm64","x86_64":"x86_64"}}))'
+          python3 heymate/scripts/pi-runtime-stage.py --source "$RUNNER_TEMP/pi-universal" --destination "$RUNNER_TEMP/verify/MateAgent" --verify-only
+          echo "HEYMATE_PI_RUNTIME=$RUNNER_TEMP/pi-universal" >> "$GITHUB_ENV"
 
       - name: Import the signing identity
         id: signing
@@ -199,31 +184,15 @@ jobs:
             }
           grep -E "\*\* BUILD" build.log
 
-      - name: Verify the app, Hermes runtime and embedded agent runner
+      - name: Verify the app, Pi harness and embedded agent runner
         run: |
           APP="$DERIVED_DATA/Build/Products/Release/$APP_NAME.app"
           test -d "$APP"
           source heymate/script/code_signature_checks.sh
           heymate_verify_embedded_agent_runner "$APP" release
-          ARCHS="arm64 x86_64" /usr/bin/python3 heymate/scripts/hermes-runtime-stage.py --source "$APP/Contents/Resources/Hermes" --destination "$RUNNER_TEMP/verify/Hermes" --verify-only
-          # Exercise the signed bundled Node and Hermes MCP path; no system Node,
-          # provider credentials, model calls, or real Gmail mutations.
-          # The bundled Python must not write __pycache__ into the signed app:
-          # one stray .pyc breaks the seal and macOS calls the app "damaged".
-          PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX="$RUNNER_TEMP/pycache" \
-          /usr/bin/python3 - "$APP/Contents/Resources/Hermes" <<'PY'
-          import json, os, pathlib, platform, subprocess, sys
-          root = pathlib.Path(sys.argv[1])
-          manifest = json.loads((root / "manifest.json").read_text())
-          if "payloads" in manifest:
-              arch = "arm64" if platform.machine().lower() in ("arm64", "aarch64") else "x86_64"
-              root = root / manifest["payloads"][arch]
-              manifest = json.loads((root / "manifest.json").read_text())
-          python = root / manifest["runtime"]["storePython"]
-          site = root / manifest["runtime"]["sitePackages"]
-          subprocess.run([str(python), "-B", "heymate/scripts/hermes-gmail-bridge-smoke.py", "--payload", str(root)],
-                         env=dict(os.environ, PYTHONPATH=str(site)), check=True)
-          PY
+          python3 heymate/scripts/pi-runtime-stage.py --source "$APP/Contents/Resources/MateAgent" --destination "$RUNNER_TEMP/verify/MateAgent" --verify-only
+          # Startup/protocol smoke uses the signed bundled Node, no provider/model calls.
+          python3 heymate/scripts/pi-runtime-smoke.py --payload "$APP/Contents/Resources/MateAgent"
           # Verify the seal after everything above has run the bundled code.
           codesign --verify --deep --strict --verbose=2 "$APP"
           # Permissions survive updates only while this requirement stays put.
