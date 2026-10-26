@@ -33,14 +33,23 @@ enum MateHomeLayout {
     static let railWidth: CGFloat = 237
     static let drawerWidth: CGFloat = 280
     static let readingMeasure: CGFloat = 680
+    static let minimumConversationWidth: CGFloat = 320
+    static let comfortableConversationWidth: CGFloat = 480
 
     /// The gear menu mirrors the window sidebar: Apps and Settings. Jobs
     /// has its own header button; skills and memory live in a mate's sheet.
     static let workspaceSections: [DesktopSection] = DesktopSection.sidebarSections
 
-    static func visibleColumns(isCompact: Bool, isDrawerOpen: Bool) -> [MateHomeColumn] {
+    static func visibleColumns(
+        isCompact: Bool, isDrawerOpen: Bool,
+        availableWidth: CGFloat = .infinity, detailWidth: CGFloat = drawerWidth
+    ) -> [MateHomeColumn] {
         if isCompact { return [.conversation] }
-        return isDrawerOpen ? [.rail, .conversation, .drawer] : [.rail, .conversation]
+        let sideWidth = isDrawerOpen ? detailWidth : railWidth
+        guard availableWidth >= minimumConversationWidth + sideWidth + 1 else { return [.conversation] }
+        // Profile and file details take the rail's place; they never squeeze
+        // the conversation between two fixed-width sidebars.
+        return isDrawerOpen ? [.conversation, .drawer] : [.rail, .conversation]
     }
 
     static func shouldFollowLatest(isNearBottom: Bool) -> Bool {

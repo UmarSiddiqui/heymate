@@ -63,7 +63,7 @@ struct NotchHomeSize: Equatable {
     /// The full chat that opens from the notch in place of a separate chat
     /// window. Bigger than Home, with its own remembered size.
     enum Chat {
-        static let standard = NotchHomeSize(width: 860, heightBelowHousing: 560)
+        static let standard = NotchHomeSize(width: 1160, heightBelowHousing: 740)
         static let minimum = NotchHomeSize(width: 520, heightBelowHousing: 340)
         static let maximum = NotchHomeSize(width: 1800, heightBelowHousing: 1200)
         static let storageKey = "notchChatSize"
@@ -128,7 +128,12 @@ struct NotchHomeSize: Equatable {
     }
 
     static func storedChat(userDefaults: UserDefaults = .standard) -> NotchHomeSize {
-        guard let raw = userDefaults.string(forKey: Chat.storageKey) else { return Chat.standard }
+        // Keep the attached workspace's saved size when moving it into the
+        // shared notch panel. Subsequent resizes use the chat's own key.
+        guard let raw = userDefaults.string(forKey: Chat.storageKey) else {
+            guard userDefaults.object(forKey: AttachedDesktopLayout.storageKey) != nil else { return Chat.standard }
+            return AttachedDesktopLayout.storedSize(defaults: userDefaults).clampedForChat()
+        }
         let parts = raw.split(separator: ",").compactMap { Double($0) }
         guard parts.count == 2 else { return Chat.standard }
         return NotchHomeSize(width: parts[0], heightBelowHousing: parts[1]).clampedForChat()

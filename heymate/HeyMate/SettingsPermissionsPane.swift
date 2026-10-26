@@ -15,6 +15,7 @@ struct SettingsPermissionsPane: View {
     @ObservedObject private var guide = PermissionGuide.shared
 
     @State private var repairNote: String?
+    @State private var showsResetConfirmation = false
 
     private var shortcutsWork: Bool {
         guide.isGranted(.accessibility) && guide.isGranted(.inputMonitoring)
@@ -36,6 +37,13 @@ struct SettingsPermissionsPane: View {
             repairSection
         }
         .onAppear { guide.startWatching() }
+        .onDisappear { guide.stopWatching() }
+        .confirmationDialog("Reset HeyMate's Input Monitoring permission?", isPresented: $showsResetConfirmation) {
+            Button("Reset Input Monitoring", role: .destructive, action: repair)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Use this only if enabling the installed HeyMate app still fails. Reset removes its current Input Monitoring entry; you must allow it again in System Settings.")
+        }
     }
 
     // MARK: Shortcuts off
@@ -57,9 +65,9 @@ struct SettingsPermissionsPane: View {
                     .fixedSize(horizontal: false, vertical: true)
                 VStack(alignment: .leading, spacing: 4) {
                     step(1, "Press Open System Settings below.")
-                    step(2, "Find HeyMate in the list and switch it on.")
-                    step(3, "Already on? Switch it off and on again, or press Repair.")
-                    step(4, "HeyMate isn't listed? Drag it in from the card below.")
+                    step(2, "Enable /Applications/HeyMate.app in the list.")
+                    step(3, "Not listed? Use + to add that app, or drag it from the card below.")
+                    step(4, "If macOS asks, quit and reopen HeyMate to apply the grant.")
                 }
                 HStack(spacing: DS.Spacing.sm) {
                     if let first = firstMissingShortcutPermission {
@@ -69,9 +77,9 @@ struct SettingsPermissionsPane: View {
                         .dsCapsuleButtonStyle(.primary)
                     }
                     if !guide.isGranted(.inputMonitoring) {
-                        Button("Repair", action: repair)
+                        Button("Reset Input Monitoring…") { showsResetConfirmation = true }
                             .dsCapsuleButtonStyle(.secondary)
-                            .help("Clears HeyMate's old Input Monitoring entry and asks again.")
+                            .help("Last resort: remove HeyMate's Input Monitoring entry and ask again.")
                     }
                 }
                 if let repairNote {
@@ -119,7 +127,7 @@ struct SettingsPermissionsPane: View {
     private var repairSection: some View {
         SettingsSection(
             "Still not working?",
-            footer: "macOS ties these switches to the exact copy of HeyMate. After an update the old switch can stay on while the new copy is refused."
+            footer: "Changing HeyMate's signing identity can require new macOS approval. Ordinary local updates keep the installed signer. Reset is a last resort if enabling the installed app still fails."
         ) {
             SettingsRow(
                 SettingsItem.repairShortcuts.title,
@@ -127,7 +135,7 @@ struct SettingsPermissionsPane: View {
                 systemImage: "wrench.and.screwdriver",
                 item: .repairShortcuts
             ) {
-                Button("Repair", action: repair)
+                Button("Reset Input Monitoring…") { showsResetConfirmation = true }
                     .dsCapsuleButtonStyle(.secondary)
             }
         }

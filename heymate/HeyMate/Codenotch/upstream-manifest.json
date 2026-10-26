@@ -1,0 +1,200 @@
+{
+  "revision": "6522e9f3ee0fe35d46e428b441e6e80b586eacbb",
+  "files": [
+    {
+      "upstream": "Sources/Providers/GeminiCLIUsage.swift",
+      "file": "CNGeminiCLIUsage.swift",
+      "sha256": "cb5b7cdd503db659fb4cbe0b7dde01a123bba32b65dc85a7da6c49aa3c07fd1c"
+    },
+    {
+      "upstream": "Sources/Providers/GeminiTokenUsage.swift",
+      "file": "CNGeminiTokenUsage.swift",
+      "sha256": "ca570eceb44eae2cc67a561da18489ee201719151771a9542b69cd35fdd3d567"
+    },
+    {
+      "upstream": "Sources/Providers/OpenCodeGeminiUsage.swift",
+      "file": "CNOpenCodeGeminiUsage.swift",
+      "sha256": "176a581b2cda98f89ddde060e8658742377792f626c2a19cf3806ca15c214607"
+    },
+    {
+      "upstream": "Sources/Providers/HermesGeminiUsage.swift",
+      "file": "CNHermesGeminiUsage.swift",
+      "sha256": "af9c49372c62e01d3a2ac2d4b8cc2b22efd5ec706d8e1212a39f64e7c82f7572"
+    },
+    {
+      "upstream": "Sources/Providers/SQLiteStore.swift",
+      "file": "CNSQLiteStore.swift",
+      "sha256": "3dee327d4653b5bbf2b814a5c8e06669f8b51b74c1272f5baa30e588f5006cc3"
+    },
+    {
+      "upstream": "Sources/Providers/OpenCodeSchema.swift",
+      "file": "CNOpenCodeSchema.swift",
+      "sha256": "c70bcfd24cf13380fe252a1d74c4096753370022846c689152f3a2952fe5258e"
+    },
+    {
+      "upstream": "Sources/Providers/OpenCodeCredentials.swift",
+      "file": "CNOpenCodeCredentials.swift",
+      "sha256": "1dd833dc270947235b10ac4d6dc2fbee7fda2157f6fe3bf7ba2c1f08f8645a2f"
+    },
+    {
+      "upstream": "Sources/Providers/OpenCodeUsage.swift",
+      "file": "CNOpenCodeUsage.swift",
+      "sha256": "b5c9502f72f5134d2b29f418abc6bc91ae258dd86ab428c6ae7520255691421f"
+    },
+    {
+      "upstream": "Sources/Providers/AntigravityQuotaParser.swift",
+      "file": "CNAntigravityQuotaParser.swift",
+      "sha256": "f66edcc0001667548f492330c5c2f8490c6ddabec66b9ea78693ef39c6b955be"
+    },
+    {
+      "upstream": "Sources/Providers/KimiUsage.swift",
+      "file": "CNKimiUsage.swift",
+      "sha256": "b4525874f6322c067a2206535fa0df0312fd4edb555f66c0fa5e8c80db9a341b"
+    },
+    {
+      "upstream": "Sources/Providers/KimiCredentials.swift",
+      "file": "CNKimiCredentials.swift",
+      "sha256": "9241467883e233a06d8c039cd0ddf159967faa6e48cfdddbc36ad5a2c1c34a34"
+    },
+    {
+      "upstream": "Sources/Providers/GrokUsage.swift",
+      "file": "CNGrokUsage.swift",
+      "sha256": "6bd02737660aabc13edb5752a2451e07e00278d1905cc14f1fcd97167ae9c279"
+    },
+    {
+      "upstream": "Sources/Providers/GrokCredentials.swift",
+      "file": "CNGrokCredentials.swift",
+      "sha256": "c793e382275a635fa358b5782f422df26bfe19d0969efaa7591c3b3443ee1802"
+    },
+    {
+      "upstream": "Sources/Providers/OllamaLocalUsage.swift",
+      "file": "CNOllamaLocalUsage.swift",
+      "sha256": "f594a5131994f8c765b9d266fb87d044ac445ce8f895d490f286fb5c44dbf91c"
+    },
+    {
+      "upstream": "Sources/Providers/LMStudioUsage.swift",
+      "file": "CNLMStudioUsage.swift",
+      "sha256": "2b0cfe2d53026d979e65b2d0ca7a15a393246a0d72f44f498e8088430e21a295"
+    },
+    {
+      "upstream": "Sources/Providers/GLMUsage.swift",
+      "file": "CNGLMUsage.swift",
+      "sha256": "832b0d78d8a1e01b35e3f5f487f52482e5ed094f30067089696c72c0fe193915"
+    },
+    {
+      "upstream": "Sources/Providers/GLMCredentials.swift",
+      "file": "CNGLMCredentials.swift",
+      "sha256": "4c3d7575c5f6b1be1184437928f13f54f2cf63cb3272c2c0568d663ff87da099"
+    },
+    {
+      "upstream": "Sources/Providers/ZCodeCredentialCipher.swift",
+      "file": "CNZCodeCredentialCipher.swift",
+      "sha256": "2a9e8a9204bbf1aa70a7b2240bd299c0aebbe9f2894f4b0d9ba701cd91d914fc"
+    },
+    {
+      "upstream": "Sources/Model/UsageModel.swift",
+      "file": "CNUsageModel.swift",
+      "sha256": "7eb3a8ef7a3c01324d513bf5e67fabddc94e2fb8644d4d96bdc9e816fd94256c"
+    },
+    {
+      "upstream": "Sources/Sessions/AgentSession.swift",
+      "file": "CNAgentSession.swift",
+      "sha256": "b43865c4f68e19bb2e381556418abf9b56935d33add9bbef859c78cee3962232"
+    },
+    {
+      "upstream": "Sources/Sessions/GeminiCLIActivity.swift",
+      "file": "CNGeminiCLIActivity.swift",
+      "sha256": "c7e9af7b99c9544b585ac7e207aabb4db4bd035120b1187a3360ea85e81f0922"
+    },
+    {
+      "upstream": "Sources/Sessions/ProcessLiveness.swift",
+      "file": "CNProcessLiveness.swift",
+      "sha256": "67800a2e72f20aa7682be6b6554991f8d37842b00eae1ed02a6b4be4dcd8ebf1"
+    },
+    {
+      "upstream": "Sources/Sessions/KimiActivityMonitor.swift",
+      "file": "CNKimiActivityMonitor.swift",
+      "sha256": "025b87a35ca9f4ccff44822d966699adba5eb4656db80ad9e856b21118da3d9a"
+    },
+    {
+      "upstream": "Sources/Sessions/AntigravityActivityMonitor.swift",
+      "file": "CNAntigravityActivityMonitor.swift",
+      "sha256": "6d152a8c316e563ae85a912dd934717885c4716b7b1c02a64543a49a2db06dc7"
+    },
+    {
+      "upstream": "Sources/Providers/AntigravityActivity.swift",
+      "file": "CNAntigravityActivity.swift",
+      "sha256": "14173c9410e3fcc42b2ea99f91e8a53e6d73e14bdd325481052397db35bae73d"
+    },
+    {
+      "upstream": "Sources/Providers/AntigravityBridge.swift",
+      "file": "CNAntigravityBridge.swift",
+      "sha256": "63a0eec898d1465fd3049c81d04c5c56d3e595a59f45162bcd2ac9108786cbea"
+    },
+    {
+      "upstream": "Sources/Providers/GitHubCopilotProvider.swift",
+      "file": "CNGitHubCopilotProvider.swift",
+      "sha256": "d54cd6989ee6214254608e92fc4e9d7c5a7a723c7e5c0cbca62dc4254b31cb09"
+    },
+    {
+      "upstream": "Sources/Model/LocalRuntimeReading.swift",
+      "file": "CNLocalRuntimeReading.swift",
+      "sha256": "10e32c65d44ad5ce377d82428d62fbeb8d0ffe0243fc81192d47c26499883f9c"
+    },
+    {
+      "upstream": "Sources/Notch/NotchMotion.swift",
+      "file": "CNNotchMotion.swift",
+      "sha256": "322fbaa939f615dac41b5864ddeeb566b804c277a92d24174d2ee558b423586a"
+    },
+    {
+      "upstream": "Sources/Notch/SideNotchShape.swift",
+      "file": "CNSideNotchShape.swift",
+      "sha256": "ee3812753f70754c75125e2220c07a12520528ccb02e81e70437cd83a119b312"
+    },
+    {
+      "upstream": "Sources/Notch/NotchEdge.swift",
+      "file": "CNNotchEdge.swift",
+      "sha256": "c1bf85eefe5149eb2bcb6ffd8111f11c98905690c67bb2f41b1c0794dbee2b0b"
+    },
+    {
+      "upstream": "Sources/Sessions/SessionFocus.swift",
+      "file": "CNSessionFocus.swift",
+      "sha256": "ea17eefca46af17df514990c8578d73f5b244fc7843ca65d756f03c79e09b225"
+    },
+    {
+      "upstream": "Sources/Model/ProviderOrder.swift",
+      "file": "CNProviderOrder.swift",
+      "sha256": "80e6eb2b434ab79edfe3bf1cf818353857c9f583d428359b007af6a9482a2cfd"
+    },
+    {
+      "upstream": "Sources/Sessions/ActivitySummary.swift",
+      "file": "CNActivitySummary.swift",
+      "sha256": "180d3579514598fcd4684abdd3ce01b7f6ae8e740b22243b2582a862bd03fc7b"
+    },
+    {
+      "upstream": "Sources/Features/ProviderRing.swift",
+      "file": "CNProviderRing.swift",
+      "sha256": "cf880816e6c866a37992a9a0d18a993f764049aff066495fb246287cac56500e"
+    },
+    {
+      "upstream": "Sources/Features/ProviderRing.swift",
+      "file": "CNSpinningArc.swift",
+      "sha256": "cf880816e6c866a37992a9a0d18a993f764049aff066495fb246287cac56500e"
+    },
+    {
+      "upstream": "Sources/Sessions/CodexActivityMonitor.swift",
+      "file": "CNCodexRolloutActivity.swift",
+      "sha256": "8b278497d1603d093db18b85cb182828d88f104b0448826fa63de63031498218"
+    },
+    {
+      "upstream": "Sources/Sessions/CursorActivityMonitor.swift",
+      "file": "CNCursorActivityMonitor.swift",
+      "sha256": "9fb58a773d0e5208debfa9ef234c8f4ed78652ed73c6f3ebc628d0adaf4cfd26"
+    },
+    {
+      "upstream": "Sources/Sessions/ClaudeSessionRecord.swift",
+      "file": "CNClaudeSessionRecord.swift",
+      "sha256": "3faceb7600f3578f0c2a4a0d5f1899a5e6513de4c9cb0ded2bc6100e9843be40"
+    }
+  ]
+}

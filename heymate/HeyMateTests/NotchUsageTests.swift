@@ -54,7 +54,7 @@ struct NotchUsageTests {
         #expect(!center.isEnabled(.clipboard))
         #expect(center.clipboardStore.entries.isEmpty)
     }
-    @Test func customSourceReadsPercentOrUsedOverLimit() throws {
+    @MainActor @Test func customSourceReadsPercentOrUsedOverLimit() throws {
         NotchCustomProviderRegistry.set([
             NotchCustomProviderSpec(id: "custom.a", name: "Gateway", url: "https://example.com/u", percentPath: "data.pct", resetPath: "data.reset"),
             NotchCustomProviderSpec(id: "custom.b", name: "Proxy", url: "https://example.com/u", usedPath: "items.0.used", limitPath: "items.0.limit")

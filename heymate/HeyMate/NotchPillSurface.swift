@@ -53,6 +53,7 @@ final class NotchPillModel: ObservableObject {
     /// the drop target is unmistakable while the pointer holds a file.
     @Published var isDropTargeted = false
     @Published var hasUsage = false
+    @Published var usageProviderCount = 0
 
     /// The card is about to open from this tab. The peek slots blur and fade
     /// out first (the controller waits `NotchLayoutMath.pillYieldDuration`),

@@ -2,10 +2,10 @@
 # Typechecks the app (and optionally the tests) without touching the real,
 # signed HeyMate.app that Xcode manages.
 #
-# `xcodebuild` from the terminal against the project's own DerivedData
-# re-signs that app bundle, which invalidates its TCC grants — screen
-# recording, accessibility, the lot — and the app then has to ask for all of
-# them again. This script still uses `xcodebuild`, because that is the only
+# A compile-only build must not replace an app used for daily work. In
+# particular, changing its signer or designated requirement can invalidate
+# macOS privacy grants; signing a routine update with a compatible identity
+# does not inherently do that. This script still uses `xcodebuild`, because that is the only
 # way to get Xcode's actual per-target build settings and Swift frontend
 # invocations, but it points -derivedDataPath at a throwaway directory in
 # /tmp and passes CODE_SIGNING_ALLOWED=NO / CODE_SIGNING_REQUIRED=NO, so it

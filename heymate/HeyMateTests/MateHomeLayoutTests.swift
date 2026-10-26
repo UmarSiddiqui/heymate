@@ -9,12 +9,33 @@ import Testing
 
 struct MateHomeLayoutTests {
 
-    @Test func desktopShowsRailAndConversationUntilTheDrawerOpens() {
+    @Test func desktopReplacesLeftRailWhenRightDrawerOpens() {
         #expect(MateHomeLayout.visibleColumns(isCompact: false, isDrawerOpen: false) == [.rail, .conversation])
         #expect(
             MateHomeLayout.visibleColumns(isCompact: false, isDrawerOpen: true)
-                == [.rail, .conversation, .drawer]
+                == [.conversation, .drawer]
         )
+    }
+
+    @Test func openingDetailsFitsTheNarrowWorkspaceWithoutClippingEitherSide() {
+        #expect(MateHomeLayout.visibleColumns(isCompact: false, isDrawerOpen: true,
+            availableWidth: 800) == [.conversation, .drawer])
+        #expect(MateHomeLayout.visibleColumns(isCompact: false, isDrawerOpen: false,
+            availableWidth: 800) == [.rail, .conversation])
+        #expect(MateHomeLayout.visibleColumns(isCompact: false, isDrawerOpen: true,
+            availableWidth: 632) == [.conversation, .drawer])
+        // Below the two-column minimum, detail sheets preserve chat space.
+        #expect(MateHomeLayout.visibleColumns(isCompact: false, isDrawerOpen: true,
+            availableWidth: 600) == [.conversation])
+        #expect(MateHomeLayout.visibleColumns(isCompact: false, isDrawerOpen: false,
+            availableWidth: 520) == [.conversation])
+    }
+
+    @Test func filePreviewUsesItsOwnWidthWhenReplacingTheRail() {
+        #expect(MateHomeLayout.visibleColumns(isCompact: false, isDrawerOpen: true,
+            availableWidth: 620, detailWidth: 300) == [.conversation])
+        #expect(MateHomeLayout.visibleColumns(isCompact: false, isDrawerOpen: true,
+            availableWidth: 640, detailWidth: 300) == [.conversation, .drawer])
     }
 
     @Test func compactLayoutKeepsTheDrawerOutOfTheColumnList() {

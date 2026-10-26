@@ -15,48 +15,58 @@ extension NotchUsageProvider {
     }
 }
 
-/// A thin usage arc around the provider's own logo.
+/// CodeNotch's provider ring, adapted through a narrow HeyMate host boundary.
 struct NotchUsageRing: View {
     let provider: NotchUsageProvider
     let window: NotchUsageWindow?
     var stale = false
     var size: CGFloat = 28
     var working = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pulse = false
-    private var line: CGFloat { size < 20 ? 1.6 : 2.2 }
+    var activity: CNActivitySummary? = nil
+    var refreshing = false
+    var weeklyWindow: NotchUsageWindow? = nil
+    var remaining = false
+    var reducesMotion = false
+    var blocked = false
+    private var summary: CNActivitySummary? {
+        activity ?? (working ? CNActivitySummary(sessions: [.init(id: "managed", name: provider.name, detail: "HeyMate", state: .busy, waitingFor: nil, since: .distantPast)]) : nil)
+    }
     var body: some View {
-        ZStack {
-            Circle().stroke(.white.opacity(0.14), lineWidth: line)
-            if let window {
-                Circle().trim(from: 0, to: window.fraction)
-                    .stroke(provider.tint.opacity(stale ? 0.4 : 1), style: StrokeStyle(lineWidth: line, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-            }
-            NotchProviderGlyph(provider: provider, size: size * 0.46)
-                .opacity(working ? (pulse ? 1 : 0.5) : window == nil ? 0.45 : 0.92)
-        }
-        .padding(line / 2)
-        .frame(width: size, height: size)
-        .onAppear { if working && !reduceMotion { pulse = true } }
-        .onChange(of: working) { _, value in pulse = value && !reduceMotion }
-        .animation(working && !reduceMotion ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true) : nil, value: pulse)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(provider.name), \(window.map { "\(Int($0.usedPercent)) percent used" } ?? "usage unavailable")\(stale ? ", stale reading" : "")")
+        CNProviderRing(provider: provider, usedFraction: window?.fraction,
+                       weeklyFraction: weeklyWindow?.fraction, showsRemaining: remaining,
+                       isStale: stale, activity: summary, isRefreshing: refreshing, reduceMotion: reducesMotion, isBlocked: blocked)
+            .scaleEffect(size / 44).frame(width: size, height: size)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(provider.name), \(window?.detail(remaining: remaining) ?? "usage unavailable")\(stale ? ", stale reading" : "")\(summary.map { ", \($0.label)" } ?? "")")
     }
 }
 
+@MainActor
 struct NotchCompactUsage: View {
-    @ObservedObject private var store = NotchUsageStore.shared
+    @ObservedObject private var store: NotchUsageStore
+    init(store: NotchUsageStore? = nil) { self.store = store ?? .shared }
+    private var providers: [NotchUsageProvider] { store.idleProviders }
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { timeline in
-            HStack(spacing: 5) {
-                ForEach(store.providers.filter { store.enabled.contains($0) }) { provider in
-                    NotchUsageRing(provider: provider, window: store.readings[provider]?.windows.first,
+            HStack(spacing: NotchLayoutMath.compactUsageSpacing) {
+                ForEach(providers.prefix(NotchLayoutMath.compactUsageLimit)) { provider in
+                    NotchUsageRing(provider: provider, window: store.headline(provider),
                                    stale: store.status[provider] != nil || store.readings[provider]?.isStale(at: timeline.date) == true,
-                                   size: 17)
+                                   size: NotchLayoutMath.compactUsageRingSize,
+                                   activity: CNActivitySummary(sessions: store.sessions[provider] ?? []),
+                                   refreshing: store.refreshing.contains(provider),
+                                   weeklyWindow: store.weeklyWindow(provider), remaining: store.showsRemaining,
+                                   reducesMotion: store.reducesMotion, blocked: store.isBlocked(provider))
+                }
+                if providers.count > NotchLayoutMath.compactUsageLimit {
+                    Text("+\(providers.count - NotchLayoutMath.compactUsageLimit)")
+                        .font(.system(size: 10, weight: .medium)).monospacedDigit()
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                        .frame(width: NotchLayoutMath.compactUsageOverflowWidth)
+                        .accessibilityLabel("\(providers.count - NotchLayoutMath.compactUsageLimit) more providers in Usage")
                 }
             }
+            .fixedSize(horizontal: true, vertical: false)
         }
     }
 }
@@ -64,37 +74,90 @@ struct NotchCompactUsage: View {
 struct NotchUsageView: View {
     @ObservedObject var companionManager: CompanionManager
     @ObservedObject private var store: NotchUsageStore
-    @State private var expanded = false
-    init(companionManager: CompanionManager, store: NotchUsageStore = .shared) {
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @State private var selectedProvider: NotchUsageProvider?
+
+    init(companionManager: CompanionManager, store: NotchUsageStore? = nil,
+         initialProvider: NotchUsageProvider? = nil) {
         self.companionManager = companionManager
-        self.store = store
+        self.store = store ?? .shared
+        _selectedProvider = State(initialValue: initialProvider)
     }
+
     private var liveRuns: [AgentRun] { companionManager.agentRuns.filter { !$0.status.isTerminal } }
+    private var visibleRuns: [AgentRun] {
+        guard let selectedProvider else { return liveRuns }
+        return liveRuns.filter {
+            (selectedProvider == .codex && $0.executor == .codex)
+                || (selectedProvider == .claude && $0.executor == .claudeCode)
+        }
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Text("Usage").font(.system(size: 12, weight: .semibold))
-                if !liveRuns.isEmpty {
-                    Text("\(liveRuns.count) agent\(liveRuns.count == 1 ? "" : "s") active")
-                        .font(DS.Fonts.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button { store.refresh() } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(.plain).help("Refresh usage").foregroundStyle(.secondary)
-                Button { companionManager.openDesktopWindow(section: .notch) } label: { Image(systemName: "plus") }
-                    .buttonStyle(.plain).help("Add or manage usage sources").foregroundStyle(.secondary)
-                Button { withAnimation(.easeOut(duration: 0.18)) { expanded.toggle() } } label: {
-                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                }
-                .buttonStyle(.plain).help(expanded ? "Show less" : "Show details").foregroundStyle(.secondary)
-            }
+        VStack(alignment: .leading, spacing: 6) {
+            header
             TimelineView(.periodic(from: .now, by: 30)) { timeline in
-                if expanded { detail(date: timeline.date) } else { chips(date: timeline.date) }
+                if let selectedProvider { providerDetails(selectedProvider, date: timeline.date) }
+                else { chips(date: timeline.date) }
             }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 20).padding(.vertical, 8)
+        .onChange(of: store.providers) { _, providers in
+            if let selectedProvider, !providers.contains(selectedProvider) { self.selectedProvider = nil }
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            if let selectedProvider {
+                Button {
+                    withAnimation(CNNotchMotion.respectingReduceMotion(CNNotchMotion.contents, systemReduceMotion || store.reducesMotion)) { self.selectedProvider = nil }
+                } label: {
+                    Label("All providers", systemImage: "chevron.left")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .buttonStyle(.plain).fixedSize()
+                .accessibilityIdentifier("usage-back")
+                Text(selectedProvider.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+            } else {
+                Text("Usage").font(.system(size: 12, weight: .semibold))
+            }
+            if !visibleRuns.isEmpty {
+                Button { companionManager.openDesktopWindow(section: .chat) } label: {
+                    Text(visibleRuns.contains { $0.status.needsUser } ? "Needs you" : "\(visibleRuns.count) active")
+                        .font(.system(size: 10))
+                        .foregroundStyle(visibleRuns.contains { $0.status.needsUser } ? .orange : .secondary)
+                }.buttonStyle(.plain).help("Open HeyMate agent work")
+            }
+            let external = (selectedProvider.map { store.sessions[$0] ?? [] } ?? store.sessions.values.flatMap { $0 }).filter { $0.state != .idle }
+            if !external.isEmpty {
+                Text(external.contains { $0.state == .waiting } ? "External · needs you" : external.contains { $0.state == .busy } ? "External · \(external.filter { $0.state == .busy }.count) active" : "External · complete")
+                    .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+                    .help("Observed in coding tools. Select a provider ring for session details.")
+            }
+            Spacer(minLength: 0)
+            Button {
+                if let selectedProvider { store.refresh(selectedProvider) } else { store.refresh() }
+            } label: { Image(systemName: "arrow.clockwise") }
+                .buttonStyle(.plain).foregroundStyle(.secondary)
+                .help(selectedProvider.map { "Refresh \($0.name) usage" } ?? "Refresh usage")
+                .accessibilityLabel("Refresh usage")
+            Button { companionManager.openDesktopWindow(section: .notch) } label: { Image(systemName: "plus") }
+                .buttonStyle(.plain).help("Add or manage usage sources").foregroundStyle(.secondary)
+                .accessibilityLabel("Manage usage sources")
+        }
+    }
+
+    private func ring(_ provider: NotchUsageProvider, window: NotchUsageWindow?, stale: Bool, size: CGFloat, working: Bool) -> some View {
+        let managed = liveRuns.filter { (provider == .codex && $0.executor == .codex) || (provider == .claude && $0.executor == .claudeCode) }.map { run in
+            CNAgentSession(id: "heymate.\(run.id)", name: "HeyMate", detail: "Managed agent work",
+                           state: run.status.needsUser ? .waiting : .busy, waitingFor: run.status.needsUser ? "Needs you in HeyMate" : nil, since: .distantPast)
+        }
+        return NotchUsageRing(provider: provider, window: window, stale: stale, size: size, working: working,
+                       activity: CNActivitySummary(sessions: (store.sessions[provider] ?? []) + managed),
+                       refreshing: store.refreshing.contains(provider), weeklyWindow: store.weeklyWindow(provider),
+                       remaining: store.showsRemaining, reducesMotion: store.reducesMotion, blocked: store.isBlocked(provider))
     }
 
     private func state(_ provider: NotchUsageProvider, _ date: Date) -> (stale: Bool, working: Bool, needsAttention: Bool) {
@@ -108,99 +171,90 @@ struct NotchUsageView: View {
     private func chips(date: Date) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(store.providers) { provider in
+                ForEach(store.overviewProviders) { provider in
                     let s = state(provider, date)
-                    let window = store.readings[provider]?.windows.first
+                    let window = store.headline(provider)
                     Button {
-                        if store.enabled.contains(provider) { withAnimation { expanded = true } }
-                        else { store.setEnabled(true, provider: provider) }
+                        withAnimation(CNNotchMotion.respectingReduceMotion(CNNotchMotion.contents, systemReduceMotion || store.reducesMotion)) { selectedProvider = provider }
                     } label: {
                         HStack(spacing: 7) {
-                            NotchUsageRing(provider: provider, window: window, stale: s.stale, size: 26, working: s.working)
-                            VStack(alignment: .leading, spacing: 0) {
-                                Text(provider.name).font(.system(size: 10, weight: .medium)).lineLimit(1)
-                                Text(!store.enabled.contains(provider) ? "Connect" : window.map { "\(Int($0.usedPercent.rounded()))%" } ?? (store.status[provider] == nil ? "…" : "—"))
-                                    .font(.system(size: 10)).monospacedDigit()
+                            ring(provider, window: window, stale: s.stale, size: 28, working: s.working)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(provider.name).font(.system(size: 11, weight: .medium)).lineLimit(1)
+                                Text(!store.enabled.contains(provider) ? "Connect" : window?.headline(remaining: store.showsRemaining) ?? (store.refreshing.contains(provider) ? "Reading…" : "Unavailable"))
+                                    .font(.system(size: 11)).monospacedDigit()
                                     .foregroundStyle(s.needsAttention ? .orange : .secondary)
                             }
                         }
                         .padding(.vertical, 5).padding(.horizontal, 9)
                         .background(Capsule().fill(.white.opacity(store.enabled.contains(provider) ? 0.06 : 0.03)))
-                        .opacity(store.enabled.contains(provider) ? 1 : 0.6)
+                        .opacity(store.enabled.contains(provider) ? 1 : 0.65)
                     }
                     .buttonStyle(.plain)
-                    .help(store.enabled.contains(provider) ? "Show details" : "Connect \(provider.name)")
+                    .help("Show \(provider.name) usage and reset times")
+                    .accessibilityIdentifier("usage-provider-\(provider.rawValue)")
                 }
             }
         }
     }
 
-    private func detail(date: Date) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(store.providers.filter { store.enabled.contains($0) }) { provider in
-                    providerRow(provider, date: date)
-                }
-                if store.enabled.isEmpty {
-                    Text("Tap a logo to connect it, or + to add your own.").font(DS.Fonts.caption).foregroundStyle(.secondary)
-                }
-                if !liveRuns.isEmpty {
-                    Divider().overlay(.white.opacity(0.08))
-                    ForEach(liveRuns.prefix(6)) { run in
-                        Button { companionManager.openDesktopWindow(section: .chat) } label: {
-                            HStack(spacing: 8) {
-                                Circle().fill(run.status.needsUser ? Color.orange : Color.green).frame(width: 6, height: 6)
-                                Text(run.title).font(DS.Fonts.caption).lineLimit(1)
-                                Spacer()
-                                Text(run.status.needsUser ? "Needs you" : run.status == .queued ? "Queued" : "Working")
-                                    .font(DS.Fonts.caption).foregroundStyle(run.status.needsUser ? .orange : .secondary)
-                            }
-                        }.buttonStyle(.plain)
-                    }
-                }
-            }
-        }
-    }
-
-    private func providerRow(_ provider: NotchUsageProvider, date: Date) -> some View {
+    /// A single provider's windows share one horizontal strip. Additional
+    /// windows scroll sideways; the notch never grows a second provider list.
+    private func providerDetails(_ provider: NotchUsageProvider, date: Date) -> some View {
         let reading = store.readings[provider]
         let s = state(provider, date)
-        return HStack(alignment: .top, spacing: 10) {
-            NotchUsageRing(provider: provider, window: reading?.windows.first, stale: s.stale, size: 28, working: s.working)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(provider.name).font(.system(size: 11, weight: .semibold))
-                    if s.needsAttention { Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange).font(.system(size: 10)) }
-                    Spacer(minLength: 0)
-                    Button { store.setEnabled(false, provider: provider) } label: { Image(systemName: "xmark") }
-                        .buttonStyle(.plain).font(.system(size: 9)).foregroundStyle(.tertiary).help("Disconnect \(provider.name)")
-                }
-                if let status = store.status[provider] {
-                    Text(status).font(.system(size: 10)).foregroundStyle(.orange)
-                    if provider == .claude && status.contains("Keychain") {
-                        Button("Allow access…") { store.refresh(provider, interactive: true) }.font(DS.Fonts.caption)
-                    }
-                } else if reading == nil {
-                    Text("Reading usage…").font(.system(size: 10)).foregroundStyle(.secondary)
-                } else if s.stale {
-                    Text("Stale · refreshing").font(.system(size: 10)).foregroundStyle(.orange)
-                }
-                ForEach(reading?.windows ?? []) { window in
-                    HStack(spacing: 6) {
-                        Text(window.title).font(.system(size: 10)).foregroundStyle(.secondary)
-                        Text("\(Int(window.usedPercent.rounded()))% used").font(.system(size: 10, weight: .medium)).monospacedDigit()
-                        if let reset = window.resetsAt {
-                            if reset > date {
-                                Text("· resets \(reset, style: .relative)").font(.system(size: 10)).foregroundStyle(.secondary)
-                                    .help(reset.formatted(date: .abbreviated, time: .shortened))
-                            } else {
-                                Text("· reset passed").font(.system(size: 10)).foregroundStyle(.secondary)
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(alignment: .center, spacing: 16) {
+                ring(provider, window: store.headline(provider), stale: s.stale, size: 30, working: s.working)
+                if !store.enabled.contains(provider) {
+                    Button("Connect \(provider.name)") { store.setEnabled(true, provider: provider) }
+                        .buttonStyle(.plain).font(.system(size: 12, weight: .medium))
+                } else {
+                    if let status = store.status[provider] {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(status).font(.system(size: 10)).foregroundStyle(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                            if provider == .claude && status.contains("Keychain") {
+                                Button("Allow access…") { store.refresh(provider, interactive: true) }
+                                    .buttonStyle(.plain).font(.system(size: 11))
                             }
-                        }
+                        }.frame(width: 140, alignment: .leading)
+                    } else if reading == nil {
+                        Text(store.refreshing.contains(provider) ? "Reading usage…" : "Usage unavailable")
+                            .font(DS.Fonts.caption).foregroundStyle(.secondary)
+                    } else if s.stale {
+                        Text("Stale reading").font(DS.Fonts.caption).foregroundStyle(.orange)
+                    }
+                    ForEach(store.sessions[provider] ?? []) { session in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(session.name).font(.system(size: 11, weight: .medium))
+                            Text(session.waitingFor ?? session.detail).font(.system(size: 10)).foregroundStyle(.secondary)
+                            Text(session.state.label).font(.system(size: 10)).foregroundStyle(session.state == .waiting ? .orange : .secondary)
+                        }.lineLimit(1).frame(maxWidth: 160)
+                    }
+                    ForEach(reading?.runtimeDetails ?? [], id: \.self) { detail in
+                        Text(detail).font(.system(size: 10)).foregroundStyle(.secondary).frame(width: 180)
+                    }
+                    ForEach(reading?.windows ?? []) { window in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(window.title).font(.system(size: 10)).foregroundStyle(.secondary)
+                            Text(window.detail(remaining: store.showsRemaining))
+                                .font(.system(size: 14, weight: .semibold)).monospacedDigit()
+                            if let reset = window.resetsAt {
+                                if reset > date {
+                                    Text("Resets \(reset, style: .relative)").font(.system(size: 10)).foregroundStyle(.secondary)
+                                        .help(reset.formatted(date: .abbreviated, time: .shortened))
+                                } else {
+                                    Text("Reset passed").font(.system(size: 10)).foregroundStyle(.secondary)
+                                }
+                            }
+                        }.fixedSize(horizontal: true, vertical: false)
                     }
                 }
             }
+            .padding(.vertical, 2)
         }
+        .accessibilityIdentifier("usage-details-\(provider.rawValue)")
     }
 }
 

@@ -26,7 +26,7 @@ struct NotchHomeSizeTests {
 
     @Test(arguments: ["480.0,360.0", "680.0,250.0"])
     func aRetiredAutomaticSizeReturnsToTheCompactCard(saved: String) {
-        let suite = "NotchHomeSizeTests.retired"
+        let suite = "NotchHomeSizeTests.retired.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -76,6 +76,20 @@ struct NotchHomeSizeTests {
             .unclampedApplying(edge: .bottom, translation: CGSize(width: 0, height: -2000))
             .clampedForChat()
         #expect(shrunk.heightBelowHousing == NotchHomeSize.Chat.minimum.heightBelowHousing)
+    }
+
+    @Test func sharedNotchWorkspacePreservesTheAttachedWindowsSavedSize() {
+        let suite = "NotchHomeSizeTests.workspaceMigration"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let previousSize = NotchHomeSize(width: 1230, heightBelowHousing: 780)
+        AttachedDesktopLayout.save(previousSize, defaults: defaults)
+        #expect(NotchHomeSize.storedChat(userDefaults: defaults) == previousSize)
+
+        let resizedChat = NotchHomeSize(width: 1050, heightBelowHousing: 680)
+        resizedChat.saveChat(userDefaults: defaults)
+        #expect(NotchHomeSize.storedChat(userDefaults: defaults) == resizedChat)
+        #expect(AttachedDesktopLayout.storedSize(defaults: defaults) == previousSize)
     }
     @Test func attachedDesktopResizeKeepsNotchAnchor() {
         let screen = CGRect(x: -1512, y: 200, width: 1512, height: 982)

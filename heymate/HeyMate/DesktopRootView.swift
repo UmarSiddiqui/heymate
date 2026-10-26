@@ -128,14 +128,17 @@ struct DesktopRootView: View {
     @StateObject private var settingsNavigation = SettingsNavigationModel()
     /// Collapses the notch it is hosted in. Nil in a window.
     var onClose: (() -> Void)?
+    var onDetach: ((DesktopSection) -> Void)?
 
     init(
         companionManager: CompanionManager,
         initialSection: DesktopSection,
-        onClose: (() -> Void)? = nil
+        onClose: (() -> Void)? = nil,
+        onDetach: ((DesktopSection) -> Void)? = nil
     ) {
         self.companionManager = companionManager
         self.onClose = onClose
+        self.onDetach = onDetach
         Self.rememberSettingsTab(for: initialSection)
         _selectedSection = State(initialValue: initialSection.landingSection)
     }
@@ -153,33 +156,7 @@ struct DesktopRootView: View {
     }
 
     var body: some View {
-        Group {
-            if selectedSection == .chat {
-                MateHomeView(
-                    companionManager: companionManager,
-                    isCompactLayout: false,
-                    onOpenSection: { select($0) },
-                    onClose: onClose,
-                    shouldFocusComposerOnAppear: onClose != nil
-                )
-                .navigationTitle("")
-            } else {
-                NavigationSplitView(columnVisibility: $sidebarVisibility) {
-                    settingsSidebar
-                        .navigationSplitViewColumnWidth(min: 220, ideal: 237, max: 260)
-                } detail: {
-                    detail
-                        .safeAreaInset(edge: .top, spacing: 0) {
-                            if selectedSection.isOffSidebarPage {
-                                backToChatBar
-                            }
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(CelestialWorkspaceBackground(accent: companionManager.themeColor))
-                }
-                .navigationTitle(selectedSection.displayName)
-            }
-        }
+        workspaceContent
         .safeAreaInset(edge: .bottom, spacing: 0) {
             HStack(spacing: 18) {
                 Button { showsAppHandoff = true } label: {
@@ -216,6 +193,36 @@ struct DesktopRootView: View {
             guard let rawValue = notification.userInfo?["section"] as? String,
                   let section = DesktopSection(rawValue: rawValue) else { return }
             select(section)
+        }
+    }
+
+    @ViewBuilder
+    private var workspaceContent: some View {
+        if selectedSection == .chat {
+            MateHomeView(
+                companionManager: companionManager,
+                isCompactLayout: false,
+                onOpenSection: { select($0) },
+                onClose: onClose,
+                onDetach: onDetach.map { detach in { detach(.chat) } },
+                shouldFocusComposerOnAppear: onClose != nil
+            )
+            .navigationTitle("")
+        } else {
+            NavigationSplitView(columnVisibility: $sidebarVisibility) {
+                settingsSidebar
+                    .navigationSplitViewColumnWidth(min: 220, ideal: 237, max: 260)
+            } detail: {
+                detail
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        if selectedSection.isOffSidebarPage || onDetach != nil {
+                            backToChatBar
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(CelestialWorkspaceBackground(accent: companionManager.themeColor))
+            }
+            .navigationTitle(selectedSection.displayName)
         }
     }
 
@@ -263,24 +270,48 @@ struct DesktopRootView: View {
     /// the sidebar, so their pages say how to get back.
     private var backToChatBar: some View {
         HStack(spacing: 0) {
-            Button {
-                select(.chat)
-            } label: {
-                Label("Back to chat", systemImage: "chevron.left")
-                    .font(DS.Fonts.control)
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .padding(.horizontal, 10)
-                    .frame(height: 28)
-                    .background(Capsule().fill(DS.Colors.surface2))
+            if selectedSection.isOffSidebarPage {
+                Button {
+                    select(.chat)
+                } label: {
+                    Label("Back to chat", systemImage: "chevron.left")
+                        .font(DS.Fonts.control)
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .padding(.horizontal, 10)
+                        .frame(height: 28)
+                        .background(Capsule().fill(DS.Colors.surface2))
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .keyboardShortcut("[", modifiers: .command)
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .keyboardShortcut("[", modifiers: .command)
             Spacer(minLength: 0)
+            if let onDetach {
+                HStack(spacing: 10) {
+                    Button { onDetach(selectedSection) } label: {
+                        Image(systemName: "macwindow.on.rectangle")
+                            .font(DS.Glyph.regular)
+                    }
+                    .dsToolbarIconButtonStyle()
+                    .help("Detach into a window")
+                    .accessibilityLabel("Detach into a window")
+                    if let onClose {
+                        Button(action: onClose) {
+                            Image(systemName: "chevron.up")
+                                .font(DS.Glyph.small)
+                        }
+                        .dsToolbarIconButtonStyle()
+                        .help("Collapse to notch")
+                        .accessibilityLabel("Collapse to notch")
+                        .keyboardShortcut("w", modifiers: .command)
+                    }
+                }
+                .foregroundStyle(DS.Colors.textSecondary)
+            }
         }
         .padding(.horizontal, 22)
         .padding(.vertical, 8)
-        .background(DS.Colors.surface1.opacity(0.6))
+        .background(DS.Colors.background)
     }
 
     private var sidebarStatusBar: some View {

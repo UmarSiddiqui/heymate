@@ -675,21 +675,35 @@ final class CompanionManager: ObservableObject {
     /// never pays for it, and the app stays menu-bar-only until they do.
     private lazy var desktopWindowController = HeyMateDesktopWindowController(companionManager: self)
 
-    /// Open (or focus) the HeyMate desktop window at a given section.
-    /// Called from the notch card and from the `heymate://open` deep link.
+    /// Attached workspaces share the notch's morphing panel. Only detached
+    /// workspaces (or a disabled notch) need the desktop window controller.
     func openDesktopWindow(section: DesktopSection = .chat) {
         activateConnectorsIfNeeded()
+        if DesktopWindowPlacement.isAttached, showNotchCompanion {
+            notchCompanionController.openFullChat(section: section)
+            return
+        }
         NotificationCenter.default.post(name: .heyMateDismissPanel, object: nil)
         desktopWindowController.show(initialSection: section)
     }
 
-    var isDesktopWindowVisible: Bool { desktopWindowController.isVisible }
+    var isDesktopWindowVisible: Bool {
+        notchCompanionController.isFullChatVisible || desktopWindowController.isVisible
+    }
 
-    var isAttachedDesktopPanelVisible: Bool { desktopWindowController.isAttachedPanelVisible }
+    var isAttachedDesktopPanelVisible: Bool {
+        notchCompanionController.isFullChatVisible || desktopWindowController.isAttachedPanelVisible
+    }
 
     func foldAttachedDesktopPanel() { desktopWindowController.foldAttachedPanel() }
 
+    func detachDesktopWindow(section: DesktopSection) {
+        DesktopWindowPlacement.isAttached = false
+        openDesktopWindow(section: section)
+    }
+
     func closeDesktopWindow() {
+        notchCompanionController.closeFullChat()
         if desktopWindowController.isVisible { desktopWindowController.toggle() }
     }
 

@@ -53,15 +53,18 @@ final class NotchSurfaceTransitionModel: ObservableObject {
     /// content out early. `present`/`dismiss` record which way the clock
     /// is running so `updateMorph` can shape both.
     private var isExpandingMorph = true
+    private var morphStartCardness: CGFloat = 0
+    private var morphStartContentOpacity: CGFloat = 0
 
     /// Reset to the pill state without any animation, called before the
     /// window starts growing from the pill frame.
-    func prepare() {
+    func prepare(preservingMorph: Bool = false) {
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
             isPresented = false
             resizedLayoutSize = nil
+            if preservingMorph { return }
             morphCardness = 0
             morphContentOpacity = 0
             morphBezelOpacity = 1
@@ -72,6 +75,8 @@ final class NotchSurfaceTransitionModel: ObservableObject {
 
     func present() {
         isExpandingMorph = true
+        morphStartCardness = morphCardness
+        morphStartContentOpacity = morphContentOpacity
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
@@ -81,6 +86,8 @@ final class NotchSurfaceTransitionModel: ObservableObject {
 
     func dismiss() {
         isExpandingMorph = false
+        morphStartCardness = morphCardness
+        morphStartContentOpacity = morphContentOpacity
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
@@ -92,15 +99,21 @@ final class NotchSurfaceTransitionModel: ObservableObject {
     /// unanimated on purpose — wrapping them in `withAnimation` would hand
     /// SwiftUI a second, competing clock, which is exactly the fight the
     /// old matchedGeometry morph lost.
-    func updateMorph(easedProgress: CGFloat, linearProgress: CGFloat) {
-        morphCardness = NotchLayoutMath.morphCardness(
+    func updateMorph(easedProgress: CGFloat, linearProgress: CGFloat, followsFrame: Bool = false) {
+        morphCardness = followsFrame ? NotchLayoutMath.lerp(
+            morphStartCardness, isExpandingMorph ? 1 : 0, min(max(easedProgress, 0), 1)
+        ) : NotchLayoutMath.morphCardness(
             linearProgress: linearProgress,
             isExpanding: isExpandingMorph
         )
-        morphContentOpacity = NotchLayoutMath.morphContentOpacity(
+        let contentOpacity = NotchLayoutMath.morphContentOpacity(
             linearProgress: linearProgress,
             isExpanding: isExpandingMorph
         )
+        morphContentOpacity = followsFrame
+            ? (isExpandingMorph ? NotchLayoutMath.lerp(morphStartContentOpacity, 1, contentOpacity)
+                : morphStartContentOpacity * contentOpacity)
+            : contentOpacity
         morphBezelOpacity = NotchLayoutMath.morphBezelOpacity(
             linearProgress: linearProgress,
             isExpanding: isExpandingMorph
@@ -144,14 +157,21 @@ struct NotchContentRevealModifier: ViewModifier {
 struct NotchSilhouetteShape: Shape {
     var shoulderRadius: CGFloat
     var bottomRadius: CGFloat
+    var neckWidth: CGFloat = 0
+    var neckHeight: CGFloat = 0
+    var neckProgress: CGFloat = 0
 
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(shoulderRadius, bottomRadius) }
+        set { shoulderRadius = newValue.first; bottomRadius = newValue.second }
+    }
     func path(in rect: CGRect) -> Path {
-        let local = NotchLayoutMath.silhouettePath(
-            size: rect.size,
-            shoulderRadius: shoulderRadius,
-            bottomRadius: bottomRadius
-        )
-        return Path(local).offsetBy(dx: rect.minX, dy: rect.minY)
+        let path = neckWidth > 0 && neckHeight > 0
+            ? NotchLayoutMath.chatSilhouettePath(size: rect.size, notchWidth: neckWidth,
+                neckHeight: neckHeight, cardness: neckProgress, bottomRadius: bottomRadius)
+            : NotchLayoutMath.silhouettePath(size: rect.size, shoulderRadius: shoulderRadius,
+                bottomRadius: bottomRadius)
+        return Path(path).offsetBy(dx: rect.minX, dy: rect.minY)
     }
 }
 
@@ -178,6 +198,8 @@ struct NotchLiquidGlassCardModifier: ViewModifier {
     /// corner radius — the morph's starting shape — and whether this
     /// surface hangs from a real housing (and so gets shoulders).
     var occludedTopInset: CGFloat = 0
+    var neckWidth: CGFloat = 0
+    var neckHeight: CGFloat = 0
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -231,7 +253,10 @@ struct NotchLiquidGlassCardModifier: ViewModifier {
                 NotchLayoutMath.pillCornerRadius(forHeight: occludedTopInset),
                 NotchLayoutMath.cardCornerRadius,
                 transitionModel.morphCardness
-            )
+            ),
+            neckWidth: neckWidth,
+            neckHeight: neckHeight,
+            neckProgress: transitionModel.morphCardness
         )
     }
 }
@@ -339,10 +364,9 @@ struct NotchSurfaceRoot: View {
 
     var body: some View {
         ZStack {
-            // Rides on the frame morph: the content lands with the open's
-            // thump and dims on the close's tap.
+            // The display-link morph already drives the surface and reveal.
+            // A second cue transform moved the whole silhouette off its neck.
             surfaceContent
-                .cueMotion(.panelOpen, .panelClose)
             if surface != .connectorSuggestion {
                 NotchHomeResizeChrome(
                     onBegan: onResizeBegan,
@@ -351,7 +375,7 @@ struct NotchSurfaceRoot: View {
                 )
                 // Straddle the body's edge, not the transparent strip the
                 // shoulders need beside it.
-                .padding(.horizontal, max(NotchLayoutMath.shoulderInset(occludedTopInset: occludedTopInset) - 4, 0))
+                .padding(.horizontal, surface == .fullChat ? 0 : max(NotchLayoutMath.shoulderInset(occludedTopInset: occludedTopInset) - 4, 0))
             }
             if let pendingRequest = computerUseCoordinator.pendingRequest {
                 approvalOverlay(for: pendingRequest)
@@ -621,6 +645,10 @@ struct NotchCompactChatCard: View {
     var fullChatSection: DesktopSection = .chat
     var onClose: () -> Void
 
+    private var neckHeight: CGFloat {
+        occludedTopInset + (isFullChat && occludedTopInset > 0 ? NotchLayoutMath.chatNeckExtension : 0)
+    }
+
     var body: some View {
         GeometryReader { viewport in
             let size = transitionModel.effectiveLayoutSize(layoutSize, viewport: viewport.size)
@@ -628,7 +656,7 @@ struct NotchCompactChatCard: View {
             let contentHeight = size.height
 
             compactBody
-                .padding(.horizontal, NotchLayoutMath.shoulderInset(occludedTopInset: occludedTopInset))
+                .padding(.horizontal, isFullChat ? 0 : NotchLayoutMath.shoulderInset(occludedTopInset: occludedTopInset))
                 .frame(width: contentWidth, height: contentHeight, alignment: .top)
                 .modifier(NotchContentRevealModifier(transitionModel: transitionModel))
                 .position(x: viewport.size.width / 2, y: contentHeight / 2)
@@ -637,7 +665,9 @@ struct NotchCompactChatCard: View {
             transitionModel: transitionModel,
             outlineColor: companionManager.themeColor,
             isOutlineEnabled: companionManager.isNotchOutlineEnabled,
-            occludedTopInset: occludedTopInset
+            occludedTopInset: occludedTopInset,
+            neckWidth: isFullChat && occludedTopInset > 0 ? hardwareNotchWidth : 0,
+            neckHeight: isFullChat ? neckHeight : 0
         ))
         .clipped()
         .onExitCommand(perform: onClose)
@@ -645,7 +675,7 @@ struct NotchCompactChatCard: View {
 
     private var compactBody: some View {
         VStack(spacing: 0) {
-            Spacer(minLength: occludedTopInset)
+            Color.clear.frame(height: neckHeight)
 
             Group {
                 if isFullChat {
@@ -653,7 +683,10 @@ struct NotchCompactChatCard: View {
                     DesktopRootView(
                         companionManager: companionManager,
                         initialSection: fullChatSection,
-                        onClose: onClose
+                        onClose: onClose,
+                        onDetach: { section in
+                            companionManager.detachDesktopWindow(section: section)
+                        }
                     )
                 } else {
                     MateHomeView(
@@ -671,7 +704,14 @@ struct NotchCompactChatCard: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
-            BrandNebulaSurface.notchCard
+            if isFullChat {
+                ZStack {
+                    Color.black
+                    DS.Colors.homeBackground.padding(.top, neckHeight)
+                }
+            } else {
+                BrandNebulaSurface.notchCard
+            }
         }
     }
 

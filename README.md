@@ -59,11 +59,11 @@ Screen guidance needs a vision-capable provider. The optional Apple Intelligence
 ### Lives in the notch
 Folds into the camera housing and opens on hover into **Usage** and **Home**. Macs without a notch get a top-center pill. There is no dock icon and no menu-bar clutter.
 
-Coding usage rings for **Codex, Claude Code, and Cursor**, with reset times and live HeyMate agent activity. Connect each provider using its existing sign-in; unavailable or stale readings stay clearly marked. Drag a file onto the notch and your mate opens its mouth to keep it on the **File Shelf**. Drag files back out or AirDrop them; originals stay where they are. The shelf only opens through a file drag.
+Coding usage rings for **Codex, Claude Code, Cursor, Antigravity, Gemini, OpenCode Go, GitHub Copilot, Kimi Code, Grok, and GLM**, plus loaded-model displays for **Ollama and LM Studio**. Quotas, derived token/request counts, and supported local session states stay clearly distinguished. Settings control persistent idle rings, provider selection/order, used versus remaining, weekly rings, and reduced motion. Connect each provider using its existing sign-in; unavailable or stale readings stay clearly marked. Drag a file onto the notch and your mate opens its mouth to keep it on the **File Shelf**. Drag files back out or AirDrop them; originals stay where they are. The shelf only opens through a file drag.
 
 </td>
 <td width="50%" valign="top">
-Coding usage inspired by [Codenotch](https://github.com/vinzdg/codenotch), with MIT attribution included in the app.
+Motion geometry, provider rings, usage parsers, and supported activity readers reuse pinned [CodeNotch](https://github.com/vinzdg/codenotch) source, with MIT attribution included in the app. [Supported capabilities and limits](heymate/docs/notch-usage.md).
 </td>
 </tr>
 <tr>
@@ -196,13 +196,16 @@ cd heymate/heymate
 open HeyMate.xcodeproj
 ```
 
-Select the `HeyMate` scheme and **My Mac**, check **Signing & Capabilities** (pick your Personal Team), and press Run. A stable signing identity matters because macOS ties Accessibility and Screen Recording grants to it.
+Select the `HeyMate` scheme and **My Mac** and configure **Signing & Capabilities** once. For everyday local installs, use the script below: it selects the installed app's exact signing certificate, checks that both builds satisfy each other's designated requirements, backs up the old app, and launches `/Applications/HeyMate.app`. It refuses missing or incompatible identities instead of falling back to ad-hoc signing. Direct Xcode Run and opening DerivedData bundles bypass this install workflow.
 
 ```bash
-./scripts/typecheck.sh           # build the app without touching the signed app bundle
-./scripts/typecheck.sh --tests   # also build the test targets
-./script/build_and_run.sh --verify   # build, launch, and verify a project-local bundle
+./script/build_and_run.sh --check    # check installed signer/keychain; leave running app alone
+./script/build_and_run.sh --verify   # build, back up, install, and verify one /Applications copy
+./scripts/typecheck.sh               # compile in scratch space; do not install or launch
+./scripts/typecheck.sh --tests       # also compile the test targets
 ```
+
+`--debug`, `--logs`, and `--telemetry` use the same installed copy. First installs need one unambiguous Apple Development identity, or an explicit `HEYMATE_SIGNING_IDENTITY` certificate SHA-1. Switching between local development and release signers can still require new macOS approvals. Existing preferences and sign-ins are separate from those permissions; this script never resets or grants them. See [local development and permission continuity](heymate/docs/local-development.md).
 
 <details>
 <summary><strong>Optional services: cloud voices, Custom API, OpenCode Talk</strong></summary>

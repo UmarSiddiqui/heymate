@@ -109,12 +109,13 @@ final class HeyMateDesktopWindowController: NSObject, NSWindowDelegate {
         guard DesktopWindowPlacement.isAttached != attached else { return }
         DesktopWindowPlacement.isAttached = attached
         guard let oldWindow = window else { return }
-        isSwitchingPlacement = true
+        // A notch workspace has no desktop window close callback later, so
+        // restore a detached window's activation policy during this close.
+        isSwitchingPlacement = !(attached && companionManager?.showNotchCompanion == true)
         oldWindow.close()
         isSwitchingPlacement = false
         window = nil
-        // Placement is switched from Settings; chat lives in the notch now.
-        show(initialSection: .settings)
+        companionManager?.openDesktopWindow(section: .settings)
     }
 
     func toggle(initialSection: DesktopSection = .chat) {

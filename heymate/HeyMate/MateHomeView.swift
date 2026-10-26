@@ -15,6 +15,7 @@ struct MateHomeView: View {
     var isCompactLayout: Bool
     var onOpenSection: (DesktopSection) -> Void
     var onClose: (() -> Void)? = nil
+    var onDetach: (() -> Void)? = nil
     var shouldFocusComposerOnAppear: Bool = false
     var startsWithDrawerOpen: Bool = false
 
@@ -63,9 +64,27 @@ struct MateHomeView: View {
     @FocusState private var isComposerFocused: Bool
     @FocusState private var focusedRailTab: MateRailTab?
 
-    private var columns: [MateHomeColumn] {
-        MateHomeLayout.visibleColumns(isCompact: isCompactLayout, isDrawerOpen: isDrawerOpen)
+    @State private var availableWidth: CGFloat = 1160
+
+    private var usesCompactLayout: Bool {
+        let sideWidth: CGFloat = columns.contains(.rail) ? MateHomeLayout.railWidth + 1
+            : (columns.contains(.drawer) ? detailColumnWidth + 1 : 0)
+        return isCompactLayout || availableWidth - sideWidth < MateHomeLayout.comfortableConversationWidth
     }
+
+    private var detailColumnWidth: CGFloat {
+        previewedFilePath == nil ? MateHomeLayout.drawerWidth
+            : min(440, max(300, availableWidth - MateHomeLayout.minimumConversationWidth - 1))
+    }
+
+    private var columns: [MateHomeColumn] {
+        MateHomeLayout.visibleColumns(
+            isCompact: isCompactLayout, isDrawerOpen: isDrawerOpen || previewedFilePath != nil,
+            availableWidth: availableWidth, detailWidth: previewedFilePath == nil ? MateHomeLayout.drawerWidth : 300
+        )
+    }
+
+    private var presentsDetailsAsSheet: Bool { !columns.contains(.drawer) }
 
     private var activeMate: Mate? {
         let activeID = companionManager.activeMateID ?? companionManager.mateDirectory.defaultMateID
@@ -73,32 +92,16 @@ struct MateHomeView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            if columns.contains(.rail) {
-                mateRail
-                    .frame(width: MateHomeLayout.railWidth)
-                Rectangle().fill(DS.Colors.borderSubtle).frame(width: 1)
-            }
-            conversation
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                // The header sits in the titlebar row, level with the
-                // traffic lights, instead of under an empty band.
-                .ignoresSafeArea(.container, edges: isCompactLayout ? [] : .top)
-            if !isCompactLayout, let previewedFilePath {
-                Rectangle().fill(DS.Colors.borderSubtle).frame(width: 1)
-                MateDocumentPreview(path: previewedFilePath, onClose: { self.previewedFilePath = nil })
-                    .frame(minWidth: 300, idealWidth: 440, maxWidth: 560)
-            } else if columns.contains(.drawer) {
-                Rectangle().fill(DS.Colors.borderSubtle).frame(width: 1)
-                mateDrawer
-                    .frame(width: MateHomeLayout.drawerWidth)
-            }
+        GeometryReader { geometry in
+            chatColumns
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
         }
         .background(DS.Colors.homeBackground)
         .preferredColorScheme(.dark)
         .tint(DS.Colors.accent)
         .sheet(isPresented: Binding(
-            get: { isCompactLayout && !isDrawerOpen && previewedFilePath != nil },
+            get: { presentsDetailsAsSheet && !isDrawerOpen && previewedFilePath != nil },
             set: { if !$0 { previewedFilePath = nil } }
         )) {
             if let previewedFilePath {
@@ -252,9 +255,33 @@ struct MateHomeView: View {
         }
     }
 
+    private var chatColumns: some View {
+        HStack(spacing: 0) {
+            if columns.contains(.rail) {
+                mateRail
+                    .frame(width: MateHomeLayout.railWidth)
+                Rectangle().fill(DS.Colors.borderSubtle).frame(width: 1)
+            }
+            conversation
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // The header sits in the titlebar row, level with the
+                // traffic lights, instead of under an empty band.
+                .ignoresSafeArea(.container, edges: usesCompactLayout ? [] : .top)
+            if columns.contains(.drawer), let previewedFilePath {
+                Rectangle().fill(DS.Colors.borderSubtle).frame(width: 1)
+                MateDocumentPreview(path: previewedFilePath, onClose: { self.previewedFilePath = nil })
+                    .frame(width: detailColumnWidth)
+            } else if columns.contains(.drawer) {
+                Rectangle().fill(DS.Colors.borderSubtle).frame(width: 1)
+                mateDrawer
+                    .frame(width: MateHomeLayout.drawerWidth)
+            }
+        }
+    }
+
     private var compactDrawerPresented: Binding<Bool> {
         Binding(
-            get: { isCompactLayout && isDrawerOpen },
+            get: { presentsDetailsAsSheet && isDrawerOpen },
             set: { isDrawerOpen = $0 }
         )
     }
@@ -869,8 +896,8 @@ struct MateHomeView: View {
                 .frame(maxWidth: MateHomeLayout.readingMeasure)
                 .frame(maxWidth: .infinity)
                 .padding(.top, 12)
-                .padding(.horizontal, isCompactLayout ? 12 : 20)
-                .padding(.bottom, isCompactLayout ? 10 : 16)
+                .padding(.horizontal, usesCompactLayout ? 12 : 20)
+                .padding(.bottom, usesCompactLayout ? 10 : 16)
                 .cueMotion(.homeReveal, part: .item(2))
         }
         .dropDestination(for: URL.self) { urls, _ in
@@ -880,11 +907,106 @@ struct MateHomeView: View {
     }
 
     private var conversationHeader: some View {
-        HStack(alignment: .center, spacing: 10) {
-            if isCompactLayout {
+        VStack(spacing: 6) {
+            if usesCompactLayout { compactHeaderIdentity }
+            HStack(alignment: .center, spacing: 10) {
+                Spacer(minLength: 8)
+                Button { showsTaskUpdates.toggle() } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "bell")
+                        if taskUpdateCount > 0 { Text("\(taskUpdateCount)").font(DS.Fonts.micro).monospacedDigit() }
+                    }.font(DS.Glyph.regular)
+                }
+                .dsToolbarIconButtonStyle(isActive: showsTaskUpdates)
+                .help("Task updates")
+                .accessibilityLabel("Task updates, \(taskUpdateCount) pending")
+                .popover(isPresented: $showsTaskUpdates) {
+                    TaskUpdatesPopover(manager: companionManager) { showsTaskUpdates = false }
+                }
+                // On desktop, main HeyMate's chats live in the rail's Chats tab,
+                // so history here is only for a mate's own past chats.
+                if showsChatHistoryButton {
+                    Button {
+                        isShowingChatHistory = true
+                    } label: {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(DS.Glyph.regular)
+                    }
+                    .dsToolbarIconButtonStyle()
+                    .help(chatHistoryHelp)
+                    .accessibilityLabel(chatHistoryHelp)
+                }
+                Button {
+                    companionManager.startNewChat()
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                        .font(DS.Glyph.regular)
+                }
+                .dsToolbarIconButtonStyle()
+                .keyboardShortcut("n", modifiers: .command)
+                .help("New chat (⌘N)")
+                .accessibilityLabel("New chat")
+                Button {
+                    UISoundPlayer.shared.playDisclosure(.pane, isOpen: !isDrawerOpen)
+                    isDrawerOpen.toggle()
+                } label: {
+                    Image(systemName: "sidebar.right")
+                        .font(DS.Glyph.regular)
+                }
+                .dsToolbarIconButtonStyle(isActive: isDrawerOpen)
+                .help(isDrawerOpen ? "Hide agent details" : "Agent details")
+                .accessibilityLabel(isDrawerOpen ? "Hide agent details" : "Agent details")
+                if usesCompactLayout {
+                    Menu {
+                        ForEach(MateHomeLayout.workspaceSections) { section in
+                            Button(section.displayName) { onOpenSection(section) }
+                        }
+                    } label: {
+                        Image(systemName: "gearshape")
+                            .font(DS.Glyph.regular)
+                            .frame(width: 28, height: 28)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .frame(width: 32)
+                }
+                if let onDetach {
+                    Button(action: onDetach) {
+                        Image(systemName: "macwindow.on.rectangle")
+                            .font(DS.Glyph.regular)
+                    }
+                    .dsToolbarIconButtonStyle()
+                    .help("Detach into a window")
+                    .accessibilityLabel("Detach into a window")
+                }
+                if let onClose {
+                    Button(action: onClose) {
+                        Image(systemName: "chevron.up")
+                            .font(DS.Glyph.small)
+                    }
+                    .dsToolbarIconButtonStyle()
+                    .help("Collapse to notch")
+                    .accessibilityLabel("Collapse to notch")
+                    .keyboardShortcut("w", modifiers: .command)
+                }
+            }
+        }
+        .foregroundColor(DS.Colors.textSecondary)
+        .padding(.horizontal, usesCompactLayout ? 12 : 22)
+        .padding(.vertical, 10)
+        .frame(minHeight: usesCompactLayout ? nil : 64)
+        .overlay {
+            if !usesCompactLayout {
+                centeredMateIdentity
+            }
+        }
+    }
+
+    private var compactHeaderIdentity: some View {
+        HStack(spacing: 8) {
+            if usesCompactLayout {
                 headerTitles
             }
-            if isCompactLayout {
+            if usesCompactLayout {
                 Menu {
                     ForEach(companionManager.mates.filter { !$0.archived }) { mate in
                         Button(mate.name) { companionManager.openMate(id: mate.id) }
@@ -911,83 +1033,7 @@ struct MateHomeView: View {
                 .frame(width: 28)
                 .help("Switch agent")
             }
-            Spacer(minLength: 8)
-            Button { showsTaskUpdates.toggle() } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "bell")
-                    if taskUpdateCount > 0 { Text("\(taskUpdateCount)").font(DS.Fonts.micro).monospacedDigit() }
-                }.font(DS.Glyph.regular)
-            }
-            .dsToolbarIconButtonStyle(isActive: showsTaskUpdates)
-            .help("Task updates")
-            .accessibilityLabel("Task updates, \(taskUpdateCount) pending")
-            .popover(isPresented: $showsTaskUpdates) {
-                TaskUpdatesPopover(manager: companionManager) { showsTaskUpdates = false }
-            }
-            // On desktop, main HeyMate's chats live in the rail's Chats tab,
-            // so history here is only for a mate's own past chats.
-            if showsChatHistoryButton {
-                Button {
-                    isShowingChatHistory = true
-                } label: {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .font(DS.Glyph.regular)
-                }
-                .dsToolbarIconButtonStyle()
-                .help(chatHistoryHelp)
-                .accessibilityLabel(chatHistoryHelp)
-            }
-            Button {
-                companionManager.startNewChat()
-            } label: {
-                Image(systemName: "square.and.pencil")
-                    .font(DS.Glyph.regular)
-            }
-            .dsToolbarIconButtonStyle()
-            .keyboardShortcut("n", modifiers: .command)
-            .help("New chat (⌘N)")
-            .accessibilityLabel("New chat")
-            Button {
-                UISoundPlayer.shared.playDisclosure(.pane, isOpen: !isDrawerOpen)
-                isDrawerOpen.toggle()
-            } label: {
-                Image(systemName: "sidebar.right")
-                    .font(DS.Glyph.regular)
-            }
-            .dsToolbarIconButtonStyle(isActive: isDrawerOpen)
-            .help(isDrawerOpen ? "Hide agent details" : "Agent details")
-            .accessibilityLabel(isDrawerOpen ? "Hide agent details" : "Agent details")
-            if isCompactLayout {
-                Menu {
-                    ForEach(MateHomeLayout.workspaceSections) { section in
-                        Button(section.displayName) { onOpenSection(section) }
-                    }
-                } label: {
-                    Image(systemName: "gearshape")
-                        .font(DS.Glyph.regular)
-                        .frame(width: 28, height: 28)
-                }
-                .menuStyle(.borderlessButton)
-                .frame(width: 32)
-            }
-            if let onClose {
-                Button(action: onClose) {
-                    Image(systemName: "chevron.up")
-                        .font(DS.Glyph.small)
-                }
-                .dsToolbarIconButtonStyle()
-                .help("Collapse")
-                .accessibilityLabel("Collapse")
-            }
-        }
-        .foregroundColor(DS.Colors.textSecondary)
-        .padding(.horizontal, isCompactLayout ? 12 : 22)
-        .padding(.vertical, 10)
-        .frame(minHeight: isCompactLayout ? nil : 64)
-        .overlay {
-            if !isCompactLayout {
-                centeredMateIdentity
-            }
+            Spacer(minLength: 0)
         }
     }
 
@@ -997,7 +1043,7 @@ struct MateHomeView: View {
     }
 
     private var showsChatHistoryButton: Bool {
-        isCompactLayout || !isMainHeyMateActive
+        usesCompactLayout || !isMainHeyMateActive
     }
 
     private var chatHistoryHelp: String {
@@ -1054,7 +1100,7 @@ struct MateHomeView: View {
                 Button {
                     appearanceMate = mate
                 } label: {
-                    liveFace(mate, size: isCompactLayout ? 28 : 32)
+                    liveFace(mate, size: usesCompactLayout ? 28 : 32)
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()
@@ -1206,7 +1252,7 @@ struct MateHomeView: View {
                 }
                 .frame(maxWidth: MateHomeLayout.readingMeasure, alignment: .leading)
                 .frame(maxWidth: .infinity)
-                .padding(.horizontal, isCompactLayout ? 16 : 28)
+                .padding(.horizontal, usesCompactLayout ? 16 : 28)
                 .padding(.top, 20)
                 .padding(.bottom, 32)
                 // Geometry reads rather than preferences: a preference set
@@ -1569,7 +1615,7 @@ struct MateHomeView: View {
                 talkFirstComposer
             } else {
                 VStack(alignment: .leading, spacing: hasBlobatarCompanion ? -8 : -18) {
-                    if let mate = activeMate, !isCompactLayout,
+                    if let mate = activeMate, !usesCompactLayout,
                        (MiloLook(assetName: MateFace.selectionToken(for: mate)) != nil || hasBlobatarCompanion) {
                         LiveMateFaceView(mate: mate, size: hasBlobatarCompanion ? 116 : 108, manager: companionManager, isComposerCompanion: true)
                             .padding(.leading, 18).zIndex(1)
@@ -1600,7 +1646,7 @@ struct MateHomeView: View {
                         }
                         voiceMenu
                         Spacer(minLength: 4)
-                        DesktopConnectorScopeMenu(companionManager: companionManager, compact: true, isNarrow: isCompactLayout)
+                        DesktopConnectorScopeMenu(companionManager: companionManager, compact: true, isNarrow: usesCompactLayout)
                         DesktopComposerModelButton(companionManager: companionManager)
                         Button {
                             if companionManager.isComposerStopVisible {
@@ -1648,7 +1694,7 @@ struct MateHomeView: View {
                             lineWidth: 1
                         )
                 )
-                .shadow(color: Color.black.opacity(isCompactLayout ? 0 : 0.16), radius: 18, y: 10)
+                .shadow(color: Color.black.opacity(usesCompactLayout ? 0 : 0.16), radius: 18, y: 10)
                 }
             }
             if let pending = companionManager.pendingDestructiveConfirmation {
@@ -1716,7 +1762,7 @@ struct MateHomeView: View {
             .animation(.cueExit(.jobClosed, reduceMotion: accessibilityReduceMotion), value: unfinished.map(\.id))
             .frame(maxWidth: MateHomeLayout.readingMeasure, alignment: .leading)
             .frame(maxWidth: .infinity)
-            .padding(.horizontal, isCompactLayout ? 12 : 20)
+            .padding(.horizontal, usesCompactLayout ? 12 : 20)
             .padding(.bottom, 8)
         }
     }
@@ -1898,7 +1944,7 @@ struct MateHomeView: View {
     /// above the control. Blobatars rest on the bar with a small overlap.
     private var voiceEntry: some View {
         VStack(alignment: .leading, spacing: hasBlobatarCompanion ? -8 : -18) {
-            if let mate = activeMate, !isCompactLayout {
+            if let mate = activeMate, !usesCompactLayout {
                 if MiloLook(assetName: MateFace.selectionToken(for: mate)) != nil || hasBlobatarCompanion {
                     LiveMateFaceView(mate: mate, size: hasBlobatarCompanion ? 116 : 108, manager: companionManager, isComposerCompanion: true)
                         .padding(.leading, 18).zIndex(1)
@@ -1914,12 +1960,12 @@ struct MateHomeView: View {
         HStack(spacing: 8) {
             Image(systemName: isHoldingTalk ? "waveform" : "mic.fill")
                 .font(DS.Glyph.regular)
-            Text(isHoldingTalk ? "Listening…" : (isCompactLayout ? "Hold to talk" : "Hold \(talkShortcutLabel) to talk"))
+            Text(isHoldingTalk ? "Listening…" : (usesCompactLayout ? "Hold to talk" : "Hold \(talkShortcutLabel) to talk"))
                 .font(DS.Fonts.controlLarge)
                 .lineLimit(1)
         }
         .foregroundColor(DS.Colors.glassInk)
-        .frame(minWidth: isCompactLayout ? 180 : 270, maxWidth: 430)
+        .frame(minWidth: usesCompactLayout ? 180 : 270, maxWidth: 430)
         .frame(height: 44)
         .background(DSGlassSurface(cornerRadius: 22, isPressed: isHoldingTalk || isHoveringTalk))
         .contentShape(Capsule())
@@ -2247,7 +2293,7 @@ struct MateHomeView: View {
 
     private var mateProfileHeader: some View {
         VStack(spacing: 10) {
-            if !isCompactLayout {
+            if !presentsDetailsAsSheet {
                 HStack {
                     Button {
                         withAnimation(DS.Animation.controlSpring) { isDrawerOpen = false }
@@ -2520,9 +2566,9 @@ struct MateHomeView: View {
 
     private var rootDeleteDialogPresented: Binding<Bool> {
         Binding(
-            get: { matePendingDelete != nil && !(isCompactLayout && isDrawerOpen) },
+            get: { matePendingDelete != nil && !(presentsDetailsAsSheet && isDrawerOpen) },
             set: { presented in
-                if !presented, !(isCompactLayout && isDrawerOpen) {
+                if !presented, !(presentsDetailsAsSheet && isDrawerOpen) {
                     matePendingDelete = nil
                 }
             }
@@ -2531,7 +2577,7 @@ struct MateHomeView: View {
 
     private var sheetDeleteDialogPresented: Binding<Bool> {
         Binding(
-            get: { matePendingDelete != nil && isCompactLayout && isDrawerOpen },
+            get: { matePendingDelete != nil && presentsDetailsAsSheet && isDrawerOpen },
             set: { presented in
                 if !presented { matePendingDelete = nil }
             }

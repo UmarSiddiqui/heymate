@@ -74,7 +74,7 @@ enum MacPermissions {
         return route
     }
 
-    /// After an update, macOS can keep HeyMate's old Input Monitoring entry:
+    /// After a signing-identity change, macOS can keep an old Input Monitoring entry:
     /// the switch looks on, but it belongs to the previous build, so the new
     /// one is refused. Clearing HeyMate's own entry and asking again gives
     /// the person a fresh prompt for this build. Returns whether the reset ran.
@@ -202,8 +202,8 @@ enum MacPermissions {
 }
 
 /// When HeyMate doesn't appear in a Privacy list, the user drags the app in.
-/// macOS ties the grant to the bundle's path, so the dragged copy should be
-/// the stable one in /Applications, made once per launch.
+/// The installed copy avoids path confusion; compatible signing requirements
+/// are also required for permission continuity across builds.
 nonisolated enum PrivacyDropBundle {
     enum Plan: Equatable {
         case useExistingApplicationsCopy
