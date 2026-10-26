@@ -28,6 +28,16 @@ source "$ROOT_DIR/script/code_signature_checks.sh"
 source "$ROOT_DIR/script/local_install.sh"
 
 heymate_resolve_local_signing "$INSTALL_BUNDLE"
+
+# Every checkout installs to the same /Applications/HeyMate.app, so the last
+# install wins. A branch that lacks main's commits silently drops shipped work
+# (another session's notch or harness changes) from the app you use.
+if [ "${HEYMATE_ALLOW_STALE_INSTALL:-0}" != 1 ] \
+  && git -C "$ROOT_DIR" rev-parse --verify -q origin/main >/dev/null \
+  && ! git -C "$ROOT_DIR" merge-base --is-ancestor origin/main HEAD; then
+  heymate_local_error "This checkout ($(git -C "$ROOT_DIR" rev-parse --abbrev-ref HEAD)) is missing $(git -C "$ROOT_DIR" rev-list --count HEAD..origin/main) commits from origin/main. Merge main first so the installed app keeps everyone's work, or set HEYMATE_ALLOW_STALE_INSTALL=1."
+  exit 1
+fi
 if [ "$MODE" = '--check' ] || [ "$MODE" = 'check' ]; then
   echo 'Signing preflight passed. No build, install, quit, launch, or privacy changes.'
   exit 0
@@ -160,8 +170,18 @@ APPLESCRIPT
 }
 
 quit_known_ui_apps
-BACKUP_BUNDLE="$HOME/Library/Application Support/HeyMate Install Backups/$(date +%Y-%m-%d-%H%M%S)-$$/HeyMate.app"
+BACKUP_ROOT="$HOME/Library/Application Support/HeyMate Install Backups"
+BACKUP_BUNDLE="$BACKUP_ROOT/$(date +%Y-%m-%d-%H%M%S)-$$/HeyMate.app"
 heymate_install_local_candidate "$STAGED_BUNDLE" "$INSTALL_BUNDLE" "$BACKUP_BUNDLE"
+
+# One HeyMate on this Mac: keep at most the rollback copy from this install,
+# and stop LaunchServices offering the build-products copy as a second app.
+find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d ! -path "$(dirname "$BACKUP_BUNDLE")" -exec rm -rf {} +
+# Keep Spotlight from listing the build-products copy as a second HeyMate.
+touch "$ROOT_DIR/build/.metadata_never_index"
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+"$LSREGISTER" -u "$APP_BUNDLE" >/dev/null 2>&1 || true
+"$LSREGISTER" -u "$(dirname "$BACKUP_BUNDLE")/HeyMate.app" >/dev/null 2>&1 || true
 
 open_app() {
   # Reuse the canonical instance; never create an extra DerivedData instance.
@@ -215,5 +235,7 @@ case "$MODE" in
     INSTANCE_COUNT=$(heymate_find_ui_app_pids "$APP_NAME" "$INSTALL_BINARY" | awk 'END {print NR}')
     [ "$INSTANCE_COUNT" -eq 1 ] || { heymate_local_error "Expected one installed UI instance; found $INSTANCE_COUNT"; exit 1; }
     echo "$APP_NAME launched from $INSTALL_BUNDLE and remained alive (PID $BUILT_APP_PID)"
+    # Verified: the rollback copy is no longer needed.
+    rm -rf "$(dirname "$BACKUP_BUNDLE")"
     ;;
 esac

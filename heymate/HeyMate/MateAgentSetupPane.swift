@@ -179,7 +179,7 @@ struct MateAgentSetupPane: View {
         if connected && subscription.userCode == nil && subscription.verificationURL == nil {
             SettingsRow("Signed in to \(providerName)", subtitle: "Your plan answers HeyMate. No API key needed.") {
                 Button("Switch account") { startSignIn() }
-                    .dsCapsuleButtonStyle(.tertiary).disabled(busy)
+                    .dsCapsuleButtonStyle(.secondary).disabled(busy)
             }
         } else if subscription.userCode == nil && subscription.verificationURL == nil {
             SettingsRow("Sign in with \(providerName)",
@@ -240,7 +240,7 @@ struct MateAgentSetupPane: View {
                 Spacer(minLength: 0)
                 if subscription.busy {
                     ProgressView().controlSize(.small)
-                    Button("Cancel") { Task { await subscription.cancel() } }.dsCapsuleButtonStyle(.tertiary)
+                    Button("Cancel") { Task { await subscription.cancel() } }.dsCapsuleButtonStyle(.secondary)
                 }
             }
         }

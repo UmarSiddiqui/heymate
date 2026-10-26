@@ -76,7 +76,7 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
         case .notch:
             return "Coding usage, reset times, agent activity, and a file shelf that opens when you drag."
         case .brain:
-            return "Choose your plan or API provider, then the model HeyMate uses."
+            return "Pick a subscription, a model, and how hard it thinks."
         case .permissions:
             return "What macOS lets HeyMate do, and how to fix it when something stops working."
         case .privacy:

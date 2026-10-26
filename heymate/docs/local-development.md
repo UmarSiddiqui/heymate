@@ -78,11 +78,19 @@ existing manual Repair action remains a last-resort, user-initiated reset.
 
 ## Backups, failures, and validation
 
-Previous bundles are retained in
-`~/Library/Application Support/HeyMate Install Backups/<timestamp>-<pid>/HeyMate.app`.
-A failed replacement or post-install signature verification restores the old
-bundle. If launch subsequently fails, that backup is available for a deliberate
-restore; the script does not automatically execute a second app. Local installs
+There is only ever one HeyMate: `/Applications/HeyMate.app`. Each install keeps
+just the bundle it replaced, in
+`~/Library/Application Support/HeyMate Install Backups/<timestamp>-<pid>/HeyMate.app`,
+deletes older backups, and unregisters the build-products copy from
+LaunchServices so Spotlight and `open` never find a second app. A failed
+replacement or post-install signature verification restores the old bundle.
+`--verify` deletes the backup once the new app has launched and stayed up; if
+launch fails, the backup stays for a deliberate restore.
+
+Every checkout and worktree installs to the same path, so the last install
+wins. The script refuses to install a branch that is missing commits from
+`origin/main`, because that would silently drop work other sessions already
+shipped. Merge main first (`HEYMATE_ALLOW_STALE_INSTALL=1` overrides). Local installs
 share one lock in `/Applications/.heymate-local-install.lock` across worktrees.
 An interrupted process can leave a lock: inspect its `pid` file and confirm no
 build is running before removing the stale lock. Do not build using `sudo`.

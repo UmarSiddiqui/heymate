@@ -101,16 +101,24 @@ struct DesktopSettingsAccountsTab: View {
     @State private var profilePath = MateAgentEngineConfiguration.defaultProfilePath
     @State private var runtimePath = ""
 
+    private var isLocked: Bool {
+        companionManager.isResponseInFlight || companionManager.isMateAgentTurnInFlight
+            || !companionManager.mateAgentRecoveryBlockedChatIDs.isEmpty
+    }
+
     var body: some View {
         SettingsPage(tab: .brain, navigation: navigation) {
-            SettingsSection("Plan or API provider") {
-                MateAgentSetupPane(executablePath: $executablePath, profilePath: $profilePath,
-                                   runtimePath: $runtimePath, isWorking: $mateAgentSetupBusy)
-                    .settingsRowContentInsets()
-                    .settingsAnchor(.yourAI)
-                    .disabled(companionManager.isResponseInFlight || companionManager.isMateAgentTurnInFlight
-                              || !companionManager.mateAgentRecoveryBlockedChatIDs.isEmpty)
+            if isLocked {
+                SettingsNotice(text: companionManager.mateAgentRecoveryBlockedChatIDs.isEmpty
+                    ? "HeyMate is answering right now. Brain unlocks when it finishes."
+                    : "A chat needs review after an interrupted turn. Open it and review before changing Brain.",
+                    tone: .attention)
             }
+            // The pane draws its own Subscription, Model and Effort sections.
+            MateAgentSetupPane(executablePath: $executablePath, profilePath: $profilePath,
+                               runtimePath: $runtimePath, isWorking: $mateAgentSetupBusy)
+                .settingsAnchor(.yourAI)
+                .disabled(isLocked)
         }
     }
 }
