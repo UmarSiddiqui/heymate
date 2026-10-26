@@ -1,13 +1,18 @@
 import { brainProviders, hasBrainCredential, configureBrain, modelEfforts } from './brain.mjs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { readFile, readdir, realpath } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, readdir, realpath, rename, stat } from 'node:fs/promises';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { SessionStore, validID, readJSON, saveJSON } from './store.mjs';
 
 const boundedText = (value, max) => typeof value === 'string' && value.length > 0 && Buffer.byteLength(value) <= max;
 const errorText = 'HeyMate could not finish this operation. Check model access or retry after reviewing progress.';
+// Provider errors can echo request fragments; never surface or log token-shaped text.
+const redact = value => String(value ?? '').replace(/(sk-|xox[a-z]-|ghp_|Bearer\s+)[A-Za-z0-9._-]{8,}/gi, '$1[redacted]');
+const validSeed = seed => Array.isArray(seed) && seed.length <= 200
+  && seed.every(row => (row?.role === 'user' || row?.role === 'assistant') && boundedText(row.content, 65536))
+  && Buffer.byteLength(JSON.stringify(seed)) <= 262144;
 
 export class HeyMateHarness {
   constructor({ home, access, createSession }) {
@@ -83,9 +88,10 @@ export class HeyMateHarness {
           parameters: tool.inputSchema,
           execute: async (_id, args, signal) => {
             signal?.throwIfAborted();
-            if (this.bridges.get(name) !== bridge || !state.running) throw new Error('Connector scope expired.');
+            const current = this.bridges.get(name);
+            if (!current || current.sessionID !== state.record.id || !state.running) throw new Error('Connector scope expired.');
             // The native scoped bridge enforces current-turn action approvals too.
-            const result = await bridge.client.callTool({ name: tool.name, arguments: args }, undefined, { signal });
+            const result = await current.client.callTool({ name: tool.name, arguments: args }, undefined, { signal });
             if (result.isError) throw new Error('Connector action failed. Inspect returned tool evidence before reporting success.');
             return { content: result.content ?? [], details: {} };
           }
@@ -101,13 +107,29 @@ export class HeyMateHarness {
     });
     return tools;
   }
-  async run(state, text, images) {
+  async logFailure(state, error) {
     try {
-      state.session?.dispose();
-      state.session = await this.createSession({ home: this.home, record: state.record, access: this.access,
-        tools: await this.tools(state), approve: (name, args, signal) => this.approve(state, name, args, signal),
-        emit: (type, payload) => this.emit(state, type, payload) });
-      await this.store.save(state.record);
+      const file = path.join(this.home, 'logs', 'turn-failures.log');
+      await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+      if ((await stat(file).catch(() => null))?.size > 1024 * 1024) await rename(file, `${file}.1`);
+      await appendFile(file, JSON.stringify({ at: new Date().toISOString(), session_id: state.record.id,
+        error: redact(error?.stack ?? error).slice(0, 4000) }) + '\n', { mode: 0o600 });
+    } catch { /* Logging never changes the turn outcome. */ }
+  }
+  async run(state, text, images, system = '', seed = []) {
+    try {
+      // One Pi session per chat stays alive across turns. It is rebuilt only
+      // when its instructions or tool set change; Brain changes dispose it.
+      const tools = await this.tools(state);
+      const key = JSON.stringify([system, tools.map(tool => tool.name)]);
+      if (!state.session || state.sessionKey !== key) {
+        state.session?.dispose(); state.session = null;
+        state.session = await this.createSession({ home: this.home, record: state.record, access: this.access,
+          tools, system, seed, approve: (name, args, signal) => this.approve(state, name, args, signal),
+          emit: (type, payload) => this.emit(state, type, payload) });
+        state.sessionKey = key;
+        await this.store.save(state.record);
+      }
       if (state.cancelled) throw new Error('Turn interrupted.');
       await state.session.prompt(text, { images, expandPromptTemplates: false });
       const last = state.session.messages.filter(m => m.role === 'assistant').at(-1);
@@ -119,12 +141,17 @@ export class HeyMateHarness {
       // Persist the terminal result before announcing completion.
       await this.store.save(state.record);
       this.emit(state, 'message.complete', { status: 'complete', text: answer });
-    } catch {
+    } catch (error) {
+      // Pi records provider failures on the assistant message rather than throwing.
+      const last = state.session?.messages?.filter(m => m.role === 'assistant').at(-1);
+      const reason = redact(last?.stopReason === 'error' && last.errorMessage ? last.errorMessage : error?.message).slice(0, 300);
+      if (!state.cancelled) await this.logFailure(state, last?.errorMessage ? `${last.errorMessage}\n${error?.stack ?? error}` : error);
       state.record.pending = false;
       state.record.rows.push({ id: state.record.rows.length + 1, role: 'assistant', content: errorText,
-        finish_reason: state.cancelled ? 'aborted' : 'error', display_kind: 'failed_turn' });
+        finish_reason: state.cancelled ? 'aborted' : 'error', display_kind: 'failed_turn', ...(reason && !state.cancelled ? { error_detail: reason } : {}) });
       try { await this.store.save(state.record); } catch { /* Native ledger remains unresolved. */ }
-      this.emit(state, 'message.complete', { status: state.cancelled ? 'interrupted' : 'error', error: state.cancelled ? 'Turn interrupted.' : errorText });
+      this.emit(state, 'message.complete', { status: state.cancelled ? 'interrupted' : 'error',
+        error: state.cancelled ? 'Turn interrupted.' : reason ? `${errorText} Reason: ${reason}` : errorText });
     } finally {
       state.running = false;
       for (const request of [...state.requests.values()]) request.finish(new Error('Turn ended.'));
@@ -209,13 +236,15 @@ export class HeyMateHarness {
     if (method === 'prompt.submit') {
       if (state.running || state.record.pending) throw new Error('Earlier turn requires review; it was not replayed.');
       if (!boundedText(p.text, 262144)) throw new Error('Invalid prompt.');
+      if (p.system !== undefined && p.system !== '' && !boundedText(p.system, 65536)) throw new Error('Invalid instructions.');
+      if (p.seed !== undefined && !validSeed(p.seed)) throw new Error('Invalid chat history.');
       state.running = true; state.cancelled = false;
       const rowID = state.record.rows.length + 1;
       state.record.rows.push({ id: rowID, role: 'user', content: p.text }); state.record.pending = true;
       try { await this.store.save(state.record); } catch (error) { state.running = false; throw error; }
       const images = state.images.splice(0);
       // Acceptance is separate from completion; native ledger records this exact row.
-      state.run = new Promise(resolve => setImmediate(resolve)).then(() => this.run(state, p.text, images));
+      state.run = new Promise(resolve => setImmediate(resolve)).then(() => this.run(state, p.text, images, p.system ?? '', p.seed ?? []));
       return { status: 'streaming', user_row_id: rowID };
     }
     if (method === 'session.interrupt') {

@@ -257,3 +257,88 @@ test('subscription switch closes idle model session and keeps durable chat histo
   assert.equal(disposed, true); assert.equal(state.session, null);
   assert.equal((await f.harness.store.load(f.id)).rows[0].content, 'Keep context');
 });
+
+test('one Pi session serves a chat until instructions change, receiving system and seed', async t => {
+  const created = [];
+  const f = await fixture(t, async options => {
+    created.push({ system: options.system, seed: options.seed });
+    return { messages: [{ role: 'assistant', stopReason: 'stop' }], async prompt() {},
+      getLastAssistantText: () => 'Answer', async abort() {}, dispose() {} };
+  });
+  const seed = [{ role: 'user', content: 'Earlier question' }, { role: 'assistant', content: 'Earlier answer' }];
+  const turn = async (text, system) => {
+    await f.harness.dispatch(f.peer, 'prompt.submit', { session_id: f.id, text, system, seed });
+    await (await f.harness.get(f.id)).run;
+  };
+  await turn('First', 'Mate A'); await turn('Second', 'Mate A');
+  assert.equal(created.length, 1);
+  assert.deepEqual(created[0], { system: 'Mate A', seed });
+  await turn('Third', 'Mate B');
+  assert.equal(created.length, 2); assert.equal(created[1].system, 'Mate B');
+  const rows = (await f.harness.messages(f.id, 1)).messages.filter(row => row.role === 'user');
+  assert.deepEqual(rows.map(row => row.content), ['First', 'Second', 'Third']);
+  await assert.rejects(f.harness.dispatch(f.peer, 'prompt.submit', { session_id: f.id, text: 'x', seed: [{ role: 'system', content: 'x' }] }), /Invalid chat history/);
+});
+
+test('failed turn surfaces a redacted reason and logs it privately', async t => {
+  const f = await fixture(t, async () => ({ messages: [{ role: 'assistant', stopReason: 'error', errorMessage: '401 invalid key sk-abcdefghijklmnop' }],
+    async prompt() {}, getLastAssistantText: () => '', async abort() {}, dispose() {} }));
+  const events = [];
+  f.peer.send = message => events.push(message);
+  await f.harness.dispatch(f.peer, 'prompt.submit', { session_id: f.id, text: 'Fixture' });
+  await (await f.harness.get(f.id)).run;
+  const complete = events.map(e => e.params).find(e => e?.type === 'message.complete');
+  assert.equal(complete.payload.status, 'error');
+  assert.match(complete.payload.error, /Reason: 401 invalid key sk-\[redacted\]/);
+  const row = (await f.harness.messages(f.id, 1)).messages.at(-1);
+  assert.equal(row.display_kind, 'failed_turn'); assert.match(row.error_detail, /401/);
+  const log = await readFile(path.join(f.home, 'logs', 'turn-failures.log'), 'utf8');
+  assert.match(log, /401 invalid key/); assert.doesNotMatch(log, /abcdefghijklmnop/);
+  assert.equal((await stat(path.join(f.home, 'logs', 'turn-failures.log'))).mode & 0o777, 0o600);
+});
+
+test('real Pi puts instructions in the system prompt, seeds history once and forwards progress', async t => {
+  const f = await fixture(t), access = await createModelAccess(f.home);
+  const contexts = [];
+  access.runtime.registerProvider('anthropic', { name: 'In-process test provider', api: 'openai-completions',
+    baseUrl: 'http://127.0.0.1:1', models: [{ id: 'fixture', name: 'Fixture', reasoning: true,
+      input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32768, maxTokens: 1024 }],
+    streamSimple: (model, context) => {
+      contexts.push(JSON.parse(JSON.stringify(context)));
+      const stream = new AssistantMessageEventStream();
+      const message = { role: 'assistant', api: 'openai-completions', provider: 'anthropic', model: model.id,
+        content: [{ type: 'thinking', thinking: 'Considering' }, { type: 'text', text: `Reply ${contexts.length}` }],
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        stopReason: 'stop', timestamp: Date.now() };
+      queueMicrotask(() => {
+        stream.push({ type: 'start', partial: { ...message, content: [] } });
+        stream.push({ type: 'thinking_start', contentIndex: 0, partial: message });
+        stream.push({ type: 'done', reason: 'stop', message });
+      });
+      return stream;
+    } });
+  await access.credentials.modify('anthropic', async () => ({ type: 'oauth', access: 'fixture', refresh: 'fixture', expires: Date.now() + 3600000 }));
+  await saveJSON(path.join(f.home, 'model.json'), { provider: 'anthropic', model: 'fixture' });
+  const harness = new HeyMateHarness({ home: f.home, access, createSession: createPiSession });
+  t.after(() => harness.close());
+  const events = [];
+  const peer = { serverRequests: true, open: () => true, send: message => events.push(message.params?.type) };
+  const { session_id: id } = await harness.dispatch(peer, 'session.create', { cwd: f.workspace });
+  const seed = [{ role: 'user', content: 'My product is Fixturely' }, { role: 'assistant', content: 'Noted Fixturely' }];
+  for (const text of ['First question', 'Second question']) {
+    await harness.dispatch(peer, 'prompt.submit', { session_id: id, text, system: 'MATE IDENTITY: Captain', seed });
+    await (await harness.get(id)).run;
+  }
+  assert.equal(contexts.length, 2);
+  // Pi carries the system prompt as a system message; the identity is its addendum.
+  for (const context of contexts) {
+    assert.match(JSON.stringify(context.messages.filter(m => m.role === 'system')), /MATE IDENTITY: Captain/);
+  }
+  const second = JSON.stringify(contexts[1].messages.filter(m => m.role !== 'system'));
+  assert.equal(second.split('My product is Fixturely').length - 1, 1);
+  assert.ok(second.includes('Noted Fixturely') && second.includes('Reply 1'));
+  assert.doesNotMatch(second, /MATE IDENTITY/);
+  assert.ok(events.includes('agent.thinking'));
+  assert.equal((await harness.messages(id, 1)).messages.at(-1).content, 'Reply 2');
+});

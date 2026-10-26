@@ -4395,8 +4395,12 @@ final class CompanionManager: ObservableObject {
                         enabledApps: enabledChatComposioSlugs.sorted())
 
                 let fullResponseText: String
-                let engineUserPrompt = MateAgentServeConversationClient.userContextPrompt(messages: turnSession.messages,
-                    request: transcript, contextNote: contextUnavailableNote)
+                let engineUserPrompt = MateAgentServeConversationClient.turnPrompt(request: transcript, contextNote: contextUnavailableNote)
+                if let mateAgent = talkClient as? MateAgentServeConversationClient {
+                    var earlier = turnSession.messages
+                    if earlier.last?.role == .user, earlier.last?.text == transcript { earlier.removeLast() }
+                    mateAgent.seedMessages = earlier
+                }
 
                     (fullResponseText, _) = try await talkClient.analyzeImageStreaming(
                         images: labeledImages,

@@ -248,7 +248,10 @@ final class MateAgentServeSession {
         _ = try? await connection.request(method: "mcp.servers.remove", params: .object(["name": .string(name)]), timeout: .seconds(5))
     }
 
+    /// `system` reaches Pi's system prompt; `seed` is earlier chat text the
+    /// harness imports once, only into a Pi session with no history yet.
     func prompt(text request: String, images: [(data: Data, label: String)] = [],
+                system: String = "", seed: [JSONValue] = [],
                 timeout: Duration = .seconds(300)) async throws -> Result {
         if let recovery { await recovery.value }
         guard !hasPriorWorkInProgress else { throw Failure.priorWorkRunning }
@@ -303,9 +306,11 @@ final class MateAgentServeSession {
                             try Task.checkCancellation()
                             try self.onPromptWillSubmit?()
                             self.needsInterruption = true
-                            let accepted = try await self.connection.request(method: "prompt.submit", params: .object([
-                                "session_id": .string(identity.runtimeID), "text": .string(request)
-                            ]), timeout: .seconds(60))
+                            var params: [String: JSONValue] = ["session_id": .string(identity.runtimeID), "text": .string(request)]
+                            if !system.isEmpty { params["system"] = .string(system) }
+                            if !seed.isEmpty { params["seed"] = .array(seed) }
+                            let accepted = try await self.connection.request(method: "prompt.submit", params: .object(params),
+                                timeout: .seconds(60))
                             guard self.turn?.id == id else { return }
                             guard case .object(let fields) = accepted, fields["status"] == .string("streaming") else {
                                 throw Failure.invalidAcceptance
@@ -513,7 +518,8 @@ final class MateAgentServeSession {
             else { error = "Unknown session error" }
             terminal(.failure(Failure.remoteFailure(error)))
         default:
-            if type.hasPrefix("tool.") || type.hasPrefix("subagent.") || type == "status.update" || type == "message.interim" {
+            if type.hasPrefix("tool.") || type.hasPrefix("subagent.") || type.hasPrefix("agent.")
+                || type == "status.update" || type == "message.interim" {
                 progress(type, payload)
             }
         }
