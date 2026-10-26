@@ -130,8 +130,9 @@ struct NotchLayoutMathTests {
             activeInteraction: true,
             usageProviderCount: 3
         ))
-        let wing = (frame.width - Self.hardwareWidth) / 2
-        #expect(wing >= 3 * 17 + 2 * 5 + 12)
+        let wing: CGFloat = (frame.width - Self.hardwareWidth) / 2
+        let minimumWing: CGFloat = 3 * 17 + 2 * 5 + 12
+        #expect(wing >= minimumWing)
         #expect(frame.height == Self.notchInset)
         #expect(frame.midX == (Self.auxLeftMaxX + Self.auxRightMinX) / 2)
     }
