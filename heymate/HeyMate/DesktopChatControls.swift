@@ -9,6 +9,7 @@ import SwiftUI
 
 struct DesktopChatHeader: View {
     @ObservedObject var companionManager: CompanionManager
+    @ObservedObject var brain = MateAgentSetupController.shared
     @Binding var isShowingHistory: Bool
     @Binding var isShowingInspector: Bool
 
@@ -19,7 +20,7 @@ struct DesktopChatHeader: View {
                     .font(DS.Fonts.title)
                     .foregroundColor(DS.Colors.textPrimary)
                     .lineLimit(1)
-                Text("HeyMate")
+                Text(brain.currentModel.isEmpty ? "Choose a brain" : "\(brain.currentProviderName) · \(brain.currentModelName)")
                     .font(DS.Fonts.micro)
                     .foregroundColor(DS.Colors.textTertiary)
                     .lineLimit(1)
@@ -374,25 +375,26 @@ private struct ConnectorScopePickerPanel: View {
 
 struct DesktopComposerModelButton: View {
     @ObservedObject var companionManager: CompanionManager
+    @ObservedObject var brain = MateAgentSetupController.shared
     @State private var isShowingModelPicker = false
 
     var body: some View {
         Button { isShowingModelPicker.toggle() } label: {
             ComposerChipLabel(
                 symbolName: "cpu",
-                title: companionManager.notchDockModelLabel,
+                title: brain.currentModel.isEmpty ? "Choose a brain"
+                    : "\(brain.currentModelName) · \(MateAgentSetupPane.effortName(brain.currentEffort))",
                 isHighlighted: isShowingModelPicker,
-                brand: nil
+                brand: BrainQuickPicker.brand(for: brain.currentProvider)
             )
         }
         .buttonStyle(.plain)
         .pointerCursor()
-        .help("Brain: plans, API providers, and models")
+        .help("Subscription, model and effort")
         .disclosureSound(isShowingModelPicker, .popover)
         .popover(isPresented: $isShowingModelPicker, arrowEdge: .bottom) {
-            NotchModelPickerPanel(companionManager: companionManager)
-                .frame(width: 430, height: 390)
-                .padding(10)
+            BrainQuickPicker(companionManager: companionManager)
+                .frame(width: 340)
                 .background(DS.Colors.background)
         }
     }
@@ -400,6 +402,7 @@ struct DesktopComposerModelButton: View {
 
 struct DesktopChatInspector: View {
     @ObservedObject var companionManager: CompanionManager
+    @ObservedObject var brain = MateAgentSetupController.shared
     let attachmentCount: Int
 
     var body: some View {
@@ -422,8 +425,9 @@ struct DesktopChatInspector: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     inspectorSection("MODEL") {
-                        Label(companionManager.notchDockModelLabel, systemImage: "cpu")
-                        Text(companionManager.selectedBrain.displayName)
+                        Label(brain.currentModel.isEmpty ? "No model chosen" : brain.currentModelName, systemImage: "cpu")
+                        Text(brain.currentModel.isEmpty ? "Choose one in Brain"
+                             : "\(brain.currentProviderName) · \(MateAgentSetupPane.effortName(brain.currentEffort)) effort")
                             .foregroundColor(DS.Colors.textTertiary)
                     }
 

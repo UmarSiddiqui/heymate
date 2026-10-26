@@ -10,7 +10,7 @@ struct MateAgentSetupPane: View {
     @Binding var runtimePath: String
     @Binding var isWorking: Bool
     var onReady: (Bool) -> Void = { _ in }
-    @StateObject private var setup = MateAgentSetupController()
+    @ObservedObject private var setup = MateAgentSetupController.shared
     @StateObject private var subscription = MateAgentSubscriptionLoginController()
     @State private var provider = "openai-codex"
     @State private var model = ""
@@ -115,6 +115,14 @@ struct MateAgentSetupPane: View {
                 reflectSavedChoice()
             } catch { profileError = "Could not prepare HeyMate’s private account storage."; onReady(false) }
         }
+        // Back from the browser after signing in, or changed from the chat picker.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            guard !busy, profileError == nil else { return }
+            Task { await setup.check(configuration) }
+        }
+        .onChange(of: setup.currentProvider) { if !busy { reflectSavedChoice() } }
+        .onChange(of: setup.currentModel) { if !busy { reflectSavedChoice() } }
+        .onChange(of: setup.currentEffort) { if !busy, setup.currentProvider == provider { effort = setup.currentEffort } }
         .onChange(of: busy) { isWorking = busy }
         .onChange(of: setup.ready) { onReady(setup.ready) }
         .onChange(of: provider) {

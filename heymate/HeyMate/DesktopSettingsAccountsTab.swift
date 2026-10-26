@@ -101,18 +101,16 @@ struct DesktopSettingsAccountsTab: View {
     @State private var profilePath = MateAgentEngineConfiguration.defaultProfilePath
     @State private var runtimePath = ""
 
+    /// Only live work locks Brain. A chat awaiting review after an interrupted
+    /// turn is not running, and fixing Brain is often how it gets unstuck.
     private var isLocked: Bool {
         companionManager.isResponseInFlight || companionManager.isMateAgentTurnInFlight
-            || !companionManager.mateAgentRecoveryBlockedChatIDs.isEmpty
     }
 
     var body: some View {
         SettingsPage(tab: .brain, navigation: navigation) {
             if isLocked {
-                SettingsNotice(text: companionManager.mateAgentRecoveryBlockedChatIDs.isEmpty
-                    ? "HeyMate is answering right now. Brain unlocks when it finishes."
-                    : "A chat needs review after an interrupted turn. Open it and review before changing Brain.",
-                    tone: .attention)
+                SettingsNotice(text: "HeyMate is answering right now. Brain unlocks when it finishes.", tone: .progress)
             }
             // The pane draws its own Subscription, Model and Effort sections.
             MateAgentSetupPane(executablePath: $executablePath, profilePath: $profilePath,

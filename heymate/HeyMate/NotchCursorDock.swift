@@ -169,27 +169,112 @@ private struct RocketLaunchBayGlyph: View {
     }
 }
 
-struct NotchModelPickerPanel: View {
+/// The chat's Brain picker: switch between signed-in subscriptions, pick a
+/// model and effort. Changes apply at once; signing in lives in Brain.
+struct BrainQuickPicker: View {
     @ObservedObject var companionManager: CompanionManager
-    @State private var searchText = ""
-    @State private var hoveredBrain: AgentBrain?
-    @State private var hoveredCodexModelID: String?
-    @State private var hoveredClaudeModelID: String?
-    @State private var hoveredOpenCodeModelID: String?
+    @ObservedObject var brain = MateAgentSetupController.shared
+    @State private var model = ""
+    @State private var effort = "medium"
+
+    static func brand(for provider: String) -> AgentBrain? {
+        switch provider {
+        case "openai-codex": return .codex
+        case "anthropic": return .claudeCode
+        case "heymate-custom": return .customAPI
+        default: return nil
+        }
+    }
+    private var current: MateAgentSetupController.Provider? { brain.providers.first { $0.id == brain.currentProvider } }
+    private var models: [String] {
+        let all = current?.models ?? []
+        return all.reversed().filter { id in
+            guard let range = id.range(of: #"-\d{8}$"#, options: .regularExpression) else { return true }
+            return !all.contains(String(id[..<range.lowerBound]))
+        }
+    }
+    private var efforts: [String] {
+        brain.currentProvider == "heymate-custom" ? ["off", "low", "medium", "high", "max"] : current?.efforts[model] ?? []
+    }
+    private var locked: Bool { brain.busy || companionManager.isResponseInFlight || companionManager.isMateAgentTurnInFlight }
 
     var body: some View {
-
-            VStack(alignment: .leading, spacing: 12) {
-                Text("HeyMate Agent").font(DS.Fonts.titleCompact)
-                Text("Choose your plan or API provider and model in Brain.")
-                    .font(DS.Fonts.caption).foregroundColor(DS.Colors.textSecondary)
-                Button("Brain…") {
+        VStack(alignment: .leading, spacing: DS.Spacing.md) {
+            Text("SUBSCRIPTION").font(DS.Fonts.sectionLabel).tracking(0.8).foregroundColor(DS.Colors.textTertiary)
+            HStack(spacing: DS.Spacing.xs) {
+                ForEach(["openai-codex", "anthropic", "heymate-custom"], id: \.self) { id in
+                    providerButton(id)
+                }
+            }
+            if brain.currentProvider != "heymate-custom", !models.isEmpty {
+                Text("MODEL").font(DS.Fonts.sectionLabel).tracking(0.8).foregroundColor(DS.Colors.textTertiary)
+                DSMenuPicker(accessibilityTitle: "Model", selection: $model,
+                             options: models.map { DSMenuOption(value: $0, title: current?.modelNames[$0] ?? $0) },
+                             width: nil)
+            }
+            if !efforts.isEmpty {
+                Text("EFFORT").font(DS.Fonts.sectionLabel).tracking(0.8).foregroundColor(DS.Colors.textTertiary)
+                DSSegmentedControl(accessibilityTitle: "Effort", selection: $effort,
+                                   segments: efforts.map { DSSegment(value: $0, title: MateAgentSetupPane.effortName($0)) },
+                                   width: nil)
+            }
+            HStack {
+                if brain.busy { ProgressView().controlSize(.small) }
+                Spacer()
+                Button("Open Brain…") {
                     companionManager.openDesktopWindow(section: .settings)
                     DesktopSection.openSettings(tab: DesktopSettingsTab.brain.rawValue)
-                }.dsCapsuleButtonStyle(.secondary)
-                Spacer()
-            }.padding(16)
-
+                }.dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)
+            }
+        }
+        .padding(DS.Spacing.lg)
+        .disabled(locked)
+        .task { model = brain.currentModel; effort = brain.currentEffort; await brain.check(.load()); model = brain.currentModel; effort = brain.currentEffort }
+        .onChange(of: model) { apply(provider: brain.currentProvider) }
+        .onChange(of: effort) { apply(provider: brain.currentProvider) }
     }
 
+    private func providerButton(_ id: String) -> some View {
+        let info = brain.providers.first { $0.id == id }
+        let signedIn = info?.authenticated == true
+        let selected = brain.currentProvider == id
+        return Button {
+            guard !selected else { return }
+            // A custom API needs its endpoint and key, which live in Brain.
+            if signedIn, id != "heymate-custom" { apply(provider: id, model: "") }
+            else {
+                companionManager.openDesktopWindow(section: .settings)
+                DesktopSection.openSettings(tab: DesktopSettingsTab.brain.rawValue)
+            }
+        } label: {
+            VStack(spacing: 4) {
+                if let brand = Self.brand(for: id) { AgentBrandMark(brain: brand, size: 18) }
+                Text(MateAgentSetupController.providerNames[id] ?? id).font(DS.Fonts.caption)
+                Text(signedIn ? (selected ? "In use" : "Switch") : "Sign in")
+                    .font(DS.Fonts.micro).foregroundColor(DS.Colors.textTertiary)
+            }
+            .foregroundColor(DS.Colors.textPrimary)
+            .frame(maxWidth: .infinity).padding(.vertical, DS.Spacing.sm)
+            .background(RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                .fill(selected ? DS.Colors.surface3 : DS.Colors.surface2.opacity(0.5)))
+            .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                .stroke(selected ? DS.Colors.textPrimary.opacity(0.7) : DS.Colors.borderSubtle, lineWidth: selected ? 1.5 : 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointerCursor(isEnabled: !selected)
+    }
+
+    /// Saves only real changes; the harness keeps the model's saved effort and clamps it.
+    private func apply(provider: String, model chosen: String? = nil) {
+        let target = chosen ?? model
+        guard !brain.busy, provider != brain.currentProvider || target != brain.currentModel || effort != brain.currentEffort else { return }
+        Task {
+            await brain.connect(.load(), provider: provider, model: target, key: "",
+                                effort: provider == brain.currentProvider ? effort : "",
+                                baseURL: brain.currentBaseURL, apiFormat: brain.currentAPIFormat)
+            await brain.check(.load())
+            model = brain.currentModel; effort = brain.currentEffort
+        }
+    }
 }

@@ -5,6 +5,31 @@ import Combine
 /// preferences, diagnostics or model prompts; MateAgent saves them in its isolated home.
 @MainActor
 final class MateAgentSetupController: ObservableObject {
+    /// One Brain state for Settings, onboarding and the chat picker, so a
+    /// change in one place shows everywhere without reopening a page.
+    static let shared: MateAgentSetupController = {
+        let controller = MateAgentSetupController()
+        controller.loadSavedChoice()
+        return controller
+    }()
+
+    /// Reads the saved choice from disk without starting the harness, so the
+    /// chat chip can show the model at launch.
+    func loadSavedChoice(profilePath: String = MateAgentEngineConfiguration.defaultProfilePath) {
+        let url = URL(fileURLWithPath: profilePath).appendingPathComponent("model.json")
+        guard let data = try? Data(contentsOf: url), data.count < 64 * 1_024,
+              let fields = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+        if let provider = fields["provider"] as? String { currentProvider = provider }
+        if let model = fields["model"] as? String { currentModel = model }
+        if let effort = fields["effort"] as? String { currentEffort = effort }
+    }
+
+    static let providerNames = ["openai-codex": "ChatGPT", "anthropic": "Claude", "heymate-custom": "Custom API"]
+    var currentProviderName: String { Self.providerNames[currentProvider] ?? "" }
+    var currentModelName: String {
+        providers.first { $0.id == currentProvider }?.modelNames[currentModel] ?? currentModel
+    }
+
     struct Provider: Identifiable, Equatable {
         let id: String
         let name: String
