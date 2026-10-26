@@ -6,6 +6,37 @@ import Testing
 /// Rendering smoke test: actual SwiftUI content, isolated preferences, no provider requests.
 @MainActor
 struct NotchVisualPreviewTests {
+    @Test func fullChatWindowHasOneContinuousGradientWithoutTopRim() throws {
+        let transition = NotchSurfaceTransitionModel()
+        transition.showWithoutAnimation()
+        let size = CGSize(width: 1000, height: 700)
+        let bitmap = try render(NotchCompactChatCard(
+            companionManager: CompanionManager(), occludedTopInset: 32,
+            layoutSize: size, hardwareNotchWidth: 200,
+            transitionModel: transition, isFullChat: true, onClose: {}
+        ), name: "full-chat-neck", size: size)
+        let scaleX = CGFloat(bitmap.pixelsWide) / size.width
+        let scaleY = CGFloat(bitmap.pixelsHigh) / size.height
+        func gray(_ x: CGFloat, _ y: CGFloat) throws -> CGFloat {
+            let color = try #require(bitmap.colorAt(x: Int(x * scaleX), y: Int(y * scaleY))?.usingColorSpace(.deviceRGB))
+            return (color.redComponent + color.greenComponent + color.blueComponent) / 3
+        }
+        let top = try gray(500, 4)
+        let middle = try gray(980, 350)
+        let bottom = try gray(980, 650)
+        #expect(top < 0.01)
+        #expect(middle > top + 0.02)
+        #expect(bottom > middle + 0.02)
+        #expect(abs(bottom - CGFloat(30.0 / 255)) < 0.02)
+        // Sidebar and conversation share the same global fade.
+        let railMiddle = try gray(8, 350)
+        #expect(abs(railMiddle - middle) < 0.01)
+        // Top horizontal shoulder used to get a light 0.6 pt outline.
+        let shoulder = try gray(200, 42)
+        let belowShoulder = try gray(200, 45)
+        #expect(abs(shoulder - belowShoulder) < 0.02)
+    }
+
     @Test func usageAndDragShelfRender() throws {
         let suite = "notch-preview-\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
@@ -70,7 +101,8 @@ struct NotchVisualPreviewTests {
         }
     }
 
-    private func render(_ content: some View, name: String, size: CGSize) throws {
+    @discardableResult
+    private func render(_ content: some View, name: String, size: CGSize) throws -> NSBitmapImageRep {
         let view = NSHostingView(rootView: content.frame(width: size.width, height: size.height).background(Color.black).preferredColorScheme(.dark))
         view.frame = CGRect(origin: .zero, size: size)
         view.layoutSubtreeIfNeeded()
@@ -79,5 +111,6 @@ struct NotchVisualPreviewTests {
         let data = try #require(bitmap.representation(using: .png, properties: [:]))
         #expect(data.count > 1000)
         try data.write(to: URL(fileURLWithPath: "/tmp/heymate-notch-\(name).png"))
+        return bitmap
     }
 }

@@ -97,7 +97,7 @@ struct MateHomeView: View {
                 .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
         }
-        .background(DS.Colors.homeBackground)
+        .background(WorkspaceBackground())
         .preferredColorScheme(.dark)
         .tint(DS.Colors.accent)
         .sheet(isPresented: Binding(
@@ -366,7 +366,7 @@ struct MateHomeView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 8)
         }
-        .background(DS.Colors.homeRail)
+        .background(WorkspaceBackground())
     }
 
     /// Chats and Mates. Drawn with DS tokens rather than a system segmented

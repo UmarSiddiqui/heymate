@@ -544,6 +544,6 @@ struct CelestialWorkspaceBackground: View {
     let accent: Color
 
     var body: some View {
-        DS.Colors.homeBackground.ignoresSafeArea()
+        WorkspaceBackground().ignoresSafeArea()
     }
 }

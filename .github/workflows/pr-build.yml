@@ -65,6 +65,11 @@ jobs:
           python3 heymate/script/local_install_tests.py
           bash heymate/script/process_scope_tests.sh
 
+      - name: Check local signing and install workflow
+        run: |
+          python3 heymate/script/local_install_tests.py
+          bash heymate/script/process_scope_tests.sh
+
       - name: Build app and tests
         run: |
           xcodebuild \
