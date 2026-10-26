@@ -17,7 +17,7 @@ The open-source alternative to HeyClicky. Bring your own AI: your existing Claud
 
 [**Download for Mac**](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg) · [Website](https://getheymate.vercel.app) · [Watch the demo](https://getheymate.vercel.app/#demo) · [Changelog](https://github.com/UmarSiddiqui/heymate/releases)
 
-<sub>Inspired by <a href="https://github.com/TheBoredTeam/boring.notch">Boring Notch</a>.</sub>
+<sub>Inspired by heyClicky</sub>
 
 <br>
 
