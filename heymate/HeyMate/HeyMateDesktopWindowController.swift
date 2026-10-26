@@ -497,9 +497,54 @@ struct AttachedDesktopChrome<Content: View>: View {
             content()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(outline.fill(Color.black))
+        .background {
+            GeometryReader { proxy in
+                outline.fill(neckBlend(height: proxy.size.height))
+            }
+        }
         .clipShape(outline)
-        .overlay(outline.stroke(Color.white.opacity(0.08), lineWidth: 1))
+        .overlay {
+            // The hairline only marks the panel's sides and bottom; along
+            // the neck it would draw the hard edge the gradient removes.
+            GeometryReader { proxy in
+                outline.stroke(Color.white.opacity(0.08), lineWidth: 1)
+                    .mask(neckFade(height: proxy.size.height))
+            }
+        }
+    }
+
+    private static var barHeight: CGFloat { 30 }
+
+    /// Black while it touches the camera housing, then easing into the
+    /// app's background by the bottom of the bar, so the neck melts into
+    /// the panel instead of ending on a line.
+    private func neckBlend(height: CGFloat) -> LinearGradient {
+        let housing = max(0, neckHeight - 10)
+        let settled = neckHeight + Self.barHeight
+        let total = max(height, settled + 1)
+        return LinearGradient(
+            stops: [
+                .init(color: .black, location: housing / total),
+                // Opaque in-between tone: an eased midpoint without letting
+                // the desktop show through the panel.
+                .init(color: Color(white: 0.045), location: (housing + settled) / 2 / total),
+                .init(color: DS.Colors.background, location: settled / total)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    private func neckFade(height: CGFloat) -> LinearGradient {
+        let total = max(height, neckHeight + Self.barHeight * 3)
+        return LinearGradient(
+            stops: [
+                .init(color: .clear, location: (neckHeight + Self.barHeight) / total),
+                .init(color: .black, location: (neckHeight + Self.barHeight * 3) / total)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
     }
 
     private func chromeButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
