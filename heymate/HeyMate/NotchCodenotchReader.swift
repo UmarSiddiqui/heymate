@@ -74,8 +74,8 @@ nonisolated enum NotchCodenotchReader {
                 valueText: "\(runtime.models.count) models loaded")], fetchedAt: Date(),
                 runtimeDetails: runtime.models.prefix(12).map { "\($0.name) · \($0.detail)" })
         }
-        let request = try CNReadBudget.scan { try request(provider) }
-        let data = try await response(request, client: client)
+        let urlRequest: URLRequest = try CNReadBudget.scan { try request(provider) }
+        let data = try await response(urlRequest, client: client)
         let text = String(decoding: data, as: UTF8.self)
         let windows: [CNLimitWindow]
         switch provider {

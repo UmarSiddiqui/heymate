@@ -287,7 +287,7 @@ nonisolated enum CNAntigravityQuotaParser {
 
     private static func id(for bucket: Bucket, group: String?) -> String {
         [bucket.bucketId, bucket.modelId, bucket.name, group]
-            .compactMap { value in
+            .compactMap { (value: String?) -> String? in
                 guard let value else { return nil }
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 return trimmed.isEmpty ? nil : trimmed
