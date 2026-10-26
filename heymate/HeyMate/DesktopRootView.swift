@@ -177,7 +177,7 @@ struct DesktopRootView: View {
             .font(DS.Fonts.caption)
             .foregroundStyle(DS.Colors.textSecondary)
             .padding(.horizontal, 20).padding(.vertical, 8)
-            .background(DS.Colors.background)
+            .background(WorkspaceBackground())
             .overlay(alignment: .top) { Rectangle().fill(DS.Colors.borderSubtle).frame(height: 1) }
         }
         .sheet(isPresented: $showsAppHandoff) { SelectedAppHandoffView() }
@@ -311,7 +311,7 @@ struct DesktopRootView: View {
         }
         .padding(.horizontal, 22)
         .padding(.vertical, 8)
-        .background(DS.Colors.background)
+        .background(WorkspaceBackground())
     }
 
     private var sidebarStatusBar: some View {

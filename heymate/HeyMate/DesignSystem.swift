@@ -20,6 +20,39 @@
 import SwiftUI
 import AppKit
 
+private struct WorkspaceGradientHeightKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+extension EnvironmentValues {
+    var workspaceGradientHeight: CGFloat {
+        get { self[WorkspaceGradientHeightKey.self] }
+        set { self[WorkspaceGradientHeightKey.self] = newValue }
+    }
+}
+
+/// Each pane samples the same window-sized gradient, so opaque pane fills
+/// cannot restart the fade or introduce a seam at the sidebar/footer joins.
+struct WorkspaceBackground: View {
+    static let coordinateSpace = "heymate.workspace-background"
+    @Environment(\.workspaceGradientHeight) private var height
+
+    var body: some View {
+        if height > 0 {
+            GeometryReader { proxy in
+                LinearGradient(colors: [.black, DS.Colors.homeBackground],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(width: proxy.size.width, height: height)
+                    .offset(y: -proxy.frame(in: .named(Self.coordinateSpace)).minY)
+            }
+            .clipped()
+            .allowsHitTesting(false)
+        } else {
+            DS.Colors.homeBackground
+        }
+    }
+}
+
 // MARK: - Design System Namespace
 
 /// The top-level namespace for all design system tokens.

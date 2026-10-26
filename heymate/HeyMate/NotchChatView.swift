@@ -672,11 +672,13 @@ struct NotchCompactChatCard: View {
             let contentHeight = size.height
 
             compactBody
+                .environment(\.workspaceGradientHeight, isFullChat ? contentHeight : 0)
                 .padding(.horizontal, isFullChat ? 0 : NotchLayoutMath.shoulderInset(occludedTopInset: occludedTopInset))
                 .frame(width: contentWidth, height: contentHeight, alignment: .top)
                 .modifier(NotchContentRevealModifier(transitionModel: transitionModel))
                 .position(x: viewport.size.width / 2, y: contentHeight / 2)
         }
+        .coordinateSpace(name: WorkspaceBackground.coordinateSpace)
         .modifier(NotchLiquidGlassCardModifier(
             transitionModel: transitionModel,
             outlineColor: companionManager.themeColor,
@@ -721,19 +723,7 @@ struct NotchCompactChatCard: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             if isFullChat {
-                GeometryReader { proxy in
-                    // This is the active full-chat surface. The older attached
-                    // desktop window's chrome is not used here. Settle to the
-                    // exact content color before its opaque background begins.
-                    let height = max(proxy.size.height, 1)
-                    let start = max(0, occludedTopInset - 18)
-                    let end = max(neckHeight, start + 1)
-                    LinearGradient(stops: [
-                        .init(color: .black, location: start / height),
-                        .init(color: Color(white: 0.045), location: (start + (end - start) * 0.5) / height),
-                        .init(color: DS.Colors.homeBackground, location: end / height)
-                    ], startPoint: .top, endPoint: .bottom)
-                }
+                WorkspaceBackground()
             } else {
                 BrandNebulaSurface.notchCard
             }

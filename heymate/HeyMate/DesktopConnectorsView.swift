@@ -73,7 +73,7 @@ struct DesktopConnectorsView: View {
             .padding(32)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .background(DS.Colors.background)
+        .background(WorkspaceBackground())
         .sheet(isPresented: $isShowingWebSetup) {
             VStack(alignment: .trailing, spacing: 12) {
                 Button("Done") { isShowingWebSetup = false }.buttonStyle(.plain)

@@ -6,7 +6,7 @@ import Testing
 /// Rendering smoke test: actual SwiftUI content, isolated preferences, no provider requests.
 @MainActor
 struct NotchVisualPreviewTests {
-    @Test func fullChatNeckBlendsIntoContentWithoutTopRim() throws {
+    @Test func fullChatWindowHasOneContinuousGradientWithoutTopRim() throws {
         let transition = NotchSurfaceTransitionModel()
         transition.showWithoutAnimation()
         let size = CGSize(width: 1000, height: 700)
@@ -22,12 +22,15 @@ struct NotchVisualPreviewTests {
             return (color.redComponent + color.greenComponent + color.blueComponent) / 3
         }
         let top = try gray(500, 4)
-        let middle = try gray(500, 28)
-        let join = try gray(500, 41)
+        let middle = try gray(980, 350)
+        let bottom = try gray(980, 650)
         #expect(top < 0.01)
         #expect(middle > top + 0.02)
-        #expect(join > middle + 0.02)
-        #expect(abs(join - CGFloat(30.0 / 255)) < 0.02)
+        #expect(bottom > middle + 0.02)
+        #expect(abs(bottom - CGFloat(30.0 / 255)) < 0.02)
+        // Sidebar and conversation share the same global fade.
+        let railMiddle = try gray(8, 350)
+        #expect(abs(railMiddle - middle) < 0.01)
         // Top horizontal shoulder used to get a light 0.6 pt outline.
         let shoulder = try gray(200, 42)
         let belowShoulder = try gray(200, 45)
