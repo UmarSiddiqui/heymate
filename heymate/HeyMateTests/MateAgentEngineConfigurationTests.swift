@@ -41,7 +41,7 @@ struct MateAgentEngineConfigurationTests {
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         var requestedName: String?
         let configuration = MateAgentEngineConfiguration(executablePath: "", profilePath: profile.path)
-        let launch = try configuration.resolveLaunchConfiguration(resolving: { requestedName = $0; return executable }, loginPATH: { "/custom/bin" })
+        let launch = try configuration.resolveLaunchConfiguration(resolving: { requestedName = $0; return executable }, loginPATH: { "/custom/bin" }, bundledRoot: nil)
         #expect(requestedName == "heymate-agent")
         #expect(launch.executableURL == executable)
         #expect(launch.profileDirectoryURL == profile)
@@ -53,7 +53,7 @@ struct MateAgentEngineConfigurationTests {
         let missing = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let configuration = MateAgentEngineConfiguration(executablePath: "", profilePath: missing.path)
         #expect(throws: MateAgentEngineConfiguration.ConfigurationError.executableMissing) {
-            try configuration.resolveLaunchConfiguration(resolving: { _ in nil }, loginPATH: { "" })
+            try configuration.resolveLaunchConfiguration(resolving: { _ in nil }, loginPATH: { "" }, bundledRoot: nil)
         }
         #expect(!FileManager.default.fileExists(atPath: missing.path))
     }
