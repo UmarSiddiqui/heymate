@@ -104,11 +104,22 @@ export class HeyMateHarness {
         });
       }
     }
-    tools.push({ name: 'ask_user', label: 'Ask a question', description: 'Ask one short bundled set of questions when required facts are missing.',
-      parameters: { type: 'object', properties: { question: { type: 'string' } }, required: ['question'], additionalProperties: false },
+    tools.push({ name: 'ask_user', label: 'Ask a question',
+      description: 'Ask the user one short question when a required fact or decision is missing. Offer up to 6 likely answers as choices; the user may still type their own. The turn pauses until they answer.',
+      parameters: { type: 'object', properties: { question: { type: 'string' },
+        choices: { type: 'array', items: { type: 'string' }, maxItems: 6 } }, required: ['question'], additionalProperties: false },
       execute: async (_id, args, signal) => {
-        const answer = await this.ask(state, 'clarify', { questions: [{ qid: 'answer', question: args.question }] }, signal);
-        return { content: [{ type: 'text', text: JSON.stringify(answer?.answers ?? {}) }], details: {} };
+        const question = String(args.question ?? '').slice(0, 1000);
+        const choices = Array.isArray(args.choices) ? args.choices.filter(c => typeof c === 'string' && c.trim()).slice(0, 6).map(c => c.slice(0, 120)) : [];
+        const reply = await this.ask(state, 'clarify', { questions: [{ qid: 'answer', question, ...(choices.length ? { choices } : {}) }] }, signal);
+        const answer = typeof reply?.answers?.answer === 'string' ? reply.answers.answer.slice(0, 8000) : null;
+        if (answer === null) return { content: [{ type: 'text', text: 'The user gave no answer. Do not assume one; continue without it or say what is needed.' }], details: {} };
+        // Answers are decisions the rest of the chat relies on; keep them past compaction.
+        const answers = state.record.answers ??= [];
+        answers.push({ question: question.slice(0, 300), answer: answer.slice(0, 300), at: new Date().toISOString() });
+        while (answers.length > 50) answers.shift();
+        try { await this.store.save(state.record); } catch { /* The answer still reaches the model. */ }
+        return { content: [{ type: 'text', text: `User answered: ${answer}` }], details: {} };
       }
     });
     return tools;
@@ -140,9 +151,13 @@ export class HeyMateHarness {
   }
   effectsNote(state) {
     const done = (state.record.effects ?? []).filter(effect => effect.status !== 'failed').slice(-40);
-    if (!done.length) return '';
-    return 'Side effects already done in this chat. Never redo them; check the receipt first.\n'
-      + done.map(effect => `- ${effect.tool} ${effect.target} [${effect.status === 'done' ? 'done' : 'outcome unknown'}] key=${effect.key}${effect.receipt ? ` receipt: ${effect.receipt}` : ''}`).join('\n');
+    const answers = (state.record.answers ?? []).slice(-20);
+    const parts = [];
+    if (done.length) parts.push('Side effects already done in this chat. Never redo them; check the receipt first.\n'
+      + done.map(effect => `- ${effect.tool} ${effect.target} [${effect.status === 'done' ? 'done' : 'outcome unknown'}] key=${effect.key}${effect.receipt ? ` receipt: ${effect.receipt}` : ''}`).join('\n'));
+    if (answers.length) parts.push('Answers the user already gave in this chat. Do not ask again.\n'
+      + answers.map(entry => `- Q: ${entry.question} A: ${entry.answer}`).join('\n'));
+    return parts.join('\n\n');
   }
   async logStats(state, stats) {
     try {
@@ -274,7 +289,8 @@ export class HeyMateHarness {
       return { status: 'reloaded' };
     }
     if (method === 'image.attach_bytes') {
-      if (state.running || state.images.length >= 8 || !boundedText(p.content_base64, 6 * 1024 * 1024)) throw new Error('Invalid image attachment.');
+      // While a turn runs, images may only be attached for a steer message.
+      if (state.images.length >= 8 || !boundedText(p.content_base64, 6 * 1024 * 1024)) throw new Error('Invalid image attachment.');
       const mime = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }[p.filename?.split('.').at(-1)];
       if (!mime || state.images.reduce((sum, image) => sum + Buffer.from(image.data, 'base64').length, 0)
         + Buffer.from(p.content_base64, 'base64').length > 4 * 1024 * 1024) throw new Error('Image limit exceeded.');
@@ -299,8 +315,9 @@ export class HeyMateHarness {
       // A message sent mid-turn joins the running turn at its next model call
       // instead of cancelling the work already in progress.
       if (!state.running || !state.session?.steer) throw new Error('No running turn to add to. Send it as a new message.');
+      const images = state.images.splice(0);
       if (!boundedText(p.text, 65536)) throw new Error('Invalid prompt.');
-      await state.session.steer(p.text, undefined, { source: 'rpc' });
+      await state.session.steer(p.text, images.length ? images : undefined, { source: 'rpc' });
       const rowID = state.record.rows.length + 1;
       state.record.rows.push({ id: rowID, role: 'user', content: p.text, delivery: 'steer' });
       await this.store.save(state.record);

@@ -4214,14 +4214,23 @@ final class CompanionManager: ObservableObject {
         shouldCaptureScreen: Bool,
         imageAttachments: [ChatImageAttachment] = []
     ) {
-        // A text-only follow-up joins the running HeyMate Agent turn instead of
-        // cancelling it; the agent reads it before its next step.
+        // A follow-up joins the running HeyMate Agent turn instead of cancelling
+        // it; the agent reads it, with any screen or attached images, before its next step.
         let steerSession = backgroundRoutineSession ?? (isHeyMateTalkTurn ? heyMateTalkSession : currentChat)
-        if imageAttachments.isEmpty, !shouldCaptureScreen, currentResponseCompletion?.didComplete == false,
+        if currentResponseCompletion?.didComplete == false,
            let client = mateAgentConversationClients[steerSession.id], client.canSteer {
-            appendUserMessage(transcript)
+            appendUserMessage(transcript, attachmentNames: imageAttachments.map(\.fileName))
+            let capturesScreen = shouldCaptureScreen && !isFrontmostAppScreenExcluded
+            let focusedWindow = talkUsesFocusedWindowContext
             Task { [weak self] in
-                do { try await client.steer(transcript) }
+                var images: [(data: Data, label: String)] = []
+                if capturesScreen {
+                    CaptureAudit.shared.recordCaptureAttempt(context: CaptureAudit.Context.talkResponsePipeline)
+                    let captures = (try? await (focusedWindow ? ScreenCapture.focusedWindow() : ScreenCapture.allScreens())) ?? []
+                    images += captures.map { (data: $0.imageData, label: $0.label) }
+                }
+                images += imageAttachments.map { (data: $0.data, label: $0.modelLabel) }
+                do { try await client.steer(transcript, images: images) }
                 catch { self?.commandBarFeedback = "That message could not join the running turn. Send it again when the turn ends." }
             }
             return

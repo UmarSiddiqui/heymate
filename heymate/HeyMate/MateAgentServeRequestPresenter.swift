@@ -47,20 +47,23 @@ final class MateAgentServeRequestPresenter {
                 let label = NSTextField(wrappingLabelWithString: String(prompt.prefix(1_000)))
                 label.preferredMaxLayoutWidth = 420
                 stack.addArrangedSubview(label)
+                let labels: [String]
                 if case .array(let choices) = item["choices"] {
-                    let labels = choices.compactMap { value -> String? in
+                    labels = choices.prefix(6).compactMap { value -> String? in
                         if case .string(let text) = value { return String(text.prefix(120)) }
                         return nil
                     }
-                    if !labels.isEmpty {
-                        let choicesLabel = NSTextField(wrappingLabelWithString: "Choices: " + labels.joined(separator: "; "))
-                        choicesLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-                        choicesLabel.preferredMaxLayoutWidth = 420
-                        stack.addArrangedSubview(choicesLabel)
-                    }
+                } else { labels = [] }
+                // Suggested answers are one click; the user can still type their own.
+                let field: NSTextField
+                if labels.isEmpty { field = NSTextField(string: "") }
+                else {
+                    let combo = NSComboBox(string: "")
+                    combo.addItems(withObjectValues: labels)
+                    combo.completes = true
+                    field = combo
                 }
-                let field = NSTextField(string: "")
-                field.placeholderString = "Your answer"
+                field.placeholderString = labels.isEmpty ? "Your answer" : "Pick a choice or type your own"
                 field.setAccessibilityLabel(prompt)
                 field.widthAnchor.constraint(equalToConstant: 420).isActive = true
                 stack.addArrangedSubview(field)

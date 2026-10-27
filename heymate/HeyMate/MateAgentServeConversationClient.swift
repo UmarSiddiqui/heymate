@@ -300,9 +300,9 @@ final class MateAgentServeConversationClient: VisionConversationClient {
     /// True while this chat's turn is streaming and can take a follow-up.
     var canSteer: Bool { turnInFlight && session?.canSteer == true }
 
-    func steer(_ text: String) async throws {
+    func steer(_ text: String, images: [(data: Data, label: String)] = []) async throws {
         guard let session, turnInFlight else { throw MateAgentServeSession.Failure.busy }
-        try await session.steer(text: text)
+        try await session.steer(text: text, images: images)
     }
 
     func acknowledgeDelivery(_ id: UUID) throws {

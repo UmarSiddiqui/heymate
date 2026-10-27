@@ -439,3 +439,33 @@ test('after compaction the side-effect ledger comes from the durable record, not
   assert.match(f.contexts.at(-1), /Side effects already done.*hm_gmail_send.*boss@example.com.*receipt: id 42/);
   assert.equal((await f.harness.messages(f.id, 1)).messages.at(-1).finish_reason, 'stop');
 });
+
+test('ask_user offers choices, records the answer and keeps it past compaction', async t => {
+  const f = await fixture(t), state = await f.harness.get(f.id);
+  f.peer.send = message => {
+    f.sent.push(message);
+    if (message.method === 'clarify') queueMicrotask(() => f.harness.answer(f.peer, { id: message.id, result: { answers: { answer: 'Blue' } } }));
+  };
+  const ask = (await f.harness.tools(state)).find(tool => tool.name === 'ask_user');
+  const result = await ask.execute('q1', { question: 'Which color?', choices: ['Blue', 'Red', '', 7] });
+  assert.deepEqual(f.sent.find(m => m.method === 'clarify').params.questions, [{ qid: 'answer', question: 'Which color?', choices: ['Blue', 'Red'] }]);
+  assert.equal(result.content[0].text, 'User answered: Blue');
+  assert.equal((await f.harness.store.load(f.id)).answers[0].answer, 'Blue');
+  assert.match(f.harness.effectsNote(state), /Q: Which color\? A: Blue/);
+  f.peer.send = message => { if (message.method === 'clarify') queueMicrotask(() => f.harness.answer(f.peer, { id: message.id, result: { answers: { answer: null } } })); };
+  assert.match((await ask.execute('q2', { question: 'Size?' })).content[0].text, /gave no answer/);
+});
+
+test('a steer message can carry images attached during the running turn', async t => {
+  let release; const steered = [];
+  const f = await fixture(t, async () => ({ messages: [{ role: 'assistant', stopReason: 'stop' }],
+    prompt: () => new Promise(resolve => { release = resolve; }), async steer(text, images) { steered.push([text, images?.length ?? 0]); },
+    getLastAssistantText: () => 'Seen', async abort() { release?.(); }, dispose() {} }));
+  await f.harness.dispatch(f.peer, 'prompt.submit', { session_id: f.id, text: 'First' });
+  while (!release) await new Promise(setImmediate);
+  await f.harness.dispatch(f.peer, 'image.attach_bytes', { session_id: f.id, filename: 'image.png', content_base64: Buffer.from('png').toString('base64') });
+  await f.harness.dispatch(f.peer, 'session.steer', { session_id: f.id, text: 'Look at this' });
+  assert.deepEqual(steered, [['Look at this', 1]]);
+  assert.equal((await f.harness.get(f.id)).images.length, 0);
+  release(); await (await f.harness.get(f.id)).run;
+});

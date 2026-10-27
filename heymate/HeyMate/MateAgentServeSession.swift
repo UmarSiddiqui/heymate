@@ -341,13 +341,28 @@ final class MateAgentServeSession {
 
     /// Adds a message to the running turn. The agent reads it at its next model
     /// call, so work already in progress is not cancelled or repeated.
-    func steer(text request: String) async throws {
+    func steer(text request: String, images: [(data: Data, label: String)] = []) async throws {
         guard canSteer, let identity else { throw Failure.busy }
-        guard !request.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, request.utf8.count <= 65_536 else { throw Failure.invalidInput }
-        let reply = try await connection.request(method: "session.steer", params: .object([
-            "session_id": .string(identity.runtimeID), "text": .string(request)
-        ]), timeout: .seconds(10))
-        guard case .object(let fields) = reply, fields["status"] == .string("queued") else { throw Failure.invalidAcceptance }
+        guard !request.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, request.utf8.count <= 65_536,
+              images.count <= 8, images.reduce(0, { $0 + $1.data.count }) <= 4 * 1_024 * 1_024,
+              images.allSatisfy({ Self.imageExtension($0.data) != nil }) else { throw Failure.invalidInput }
+        do {
+            for image in images {
+                let attached = try await connection.request(method: "image.attach_bytes", params: .object([
+                    "session_id": .string(identity.runtimeID), "content_base64": .string(image.data.base64EncodedString()),
+                    "filename": .string("image." + Self.imageExtension(image.data)!)
+                ]), timeout: .seconds(30))
+                guard case .object(let fields) = attached, fields["attached"] == .bool(true) else { throw Failure.invalidInput }
+            }
+            let reply = try await connection.request(method: "session.steer", params: .object([
+                "session_id": .string(identity.runtimeID), "text": .string(request)
+            ]), timeout: .seconds(10))
+            guard case .object(let fields) = reply, fields["status"] == .string("queued") else { throw Failure.invalidAcceptance }
+        } catch {
+            // Images attached for a steer that did not land must not reach a later turn.
+            if !images.isEmpty { close() }
+            throw error
+        }
     }
 
     func cancel() { Task { _ = await cancelAndWait() } }

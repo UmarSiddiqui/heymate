@@ -125,8 +125,11 @@ struct MateAgentServeConversationClientTests {
             guard ContinuousClock.now < deadline else { throw MateAgentServeWebSocket.Failure.timedOut }
             await Task.yield()
         }
-        try await client.steer("Also check the second file")
+        try await client.steer("Also check the second file",
+            images: [(data: Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0]), label: "screen")])
         #expect(try await turn.value.text == "Verified answer")
+        let methods = fixture.peers.first?.methods ?? []
+        #expect(try #require(methods.lastIndex(of: "image.attach_bytes")) < #require(methods.firstIndex(of: "session.steer")))
         #expect(fixture.peers.first?.prompts == ["Check work", "Also check the second file"])
         #expect(fixture.peers.first?.methods.contains("session.interrupt") == false)
         #expect(client.canSteer == false)
