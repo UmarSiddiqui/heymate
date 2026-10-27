@@ -268,6 +268,7 @@ class LocalInstallTests(unittest.TestCase):
         self.environment.update({
             "TEST_RUNNING": str(self.root / "running"),
             "TEST_EVENTS": str(self.root / "events.jsonl"),
+            "HEYMATE_PI_RUNTIME": str(self.root / "pi-runtime"),
             "TEST_FINGERPRINT": FINGERPRINT,
             "TEST_TEMPLATE": str(self.candidate),
         })
@@ -289,8 +290,9 @@ class LocalInstallTests(unittest.TestCase):
         self.assertEqual(self.workflow_events(), ["build", "quit", "open"])
         self.assertIn("remained alive (PID 23456)", result.stdout)
         self.assertEqual((self.installed / "Contents/MacOS/HeyMate").read_text(), "new")
+        # A verified launch removes its rollback copy: one HeyMate on the Mac.
         backups = list((self.root / "backups").glob("*/HeyMate.app/Contents/MacOS/HeyMate"))
-        self.assertEqual([path.read_text() for path in backups], ["old"])
+        self.assertEqual(backups, [])
         self.assertFalse((self.root / "Applications/.heymate-local-install.lock").exists())
 
     def test_build_failure_leaves_current_app_running(self):
