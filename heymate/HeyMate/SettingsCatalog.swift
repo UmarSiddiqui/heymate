@@ -156,6 +156,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
     case learnedWords
     case focusedWindow
     case interactionSounds
+    case captions
     case microphone
     case listenProvider
     case speakProvider
@@ -210,7 +211,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .talkShortcut, .chatShortcut, .dictateShortcut, .regionShortcut,
              .doubleTapText, .doubleTapHandsFree, .restoreShortcuts:
             return .shortcuts
-        case .silentMode, .dictationMode, .learnedWords, .focusedWindow, .interactionSounds,
+        case .silentMode, .dictationMode, .learnedWords, .focusedWindow, .interactionSounds, .captions,
              .microphone, .listenProvider, .speakProvider, .onDeviceVoice, .speechSpeed, .onDeviceVoiceStyle,
              .macVoice, .elevenLabsKey, .elevenLabsVoice:
             return .voice
@@ -250,6 +251,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .learnedWords: return "Learned words"
         case .focusedWindow: return "Look at the front window only"
         case .interactionSounds: return "Interaction sounds"
+        case .captions: return "Captions while HeyMate talks"
         case .microphone: return "Microphone"
         case .listenProvider: return "Listen with"
         case .speakProvider: return "Speak with"
@@ -308,6 +310,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .learnedWords: return "dictionary vocabulary corrections custom words names spelling"
         case .focusedWindow: return "context screen capture focused window front app"
         case .interactionSounds: return "clicks chime blip sound effects feedback audio"
+        case .captions: return "subtitles bottom screen read along transcript words hearing"
         case .microphone: return "mic input device audio headset airpods"
         case .listenProvider: return "speech recognition transcription parakeet apple elevenlabs stt"
         case .speakProvider: return "text to speech tts kokoro elevenlabs reply voice"

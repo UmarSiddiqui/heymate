@@ -90,6 +90,13 @@ final class ComputerUseExecutor {
     /// rather than instantaneous. Short enough not to feel sluggish.
     private static let synthesizedInputLeadIn: Duration = .milliseconds(280)
 
+    /// Stamped into the source user data of every event HeyMate posts, so
+    /// the take-back watcher can tell them from the person's own input.
+    nonisolated static let synthesizedEventTag: Int64 = 0x4865_794D
+
+    /// Pause between typed chunks, so a take-back can land mid-sentence.
+    private static let typingChunkPause: Duration = .milliseconds(8)
+
     func execute(
         _ request: ComputerUseRequest,
         approval: ComputerUseApprovalToken?
@@ -128,11 +135,13 @@ final class ComputerUseExecutor {
             return ComputerUseOutcome(summary: "Right-clicked.", payload: nil)
 
         case .moveCursor(let point):
+            try Task.checkCancellation()
             onWillSynthesizeInput?(point)
             postMouseEvent(type: .mouseMoved, at: point, button: .left, clickCount: 0)
             return ComputerUseOutcome(summary: "Moved the pointer.", payload: nil)
 
         case .scroll(let deltaX, let deltaY):
+            try Task.checkCancellation()
             postScroll(deltaX: deltaX, deltaY: deltaY)
             return ComputerUseOutcome(summary: "Scrolled.", payload: nil)
 
@@ -141,10 +150,11 @@ final class ComputerUseExecutor {
             return ComputerUseOutcome(summary: "Dragged.", payload: nil)
 
         case .typeText(let text):
-            try typeText(text)
+            try await typeText(text)
             return ComputerUseOutcome(summary: "Typed \(text.count) characters.", payload: nil)
 
         case .pressKeyCombination(let combination):
+            try Task.checkCancellation()
             try pressKeyCombination(combination)
             return ComputerUseOutcome(summary: "Pressed \(combination).", payload: nil)
 
@@ -235,7 +245,7 @@ final class ComputerUseExecutor {
     /// is the honesty tax on synthesizing input.
     private func synthesizeClick(at point: CGPoint, clickCount: Int, button: CGMouseButton) async throws {
         onWillSynthesizeInput?(point)
-        try? await Task.sleep(for: Self.synthesizedInputLeadIn)
+        try await Task.sleep(for: Self.synthesizedInputLeadIn)
 
         postMouseEvent(type: .mouseMoved, at: point, button: button, clickCount: 0)
         let downType: CGEventType = button == .right ? .rightMouseDown : .leftMouseDown
@@ -246,7 +256,7 @@ final class ComputerUseExecutor {
 
     private func synthesizeDrag(from start: CGPoint, to end: CGPoint) async throws {
         onWillSynthesizeInput?(start)
-        try? await Task.sleep(for: Self.synthesizedInputLeadIn)
+        try await Task.sleep(for: Self.synthesizedInputLeadIn)
 
         postMouseEvent(type: .mouseMoved, at: start, button: .left, clickCount: 0)
         postMouseEvent(type: .leftMouseDown, at: start, button: .left, clickCount: 1)
@@ -261,6 +271,11 @@ final class ComputerUseExecutor {
                 y: start.y + (end.y - start.y) * progress
             )
             postMouseEvent(type: .leftMouseDragged, at: intermediate, button: .left, clickCount: 1)
+            // Taken back mid-drag: let go of the button where it is.
+            if Task.isCancelled {
+                postMouseEvent(type: .leftMouseUp, at: intermediate, button: .left, clickCount: 1)
+                throw CancellationError()
+            }
             try? await Task.sleep(for: .milliseconds(12))
         }
         postMouseEvent(type: .leftMouseUp, at: end, button: .left, clickCount: 1)
@@ -282,7 +297,7 @@ final class ComputerUseExecutor {
         if clickCount > 0 {
             event.setIntegerValueField(.mouseEventClickState, value: Int64(clickCount))
         }
-        event.post(tap: .cghidEventTap)
+        Self.post(event)
     }
 
     private func postScroll(deltaX: Int, deltaY: Int) {
@@ -294,6 +309,11 @@ final class ComputerUseExecutor {
             wheel2: Int32(deltaX),
             wheel3: 0
         ) else { return }
+        Self.post(event)
+    }
+
+    private static func post(_ event: CGEvent) {
+        event.setIntegerValueField(.eventSourceUserData, value: synthesizedEventTag)
         event.post(tap: .cghidEventTap)
     }
 
@@ -302,7 +322,7 @@ final class ComputerUseExecutor {
     /// Unicode-first typing: rather than mapping characters to virtual key
     /// codes (which breaks on every non-US layout), post the string as the
     /// event's unicode payload. Emoji and accented text work unchanged.
-    private func typeText(_ text: String) throws {
+    private func typeText(_ text: String) async throws {
         guard AccessibilityElementFinder.isAccessibilityTrusted else {
             throw ComputerUseError.accessibilityPermissionMissing
         }
@@ -310,13 +330,15 @@ final class ComputerUseExecutor {
         // units per event is comfortably inside every observed limit.
         let utf16Units = Array(text.utf16)
         for chunkStart in stride(from: 0, to: utf16Units.count, by: 20) {
+            try Task.checkCancellation()
+            if chunkStart > 0 { try await Task.sleep(for: Self.typingChunkPause) }
             let chunk = Array(utf16Units[chunkStart..<min(chunkStart + 20, utf16Units.count)])
             guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
                   let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false) else { continue }
             keyDown.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: chunk)
             keyUp.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: chunk)
-            keyDown.post(tap: .cghidEventTap)
-            keyUp.post(tap: .cghidEventTap)
+            Self.post(keyDown)
+            Self.post(keyUp)
         }
     }
 
@@ -349,8 +371,8 @@ final class ComputerUseExecutor {
         }
         keyDown.flags = modifierFlags
         keyUp.flags = modifierFlags
-        keyDown.post(tap: .cghidEventTap)
-        keyUp.post(tap: .cghidEventTap)
+        Self.post(keyDown)
+        Self.post(keyUp)
     }
 
     /// Virtual key codes for the keys a chord can actually end on. Letters

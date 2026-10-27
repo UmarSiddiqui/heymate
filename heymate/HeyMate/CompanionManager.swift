@@ -600,6 +600,8 @@ final class CompanionManager: ObservableObject {
         let parsedActions = ComputerUseTagParser.parseActions(in: responseText)
         guard !parsedActions.isEmpty else { return nil }
 
+        computerUseCoordinator.beginDrive()
+        defer { computerUseCoordinator.endDrive() }
         var outcomeLines: [String] = []
         for parsed in parsedActions {
             guard !Task.isCancelled else { return nil }
@@ -609,6 +611,7 @@ final class CompanionManager: ObservableObject {
             )
             guard !Task.isCancelled else { return nil }
             outcomeLines.append(outcome)
+            if computerUseCoordinator.takeBackReason != nil { break }
         }
         return outcomeLines.joined(separator: "\n")
     }
@@ -755,6 +758,12 @@ final class CompanionManager: ObservableObject {
                 displayFrame: Self.nearestOnScreenPoint(to: location).display
             )
         }
+        // Talking is taking the wheel back, same as the mouse or Escape.
+        computerUseTakeBackCancellable = $state
+            .sink { [weak self] state in
+                guard case .listening = state else { return }
+                self?.computerUseCoordinator.takeBack(.voice)
+            }
     }
 
     /// Bridges the activity center's arbitration result onto this manager
@@ -2125,6 +2134,7 @@ final class CompanionManager: ObservableObject {
     private var spatialTransitionCancellable: AnyCancellable?
     private var chatTransitionCancellable: AnyCancellable?
     private var voiceStateCancellable: AnyCancellable?
+    private var computerUseTakeBackCancellable: AnyCancellable?
     private var audioPowerCancellable: AnyCancellable?
 
     /// Subscriptions owned by the notch micro-app layer. Separate from the
@@ -4125,6 +4135,7 @@ final class CompanionManager: ObservableObject {
         guidedClickLandedDuringTurn = false
         let turnSession = backgroundRoutineSession ?? (isHeyMateTalkTurn ? heyMateTalkSession : currentChat)
         computerUseCoordinator.conversationID = turnSession.id
+        computerUseCoordinator.beginTurn()
         currentResponseCompletion?.didComplete = true
         currentResponseTask?.cancel()
         voiceSynthesisClient.stopPlayback()

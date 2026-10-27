@@ -61,6 +61,13 @@ struct CompanionCursorView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var captionSize: CGSize = .zero
 
+    /// Settings › Voice › Captions while HeyMate talks: the reply sits at
+    /// the bottom of the screen like subtitles instead of beside the cursor.
+    nonisolated static let bottomCaptionsPreferenceKey = "captionsAtBottomOfScreen"
+    @AppStorage(Self.bottomCaptionsPreferenceKey) private var showsBottomCaptions = false
+    /// Gap between the subtitles and the bottom of the screen.
+    private static let bottomCaptionInset: CGFloat = 72
+
     @State private var trackingTimer: Timer?
     @State private var flightTimer: Timer?
     @State private var pointingTask: Task<Void, Never>?
@@ -171,21 +178,30 @@ struct CompanionCursorView: View {
         }
     }
 
-    /// The streamed reply beside the cursor, kept fully on screen.
+    /// The streamed reply beside the cursor, kept fully on screen. As
+    /// bottom captions it is wider, centred, and keeps only the newest
+    /// lines so it reads like subtitles rather than a page.
     private var caption: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: showsBottomCaptions ? .center : .leading, spacing: 4) {
             if let progress = companionManager.cursorCaptionProgress {
                 Text(progress)
                     .font(DS.Fonts.caption.weight(.medium))
                     .foregroundColor(DS.Colors.textSecondary)
             }
             Text(companionManager.cursorCaptionText)
-                .font(DS.Fonts.body)
+                .font(showsBottomCaptions ? DS.Fonts.reading : DS.Fonts.body)
                 .foregroundColor(DS.Colors.textPrimary)
+                .multilineTextAlignment(showsBottomCaptions ? .center : .leading)
                 .lineSpacing(2)
-                .lineLimit(8)
+                .lineLimit(showsBottomCaptions ? 3 : 8)
+                .truncationMode(showsBottomCaptions ? .head : .tail)
         }
-        .frame(maxWidth: max(80, min(300, screenFrame.width - 50)), alignment: .leading)
+        .frame(
+            maxWidth: showsBottomCaptions
+                ? max(80, min(720, screenFrame.width - 80))
+                : max(80, min(300, screenFrame.width - 50)),
+            alignment: showsBottomCaptions ? .center : .leading
+        )
         .padding(.horizontal, 13)
         .padding(.vertical, 9)
         .background(
@@ -200,13 +216,19 @@ struct CompanionCursorView: View {
         .fixedSize(horizontal: false, vertical: true)
         .onGeometryChange(for: CGSize.self) { $0.size } action: { captionSize = $0 }
         .position(captionPosition)
-        .transition(.scale(scale: 0.92, anchor: .topLeading).combined(with: .opacity))
+        .transition(.scale(scale: 0.92, anchor: showsBottomCaptions ? .bottom : .topLeading).combined(with: .opacity))
         .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: companionManager.cursorCaptionText.isEmpty)
         .allowsHitTesting(false)
     }
 
     private var captionPosition: CGPoint {
         let half = CGSize(width: captionSize.width / 2, height: captionSize.height / 2)
+        if showsBottomCaptions {
+            return CGPoint(
+                x: screenFrame.width / 2,
+                y: max(half.height, screenFrame.height - Self.bottomCaptionInset - half.height)
+            )
+        }
         let margin: CGFloat = 12
         let desiredX = position.x + captionSize.width + 20 > screenFrame.width - margin
             ? position.x - 20 - half.width : position.x + 20 + half.width

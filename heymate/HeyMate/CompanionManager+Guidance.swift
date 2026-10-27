@@ -279,6 +279,9 @@ extension CompanionManager {
                let outcome = await performComputerUseDirectives(in: step.text) {
                 try Task.checkCancellation()
                 outcomeLines.append(outcome)
+                // The user took the screen back: the rest of the steps
+                // were built on a screen they are now changing.
+                if computerUseCoordinator.takeBackReason != nil { break }
             }
             try Task.checkCancellation()
 
