@@ -423,6 +423,6 @@ struct PiDelegationToolTests {
         #expect(prompt.contains("send_to_mate"))
         #expect(prompt.contains("get_mate_status"))
         #expect(prompt.contains("answer_request"))
-        #expect(prompt.contains("never write them as text"))
+        #expect(prompt.contains("tool calls as text"))
     }
 }
