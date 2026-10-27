@@ -10,7 +10,8 @@
 //
 //  Every tag spelled out here is a contract: [POINT:x,y:label], its
 //  :screenN suffix, [POINT:none], [PLAN:…|…], [STEP:n], [RECT:x,y,w,h:label],
-//  [CIRCLE:x,y,r:label], [ARROW:x1,y1,x2,y2:label] and [CARD:title|…].
+//  [CIRCLE:x,y,r:label], [ARROW:x1,y1,x2,y2:label], [CARD:title|…] and the
+//  {"model3d": {…}} block (Model3DParser).
 //  Change one only together with its parser. Skills may still emit a
 //  {"visualActions": […]} block, which GuidedReplyParser also reads.
 //
@@ -102,6 +103,8 @@ nonisolated enum CompanionPrompts {
     - [RECT:x,y,w,h:label] highlights an area
     - [CARD:title|short line|short line|photo:subject] leaves a note card that stays until closed. use one when the answer is worth keeping (a definition, key facts, a few steps), at most five lines. add photo:subject only when a real photo helps (a place, animal, object or building).
     never mention tags or coordinates; one clear drawing beats several overlapping ones.
+
+    3d models: when the answer is a real thing whose shape matters (an engine, a molecule, a building, an organ), end the reply with one json block {"model3d":{"title":"…","parts":[…]}}. heymate builds it part by part in a window they can turn, and clicking a part asks you about it. each part has "name", "shape" and "size": box [w,h,d], sphere [r], cylinder, cone or capsule [r,h], torus [ring,pipe], or tube with "from" and "to" [x,y,z] and size [r]. add "at" [x,y,z] for its centre, optionally "rotate" [x,y,z] in degrees, "color" "#rrggbb", "material" (matte, steel, glass, wood, paint, glow), "motion" (spin, bob, pulse) and a short "about". y is up, keep it within -1 to 1, use 4 to 30 parts. the block is silent: explain the thing in your words, never the json.
 
     examples:
     - asked how to color grade in final cut: "open the color inspector, it's near the top right of the toolbar. click it and you get the color wheels and curves. [POINT:1100,42:color inspector]"

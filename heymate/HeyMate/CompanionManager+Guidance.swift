@@ -202,6 +202,12 @@ extension CompanionManager {
         if !reply.visualActions.isEmpty, !screenCaptures.isEmpty {
             applyVisualActions(reply.visualActions, screenCaptures: screenCaptures)
         }
+        if let model = reply.model3D {
+            let screen = screenCaptures.first(where: \.isCursorScreen) ?? screenCaptures.first
+            if let frame = screen?.displayFrame ?? NSScreen.main?.frame {
+                model3DWindowController.show(model, on: frame)
+            }
+        }
         let steps = reply.steps.filter { !$0.displayText.isEmpty || $0.pointsSomewhere }
         guard !steps.isEmpty else { return (nil, nil) }
 

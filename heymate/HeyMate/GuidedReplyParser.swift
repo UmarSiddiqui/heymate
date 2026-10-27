@@ -46,6 +46,8 @@ nonisolated struct GuidedReply: Equatable {
     let walkthroughDirectives: [WalkthroughDirective]
     /// Drawings from a {"visualActions": [...]} block, shown as the reply starts.
     var visualActions: [VisualAction] = []
+    /// A 3D model from a {"model3d": {...}} block, built as the reply starts.
+    var model3D: Model3DSpec?
 
     /// The reply as one passage, visual and walkthrough tags removed.
     /// Other directives ([ACT], [WORK], handoffs) stay for their own parsers.
@@ -73,20 +75,27 @@ nonisolated enum GuidedReplyParser {
     private static let controlTagPrefixes = PointingTagParser.visualTagPrefixes + ["[PLAN", "[STEP", "[ACT", "[WORK", "[ASK"]
 
     static func parse(_ responseText: String) -> GuidedReply {
-        // The json block is silent: lift it out before anything is spoken.
-        let (withoutDrawings, visualActions) = VisualActionParser.extract(from: responseText)
+        // The json blocks are silent: lift them out before anything is spoken.
+        let (withoutModel, model3D) = Model3DParser.extract(from: responseText)
+        let (withoutDrawings, visualActions) = VisualActionParser.extract(from: withoutModel)
         let (withoutWalkthrough, directives) = extractWalkthroughDirectives(from: withoutDrawings)
         return GuidedReply(
             steps: steps(from: withoutWalkthrough),
             walkthroughDirectives: directives,
-            visualActions: visualActions
+            visualActions: visualActions,
+            model3D: model3D
         )
     }
 
     /// Text safe to show while a reply is still streaming: complete tags
     /// removed anywhere, and a half-arrived tag at the end dropped.
     static func streamingDisplayText(_ partialText: String) -> String {
-        var text = strippingControlTags(from: partialText)
+        var text = Model3DParser.extract(from: partialText).text
+        // A model block still arriving is never shown.
+        if let blockStart = Model3DParser.openBlockStart(in: text) {
+            text = String(text[..<blockStart])
+        }
+        text = strippingControlTags(from: text)
         if let openBracket = text.lastIndex(of: "["), !text[openBracket...].contains("]") {
             let fragment = text[openBracket...].uppercased()
             let isPartialTag = controlTagPrefixes.contains { prefix in

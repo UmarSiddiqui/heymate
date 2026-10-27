@@ -3009,9 +3009,13 @@ final class CompanionManager: ObservableObject {
 
     private let floatingAgentWindowController = FloatingAgentWindowController()
     let drawCardWindowController = DrawCardWindowController()
+    let model3DWindowController = Model3DWindowController()
 
     func start() {
         floatingAgentWindowController.start(manager: self)
+        model3DWindowController.onAskAboutPart = { [weak self] title, part in
+            self?.askAboutModelPart(part, inModel: title)
+        }
         refreshAllPermissions()
         HeyMateLog.log("🔑 HeyMate start — accessibility: \(hasAccessibilityPermission), inputMonitoring: \(MacPermissions.hasInputMonitoringPermission()), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
         startPermissionPolling()
@@ -3542,8 +3546,9 @@ final class CompanionManager: ObservableObject {
         activeSpatialSelection = nil
         spatialSelectionScreenFrame = nil
         clearAnnotations()
-        // Cards outlive a turn, but Escape clears the whole screen.
+        // Cards and models outlive a turn, but Escape clears the whole screen.
         drawCardWindowController.closeAll()
+        model3DWindowController.close()
     }
 
     func clearSpatialSelection() {
@@ -4339,9 +4344,12 @@ final class CompanionManager: ObservableObject {
                     // its answer as a second native work/connector invocation.
                     let serveClient = talkClient as? MateAgentServeConversationClient
                     let delivery = serveClient?.latestDelivery
-                    appendAssistantMessage(fullResponseText, resultKey: delivery?.key)
+                    // The chat keeps the words; a model block becomes a short note.
+                    let (chatText, shownModel) = Model3DParser.extract(from: fullResponseText)
+                    let shownText = shownModel.map { chatText + "\n\n(Built a 3D model: \($0.title).)" } ?? fullResponseText
+                    appendAssistantMessage(shownText, resultKey: delivery?.key)
                     if let delivery { try serveClient?.acknowledgeDelivery(delivery.id) }
-                    rememberFinishedTalkExchange(user: transcript, assistant: fullResponseText)
+                    rememberFinishedTalkExchange(user: transcript, assistant: shownText)
                     updateRollingSessionSummary()
                     if activeRoutineTurn != nil {
                         completeActiveRoutineTurn(.success(fullResponseText))
@@ -4669,6 +4677,15 @@ final class CompanionManager: ObservableObject {
     }
 
     // MARK: - Structured Drawing Annotations
+
+    /// A click on a part of a 3D model asks about that part, with the
+    /// screen (and so the model) in view.
+    func askAboutModelPart(_ part: String, inModel title: String) {
+        sendTranscriptToClaudeWithScreenshot(
+            transcript: "In the \(title) model, what is the \(part) and what does it do?",
+            shouldCaptureScreen: true
+        )
+    }
 
     /// Resolves the model's visual actions against the captured displays and
     /// publishes them for rendering. A "clear" action removes everything
