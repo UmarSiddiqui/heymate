@@ -3,7 +3,8 @@
 //  HeyMate
 //
 //  Splits a Talk reply into guidance steps: each sentence run that ends in
-//  a [POINT:] / [RECT:] / [SCRIBBLE:] tag becomes one step, so the buddy can
+//  a visual tag ([POINT:], [RECT:], [CIRCLE:], [ARROW:], [CARD:] or
+//  [SCRIBBLE:]) becomes one step, so the buddy can
 //  point at step one while saying step one, then move on. Also reads the
 //  walkthrough tags ([PLAN:a|b|c], [STEP:n], [PLAN:done]) that let a
 //  multi-turn walkthrough remember where the user is.
@@ -43,6 +44,8 @@ nonisolated enum WalkthroughDirective: Equatable {
 nonisolated struct GuidedReply: Equatable {
     let steps: [GuidanceStep]
     let walkthroughDirectives: [WalkthroughDirective]
+    /// Drawings from a {"visualActions": [...]} block, shown as the reply starts.
+    var visualActions: [VisualAction] = []
 
     /// The reply as one passage, visual and walkthrough tags removed.
     /// Other directives ([ACT], [WORK], handoffs) stay for their own parsers.
@@ -64,16 +67,19 @@ nonisolated struct GuidedReply: Equatable {
 
 nonisolated enum GuidedReplyParser {
 
-    private static let visualTagPattern = #"\[(?:POINT|RECT|SCRIBBLE):[^\]]*\]"#
+    private static let visualTagPattern = #"\[(?:POINT|RECT|CIRCLE|ARROW|CARD|SCRIBBLE):[^\]]*\]"#
     private static let walkthroughTagPattern = #"\[(?:PLAN|STEP):([^\]]*)\]"#
     private static let anyControlTagPattern = #"\[[A-Z]+:[^\]]*\]"#
-    private static let controlTagPrefixes = ["[POINT", "[RECT", "[SCRIBBLE", "[PLAN", "[STEP", "[ACT", "[WORK", "[ASK"]
+    private static let controlTagPrefixes = PointingTagParser.visualTagPrefixes + ["[PLAN", "[STEP", "[ACT", "[WORK", "[ASK"]
 
     static func parse(_ responseText: String) -> GuidedReply {
-        let (withoutWalkthrough, directives) = extractWalkthroughDirectives(from: responseText)
+        // The json block is silent: lift it out before anything is spoken.
+        let (withoutDrawings, visualActions) = VisualActionParser.extract(from: responseText)
+        let (withoutWalkthrough, directives) = extractWalkthroughDirectives(from: withoutDrawings)
         return GuidedReply(
             steps: steps(from: withoutWalkthrough),
-            walkthroughDirectives: directives
+            walkthroughDirectives: directives,
+            visualActions: visualActions
         )
     }
 

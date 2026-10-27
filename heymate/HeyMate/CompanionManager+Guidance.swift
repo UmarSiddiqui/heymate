@@ -199,6 +199,9 @@ extension CompanionManager {
         _ reply: GuidedReply,
         screenCaptures: [ScreenSnapshot]
     ) async throws -> (actionOutcome: String?, lastPointedLocation: CGPoint?) {
+        if !reply.visualActions.isEmpty, !screenCaptures.isEmpty {
+            applyVisualActions(reply.visualActions, screenCaptures: screenCaptures)
+        }
         let steps = reply.steps.filter { !$0.displayText.isEmpty || $0.pointsSomewhere }
         guard !steps.isEmpty else { return (nil, nil) }
 
@@ -227,10 +230,20 @@ extension CompanionManager {
             try Task.checkCancellation()
 
             if step.pointsSomewhere, let pointing = step.pointing {
-                removeAnnotations(withIDs: stepAnnotationIDs)
+                // Circles, arrows and cards build one picture across the
+                // reply; a new point or box replaces the step before it.
+                let addsToPicture: Bool
+                switch pointing.visualGuidance {
+                case .circle?, .arrow?, .card?: addsToPicture = true
+                default: addsToPicture = false
+                }
+                if !addsToPicture {
+                    removeAnnotations(withIDs: stepAnnotationIDs)
+                    stepAnnotationIDs = []
+                }
                 let before = Set(activeAnnotations.map(\.id))
                 applyPointingParseResult(pointing, screenCaptures: screenCaptures)
-                stepAnnotationIDs = Set(activeAnnotations.map(\.id)).subtracting(before)
+                stepAnnotationIDs.formUnion(Set(activeAnnotations.map(\.id)).subtracting(before))
                 // Drawings last as long as their step, not a fixed TTL.
                 extendAnnotations(withIDs: stepAnnotationIDs, by: 120)
                 if pointing.coordinate != nil {

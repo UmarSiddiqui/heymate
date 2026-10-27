@@ -39,18 +39,32 @@ private struct AnnotationShapeView: View {
     let annotation: ResolvedAnnotation
 
     @State private var appeared = false
+    /// 0…1 share of each stroke drawn so far: lines are inked in, not faded in.
+    @State private var inked: CGFloat = 0
 
     private static let strokeColor = DS.Colors.overlayCursorBlue
+    static let inkSeconds: Double = 0.55
 
     var body: some View {
         shapeBody
             .opacity(appeared ? 1 : 0)
-            .scaleEffect(appeared ? 1 : 1.06)
+            .scaleEffect(appeared || drawsAsInk ? 1 : 1.06)
             .onAppear {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
                     appeared = true
                 }
+                withAnimation(.easeOut(duration: Self.inkSeconds)) {
+                    inked = 1
+                }
             }
+    }
+
+    /// Shapes that are drawn stroke by stroke rather than popping in.
+    private var drawsAsInk: Bool {
+        switch annotation.kind {
+        case .point, .caption, .clear: return false
+        default: return true
+        }
     }
 
     @ViewBuilder
@@ -66,37 +80,44 @@ private struct AnnotationShapeView: View {
             // Custom shapes are proposed the full overlay frame, so their
             // path coordinates are already overlay-local — do not re-position.
             PolylineShape(points: annotation.points, close: false)
+                .trim(from: 0, to: inked)
                 .strokedOverlay()
 
         case .polygon:
             ZStack {
                 PolylineShape(points: annotation.points, close: true)
-                    .fill(Self.strokeColor.opacity(0.15))
+                    .fill(Self.strokeColor.opacity(0.15 * inked))
                 PolylineShape(points: annotation.points, close: true)
+                    .trim(from: 0, to: inked)
                     .strokedOverlay()
             }
 
         case .circle:
-            Ellipse()
-                .stroke(Self.strokeColor, lineWidth: 3)
-                .background(
-                    Ellipse().fill(Self.strokeColor.opacity(0.10))
-                )
-                .frame(width: annotation.radius.width * 2, height: annotation.radius.height * 2)
-                .shadow(color: Self.strokeColor.opacity(0.6), radius: 6)
-                .position(annotation.center)
+            ZStack {
+                Ellipse()
+                    .fill(Self.strokeColor.opacity(0.10 * inked))
+                    .frame(width: annotation.radius.width * 2, height: annotation.radius.height * 2)
+                    .position(annotation.center)
+                // A pen loop that overshoots its start, like a circle drawn by hand.
+                InkLoopShape(center: annotation.center, radius: annotation.radius, seed: Self.seed(for: annotation.id))
+                    .trim(from: 0, to: inked)
+                    .strokedOverlay()
+            }
 
         case .roundedRect:
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Self.strokeColor, lineWidth: 3)
+                .trim(from: 0, to: inked)
+                .stroke(Self.strokeColor, style: StrokeStyle(lineWidth: 3, lineCap: .round))
                 .frame(width: annotation.rect.width, height: annotation.rect.height)
                 .shadow(color: Self.strokeColor.opacity(0.6), radius: 6)
                 .position(x: annotation.rect.midX, y: annotation.rect.midY)
 
         case .highlight:
+            // A marker swept left to right.
             RoundedRectangle(cornerRadius: 4, style: .continuous)
                 .fill(DS.Colors.warning.opacity(0.22))
                 .frame(width: annotation.rect.width, height: annotation.rect.height)
+                .scaleEffect(x: max(inked, 0.001), y: 1, anchor: .leading)
                 .position(x: annotation.rect.midX, y: annotation.rect.midY)
 
         case .caption:
@@ -170,8 +191,41 @@ private struct AnnotationShapeView: View {
     private var arrowShape: some View {
         if annotation.points.count >= 2 {
             ArrowShape(start: annotation.points[0], end: annotation.points[1])
+                .trim(from: 0, to: inked)
                 .strokedOverlay()
         }
+    }
+
+    /// A stable per-annotation wobble, so a redraw never changes the loop.
+    static func seed(for id: UUID) -> Double {
+        Double(id.uuid.0) / 255 * 2 * .pi
+    }
+}
+
+/// A hand-drawn loop around an ellipse: it starts up and to the left,
+/// wobbles a little, and runs past its start so the ends do not meet.
+struct InkLoopShape: Shape {
+    let center: CGPoint
+    let radius: CGSize
+    let seed: Double
+
+    static let turns: Double = 1.12
+    static let samples = 72
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        for index in 0...Self.samples {
+            let progress = Double(index) / Double(Self.samples)
+            let angle = -1.9 + progress * Self.turns * 2 * .pi
+            // Widen slightly through the stroke so the overshoot clears the start.
+            let wobble = 1 + 0.035 * sin(3 * angle + seed) + 0.06 * progress
+            let point = CGPoint(
+                x: center.x + CGFloat(cos(angle) * wobble) * radius.width,
+                y: center.y + CGFloat(sin(angle) * wobble) * radius.height
+            )
+            if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
+        }
+        return path
     }
 }
 

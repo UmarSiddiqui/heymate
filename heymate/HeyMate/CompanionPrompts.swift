@@ -9,9 +9,10 @@
 //  described next to each other.
 //
 //  Every tag spelled out here is a contract: [POINT:x,y:label], its
-//  :screenN suffix, [POINT:none], [PLAN:…|…], [STEP:n], [RECT:x,y,w,h:label]
-//  and the {"visualActions": […]} block. Change one only together with its
-//  parser.
+//  :screenN suffix, [POINT:none], [PLAN:…|…], [STEP:n], [RECT:x,y,w,h:label],
+//  [CIRCLE:x,y,r:label], [ARROW:x1,y1,x2,y2:label] and [CARD:title|…].
+//  Change one only together with its parser. Skills may still emit a
+//  {"visualActions": […]} block, which GuidedReplyParser also reads.
 //
 
 import Foundation
@@ -95,21 +96,12 @@ nonisolated enum CompanionPrompts {
     when they want to be shown a task with several steps in an app ("how do i…", "show me how", "walk me through", "teach me"), and later steps only appear once earlier ones are done (a menu opens, a dialog appears, a page loads), don't guess at things you can't see yet. lay out the plan as [PLAN:first step|second step|third step], with no more than ten short steps written as commands, then guide ONLY the first: say it in a sentence or two, point at it, and write [STEP:1]. heymate keeps the plan, waits until they click what you pointed at (or say "next"), takes a new screenshot and asks you for the following step. a one-step answer never gets a plan. plan and step tags are silent: never mention them.
 
     drawing:
-    when a single point is not enough and arrows, circles, boxes, paths or highlights would explain it better, you can end the reply with ONE json code block of visual actions instead. its coordinates are NORMALIZED from 0 to 1 across that screen's width and height, measured from the top-left. set "screenId" to "screenN" to match the image labels (screen1 is the first labelled screen), or leave it out for the cursor's screen.
-
-    format: {"visualActions": [ ... ]}
-    types: point, arrow, circle, roundedRect, polygon, polyline, highlight, caption, clear.
-    - point and caption: {"type","x","y"}, and caption also takes "label"
-    - arrow: {"points":[[x1,y1],[x2,y2]]}, from start to end
-    - circle: {"center":[x,y],"radius":[rx,ry]}
-    - roundedRect and highlight: {"rect":[x,y,w,h]}
-    - polygon takes three or more points, polyline two or more
-    - clear erases everything drawn so far
-    any action can add a short "label" shown beside it and a "ttlMs" lifetime.
-
-    drawing rules: one reply never has both the json block and a [POINT:] tag; never mention the json, its keys or any coordinates, since they are silent visuals; one clear shape beats several overlapping ones.
-
-    boxes in a pointed sequence: in place of a [POINT:] tag, a step may use [RECT:x,y,w,h:label] in screenshot pixels to box an area rather than mark one spot. the box stays up while that step is spoken.
+    to explain with drawings, write one of these right after the sentence it goes with, in the same pixel space as [POINT:] (add :screenN for another screen). each draws in while its sentence is spoken, and they build one picture:
+    - [CIRCLE:x,y,r:label] rings something
+    - [ARROW:x1,y1,x2,y2:label] runs from one spot to another
+    - [RECT:x,y,w,h:label] highlights an area
+    - [CARD:title|short line|short line|photo:subject] leaves a note card that stays until closed. use one when the answer is worth keeping (a definition, key facts, a few steps), at most five lines. add photo:subject only when a real photo helps (a place, animal, object or building).
+    never mention tags or coordinates; one clear drawing beats several overlapping ones.
 
     examples:
     - asked how to color grade in final cut: "open the color inspector, it's near the top right of the toolbar. click it and you get the color wheels and curves. [POINT:1100,42:color inspector]"
@@ -117,6 +109,7 @@ nonisolated enum CompanionPrompts {
     - asked how to commit in xcode: "open the source control menu at the top and choose commit, or press command option c. [POINT:285,11:source control]"
     - the thing is on the second screen, away from the cursor: "that's on your other monitor, see the terminal window? [POINT:400,300:terminal:screen2]"
     - asked what the controls in a video player do: "that one plays and pauses [POINT:640,980:play button], the slider next to it scrubs through the video [POINT:900,980:timeline], and the gear on the right sets the quality [POINT:1500,980:settings]"
+    - asked what the eiffel tower is made of: "wrought iron, about eighteen thousand pieces riveted together. [CARD:eiffel tower|wrought iron, about 7,300 tonnes|18,038 parts, 2.5 million rivets|photo:eiffel tower]"
     - asked how to export a video in final cut: "[PLAN:open the file menu|choose share|pick export file|choose a format and save] start with the file menu at the top left. [POINT:80,11:file menu] [STEP:1]"
     """
 

@@ -3008,6 +3008,7 @@ final class CompanionManager: ObservableObject {
     }
 
     private let floatingAgentWindowController = FloatingAgentWindowController()
+    let drawCardWindowController = DrawCardWindowController()
 
     func start() {
         floatingAgentWindowController.start(manager: self)
@@ -3541,6 +3542,8 @@ final class CompanionManager: ObservableObject {
         activeSpatialSelection = nil
         spatialSelectionScreenFrame = nil
         clearAnnotations()
+        // Cards outlive a turn, but Escape clears the whole screen.
+        drawCardWindowController.closeAll()
     }
 
     func clearSpatialSelection() {
@@ -4743,7 +4746,12 @@ final class CompanionManager: ObservableObject {
             return screenCaptures.first(where: { $0.isCursorScreen })
         }()
 
-        if let targetScreenCapture, parseResult.visualGuidance != nil {
+        if case .card(let card)? = parseResult.visualGuidance {
+            let screen = targetScreenCapture ?? screenCaptures.first
+            if let frame = screen?.displayFrame ?? NSScreen.main?.frame {
+                drawCardWindowController.show(card, on: frame)
+            }
+        } else if let targetScreenCapture, parseResult.visualGuidance != nil {
             let actions = PointingTagParser.visualActions(
                 from: parseResult,
                 screenshotPixelWidth: targetScreenCapture.screenshotWidthInPixels,

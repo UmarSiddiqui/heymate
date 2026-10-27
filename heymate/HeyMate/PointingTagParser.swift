@@ -3,8 +3,10 @@
 //  HeyMate
 //
 //  Reads the visual tag a reply can end with — [POINT:x,y:label:screenN],
-//  [RECT:x,y,w,h:label:screenN] or [SCRIBBLE:x,y;x,y;...:label:screenN] —
-//  and splits it from the words to speak. Also trims a tag that is still
+//  [RECT:x,y,w,h:label:screenN], [CIRCLE:x,y,r:label:screenN],
+//  [ARROW:x1,y1,x2,y2:label:screenN], [SCRIBBLE:x,y;x,y;...:label:screenN]
+//  or [CARD:title|line|line|photo:subject] — and splits it from the words
+//  to speak. Also trims a tag that is still
 //  arriving mid-stream so text-to-speech never reads control syntax aloud.
 //  Moving the cursor and drawing stay in CompanionManager.
 //
@@ -23,6 +25,38 @@ nonisolated struct PointingParseResult: Equatable {
 nonisolated enum VisualGuidanceTag: Equatable {
     case rectangle(CGRect)
     case scribble([CGPoint])
+    case circle(center: CGPoint, radius: CGFloat)
+    case arrow(from: CGPoint, to: CGPoint)
+    case card(DrawCard)
+}
+
+/// A small note HeyMate leaves on screen while it explains: a title, up to
+/// five short lines and an optional photo subject looked up on Wikipedia.
+nonisolated struct DrawCard: Equatable {
+    static let maximumLines = 5
+
+    let title: String
+    let lines: [String]
+    let photoSubject: String?
+
+    /// Reads "title|line|line|photo:subject". Nil when there is no title.
+    init?(tagBody: String) {
+        var parts = tagBody.split(separator: "|", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        var photo: String?
+        parts.removeAll { part in
+            let lower = part.lowercased()
+            guard lower.hasPrefix("photo:") || lower.hasPrefix("photo=") else { return false }
+            let subject = part.dropFirst(6).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !subject.isEmpty { photo = subject }
+            return true
+        }
+        parts.removeAll(where: \.isEmpty)
+        guard let title = parts.first else { return nil }
+        self.title = String(title.prefix(60))
+        lines = parts.dropFirst().prefix(Self.maximumLines).map { String($0.prefix(120)) }
+        photoSubject = photo
+    }
 }
 
 nonisolated enum PointingTagParser {
@@ -39,6 +73,13 @@ nonisolated enum PointingTagParser {
     private static let rectTag = regex(
         #"\[RECT:(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)(?::([^\]:\s][^\]:]*?))?(?::screen(\d+))?\]\s*$"#
     )
+    private static let circleTag = regex(
+        #"\[CIRCLE:(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)(?::([^\]:\s][^\]:]*?))?(?::screen(\d+))?\]\s*$"#
+    )
+    private static let arrowTag = regex(
+        #"\[ARROW:(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)(?::([^\]:\s][^\]:]*?))?(?::screen(\d+))?\]\s*$"#
+    )
+    private static let cardTag = regex(#"\[CARD:([^\]]+)\]\s*$"#)
     private static let scribbleTag = regex(
         #"\[SCRIBBLE:([^:\]]+)(?::([^\]:\s][^\]:]*?))?(?::screen(\d+))?\]\s*$"#
     )
@@ -49,20 +90,23 @@ nonisolated enum PointingTagParser {
     }
 
     static func parse(_ text: String) -> PointingParseResult {
-        parseRectangle(text) ?? parseScribble(text) ?? parsePoint(text)
+        parseRectangle(text) ?? parseCircle(text) ?? parseArrow(text) ?? parseCard(text)
+            ?? parseScribble(text) ?? parsePoint(text)
     }
 
-    /// Drops a trailing, still-open `[POINT` / `[RECT` / `[SCRIBBLE` tag.
+    /// Drops a trailing, still-open visual tag such as `[POINT` or `[CARD`.
     static func stripTrailingFragment(_ text: String) -> String {
         guard let open = text.lastIndex(of: "["), !text[open...].contains("]") else { return text }
         let fragment = text[open...].uppercased()
-        let isVisualTag = ["[POINT", "[RECT", "[SCRIBBLE"].contains { tag in
+        let isVisualTag = visualTagPrefixes.contains { tag in
             tag.hasPrefix(fragment) || fragment.hasPrefix(tag + ":")
         }
         return isVisualTag ? String(text[..<open]).trimmingCharacters(in: .whitespacesAndNewlines) : text
     }
 
-    /// Turns RECT and SCRIBBLE geometry (screenshot pixels) into drawings in
+    static let visualTagPrefixes = ["[POINT", "[RECT", "[CIRCLE", "[ARROW", "[CARD", "[SCRIBBLE"]
+
+    /// Turns RECT, CIRCLE, ARROW and SCRIBBLE geometry (screenshot pixels) into drawings in
     /// normalized coordinates. POINT moves the cursor and is not drawn.
     static func visualActions(
         from result: PointingParseResult,
@@ -77,8 +121,20 @@ nonisolated enum PointingTagParser {
 
         var rect: [Double]?
         var points: [[Double]]?
+        var center: [Double]?
+        var radius: [Double]?
         let type: VisualAction.Kind
         switch guidance {
+        case .card:
+            // Cards are windows of their own, not drawings on the overlay.
+            return []
+        case .circle(let middle, let r):
+            type = .circle
+            center = [Double(middle.x) / width, Double(middle.y) / height]
+            radius = [Double(r) / width, Double(r) / height]
+        case .arrow(let from, let to):
+            type = .arrow
+            points = [[Double(from.x) / width, Double(from.y) / height], [Double(to.x) / width, Double(to.y) / height]]
         case .rectangle(let r):
             type = .highlight
             rect = [Double(r.minX) / width, Double(r.minY) / height, Double(r.width) / width, Double(r.height) / height]
@@ -93,8 +149,8 @@ nonisolated enum PointingTagParser {
             x: nil,
             y: nil,
             points: points,
-            center: nil,
-            radius: nil,
+            center: center,
+            radius: radius,
             rect: rect,
             label: result.elementLabel,
             ttlMs: 6000
@@ -125,6 +181,30 @@ nonisolated enum PointingTagParser {
         return PointingParseResult(spokenText: tag.spokenText, coordinate: nil, elementLabel: tag.label(5),
                                    screenNumber: tag.int(6),
                                    visualGuidance: .rectangle(CGRect(x: x, y: y, width: width, height: height)))
+    }
+
+    private static func parseCircle(_ text: String) -> PointingParseResult? {
+        guard let tag = Match(circleTag, in: text),
+              let x = tag.double(1), let y = tag.double(2), let r = tag.double(3), r > 0 else { return nil }
+        return PointingParseResult(spokenText: tag.spokenText, coordinate: nil, elementLabel: tag.label(4),
+                                   screenNumber: tag.int(5),
+                                   visualGuidance: .circle(center: CGPoint(x: x, y: y), radius: r))
+    }
+
+    private static func parseArrow(_ text: String) -> PointingParseResult? {
+        guard let tag = Match(arrowTag, in: text),
+              let x1 = tag.double(1), let y1 = tag.double(2),
+              let x2 = tag.double(3), let y2 = tag.double(4) else { return nil }
+        return PointingParseResult(spokenText: tag.spokenText, coordinate: nil, elementLabel: tag.label(5),
+                                   screenNumber: tag.int(6),
+                                   visualGuidance: .arrow(from: CGPoint(x: x1, y: y1), to: CGPoint(x: x2, y: y2)))
+    }
+
+    private static func parseCard(_ text: String) -> PointingParseResult? {
+        guard let tag = Match(cardTag, in: text), let body = tag.string(1),
+              let card = DrawCard(tagBody: body) else { return nil }
+        return PointingParseResult(spokenText: tag.spokenText, coordinate: nil, elementLabel: card.title,
+                                   screenNumber: nil, visualGuidance: .card(card))
     }
 
     private static func parseScribble(_ text: String) -> PointingParseResult? {

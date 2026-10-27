@@ -15,7 +15,7 @@ import Foundation
 
 /// One drawing/pointing instruction from the model. All coordinates are
 /// normalized 0…1 relative to the target display's size, top-left origin.
-struct VisualAction: Equatable {
+nonisolated struct VisualAction: Equatable {
     enum Kind: String, CaseIterable {
         case point
         case arrow
@@ -47,7 +47,7 @@ struct VisualAction: Equatable {
     let ttlMs: Int?
 }
 
-enum VisualActionParser {
+nonisolated enum VisualActionParser {
 
     /// Extracts a {"visualActions": [...]} JSON block from model output.
     /// Returns the response text with the block removed (safe to speak)
