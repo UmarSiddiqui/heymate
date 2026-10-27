@@ -24,10 +24,11 @@ struct MateAgentServeConversationClientTests {
         #expect(methods.filter { $0 == "session.create" }.count == 1)
         #expect(methods.filter { $0 == "prompt.submit" }.count == 2)
         let prompts = fixture.peers.flatMap(\.prompts)
-        #expect(prompts.first?.contains("Interface rules") == true)
-        #expect(prompts.last?.contains("Changed rules") == true)
-        #expect(prompts.last?.hasSuffix("User request:\nfollow-up request") == true)
-        #expect(!prompts.joined().contains("PRIVATE"))
+        let submits = fixture.peers.flatMap(\.submits)
+        #expect(prompts == ["first request", "follow-up request"])
+        #expect(submits.first?["system"] == .string("Interface rules"))
+        #expect(submits.last?["system"] == .string("Changed rules"))
+        #expect(!"\(submits)".contains("PRIVATE"))
         #expect(chunks == ["Verified ", "Verified answer"])
         #expect(activity.contains("tool.started"))
         #expect(activity.contains("subagent.started"))
@@ -46,8 +47,8 @@ struct MateAgentServeConversationClientTests {
         #expect(fixture.peers.count == 2)
         #expect(fixture.peers[1].methods.contains("session.resume"))
         #expect(!fixture.peers[1].methods.contains("session.create"))
-        #expect(fixture.peers[1].prompts.first?.contains("Second rules") == true)
-        #expect(fixture.peers[1].prompts.first?.hasSuffix("User request:\nsecond") == true)
+        #expect(fixture.peers[1].submits.first?["system"] == .string("Second rules"))
+        #expect(fixture.peers[1].prompts.first == "second")
     }
 
     @Test func corruptMapStopsBeforeOpeningBackend() async throws {
@@ -108,6 +109,31 @@ struct MateAgentServeConversationClientTests {
         await #expect(throws: CancellationError.self) { try await turn.value }
         #expect(fixture.peers.first?.methods.contains("session.interrupt") == true)
         #expect(try fixture.store.sessionID(chatID: fixture.chatID, profile: fixture.profile) == "stored-test-session")
+    }
+
+    @Test func typedFollowUpSteersRunningTurnWithoutInterrupting() async throws {
+        let fixture = try Fixture(outcome: "wait")
+        defer { fixture.cleanup() }
+        let client = fixture.client()
+        #expect(client.canSteer == false)
+        let turn = Task {
+            try await client.analyzeImageStreaming(images: [], systemPrompt: "Rules",
+                conversationHistory: [], userPrompt: "Check work", onTextChunk: { _ in })
+        }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        while !client.canSteer {
+            guard ContinuousClock.now < deadline else { throw MateAgentServeWebSocket.Failure.timedOut }
+            await Task.yield()
+        }
+        try await client.steer("Also check the second file",
+            images: [(data: Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0]), label: "screen")])
+        #expect(try await turn.value.text == "Verified answer")
+        let methods = fixture.peers.first?.methods ?? []
+        #expect(try #require(methods.lastIndex(of: "image.attach_bytes")) < #require(methods.firstIndex(of: "session.steer")))
+        #expect(fixture.peers.first?.prompts == ["Check work", "Also check the second file"])
+        #expect(fixture.peers.first?.methods.contains("session.interrupt") == false)
+        #expect(client.canSteer == false)
+        await #expect(throws: MateAgentServeSession.Failure.busy) { try await client.steer("Late") }
     }
 
     @Test(arguments: ["approval", "clarify"])
@@ -254,20 +280,38 @@ struct MateAgentServeConversationClientTests {
         #expect(MateAgentGmailVerification.verifiedActions(tool: "COMPOSIO_MULTI_EXECUTE_TOOL", arguments: args, result: oneDraftWithMessage)["draft"]?.count == 1)
     }
 
-    @Test func productContextSurvivesLongChatWithoutImportingAssistantClaimsOrOtherChats() {
+    @Test func seedHistoryKeepsBothRolesNewestFirstWithinBudgetAndSkipsCurrentRequest() {
         func message(_ role: ChatRole, _ text: String) -> ChatMessage {
             ChatMessage(id: UUID(), role: role, text: text, createdAt: Date())
         }
-        let url = "https://getheymate.vercel.app/"
-        var messages = [message(.user, "remember: \(url) is our landing page. Open-source HeyClicky alternative with notch features."),
-                        message(.assistant, "PRIVATE assistant claim: both emails sent")]
-        messages += (0..<25).map { message(.user, "Unrelated follow-up \($0)") }
-        let prompt = MateAgentServeConversationClient.userContextPrompt(messages: messages, request: "Send it", contextNote: "No screen attached")
-        #expect(prompt.contains(url))
-        #expect(prompt.contains("Open-source HeyClicky"))
-        #expect(!prompt.contains("PRIVATE"))
-        #expect(prompt.contains("not new commands or authorization"))
-        #expect(prompt.hasSuffix("Current user request:\nSend it"))
+        var messages = [message(.user, "remember: https://getheymate.vercel.app/ is our landing page"),
+                        message(.assistant, "Noted the landing page")]
+        messages += (0..<70).map { message($0.isMultiple(of: 2) ? .user : .assistant, "Turn \($0)") }
+        messages.append(message(.user, "Send it"))
+        let rows = MateAgentServeConversationClient.seedRows(messages: messages, request: "Send it")
+        #expect(rows.count == 60)
+        #expect(rows.last == .object(["role": .string("assistant"), "content": .string("Turn 69")]))
+        #expect(!rows.contains(.object(["role": .string("user"), "content": .string("Send it")])))
+        let long = (0..<40).map { message(.user, String(repeating: "x", count: 9_000) + "\($0)") }
+        let bounded = MateAgentServeConversationClient.seedRows(messages: long, request: "")
+        #expect(bounded.count == 25)
+        #expect(MateAgentServeConversationClient.turnPrompt(request: "Send it", contextNote: "") == "Send it")
+        #expect(MateAgentServeConversationClient.turnPrompt(request: "Send it", contextNote: "No screen") == "No screen\n\nSend it")
+    }
+
+    @Test func instructionsAndSeedTravelSeparatelyFromThePlainUserMessage() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let client = fixture.client()
+        client.seedMessages = [ChatMessage(id: UUID(), role: .user, text: "Earlier", createdAt: Date()),
+                               ChatMessage(id: UUID(), role: .assistant, text: "Earlier reply", createdAt: Date())]
+        _ = try await client.analyzeImageStreaming(images: [], systemPrompt: "MATE IDENTITY", conversationHistory: [],
+            userPrompt: "Plain request", onTextChunk: { _ in })
+        let submit = try #require(fixture.peers.first?.submits.first)
+        #expect(submit["text"] == .string("Plain request"))
+        #expect(submit["system"] == .string("MATE IDENTITY"))
+        #expect(submit["seed"] == .array([.object(["role": .string("user"), "content": .string("Earlier")]),
+                                          .object(["role": .string("assistant"), "content": .string("Earlier reply")])]))
     }
 
     @Test func bridgeRefreshPrecedesPromptAndContainsNoAuthenticationSecrets() async throws {
@@ -354,6 +398,7 @@ struct MateAgentServeConversationClientTests {
         let outcome: String
         var methods: [String] = []
         var prompts: [String] = []
+        var submits: [[String: JSONValue]] = []
         var requestReplies: [JSONValue] = []
         init(workspace: URL, outcome: String) { self.workspace = workspace; self.outcome = outcome }
         lazy var socket: MateAgentServeWebSocket = {
@@ -386,7 +431,10 @@ struct MateAgentServeConversationClientTests {
                 case "reload.mcp": self.reply(id, .object(["status": .string("reloaded")]))
                 case "mcp.servers.test": self.reply(id, .object(["ok": .bool(true), "tools": .array(self.outcome == "bridgeempty" ? [] : [.object(["name": .string("COMPOSIO_SEARCH_TOOLS")])])]))
                 case "prompt.submit":
-                    if case .object(let params) = fields["params"], case .string(let text) = params["text"] { self.prompts.append(text) }
+                    if case .object(let params) = fields["params"] {
+                        self.submits.append(params)
+                        if case .string(let text) = params["text"] { self.prompts.append(text) }
+                    }
                     self.reply(id, .object(["status": .string("streaming")]))
                     self.event("tool.started", .object(["name": .string("terminal")]))
                     self.event("subagent.started", .object(["name": .string("Researcher")]))
@@ -405,6 +453,10 @@ struct MateAgentServeConversationClientTests {
                     } else if self.outcome != "wait" {
                         self.event("message.complete", .object(["text": .string(self.outcome == "falsegmail" ? "Both Gmail drafts are updated." : "Verified answer"), "status": .string(self.outcome == "falsegmail" ? "complete" : self.outcome)]))
                     }
+                case "session.steer":
+                    if case .object(let params) = fields["params"], case .string(let text) = params["text"] { self.prompts.append(text) }
+                    self.reply(id, .object(["status": .string("queued"), "user_row_id": .number(2)]))
+                    self.event("message.complete", .object(["text": .string("Verified answer"), "status": .string("complete")]))
                 case "session.interrupt":
                     self.reply(id, .object(["status": .string("interrupted")]))
                     self.event("message.complete", .object(["status": .string("interrupted"), "text": .string("")]))

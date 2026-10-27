@@ -83,6 +83,15 @@ run_xcodebuild() {
     "$@"
 }
 
+# Stage the Pi harness from this checkout. Without it the app keeps whatever
+# harness payload an earlier build left in DerivedData.
+if [ -z "${HEYMATE_PI_RUNTIME:-}" ]; then
+  HEYMATE_PI_RUNTIME="$ROOT_DIR/build/MateAgent"
+  rm -rf "$HEYMATE_PI_RUNTIME"
+  python3 "$ROOT_DIR/scripts/pi-runtime-build.py" --out "$HEYMATE_PI_RUNTIME"
+fi
+export HEYMATE_PI_RUNTIME
+
 run_xcodebuild build
 
 verify_debug_signatures() {

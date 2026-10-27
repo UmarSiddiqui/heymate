@@ -135,6 +135,17 @@ jobs:
           key: spm-${{ runner.os }}-${{ hashFiles('heymate/HeyMate.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-${{ runner.os }}-
 
+      - name: Set up pinned harness Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.21.0'
+
+      # Release builds refuse to run without a staged Pi harness payload.
+      - name: Prepare Pi harness payload
+        run: |
+          python3 heymate/scripts/pi-runtime-build.py --out "$RUNNER_TEMP/MateAgent"
+          echo "HEYMATE_PI_RUNTIME=$RUNNER_TEMP/MateAgent" >> "$GITHUB_ENV"
+
       - name: Build Release (universal, unsigned)
         run: |
           xcodebuild \

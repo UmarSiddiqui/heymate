@@ -1,13 +1,18 @@
 import { brainProviders, hasBrainCredential, configureBrain, modelEfforts } from './brain.mjs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { readFile, readdir, realpath } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, readdir, realpath, rename, stat } from 'node:fs/promises';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { SessionStore, validID, readJSON, saveJSON } from './store.mjs';
 
 const boundedText = (value, max) => typeof value === 'string' && value.length > 0 && Buffer.byteLength(value) <= max;
 const errorText = 'HeyMate could not finish this operation. Check model access or retry after reviewing progress.';
+// Provider errors can echo request fragments; never surface or log token-shaped text.
+const redact = value => String(value ?? '').replace(/(sk-|xox[a-z]-|ghp_|Bearer\s+)[A-Za-z0-9._-]{8,}/gi, '$1[redacted]');
+const validSeed = seed => Array.isArray(seed) && seed.length <= 200
+  && seed.every(row => (row?.role === 'user' || row?.role === 'assistant') && boundedText(row.content, 65536))
+  && Buffer.byteLength(JSON.stringify(seed)) <= 262144;
 
 export class HeyMateHarness {
   constructor({ home, access, createSession }) {
@@ -79,39 +84,119 @@ export class HeyMateHarness {
       const bridge = this.bridges.get(name);
       if (!bridge || bridge.sessionID !== state.record.id) continue;
       for (const tool of bridge.tools) {
+        const readOnly = tool.annotations?.readOnlyHint === true;
+        const call = async (id, args, signal) => {
+          signal?.throwIfAborted();
+          const current = this.bridges.get(name);
+          if (!current || current.sessionID !== state.record.id || !state.running) throw new Error('Connector scope expired.');
+          // The native scoped bridge enforces current-turn action approvals too.
+          const result = await current.client.callTool({ name: tool.name, arguments: args,
+            ...(id ? { _meta: { 'heymate/idempotency_key': id } } : {}) }, undefined, { signal });
+          if (result.isError) throw new Error('Connector action failed. Inspect returned tool evidence before reporting success.');
+          return { content: result.content ?? [], details: {} };
+        };
         tools.push({ name: `${name}_${tool.name}`, label: tool.name, description: tool.description || tool.name,
           parameters: tool.inputSchema,
-          execute: async (_id, args, signal) => {
-            signal?.throwIfAborted();
-            if (this.bridges.get(name) !== bridge || !state.running) throw new Error('Connector scope expired.');
-            // The native scoped bridge enforces current-turn action approvals too.
-            const result = await bridge.client.callTool({ name: tool.name, arguments: args }, undefined, { signal });
-            if (result.isError) throw new Error('Connector action failed. Inspect returned tool evidence before reporting success.');
-            return { content: result.content ?? [], details: {} };
-          }
+          // Reads may run beside each other; writes run one at a time, keyed and ledgered.
+          ...(readOnly ? {} : { executionMode: 'sequential' }),
+          execute: (id, args, signal) => readOnly ? call(null, args, signal)
+            : this.sideEffect(state, `${name}_${tool.name}`, args, id, key => call(key, args, signal))
         });
       }
     }
-    tools.push({ name: 'ask_user', label: 'Ask a question', description: 'Ask one short bundled set of questions when required facts are missing.',
-      parameters: { type: 'object', properties: { question: { type: 'string' } }, required: ['question'], additionalProperties: false },
+    tools.push({ name: 'ask_user', label: 'Ask a question',
+      description: 'Ask the user one short question when a required fact or decision is missing. Offer up to 6 likely answers as choices; the user may still type their own. The turn pauses until they answer.',
+      parameters: { type: 'object', properties: { question: { type: 'string' },
+        choices: { type: 'array', items: { type: 'string' }, maxItems: 6 } }, required: ['question'], additionalProperties: false },
       execute: async (_id, args, signal) => {
-        const answer = await this.ask(state, 'clarify', { questions: [{ qid: 'answer', question: args.question }] }, signal);
-        return { content: [{ type: 'text', text: JSON.stringify(answer?.answers ?? {}) }], details: {} };
+        const question = String(args.question ?? '').slice(0, 1000);
+        const choices = Array.isArray(args.choices) ? args.choices.filter(c => typeof c === 'string' && c.trim()).slice(0, 6).map(c => c.slice(0, 120)) : [];
+        const reply = await this.ask(state, 'clarify', { questions: [{ qid: 'answer', question, ...(choices.length ? { choices } : {}) }] }, signal);
+        const answer = typeof reply?.answers?.answer === 'string' ? reply.answers.answer.slice(0, 8000) : null;
+        if (answer === null) return { content: [{ type: 'text', text: 'The user gave no answer. Do not assume one; continue without it or say what is needed.' }], details: {} };
+        // Answers are decisions the rest of the chat relies on; keep them past compaction.
+        const answers = state.record.answers ??= [];
+        answers.push({ question: question.slice(0, 300), answer: answer.slice(0, 300), at: new Date().toISOString() });
+        while (answers.length > 50) answers.shift();
+        try { await this.store.save(state.record); } catch { /* The answer still reaches the model. */ }
+        return { content: [{ type: 'text', text: `User answered: ${answer}` }], details: {} };
       }
     });
     return tools;
   }
-  async run(state, text, images) {
+  // Every action that can change the world is recorded before and after it runs,
+  // keyed by its tool call, so a replayed call returns the earlier receipt
+  // instead of acting twice and compaction cannot forget what was done.
+  async sideEffect(state, name, args, toolCallID, run) {
+    const key = `${state.record.id}:${toolCallID}`;
+    const effects = state.record.effects ??= [];
+    const earlier = effects.find(effect => effect.key === key);
+    if (earlier?.status === 'done') return { content: [{ type: 'text', text: `Already done earlier (${key}): ${earlier.receipt}` }], details: {} };
+    if (earlier?.status === 'started') throw new Error('This action may already have run; its outcome is unknown. Check before trying again.');
+    const effect = { key, tool: name, target: JSON.stringify(args ?? {}).slice(0, 300), status: 'started', at: new Date().toISOString() };
+    effects.push(effect);
+    while (effects.length > 200) effects.shift();
+    await this.store.save(state.record);
     try {
-      state.session?.dispose();
-      state.session = await this.createSession({ home: this.home, record: state.record, access: this.access,
-        tools: await this.tools(state), approve: (name, args, signal) => this.approve(state, name, args, signal),
-        emit: (type, payload) => this.emit(state, type, payload) });
-      await this.store.save(state.record);
+      const result = await run(key);
+      effect.status = 'done';
+      effect.receipt = (result?.content ?? []).filter(part => part.type === 'text').map(part => part.text).join(' ').slice(0, 300) || 'ok';
+      return result;
+    } catch (error) {
+      effect.status = 'failed'; effect.receipt = redact(error?.message).slice(0, 300);
+      throw error;
+    } finally {
+      try { await this.store.save(state.record); } catch { /* The started entry keeps the outcome unknown. */ }
+    }
+  }
+  effectsNote(state) {
+    const done = (state.record.effects ?? []).filter(effect => effect.status !== 'failed').slice(-40);
+    const answers = (state.record.answers ?? []).slice(-20);
+    const parts = [];
+    if (done.length) parts.push('Side effects already done in this chat. Never redo them; check the receipt first.\n'
+      + done.map(effect => `- ${effect.tool} ${effect.target} [${effect.status === 'done' ? 'done' : 'outcome unknown'}] key=${effect.key}${effect.receipt ? ` receipt: ${effect.receipt}` : ''}`).join('\n'));
+    if (answers.length) parts.push('Answers the user already gave in this chat. Do not ask again.\n'
+      + answers.map(entry => `- Q: ${entry.question} A: ${entry.answer}`).join('\n'));
+    return parts.join('\n\n');
+  }
+  async logStats(state, stats) {
+    try {
+      const file = path.join(this.home, 'logs', 'turn-stats.jsonl');
+      await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+      if ((await stat(file).catch(() => null))?.size > 1024 * 1024) await rename(file, `${file}.1`);
+      await appendFile(file, JSON.stringify({ at: new Date().toISOString(), session_id: state.record.id, ...stats }) + '\n', { mode: 0o600 });
+    } catch { /* Telemetry never changes the turn outcome. */ }
+  }
+  async logFailure(state, error) {
+    try {
+      const file = path.join(this.home, 'logs', 'turn-failures.log');
+      await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+      if ((await stat(file).catch(() => null))?.size > 1024 * 1024) await rename(file, `${file}.1`);
+      await appendFile(file, JSON.stringify({ at: new Date().toISOString(), session_id: state.record.id,
+        error: redact(error?.stack ?? error).slice(0, 4000) }) + '\n', { mode: 0o600 });
+    } catch { /* Logging never changes the turn outcome. */ }
+  }
+  async run(state, text, images, system = '', seed = []) {
+    try {
+      // One Pi session per chat stays alive across turns. It is rebuilt only
+      // when its instructions or tool set change; Brain changes dispose it.
+      const tools = await this.tools(state);
+      const key = JSON.stringify([system, tools.map(tool => tool.name)]);
+      if (!state.session || state.sessionKey !== key) {
+        state.session?.dispose(); state.session = null;
+        state.session = await this.createSession({ home: this.home, record: state.record, access: this.access,
+          tools, system, seed, approve: (name, args, signal) => this.approve(state, name, args, signal),
+          sideEffect: (name, args, id, run) => this.sideEffect(state, name, args, id, run),
+          effectsNote: () => this.effectsNote(state), stats: stats => this.logStats(state, stats),
+          emit: (type, payload) => this.emit(state, type, payload) });
+        state.sessionKey = key;
+        await this.store.save(state.record);
+      }
       if (state.cancelled) throw new Error('Turn interrupted.');
       await state.session.prompt(text, { images, expandPromptTemplates: false });
       const last = state.session.messages.filter(m => m.role === 'assistant').at(-1);
       const answer = state.session.getLastAssistantText();
+      if (state.session.limitReached) throw new Error(state.session.limitReached);
       if (state.cancelled || last?.stopReason === 'aborted') throw new Error('Turn interrupted.');
       if (!answer?.trim() || last?.stopReason === 'error' || last?.stopReason === 'toolUse') throw new Error('No verified final answer.');
       state.record.rows.push({ id: state.record.rows.length + 1, role: 'assistant', content: answer, finish_reason: 'stop' });
@@ -119,12 +204,17 @@ export class HeyMateHarness {
       // Persist the terminal result before announcing completion.
       await this.store.save(state.record);
       this.emit(state, 'message.complete', { status: 'complete', text: answer });
-    } catch {
+    } catch (error) {
+      // Pi records provider failures on the assistant message rather than throwing.
+      const last = state.session?.messages?.filter(m => m.role === 'assistant').at(-1);
+      const reason = redact(state.session?.limitReached ?? (last?.stopReason === 'error' && last.errorMessage ? last.errorMessage : error?.message)).slice(0, 300);
+      if (!state.cancelled) await this.logFailure(state, last?.errorMessage ? `${last.errorMessage}\n${error?.stack ?? error}` : error);
       state.record.pending = false;
       state.record.rows.push({ id: state.record.rows.length + 1, role: 'assistant', content: errorText,
-        finish_reason: state.cancelled ? 'aborted' : 'error', display_kind: 'failed_turn' });
+        finish_reason: state.cancelled ? 'aborted' : 'error', display_kind: 'failed_turn', ...(reason && !state.cancelled ? { error_detail: reason } : {}) });
       try { await this.store.save(state.record); } catch { /* Native ledger remains unresolved. */ }
-      this.emit(state, 'message.complete', { status: state.cancelled ? 'interrupted' : 'error', error: state.cancelled ? 'Turn interrupted.' : errorText });
+      this.emit(state, 'message.complete', { status: state.cancelled ? 'interrupted' : 'error',
+        error: state.cancelled ? 'Turn interrupted.' : reason ? `${errorText} Reason: ${reason}` : errorText });
     } finally {
       state.running = false;
       for (const request of [...state.requests.values()]) request.finish(new Error('Turn ended.'));
@@ -199,7 +289,8 @@ export class HeyMateHarness {
       return { status: 'reloaded' };
     }
     if (method === 'image.attach_bytes') {
-      if (state.running || state.images.length >= 8 || !boundedText(p.content_base64, 6 * 1024 * 1024)) throw new Error('Invalid image attachment.');
+      // While a turn runs, images may only be attached for a steer message.
+      if (state.images.length >= 8 || !boundedText(p.content_base64, 6 * 1024 * 1024)) throw new Error('Invalid image attachment.');
       const mime = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }[p.filename?.split('.').at(-1)];
       if (!mime || state.images.reduce((sum, image) => sum + Buffer.from(image.data, 'base64').length, 0)
         + Buffer.from(p.content_base64, 'base64').length > 4 * 1024 * 1024) throw new Error('Image limit exceeded.');
@@ -209,14 +300,29 @@ export class HeyMateHarness {
     if (method === 'prompt.submit') {
       if (state.running || state.record.pending) throw new Error('Earlier turn requires review; it was not replayed.');
       if (!boundedText(p.text, 262144)) throw new Error('Invalid prompt.');
+      if (p.system !== undefined && p.system !== '' && !boundedText(p.system, 65536)) throw new Error('Invalid instructions.');
+      if (p.seed !== undefined && !validSeed(p.seed)) throw new Error('Invalid chat history.');
       state.running = true; state.cancelled = false;
       const rowID = state.record.rows.length + 1;
       state.record.rows.push({ id: rowID, role: 'user', content: p.text }); state.record.pending = true;
       try { await this.store.save(state.record); } catch (error) { state.running = false; throw error; }
       const images = state.images.splice(0);
       // Acceptance is separate from completion; native ledger records this exact row.
-      state.run = new Promise(resolve => setImmediate(resolve)).then(() => this.run(state, p.text, images));
+      state.run = new Promise(resolve => setImmediate(resolve)).then(() => this.run(state, p.text, images, p.system ?? '', p.seed ?? []));
       return { status: 'streaming', user_row_id: rowID };
+    }
+    if (method === 'session.steer') {
+      // A message sent mid-turn joins the running turn at its next model call
+      // instead of cancelling the work already in progress.
+      if (!state.running || !state.session?.steer) throw new Error('No running turn to add to. Send it as a new message.');
+      const images = state.images.splice(0);
+      if (!boundedText(p.text, 65536)) throw new Error('Invalid prompt.');
+      await state.session.steer(p.text, images.length ? images : undefined, { source: 'rpc' });
+      const rowID = state.record.rows.length + 1;
+      state.record.rows.push({ id: rowID, role: 'user', content: p.text, delivery: 'steer' });
+      await this.store.save(state.record);
+      this.emit(state, 'message.steered', { user_row_id: rowID });
+      return { status: 'queued', user_row_id: rowID };
     }
     if (method === 'session.interrupt') {
       state.cancelled = true;

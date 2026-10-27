@@ -6,6 +6,14 @@ HeyMate owns its harness. `heymate/agent-runtime/src/harness.mjs` implements the
 
 Native SwiftUI chat, mates, speech, screen capture policy and settings use `MateAgentServeConversationClient`. One authenticated, app-owned loopback process serves separate conversations. Its token is generated for each launch, never stored in model instructions, and checked by both HTTP and WebSocket routes. Browser-origin requests are rejected. Native startup checks the owned PID, private home, version and packaged revision. Missing configuration fails explicitly rather than selecting a different engine.
 
+## Sessions and context
+
+- One Pi session stays alive per chat across turns. It is rebuilt only when the turn's instructions or tool set change (for example a connector turn), and Brain changes dispose it. Pi's JSONL history is the conversation memory.
+- The native app sends interface instructions, mate identity and connector notes as `system` on `prompt.submit`; the harness appends them to Pi's system prompt. The user message holds only the user's words (plus a screen-availability note when relevant), so instructions are not stored or resent in history.
+- `prompt.submit` may carry `seed`: earlier native chat rows (user and assistant, newest 60, 200 KB budget). The harness writes them once, as a single labeled context message, only into a Pi session that has no history yet. Chats from before Pi, and chats reset after recovery, keep their context. Seeded assistant text is labeled as not proving actions happened.
+- Pi thinking, compaction and retry events reach the app as `agent.thinking`, `agent.compacting` and `agent.retrying` activity.
+- Failed turns keep the generic message in history, add a short redacted `error_detail`, show that reason in the app, and append the full redacted error to `pi-agent/logs/turn-failures.log` (0600, rotated at 1 MB).
+
 ## Tools and state
 
 - HeyMate wraps Pi's read/bash/edit/write tools. Every shell command and file mutation requires a native one-time approval. Reads do not prompt. Tools use the user's macOS access; approval is not an OS sandbox.

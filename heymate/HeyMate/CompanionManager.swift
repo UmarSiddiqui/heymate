@@ -4214,6 +4214,27 @@ final class CompanionManager: ObservableObject {
         shouldCaptureScreen: Bool,
         imageAttachments: [ChatImageAttachment] = []
     ) {
+        // A follow-up joins the running HeyMate Agent turn instead of cancelling
+        // it; the agent reads it, with any screen or attached images, before its next step.
+        let steerSession = backgroundRoutineSession ?? (isHeyMateTalkTurn ? heyMateTalkSession : currentChat)
+        if currentResponseCompletion?.didComplete == false,
+           let client = mateAgentConversationClients[steerSession.id], client.canSteer {
+            appendUserMessage(transcript, attachmentNames: imageAttachments.map(\.fileName))
+            let capturesScreen = shouldCaptureScreen && !isFrontmostAppScreenExcluded
+            let focusedWindow = talkUsesFocusedWindowContext
+            Task { [weak self] in
+                var images: [(data: Data, label: String)] = []
+                if capturesScreen {
+                    CaptureAudit.shared.recordCaptureAttempt(context: CaptureAudit.Context.talkResponsePipeline)
+                    let captures = (try? await (focusedWindow ? ScreenCapture.focusedWindow() : ScreenCapture.allScreens())) ?? []
+                    images += captures.map { (data: $0.imageData, label: $0.label) }
+                }
+                images += imageAttachments.map { (data: $0.data, label: $0.modelLabel) }
+                do { try await client.steer(transcript, images: images) }
+                catch { self?.commandBarFeedback = "That message could not join the running turn. Send it again when the turn ends." }
+            }
+            return
+        }
         mateAgentActivity = []
         let fastTextOnly = preferFastTextOnlyTalk
         preferFastTextOnlyTalk = false
@@ -4395,8 +4416,12 @@ final class CompanionManager: ObservableObject {
                         enabledApps: enabledChatComposioSlugs.sorted())
 
                 let fullResponseText: String
-                let engineUserPrompt = MateAgentServeConversationClient.userContextPrompt(messages: turnSession.messages,
-                    request: transcript, contextNote: contextUnavailableNote)
+                let engineUserPrompt = MateAgentServeConversationClient.turnPrompt(request: transcript, contextNote: contextUnavailableNote)
+                if let mateAgent = talkClient as? MateAgentServeConversationClient {
+                    var earlier = turnSession.messages
+                    if earlier.last?.role == .user, earlier.last?.text == transcript { earlier.removeLast() }
+                    mateAgent.seedMessages = earlier
+                }
 
                     (fullResponseText, _) = try await talkClient.analyzeImageStreaming(
                         images: labeledImages,

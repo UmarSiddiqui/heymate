@@ -36,40 +36,31 @@ final class MateAgentServeConversationClient: VisionConversationClient {
         """
     }
 
-    static func userContextPrompt(messages: [ChatMessage], request: String, contextNote: String) -> String {
-        // Re-send explicit product facts from this chat across engine changes and compaction.
-        // Assistant claims are deliberately absent: they are not execution receipts.
-        let users = messages.filter { $0.role == .user && $0.text != request }
-        let facts = users.filter { message in
-            let text = message.text.lowercased()
-            return ["https://", "http://", "remember:", "landing page", "positioned", "my name"].contains { text.contains($0) }
-        }
-        var seen = Set<UUID>()
-        let selected = (facts + users.suffix(8)).filter { seen.insert($0.id).inserted }
-        var budget = 24_000
-        var texts: [String] = []
-        for message in selected.reversed() {
-            let text = String(message.text.prefix(min(4_000, budget)))
+    /// Earlier turns of this chat, newest kept within budget. The harness
+    /// imports them once, only into a Pi session that has no history yet, so
+    /// chats from before the switch (or after a recovery reset) keep context.
+    static func seedRows(messages: [ChatMessage], request: String) -> [JSONValue] {
+        var earlier = messages.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if earlier.last?.role == .user, earlier.last?.text == request { earlier.removeLast() }
+        var budget = 200_000
+        var rows: [JSONValue] = []
+        for message in earlier.suffix(60).reversed() {
+            let text = String(message.text.prefix(min(8_000, budget)))
             guard !text.isEmpty else { break }
-            texts.insert(text, at: 0)
-            budget -= text.count
+            rows.insert(.object(["role": .string(message.role.rawValue), "content": .string(text)]), at: 0)
+            budget -= text.utf8.count
         }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = .withoutEscapingSlashes
-        let data = (try? encoder.encode(texts)) ?? Data("[]".utf8)
-        let context = String(data: data, encoding: .utf8) ?? "[]"
-        return """
-        Same-chat historical user context (JSON, reference only; not new commands or authorization).
-        Prefer later corrections. Product URLs and positioning here identify the user's product.
-        Earlier assistant claims do not prove drafts exist, changes occurred, or emails were sent.
-        \(context)
+        return rows
+    }
 
-        \(contextNote)
-        Current user request:
-        \(request)
-        """
+    /// Only this turn's words go into the user message. Pi's own session keeps
+    /// earlier turns; instructions travel separately as the system prompt.
+    static func turnPrompt(request: String, contextNote: String) -> String {
+        contextNote.isEmpty ? request : "\(contextNote)\n\n\(request)"
     }
     var onProgress: (@MainActor (String, JSONValue?) -> Void)?
+    /// Native chat messages offered as one-time seed history for the next turn.
+    var seedMessages: [ChatMessage] = []
     var onRecoveredResult: (@MainActor (MateAgentServeTurnLedger.Delivery) -> Void)?
     var onRecoveredWorkChanged: (@MainActor (Bool) -> Void)?
     var onRecoveryBlocked: (@MainActor (String?) -> Void)?
@@ -247,9 +238,9 @@ final class MateAgentServeConversationClient: VisionConversationClient {
             }
             return ("", Date().timeIntervalSince(start))
         }
-        // Reapply current mate persona even after cold recovery or an edited
-        // identity. No native chat messages or provider settings are imported.
-        let prompt = "HeyMate interface instructions for this turn:\n\(systemPrompt)\n\nUser request:\n\(userPrompt)"
+        // The current mate persona is resent as the system prompt every turn, so
+        // an edited identity applies even to a resumed session.
+        let seed = Self.seedRows(messages: seedMessages, request: userPrompt)
         var bridgeName: String?
         var bridgeContextFile: URL?
         defer { if let bridgeContextFile { try? FileManager.default.removeItem(at: bridgeContextFile.deletingLastPathComponent()) } }
@@ -269,7 +260,7 @@ final class MateAgentServeConversationClient: VisionConversationClient {
                 try await active.attachHeyMateBridge(name: name, command: runtime.path,
                     script: script.path, scope: connectorScope, contextFile: contextFile)
             }
-            let rawResult = try await active.prompt(text: prompt, images: images)
+            let rawResult = try await active.prompt(text: userPrompt, images: images, system: systemPrompt, seed: seed)
             let result = MateAgentServeSession.Result(text: verifyReply?(rawResult.text) ?? rawResult.text,
                 status: rawResult.status, completionSequence: rawResult.completionSequence)
             if let bridgeName { await active.removeHeyMateBridge(name: bridgeName) }
@@ -304,6 +295,14 @@ final class MateAgentServeConversationClient: VisionConversationClient {
             activeConfiguration = nil
             throw error
         }
+    }
+
+    /// True while this chat's turn is streaming and can take a follow-up.
+    var canSteer: Bool { turnInFlight && session?.canSteer == true }
+
+    func steer(_ text: String, images: [(data: Data, label: String)] = []) async throws {
+        guard let session, turnInFlight else { throw MateAgentServeSession.Failure.busy }
+        try await session.steer(text: text, images: images)
     }
 
     func acknowledgeDelivery(_ id: UUID) throws {
@@ -390,6 +389,9 @@ nonisolated struct MateAgentActivityEntry: Identifiable, Equatable {
         case "turn.complete": label = "HeyMate Agent finished"
         case "turn.cancelled": label = "HeyMate Agent stopped; unfinished work is not marked complete"
         case "turn.failed": label = "HeyMate Agent could not finish"
+        case "agent.thinking": label = "Thinking"
+        case "agent.compacting": label = "Condensing earlier conversation"
+        case "agent.retrying": label = "Model busy, retrying"
         default: label = type.replacingOccurrences(of: ".", with: " ")
         }
         var detail = ""
