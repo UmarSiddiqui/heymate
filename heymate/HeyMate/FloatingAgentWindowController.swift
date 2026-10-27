@@ -9,6 +9,7 @@ final class FloatingAgentWindowController {
     private var subscriptions = Set<AnyCancellable>()
     private var panels: [String: NSPanel] = [:]
     private var expandedPanelIDs = Set<String>()
+    private var replyingPanelID: String?
     private var yielded = false
     private var lastQuietState: Bool?
     private let noticeStore = FloatingAgentNoticeStore()
@@ -54,6 +55,7 @@ final class FloatingAgentWindowController {
         panels.values.forEach { $0.orderOut(nil); $0.contentView = nil }
         panels.removeAll()
         expandedPanelIDs.removeAll()
+        replyingPanelID = nil
         reportWindow?.close()
         reportWindow = nil
         reportNotice = nil
@@ -146,6 +148,7 @@ final class FloatingAgentWindowController {
                 case .update(let update): run = update.run
                 }
                 guard let mate = FloatingAgentPresentation.owner(for: run, mates: manager.mates) else { continue }
+                let canReply = run.status.isTerminal && manager.canSendAgentFollowUp(runID: run.id)
                 let view = FloatingAgentBubble(row: row, mate: mate, onOpen: {
                     let stored = run.chatOwner.flatMap { manager.chatHistoryStore.session(id: $0.chatID) }
                     if let chatID = FloatingAgentPresentation.ownedChatID(
@@ -165,8 +168,15 @@ final class FloatingAgentWindowController {
                     if expanded { self.expandedPanelIDs.insert(id) }
                     else { self.expandedPanelIDs.remove(id) }
                     let frame = FloatingAgentPresentation.bubbleFrame(
-                        visibleFrame: screen.visibleFrame, index: rowIndex, expanded: expanded)
+                        visibleFrame: screen.visibleFrame, index: rowIndex, expanded: expanded,
+                        replying: self.replyingPanelID == id)
                     panel.setFrame(frame, display: true)
+                }, canReply: canReply, onReply: { instruction in
+                    manager.sendAgentFollowUp(runID: run.id, instruction: instruction)
+                }, onReplyMode: { [weak self, weak panel] replying in
+                    guard let self, let panel, self.panels[id] === panel else { return }
+                    self.setReplying(replying, panel: panel, id: id, frame: FloatingAgentPresentation.bubbleFrame(
+                        visibleFrame: screen.visibleFrame, index: rowIndex, expanded: true, replying: replying))
                 })
                 let hosting: FloatingAgentHostingView
                 if let current = panel.contentView as? FloatingAgentHostingView {
@@ -174,7 +184,8 @@ final class FloatingAgentWindowController {
                     hosting = current
                 } else { hosting = FloatingAgentHostingView(rootView: AnyView(view)) }
                 let frame = FloatingAgentPresentation.bubbleFrame(
-                    visibleFrame: screen.visibleFrame, index: rowIndex, expanded: expandedPanelIDs.contains(id))
+                    visibleFrame: screen.visibleFrame, index: rowIndex, expanded: expandedPanelIDs.contains(id),
+                    replying: replyingPanelID == id)
                 hosting.sizingOptions = []
                 hosting.frame = CGRect(origin: .zero, size: frame.size)
                 hosting.autoresizingMask = [.width, .height]
@@ -186,7 +197,21 @@ final class FloatingAgentWindowController {
         for id in Set(panels.keys).subtracting(liveIDs) {
             if let panel = panels.removeValue(forKey: id) { panel.orderOut(nil); panel.contentView = nil }
             expandedPanelIDs.remove(id)
+            if replyingPanelID == id { replyingPanelID = nil }
         }
+    }
+
+    /// A reply needs keyboard focus, so only the bubble being answered may
+    /// become key, and only until the reply is sent or abandoned.
+    private func setReplying(_ replying: Bool, panel: NSPanel, id: String, frame: CGRect) {
+        if replying, let current = replyingPanelID, current != id,
+           let previous = panels[current] as? FloatingAgentPanel {
+            previous.acceptsKeyInput = false
+        }
+        replyingPanelID = replying ? id : (replyingPanelID == id ? nil : replyingPanelID)
+        (panel as? FloatingAgentPanel)?.acceptsKeyInput = replying
+        panel.setFrame(frame, display: true)
+        if replying { panel.makeKey() } else if panel.isKeyWindow { panel.resignKey() }
     }
 
     private func showReport(_ update: FloatingAgentNoticeItem) {
@@ -217,7 +242,9 @@ private final class FloatingAgentHostingView: NSHostingView<AnyView> {
 }
 
 private final class FloatingAgentPanel: NSPanel {
-    override var canBecomeKey: Bool { false }
+    /// On only while the user types a reply into this bubble.
+    var acceptsKeyInput = false
+    override var canBecomeKey: Bool { acceptsKeyInput }
     override var canBecomeMain: Bool { false }
 }
 
@@ -279,10 +306,45 @@ nonisolated enum FloatingAgentPresentation {
         return chat.id
     }
 
+    /// One line on what the job is doing or produced, so the bubble answers
+    /// "what is it up to?" without opening the chat. Nil when there is
+    /// nothing worth saying beyond the status.
+    static func detail(for run: AgentRun) -> String? {
+        let raw: String?
+        switch run.status {
+        case .awaitingPlanApproval:
+            raw = run.planText
+        case .waitingForApproval:
+            raw = run.pendingApprovalDetails ?? run.latestAction
+        case .queued, .planning, .running:
+            raw = ChatTaskPresentation.progress(run).last?.text ?? run.latestAction
+        case .succeeded:
+            raw = run.finalAnswer
+        case .failed:
+            raw = run.error
+        case .cancelled:
+            raw = nil
+        }
+        return raw.flatMap(firstMeaningfulLine)
+    }
+
+    /// First line with words in it, without markdown bullets or headings,
+    /// capped so it never overflows the bubble.
+    static func firstMeaningfulLine(_ text: String) -> String? {
+        let line = text.split(whereSeparator: \.isNewline).lazy
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.hasPrefix("#") }
+            .map { $0
+                .replacingOccurrences(of: #"^(?:[#>*•\-]+|\d+[.)])\s*"#, with: "", options: .regularExpression) }
+            .first { $0.contains(where: \.isLetter) }
+        guard let line else { return nil }
+        return line.count > 160 ? String(line.prefix(159)) + "…" : line
+    }
+
     /// Expansion keeps the avatar center fixed so the pointer never loses it.
-    static func bubbleFrame(visibleFrame: CGRect, index: Int, expanded: Bool) -> CGRect {
+    static func bubbleFrame(visibleFrame: CGRect, index: Int, expanded: Bool, replying: Bool = false) -> CGRect {
         let width = min(expanded ? 324.0 : 56.0, max(0, visibleFrame.width - 24))
-        let height = expanded ? 108.0 : 56.0
+        let height = expanded ? (replying ? 176.0 : 140.0) : 56.0
         let centerY = visibleFrame.maxY - 70 - CGFloat(index) * 84
         return CGRect(x: visibleFrame.maxX - width - 12, y: centerY - height / 2,
                       width: width, height: height)
@@ -338,8 +400,15 @@ struct FloatingAgentBubble: View {
     let onReport: (FloatingAgentNoticeItem) -> Void
     let onDismiss: (FloatingAgentNoticeItem) -> Void
     var onExpansion: (Bool) -> Void = { _ in }
+    /// A finished job that can pick up where it left off.
+    var canReply = false
+    var onReply: (String) -> Bool = { _ in false }
+    var onReplyMode: (Bool) -> Void = { _ in }
     @State private var expanded = false
     @State private var collapseTask: Task<Void, Never>?
+    @State private var replying = false
+    @State private var replyText = ""
+    @FocusState private var replyFocused: Bool
     @Environment(\.companionSnapshotRendering) private var snapshotRendering
 
     private var run: AgentRun {
@@ -377,11 +446,28 @@ struct FloatingAgentBubble: View {
                         }
                     }
                     Text(run.title).font(DS.Fonts.body.weight(.medium)).lineLimit(1)
-                    Button(action: open) {
-                        Text(run.status.isTerminal ? "Open task report" :
-                             run.status.needsUser ? "Open to review and approve" : "Open mate chat")
-                            .font(DS.Fonts.caption).lineLimit(1)
-                    }.buttonStyle(NotchCapsuleControlStyle(height: 24))
+                    if let detail = FloatingAgentPresentation.detail(for: run) {
+                        Text(detail).font(DS.Fonts.caption).foregroundStyle(DS.Colors.textSecondary)
+                            .lineLimit(replying ? 1 : 2)
+                    }
+                    if replying {
+                        replyField
+                    } else {
+                        HStack(spacing: 6) {
+                            Button(action: open) {
+                                Text(run.status.isTerminal ? "Open task report" :
+                                     run.status.needsUser ? "Open to review and approve" : "Open mate chat")
+                                    .font(DS.Fonts.caption).lineLimit(1)
+                            }.buttonStyle(NotchCapsuleControlStyle(height: 24))
+                            if canReply {
+                                Button { setReplying(true) } label: {
+                                    Text("Reply").font(DS.Fonts.caption).lineLimit(1)
+                                }
+                                .buttonStyle(NotchCapsuleControlStyle(height: 24))
+                                .accessibilityLabel("Reply to \(mate.name) about \(run.title)")
+                            }
+                        }
+                    }
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
             Button(action: open) {
@@ -421,7 +507,7 @@ struct FloatingAgentBubble: View {
             if inside {
                 expanded = true
                 onExpansion(true)
-            } else {
+            } else if !replying {
                 collapseTask = Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(160))
                     guard !Task.isCancelled else { return }
@@ -432,6 +518,44 @@ struct FloatingAgentBubble: View {
         }
         .onDisappear { collapseTask?.cancel() }
         .cueMotion(.surprised, part: .prop, subject: run.id.uuidString)
+    }
+
+    /// Typed follow-up for the same job. Return sends, Escape gives up.
+    private var replyField: some View {
+        HStack(spacing: 6) {
+            TextField("Tell \(mate.name) what's next", text: $replyText)
+                .textFieldStyle(.plain)
+                .font(DS.Fonts.body)
+                .focused($replyFocused)
+                .onSubmit(sendReply)
+                .onExitCommand { setReplying(false) }
+            Button(action: sendReply) {
+                Image(systemName: "arrow.up").font(.system(size: 11, weight: .bold))
+                    .frame(width: 22, height: 22).background(DS.Colors.accent, in: Circle())
+                    .foregroundStyle(DS.Colors.background)
+            }
+            .disabled(replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .accessibilityLabel("Send reply to \(mate.name)")
+        }
+        .padding(.leading, 10).padding(.trailing, 4).frame(height: 30)
+        .background(DS.Colors.surface1, in: Capsule())
+        .overlay(Capsule().stroke(DS.Colors.borderSubtle, lineWidth: 1))
+    }
+
+    private func setReplying(_ value: Bool) {
+        replying = value
+        if !value { replyText = "" }
+        onReplyMode(value)
+        if value {
+            // The panel becomes key in onReplyMode; focus once it has.
+            DispatchQueue.main.async { replyFocused = true }
+        }
+    }
+
+    private func sendReply() {
+        let text = replyText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, onReply(text) else { return }
+        setReplying(false)
     }
 }
 
