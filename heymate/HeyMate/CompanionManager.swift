@@ -4214,6 +4214,18 @@ final class CompanionManager: ObservableObject {
         shouldCaptureScreen: Bool,
         imageAttachments: [ChatImageAttachment] = []
     ) {
+        // A text-only follow-up joins the running HeyMate Agent turn instead of
+        // cancelling it; the agent reads it before its next step.
+        let steerSession = backgroundRoutineSession ?? (isHeyMateTalkTurn ? heyMateTalkSession : currentChat)
+        if imageAttachments.isEmpty, !shouldCaptureScreen, currentResponseCompletion?.didComplete == false,
+           let client = mateAgentConversationClients[steerSession.id], client.canSteer {
+            appendUserMessage(transcript)
+            Task { [weak self] in
+                do { try await client.steer(transcript) }
+                catch { self?.commandBarFeedback = "That message could not join the running turn. Send it again when the turn ends." }
+            }
+            return
+        }
         mateAgentActivity = []
         let fastTextOnly = preferFastTextOnlyTalk
         preferFastTextOnlyTalk = false

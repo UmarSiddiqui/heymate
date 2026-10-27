@@ -342,3 +342,100 @@ test('real Pi puts instructions in the system prompt, seeds history once and for
   assert.ok(events.includes('agent.thinking'));
   assert.equal((await harness.messages(id, 1)).messages.at(-1).content, 'Reply 2');
 });
+
+test('connector writes are keyed, ledgered and never repeated; reads run in parallel', async t => {
+  const f = await fixture(t), state = await f.harness.get(f.id);
+  const calls = [];
+  f.harness.bridges.set('hm_fixture', { peer: f.peer, sessionID: f.id, tools: [
+    { name: 'send', inputSchema: { type: 'object' } },
+    { name: 'list', inputSchema: { type: 'object' }, annotations: { readOnlyHint: true } }],
+    client: { async close() {}, callTool: async request => { calls.push(request); return { content: [{ type: 'text', text: `sent ${calls.length}` }] }; } } });
+  state.bridgeNames.add('hm_fixture'); state.running = true;
+  const tools = await f.harness.tools(state);
+  const send = tools.find(tool => tool.name === 'hm_fixture_send'), list = tools.find(tool => tool.name === 'hm_fixture_list');
+  assert.equal(send.executionMode, 'sequential'); assert.equal(list.executionMode, undefined);
+  await list.execute('read-1', {});
+  assert.equal(calls[0]._meta, undefined);
+  const first = await send.execute('call-1', { to: 'a@example.com' });
+  const again = await send.execute('call-1', { to: 'a@example.com' });
+  assert.equal(calls.length, 2); assert.equal(calls[1]._meta['heymate/idempotency_key'], `${f.id}:call-1`);
+  assert.equal(first.content[0].text, 'sent 2'); assert.match(again.content[0].text, /Already done earlier/);
+  const saved = await f.harness.store.load(f.id);
+  assert.deepEqual(saved.effects.map(e => [e.tool, e.status]), [['hm_fixture_send', 'done']]);
+  assert.match(f.harness.effectsNote(state), /hm_fixture_send .*a@example.com.*receipt: sent 2/);
+  state.record.effects.push({ key: `${f.id}:call-2`, tool: 'hm_fixture_send', target: '{}', status: 'started' });
+  await assert.rejects(send.execute('call-2', {}), /outcome is unknown/);
+  assert.equal(calls.length, 2);
+});
+
+test('a message sent mid-turn steers the running turn instead of being rejected', async t => {
+  let release; const steered = [];
+  const f = await fixture(t, async () => ({ messages: [{ role: 'assistant', stopReason: 'stop' }],
+    prompt: () => new Promise(resolve => { release = resolve; }), async steer(text) { steered.push(text); },
+    getLastAssistantText: () => 'Both handled', async abort() { release?.(); }, dispose() {} }));
+  await assert.rejects(f.harness.dispatch(f.peer, 'session.steer', { session_id: f.id, text: 'Early' }), /No running turn/);
+  await f.harness.dispatch(f.peer, 'prompt.submit', { session_id: f.id, text: 'First' });
+  while (!release) await new Promise(setImmediate);
+  const reply = await f.harness.dispatch(f.peer, 'session.steer', { session_id: f.id, text: 'Also check B' });
+  assert.deepEqual(reply, { status: 'queued', user_row_id: 2 }); assert.deepEqual(steered, ['Also check B']);
+  release(); await (await f.harness.get(f.id)).run;
+  const rows = (await f.harness.messages(f.id, 1)).messages;
+  assert.deepEqual(rows.map(row => [row.role, row.content]), [['user', 'First'], ['user', 'Also check B'], ['assistant', 'Both handled']]);
+});
+
+async function piFixture(t, reply, limits) {
+  const f = await fixture(t), access = await createModelAccess(f.home);
+  const contexts = [];
+  access.runtime.registerProvider('anthropic', { name: 'In-process test provider', api: 'openai-completions',
+    baseUrl: 'http://127.0.0.1:1', models: [{ id: 'fixture', name: 'Fixture', reasoning: false,
+      input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32768, maxTokens: 1024 }],
+    streamSimple: (model, context) => {
+      contexts.push(JSON.stringify(context));
+      const content = reply(contexts.length, context);
+      const stream = new AssistantMessageEventStream();
+      const toolUse = content.some(part => part.type === 'toolCall');
+      const message = { role: 'assistant', api: 'openai-completions', provider: 'anthropic', model: model.id, content,
+        usage: { input: 3, output: 2, cacheRead: 1, cacheWrite: 0, totalTokens: 5, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        stopReason: toolUse ? 'toolUse' : 'stop', timestamp: Date.now() };
+      queueMicrotask(() => stream.push({ type: 'done', reason: message.stopReason, message }));
+      return stream;
+    } });
+  await access.credentials.modify('anthropic', async () => ({ type: 'oauth', access: 'fixture', refresh: 'fixture', expires: Date.now() + 3600000 }));
+  await saveJSON(path.join(f.home, 'model.json'), { provider: 'anthropic', model: 'fixture' });
+  const harness = new HeyMateHarness({ home: f.home, access, createSession: options => createPiSession({ ...options, limits }) });
+  t.after(() => harness.close());
+  const peer = { serverRequests: true, open: () => true, send() {} };
+  const { session_id: id } = await harness.dispatch(peer, 'session.create', { cwd: f.workspace });
+  return { ...f, harness, peer, id, contexts };
+}
+
+test('a runaway turn is nudged to wrap up at 80% and stopped at its step limit with stats logged', async t => {
+  const f = await piFixture(t, () => [{ type: 'toolCall', id: `read-${randomUUID()}`, name: 'read', arguments: { path: 'missing.txt' } }],
+    { steps: 5, ms: 60000, nudgeAt: 0.8 });
+  await f.harness.dispatch(f.peer, 'prompt.submit', { session_id: f.id, text: 'Loop forever' });
+  await (await f.harness.get(f.id)).run;
+  const row = (await f.harness.messages(f.id, 1)).messages.at(-1);
+  assert.equal(row.display_kind, 'failed_turn'); assert.match(row.error_detail, /step limit/);
+  assert.ok(f.contexts.at(-1).includes('close to its time or step limit'));
+  assert.ok(f.contexts.length <= 6);
+  const stats = (await readFile(path.join(f.home, 'logs', 'turn-stats.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+  assert.equal(stats.at(-1).nudged, true); assert.match(stats.at(-1).limit, /step limit/);
+  assert.ok(stats.at(-1).usage.input >= 15 && stats.at(-1).usage.cacheRead >= 5);
+});
+
+test('after compaction the side-effect ledger comes from the durable record, not the summary', async t => {
+  const f = await piFixture(t, (round, context) => [{ type: 'text', text: JSON.stringify(context).includes('Summarize') || round === 2 ? 'Goal: fixture summary' : `Reply ${round}` }],
+    { steps: 60, ms: 60000, nudgeAt: 0.8 });
+  const state = await f.harness.get(f.id);
+  state.record.effects = [{ key: `${f.id}:fixture`, tool: 'hm_gmail_send', target: '{"to":"boss@example.com"}', status: 'done', receipt: 'id 42' }];
+  for (const text of ['Send the report', 'More', 'Even more']) {
+    await f.harness.dispatch(f.peer, 'prompt.submit', { session_id: f.id, text: `${text} ${'context '.repeat(5000)}` });
+    await state.run;
+  }
+  assert.doesNotMatch(f.contexts[0], /Side effects already done/);
+  if (!state.session.messages.some(message => message.role === 'compactionSummary')) await state.session.compact();
+  await f.harness.dispatch(f.peer, 'prompt.submit', { session_id: f.id, text: 'Did it go out?' });
+  await state.run;
+  assert.match(f.contexts.at(-1), /Side effects already done.*hm_gmail_send.*boss@example.com.*receipt: id 42/);
+  assert.equal((await f.harness.messages(f.id, 1)).messages.at(-1).finish_reason, 'stop');
+});

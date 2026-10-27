@@ -84,17 +84,23 @@ export class HeyMateHarness {
       const bridge = this.bridges.get(name);
       if (!bridge || bridge.sessionID !== state.record.id) continue;
       for (const tool of bridge.tools) {
+        const readOnly = tool.annotations?.readOnlyHint === true;
+        const call = async (id, args, signal) => {
+          signal?.throwIfAborted();
+          const current = this.bridges.get(name);
+          if (!current || current.sessionID !== state.record.id || !state.running) throw new Error('Connector scope expired.');
+          // The native scoped bridge enforces current-turn action approvals too.
+          const result = await current.client.callTool({ name: tool.name, arguments: args,
+            ...(id ? { _meta: { 'heymate/idempotency_key': id } } : {}) }, undefined, { signal });
+          if (result.isError) throw new Error('Connector action failed. Inspect returned tool evidence before reporting success.');
+          return { content: result.content ?? [], details: {} };
+        };
         tools.push({ name: `${name}_${tool.name}`, label: tool.name, description: tool.description || tool.name,
           parameters: tool.inputSchema,
-          execute: async (_id, args, signal) => {
-            signal?.throwIfAborted();
-            const current = this.bridges.get(name);
-            if (!current || current.sessionID !== state.record.id || !state.running) throw new Error('Connector scope expired.');
-            // The native scoped bridge enforces current-turn action approvals too.
-            const result = await current.client.callTool({ name: tool.name, arguments: args }, undefined, { signal });
-            if (result.isError) throw new Error('Connector action failed. Inspect returned tool evidence before reporting success.');
-            return { content: result.content ?? [], details: {} };
-          }
+          // Reads may run beside each other; writes run one at a time, keyed and ledgered.
+          ...(readOnly ? {} : { executionMode: 'sequential' }),
+          execute: (id, args, signal) => readOnly ? call(null, args, signal)
+            : this.sideEffect(state, `${name}_${tool.name}`, args, id, key => call(key, args, signal))
         });
       }
     }
@@ -106,6 +112,45 @@ export class HeyMateHarness {
       }
     });
     return tools;
+  }
+  // Every action that can change the world is recorded before and after it runs,
+  // keyed by its tool call, so a replayed call returns the earlier receipt
+  // instead of acting twice and compaction cannot forget what was done.
+  async sideEffect(state, name, args, toolCallID, run) {
+    const key = `${state.record.id}:${toolCallID}`;
+    const effects = state.record.effects ??= [];
+    const earlier = effects.find(effect => effect.key === key);
+    if (earlier?.status === 'done') return { content: [{ type: 'text', text: `Already done earlier (${key}): ${earlier.receipt}` }], details: {} };
+    if (earlier?.status === 'started') throw new Error('This action may already have run; its outcome is unknown. Check before trying again.');
+    const effect = { key, tool: name, target: JSON.stringify(args ?? {}).slice(0, 300), status: 'started', at: new Date().toISOString() };
+    effects.push(effect);
+    while (effects.length > 200) effects.shift();
+    await this.store.save(state.record);
+    try {
+      const result = await run(key);
+      effect.status = 'done';
+      effect.receipt = (result?.content ?? []).filter(part => part.type === 'text').map(part => part.text).join(' ').slice(0, 300) || 'ok';
+      return result;
+    } catch (error) {
+      effect.status = 'failed'; effect.receipt = redact(error?.message).slice(0, 300);
+      throw error;
+    } finally {
+      try { await this.store.save(state.record); } catch { /* The started entry keeps the outcome unknown. */ }
+    }
+  }
+  effectsNote(state) {
+    const done = (state.record.effects ?? []).filter(effect => effect.status !== 'failed').slice(-40);
+    if (!done.length) return '';
+    return 'Side effects already done in this chat. Never redo them; check the receipt first.\n'
+      + done.map(effect => `- ${effect.tool} ${effect.target} [${effect.status === 'done' ? 'done' : 'outcome unknown'}] key=${effect.key}${effect.receipt ? ` receipt: ${effect.receipt}` : ''}`).join('\n');
+  }
+  async logStats(state, stats) {
+    try {
+      const file = path.join(this.home, 'logs', 'turn-stats.jsonl');
+      await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+      if ((await stat(file).catch(() => null))?.size > 1024 * 1024) await rename(file, `${file}.1`);
+      await appendFile(file, JSON.stringify({ at: new Date().toISOString(), session_id: state.record.id, ...stats }) + '\n', { mode: 0o600 });
+    } catch { /* Telemetry never changes the turn outcome. */ }
   }
   async logFailure(state, error) {
     try {
@@ -126,6 +171,8 @@ export class HeyMateHarness {
         state.session?.dispose(); state.session = null;
         state.session = await this.createSession({ home: this.home, record: state.record, access: this.access,
           tools, system, seed, approve: (name, args, signal) => this.approve(state, name, args, signal),
+          sideEffect: (name, args, id, run) => this.sideEffect(state, name, args, id, run),
+          effectsNote: () => this.effectsNote(state), stats: stats => this.logStats(state, stats),
           emit: (type, payload) => this.emit(state, type, payload) });
         state.sessionKey = key;
         await this.store.save(state.record);
@@ -134,6 +181,7 @@ export class HeyMateHarness {
       await state.session.prompt(text, { images, expandPromptTemplates: false });
       const last = state.session.messages.filter(m => m.role === 'assistant').at(-1);
       const answer = state.session.getLastAssistantText();
+      if (state.session.limitReached) throw new Error(state.session.limitReached);
       if (state.cancelled || last?.stopReason === 'aborted') throw new Error('Turn interrupted.');
       if (!answer?.trim() || last?.stopReason === 'error' || last?.stopReason === 'toolUse') throw new Error('No verified final answer.');
       state.record.rows.push({ id: state.record.rows.length + 1, role: 'assistant', content: answer, finish_reason: 'stop' });
@@ -144,7 +192,7 @@ export class HeyMateHarness {
     } catch (error) {
       // Pi records provider failures on the assistant message rather than throwing.
       const last = state.session?.messages?.filter(m => m.role === 'assistant').at(-1);
-      const reason = redact(last?.stopReason === 'error' && last.errorMessage ? last.errorMessage : error?.message).slice(0, 300);
+      const reason = redact(state.session?.limitReached ?? (last?.stopReason === 'error' && last.errorMessage ? last.errorMessage : error?.message)).slice(0, 300);
       if (!state.cancelled) await this.logFailure(state, last?.errorMessage ? `${last.errorMessage}\n${error?.stack ?? error}` : error);
       state.record.pending = false;
       state.record.rows.push({ id: state.record.rows.length + 1, role: 'assistant', content: errorText,
@@ -246,6 +294,18 @@ export class HeyMateHarness {
       // Acceptance is separate from completion; native ledger records this exact row.
       state.run = new Promise(resolve => setImmediate(resolve)).then(() => this.run(state, p.text, images, p.system ?? '', p.seed ?? []));
       return { status: 'streaming', user_row_id: rowID };
+    }
+    if (method === 'session.steer') {
+      // A message sent mid-turn joins the running turn at its next model call
+      // instead of cancelling the work already in progress.
+      if (!state.running || !state.session?.steer) throw new Error('No running turn to add to. Send it as a new message.');
+      if (!boundedText(p.text, 65536)) throw new Error('Invalid prompt.');
+      await state.session.steer(p.text, undefined, { source: 'rpc' });
+      const rowID = state.record.rows.length + 1;
+      state.record.rows.push({ id: rowID, role: 'user', content: p.text, delivery: 'steer' });
+      await this.store.save(state.record);
+      this.emit(state, 'message.steered', { user_row_id: rowID });
+      return { status: 'queued', user_row_id: rowID };
     }
     if (method === 'session.interrupt') {
       state.cancelled = true;

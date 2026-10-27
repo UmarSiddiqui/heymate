@@ -336,6 +336,20 @@ final class MateAgentServeSession {
         }
     }
 
+    /// True while an accepted turn is streaming; a typed follow-up can join it.
+    var canSteer: Bool { isUsable && identity != nil && turn?.accepted == true && !hasPriorWorkInProgress }
+
+    /// Adds a message to the running turn. The agent reads it at its next model
+    /// call, so work already in progress is not cancelled or repeated.
+    func steer(text request: String) async throws {
+        guard canSteer, let identity else { throw Failure.busy }
+        guard !request.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, request.utf8.count <= 65_536 else { throw Failure.invalidInput }
+        let reply = try await connection.request(method: "session.steer", params: .object([
+            "session_id": .string(identity.runtimeID), "text": .string(request)
+        ]), timeout: .seconds(10))
+        guard case .object(let fields) = reply, fields["status"] == .string("queued") else { throw Failure.invalidAcceptance }
+    }
+
     func cancel() { Task { _ = await cancelAndWait() } }
     @discardableResult
     func cancelAndWait() async -> Bool {

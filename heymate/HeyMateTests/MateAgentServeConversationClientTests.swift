@@ -111,6 +111,28 @@ struct MateAgentServeConversationClientTests {
         #expect(try fixture.store.sessionID(chatID: fixture.chatID, profile: fixture.profile) == "stored-test-session")
     }
 
+    @Test func typedFollowUpSteersRunningTurnWithoutInterrupting() async throws {
+        let fixture = try Fixture(outcome: "wait")
+        defer { fixture.cleanup() }
+        let client = fixture.client()
+        #expect(client.canSteer == false)
+        let turn = Task {
+            try await client.analyzeImageStreaming(images: [], systemPrompt: "Rules",
+                conversationHistory: [], userPrompt: "Check work", onTextChunk: { _ in })
+        }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        while !client.canSteer {
+            guard ContinuousClock.now < deadline else { throw MateAgentServeWebSocket.Failure.timedOut }
+            await Task.yield()
+        }
+        try await client.steer("Also check the second file")
+        #expect(try await turn.value.text == "Verified answer")
+        #expect(fixture.peers.first?.prompts == ["Check work", "Also check the second file"])
+        #expect(fixture.peers.first?.methods.contains("session.interrupt") == false)
+        #expect(client.canSteer == false)
+        await #expect(throws: MateAgentServeSession.Failure.busy) { try await client.steer("Late") }
+    }
+
     @Test(arguments: ["approval", "clarify"])
     func nativeRequestBridgeReceivesOwnedRequestAndReturnsAnswer(method: String) async throws {
         let fixture = try Fixture(outcome: method)
@@ -428,6 +450,10 @@ struct MateAgentServeConversationClientTests {
                     } else if self.outcome != "wait" {
                         self.event("message.complete", .object(["text": .string(self.outcome == "falsegmail" ? "Both Gmail drafts are updated." : "Verified answer"), "status": .string(self.outcome == "falsegmail" ? "complete" : self.outcome)]))
                     }
+                case "session.steer":
+                    if case .object(let params) = fields["params"], case .string(let text) = params["text"] { self.prompts.append(text) }
+                    self.reply(id, .object(["status": .string("queued"), "user_row_id": .number(2)]))
+                    self.event("message.complete", .object(["text": .string("Verified answer"), "status": .string("complete")]))
                 case "session.interrupt":
                     self.reply(id, .object(["status": .string("interrupted")]))
                     self.event("message.complete", .object(["status": .string("interrupted"), "text": .string("")]))
