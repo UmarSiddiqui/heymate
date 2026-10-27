@@ -321,6 +321,21 @@ struct ChatTurnNavigationTests {
         #expect(pixelSummary?.text == "Pixel project is a blue logo.")
     }
 
+    @Test func speechFailureAfterAShownReplyDoesNotReportTheTurnAsFailed() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        manager.voiceSynthesisClient = FailingSpeech()
+        manager.isHeyMateTalkTurn = true
+        manager.sendTranscriptToClaudeWithScreenshot(transcript: "Explain the next step", shouldCaptureScreen: false)
+        let task = try #require(manager.currentResponseTask)
+        try await fixture.client.waitForRequest()
+        fixture.client.finish(text: "Top right.")
+        await task.value
+        #expect(manager.heyMateTalkSession.messages.map(\.text) == ["Explain the next step", "Top right."])
+        #expect(manager.state == .idle)
+    }
+
     @Test func sayingAMateNameDuringTalkDoesNotSwitchMates() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
@@ -691,6 +706,12 @@ struct ChatTurnNavigationTests {
             try? FileManager.default.removeItem(at: root)
         }
     }
+}
+
+private final class FailingSpeech: TTSClient {
+    var isPlaying: Bool { false }
+    func speakText(_ text: String) async throws { throw NSError(domain: "NoVoice", code: 1) }
+    func stopPlayback() {}
 }
 
 @MainActor

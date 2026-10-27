@@ -4322,7 +4322,15 @@ final class CompanionManager: ObservableObject {
                     } else if activeHandoffMateID != nil {
                         completeActiveHandoff(succeeded: true)
                     } else if !isSilentModeEnabled {
-                        try await playGuidedTurn(GuidedReplyParser.parse(fullResponseText), screenCaptures: screenCaptures)
+                        // The reply is already in the chat. A voice that cannot
+                        // play must not turn it into a failed turn.
+                        do {
+                            try await playGuidedTurn(GuidedReplyParser.parse(fullResponseText), screenCaptures: screenCaptures)
+                        } catch is CancellationError {
+                            throw CancellationError()
+                        } catch {
+                            Self.recordPipelineError(error, category: .responsePipeline)
+                        }
                     }
                     guard !Task.isCancelled, ownsCurrentResponse(completion) else { return }
                     completion.didComplete = true
