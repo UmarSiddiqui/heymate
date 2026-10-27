@@ -4051,124 +4051,6 @@ final class CompanionManager: ObservableObject {
         sendToTalk(transcript, requiresIdle: requiresIdle, typedInsideHeyMate: typedInsideHeyMate)
     }
 
-    /// The free tier could not decide, so one small-model call does.
-    ///
-    /// The wait is real, which is why `VoiceRouter` answers everything it can
-    /// first — a screen question never reaches here. If the call fails or is
-    /// slow, the old prefix-and-word-list behaviour is the floor: worst case
-    /// the app routes exactly as well as it did before, never worse.
-    private func classifyThenRoute(
-        _ transcript: String,
-        requiresIdle: Bool,
-        typedInsideHeyMate: Bool = false
-    ) {
-        if requiresIdle, voiceState != .idle { return }
-        currentResponseCompletion?.didComplete = true
-        currentResponseTask?.cancel()
-        voiceSynthesisClient.stopPlayback()
-        let completion = HeyMateRequestCompletionState()
-        let brain = conversationBrainForTurn
-        let explicitExecutor = HeadlessExecutor.explicitlyRequested(in: transcript)
-        let modelKey = OpenCodeTrainingPolicy.modelKey(providerID: openCodeProviderID, modelID: openCodeModelID)
-        let routineID = activeRoutineTurn?.routineID
-        let handoffMateID = activeHandoffMateID
-        let ownsFinalizedVoiceInput = !requiresIdle && state == .finalizingTranscript
-            && inputModeOfActiveSession == .talk && routineID == nil && handoffMateID == nil
-        currentResponseCompletion = completion
-        // Classification is part of the originating turn. Stop, navigation,
-        // and a newer request must also invalidate this pre-response wait.
-        currentResponseTask = Task { [weak self] in
-            defer { completion.didComplete = true }
-            guard let self, !Task.isCancelled, self.ownsCurrentResponse(completion) else { return }
-            var outcome = MateRoutineTurnOutcome.cancelled
-            defer {
-                // Talk replaces this completion and owns its own cleanup. An
-                // agent/local route, or changed provider, has no Talk ending.
-                // Never finish a replacement turn from an old classifier.
-                if self.currentResponseCompletion === completion {
-                    if let routineID, self.activeRoutineTurn?.routineID == routineID {
-                        self.completeActiveRoutineTurn(outcome)
-                    } else if let handoffMateID, self.activeHandoffMateID == handoffMateID {
-                        let succeeded: Bool
-                        if case .success = outcome { succeeded = true } else { succeeded = false }
-                        self.completeActiveHandoff(succeeded: succeeded)
-                        completion.didComplete = true
-                        self.scheduleNextHandoffIfNeeded()
-                    }
-                }
-            }
-            self.voiceIntentClassifier.configure(
-                proxyURL: CustomAPIConfiguration.baseURL,
-                apiKey: Self.nativeCredentialAccessAllowed ? CustomAPIConfiguration.apiKey() : nil
-            )
-            // The classifier speaks the Anthropic format only. An OpenAI-compatible
-            // endpoint takes the same no-classifier path as an outage.
-            let decision = CustomAPIConfiguration.format == .anthropic
-                ? await self.voiceIntentClassifier.classify(transcript)
-                : nil
-            guard !Task.isCancelled, self.ownsCurrentResponse(completion) else { return }
-            guard self.conversationBrainForTurn == brain,
-                  (brain != .openCode && explicitExecutor != .openCode) || modelKey == OpenCodeTrainingPolicy.modelKey(
-                    providerID: self.openCodeProviderID, modelID: self.openCodeModelID
-                  ) else {
-                // The recording already ended before classification began.
-                // Discarding this turn must also release its composer gate.
-                // A newer recording cancels this task, so it cannot reach
-                // this cleanup or lose its listening/finalizing state.
-                if ownsFinalizedVoiceInput, self.state == .finalizingTranscript,
-                   !self.voiceDictation.isDictationInProgress {
-                    self.dispatch(.interactionFinished)
-                }
-                return
-            }
-
-            guard let decision else {
-                if let task = AgentInvocation.parse(transcript) {
-                    outcome = self.startClassifiedMateWork(prompt: task, brain: brain, executor: explicitExecutor)
-                } else {
-                    self.sendToTalk(transcript, requiresIdle: requiresIdle, typedInsideHeyMate: typedInsideHeyMate)
-                }
-                return
-            }
-
-            switch decision.route {
-            case .agent:
-                outcome = self.startClassifiedMateWork(prompt: decision.task, brain: brain, executor: explicitExecutor)
-            case .local:
-                // The classifier can spot a shortcut the local parser missed,
-                // but it does not get to invent one — if the phrase still does
-                // not parse into a real action, it is a question.
-                if let action = LocalVoiceAction.parse(transcript) {
-                    self.performLocalVoiceAction(action)
-                    outcome = .success("Handled locally.")
-                } else {
-                    self.sendToTalk(
-                        transcript,
-                        requiresIdle: requiresIdle,
-                        typedInsideHeyMate: typedInsideHeyMate
-                    )
-                }
-            case .talk:
-                self.sendToTalk(
-                    transcript,
-                    requiresIdle: requiresIdle,
-                    typedInsideHeyMate: typedInsideHeyMate
-                )
-            }
-        }
-    }
-
-    private func startClassifiedMateWork(prompt: String, brain: AgentBrain, executor: HeadlessExecutor? = nil) -> MateRoutineTurnOutcome {
-        beginMateWork(
-            task: prompt,
-            mate: mateForHarnessWork(named: nil),
-            newName: nil,
-            suspendsTalk: true,
-            brain: brain,
-            executor: executor
-        )
-    }
-
     private func sendToTalk(
         _ transcript: String,
         requiresIdle: Bool,
@@ -4313,51 +4195,37 @@ final class CompanionManager: ObservableObject {
                 }
                 let labeledImages = screenImages + attachedImages
 
-                let historyForAPI = conversationHistory.map { entry in
-                    (userPlaceholder: entry.userTranscript, assistantResponse: entry.assistantResponse)
-                }
-
                 let spatialFragment = spatialSelectionPromptFragment()
                 activeSpatialSelection = nil
                 spatialSelectionScreenFrame = nil
 
-                var promptParts: [String] = []
+                // The agent keeps its own chat history. It still needs what
+                // only this turn knows: a selection, scoped memory, the
+                // walkthrough step, and which images are explicit attachments.
+                var turnContext: [String] = []
                 if !contextUnavailableNote.isEmpty {
-                    promptParts.append(contextUnavailableNote)
+                    turnContext.append(contextUnavailableNote)
                 }
                 if let spatialFragment {
-                    promptParts.append(spatialFragment)
+                    turnContext.append(spatialFragment)
                 }
                 if let memoryBlock = Self.memoryPromptBlock(items: MemoryContext.items(memoryItems, for: memoryOwnerForTurn)) {
-                    promptParts.append(memoryBlock)
+                    turnContext.append(memoryBlock)
                 }
                 if !screenCaptures.isEmpty, let walkthroughBlock = walkthroughPromptBlock() {
-                    promptParts.append(walkthroughBlock)
+                    turnContext.append(walkthroughBlock)
                 }
-                if Self.shouldAnchorToPriorTopic(transcript: transcript),
-                   let topicAnchor = Self.topicAnchorPromptFragment(mostRecentExchange: historyForAPI.last) {
-                    promptParts.append(topicAnchor)
+                if userActedWhileThinking || guidedClickLandedDuringTurn {
+                    turnContext.append("The user acted while you were thinking.")
                 }
+                guidedClickLandedDuringTurn = false
                 guard !Task.isCancelled, ownsCurrentResponse(completion) else { return }
                 if !imageAttachments.isEmpty {
-                    promptParts.append(
+                    turnContext.append(
                         "The user explicitly attached \(imageAttachments.count) image(s). Analyze those attachments as primary context. They are not live screens, so never emit pointer coordinates for them."
                     )
                 }
-                promptParts.append(notedUserMessage(
-                    transcript,
-                    mate: speakingMate,
-                    hasScreenshot: !labeledImages.isEmpty,
-                    includeRunningJobs: true,
-                    includeRecentExchanges: false,
-                    userActedWhileThinking: userActedWhileThinking
-                ))
                 talkTurnHasImages = !labeledImages.isEmpty
-
-                let matchedSkills = SkillRetrieval.relevant(
-                    skills: loadedSkills,
-                    transcript: transcript
-                )
 
                 // Resolve after connector activation so the client sees live
                 // tools, using the brain captured before any navigation.
@@ -4416,7 +4284,8 @@ final class CompanionManager: ObservableObject {
                         enabledApps: enabledChatComposioSlugs.sorted())
 
                 let fullResponseText: String
-                let engineUserPrompt = MateAgentServeConversationClient.turnPrompt(request: transcript, contextNote: contextUnavailableNote)
+                let engineUserPrompt = MateAgentServeConversationClient.turnPrompt(
+                    request: transcript, contextNote: turnContext.joined(separator: "\n\n"))
                 if let mateAgent = talkClient as? MateAgentServeConversationClient {
                     var earlier = turnSession.messages
                     if earlier.last?.role == .user, earlier.last?.text == transcript { earlier.removeLast() }
@@ -4447,12 +4316,21 @@ final class CompanionManager: ObservableObject {
                     appendAssistantMessage(fullResponseText, resultKey: delivery?.key)
                     if let delivery { try serveClient?.acknowledgeDelivery(delivery.id) }
                     rememberFinishedTalkExchange(user: transcript, assistant: fullResponseText)
+                    updateRollingSessionSummary()
                     if activeRoutineTurn != nil {
                         completeActiveRoutineTurn(.success(fullResponseText))
                     } else if activeHandoffMateID != nil {
                         completeActiveHandoff(succeeded: true)
                     } else if !isSilentModeEnabled {
-                        try await playGuidedTurn(GuidedReplyParser.parse(fullResponseText), screenCaptures: screenCaptures)
+                        // The reply is already in the chat. A voice that cannot
+                        // play must not turn it into a failed turn.
+                        do {
+                            try await playGuidedTurn(GuidedReplyParser.parse(fullResponseText), screenCaptures: screenCaptures)
+                        } catch is CancellationError {
+                            throw CancellationError()
+                        } catch {
+                            Self.recordPipelineError(error, category: .responsePipeline)
+                        }
                     }
                     guard !Task.isCancelled, ownsCurrentResponse(completion) else { return }
                     completion.didComplete = true
@@ -5408,32 +5286,6 @@ extension CompanionManager {
             }
             self.memoryItems = self.memoryRepository.loadAll()
         }
-    }
-
-    @discardableResult
-    fileprivate func honorHarnessToolText(
-        _ transcript: String,
-        requiresIdle: Bool,
-        typedInsideHeyMate: Bool,
-        hasImages: Bool,
-        imageAttachments: [ChatImageAttachment]
-    ) -> Bool {
-        guard let request = HarnessToolRequestParser.parse(transcript) else { return false }
-        let result = performHarnessTool(
-            request.name,
-            arguments: request.arguments,
-            fromToolLoop: false,
-            fallbackTranscript: transcript,
-            requiresIdle: requiresIdle,
-            typedInsideHeyMate: typedInsideHeyMate,
-            hasImages: hasImages,
-            imageAttachments: imageAttachments
-        )
-        if result.isError || request.name == .getMateStatus {
-            appendUserMessage(transcript)
-            appendAssistantMessage(result.text)
-        }
-        return true
     }
 
     fileprivate func performHarnessTool(
