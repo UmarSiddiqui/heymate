@@ -421,10 +421,10 @@
             files = ();
             inputPaths = ();
             name = "Embed Pi Harness";
-            outputPaths = ("$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/MateAgent",);
+            outputPaths = ("$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/MateAgent", "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/BrowserExtension",);
             runOnlyForDeploymentPostprocessing = 0;
             shellPath = /bin/bash;
-            shellScript = "set -euo pipefail\n# Remove only the retired payload inside this generated app bundle.\n/bin/rm -rf -- \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Hermes\"\nif [[ -n \"${HEYMATE_PI_RUNTIME:-}\" ]]; then\n  /usr/bin/python3 \"${SRCROOT}/scripts/pi-runtime-stage.py\" --source \"${HEYMATE_PI_RUNTIME}\" --destination \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/MateAgent\"\nelif [[ \"${CONFIGURATION}\" == Release ]]; then\n  echo \"error: Release requires HEYMATE_PI_RUNTIME pointing to the prepared sealed Pi harness payload.\" >&2\n  exit 1\nfi\n";
+            shellScript = "set -euo pipefail\n# The Chrome extension ships inside the app; HeyMate copies it out for Load unpacked.\n/bin/rm -rf -- \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/BrowserExtension\"\n/bin/cp -R \"${SRCROOT}/browser/extension\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/BrowserExtension\"\n# Remove only the retired payload inside this generated app bundle.\n/bin/rm -rf -- \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Hermes\"\nif [[ -n \"${HEYMATE_PI_RUNTIME:-}\" ]]; then\n  /usr/bin/python3 \"${SRCROOT}/scripts/pi-runtime-stage.py\" --source \"${HEYMATE_PI_RUNTIME}\" --destination \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/MateAgent\"\nelif [[ \"${CONFIGURATION}\" == Release ]]; then\n  echo \"error: Release requires HEYMATE_PI_RUNTIME pointing to the prepared sealed Pi harness payload.\" >&2\n  exit 1\nfi\n";
         };
 /* End PBXShellScriptBuildPhase section */
 

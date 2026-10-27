@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "HeyMate",
+  "version": "0.2.0",
+  "description": "Lets HeyMate work in your signed-in Chrome, inside a HeyMate tab group.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxXhRJvFYlV/Y9XNTwQ1GjiPzEw7Zl8wekC14qeNK+g4KCTQx5F8PLZRqT+l5qYZl46ovDXPR1vV0M7b/kwrozQ07jhjwFA1dLMC290+m1VX/hhKbAK/o5NQQMMj1UdOZ1cYOZCjnG6ZjPn32sGTcn7ztwqwDBZ3wiuqd918tgBOynceolUoMr4U0ebinQ8VOixggYJLLosialD4fLXs4g9ZRsqctYoQQUbtivfi93cLM4Wd4zEXLRPmNfHDRVBCFyS/E3R9WYkmjsEIYg1iiP898aVAWxF7y+OgoZS4qafkLMsWmus2ZpvIOAKHCOTywWOJZ65sRRX/HVcYlcHFxYQIDAQAB",
+  "minimum_chrome_version": "120",
+  "permissions": [
+    "nativeMessaging",
+    "tabs",
+    "tabGroups",
+    "scripting",
+    "alarms"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "HeyMate"
+  }
+}

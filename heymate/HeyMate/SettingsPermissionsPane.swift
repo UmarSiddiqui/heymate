@@ -13,6 +13,7 @@ import SwiftUI
 struct SettingsPermissionsPane: View {
     @ObservedObject var navigation: SettingsNavigationModel
     @ObservedObject private var guide = PermissionGuide.shared
+    @ObservedObject private var chrome = BrowserBridge.shared
 
     @State private var repairNote: String?
     @AppStorage(ApprovalMode.preferenceKey) private var approvalMode = ApprovalMode.askMe.rawValue
@@ -28,6 +29,7 @@ struct SettingsPermissionsPane: View {
                 shortcutsOffSection
             }
             approvalsSection
+            chromeSection
             SettingsSection(
                 "All permissions",
                 footer: "Each one says what HeyMate can do with it. You can turn any of them off again in System Settings › Privacy & Security."
@@ -67,6 +69,28 @@ struct SettingsPermissionsPane: View {
                     segments: ApprovalMode.allCases.map { DSSegment(value: $0.rawValue, title: $0.title) },
                     width: DS.SettingsLayout.segmentedWidth
                 )
+            }
+        }
+    }
+
+    // MARK: Chrome
+
+    private var chromeSection: some View {
+        SettingsSection(
+            footer: chrome.isConnected
+                ? "HeyMate works in a HeyMate tab group in your Chrome. It reads any tab, but clicks and types only in its own tabs, and never into password or card fields."
+                : "One-time setup: Set up opens Chrome's extensions page and the HeyMate folder (its path is copied). Turn on Developer mode, choose Load unpacked, and pick that folder."
+        ) {
+            SettingsRow(
+                SettingsItem.chrome.title,
+                subtitle: chrome.isConnected
+                    ? "Connected" + (chrome.extensionVersion.map { ", extension \($0)" } ?? "")
+                    : "Not connected",
+                item: .chrome
+            ) {
+                Button(chrome.isConnected ? "Show folder" : "Set up…") { chrome.openSetup() }
+                    .dsCapsuleButtonStyle(chrome.isConnected ? .secondary : .primary)
+                    .help(BrowserBridge.extensionFolderPath)
             }
         }
     }

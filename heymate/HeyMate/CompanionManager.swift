@@ -88,7 +88,7 @@ final class CompanionManager: ObservableObject {
     private func isScopedBridgeTool(_ tool: TalkTool) -> Bool {
         switch tool.origin {
         case .local:
-            return TalkToolCatalog.piDelegationToolNames.contains(tool.toolDefinition.name)
+            return TalkToolCatalog.piBridgeLocalToolNames.contains(tool.toolDefinition.name)
         case .connector(let identifier, _, _):
             let name = tool.toolDefinition.name
             return isConnectorEnabledForChat(identifier)
@@ -3041,6 +3041,7 @@ final class CompanionManager: ObservableObject {
             self?.floatingAgentWindowController.setYielded(yielded)
         }
         systemOverlayYield.start()
+        BrowserBridge.shared.start()
         // Load skill files + refresh the published memory snapshot. Bundled
         // defaults are seeded first so a fresh install starts with skills.
         reloadSkills()
@@ -4309,7 +4310,7 @@ final class CompanionManager: ObservableObject {
                 let effectiveSystemPrompt = MateAgentConversationClient.interfaceInstructions(mateIdentity: mateIdentityBlock(for: speakingMate) ?? "")
                     + "\n\n" + MateAgentServeConversationClient.connectorInstructions(
                         tools: scopedConnectorToolDescriptions(token: talkScopeToken).compactMap { $0["name"] as? String }
-                            .filter { !TalkToolCatalog.piDelegationToolNames.contains($0) },
+                            .filter { !TalkToolCatalog.piBridgeLocalToolNames.contains($0) },
                         enabledApps: enabledChatComposioSlugs.sorted())
                     // Screen turns need the tag contract the guided-reply parser reads.
                     + (screenCaptures.isEmpty ? "" : "\n\n" + CompanionPrompts.screenTools)
@@ -4453,6 +4454,20 @@ final class CompanionManager: ObservableObject {
 
         switch matchedTool.origin {
         case .local:
+            if toolCall.toolName == TalkToolCatalog.useChromeToolName {
+                return await BrowserBridge.shared.perform(arguments: arguments) { summary, everyTime in
+                    let approved = await self.connectorToolCoordinator.requestApproval(
+                        for: ConnectorToolApprovalRequest(
+                            connectorDisplayName: "Chrome",
+                            toolName: TalkToolCatalog.useChromeToolName,
+                            argumentsSummary: TalkToolCatalog.argumentsSummary(arguments),
+                            risk: everyTime ? .externalSideEffect : .reversibleWrite,
+                            actions: [everyTime ? summary : summary + " (then HeyMate keeps working in its Chrome tabs for 20 minutes)"]
+                        )
+                    )
+                    return approved && !Task.isCancelled && self.ownsCurrentResponse(completion)
+                }
+            }
             return executeLocalTalkTool(named: toolCall.toolName, arguments: arguments, resultOwner: resultOwner)
         case .connector(let connectorIdentifier, let connectorDisplayName, let maximumRisk):
             return await executeConnectorTalkTool(
