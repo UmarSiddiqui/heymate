@@ -4282,6 +4282,8 @@ final class CompanionManager: ObservableObject {
                     + "\n\n" + MateAgentServeConversationClient.connectorInstructions(
                         tools: scopedConnectorToolDescriptions(token: talkScopeToken).compactMap { $0["name"] as? String },
                         enabledApps: enabledChatComposioSlugs.sorted())
+                    // Screen turns need the tag contract the guided-reply parser reads.
+                    + (screenCaptures.isEmpty ? "" : "\n\n" + CompanionPrompts.screenTools)
 
                 let fullResponseText: String
                 let engineUserPrompt = MateAgentServeConversationClient.turnPrompt(
