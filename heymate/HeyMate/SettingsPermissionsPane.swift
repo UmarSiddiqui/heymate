@@ -15,6 +15,7 @@ struct SettingsPermissionsPane: View {
     @ObservedObject private var guide = PermissionGuide.shared
 
     @State private var repairNote: String?
+    @AppStorage(ApprovalMode.preferenceKey) private var approvalMode = ApprovalMode.askMe.rawValue
     @State private var showsResetConfirmation = false
 
     private var shortcutsWork: Bool {
@@ -26,6 +27,7 @@ struct SettingsPermissionsPane: View {
             if !shortcutsWork {
                 shortcutsOffSection
             }
+            approvalsSection
             SettingsSection(
                 "All permissions",
                 footer: "Each one says what HeyMate can do with it. You can turn any of them off again in System Settings › Privacy & Security."
@@ -43,6 +45,29 @@ struct SettingsPermissionsPane: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Use this only if enabling the installed HeyMate app still fails. Reset removes its current Input Monitoring entry; you must allow it again in System Settings.")
+        }
+    }
+
+    // MARK: Approvals
+
+    private var approvalsSection: some View {
+        SettingsSection(
+            footer: "Sending, deleting, paying, passwords and keys like ⌘Q always ask, in either mode."
+        ) {
+            SettingsRow(
+                SettingsItem.approvalMode.title,
+                subtitle: approvalMode == ApprovalMode.fullAccess.rawValue
+                    ? "Clicks, typing, app edits and job plans run without asking."
+                    : "HeyMate asks before it clicks, types, edits an app, or starts a job.",
+                item: .approvalMode
+            ) {
+                DSSegmentedControl(
+                    accessibilityTitle: SettingsItem.approvalMode.title,
+                    selection: $approvalMode,
+                    segments: ApprovalMode.allCases.map { DSSegment(value: $0.rawValue, title: $0.title) },
+                    width: DS.SettingsLayout.segmentedWidth
+                )
+            }
         }
     }
 

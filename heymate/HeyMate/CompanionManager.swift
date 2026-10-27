@@ -4544,7 +4544,8 @@ final class CompanionManager: ObservableObject {
             arguments: arguments,
             ceiling: maximumRisk
         )
-        let approvalPolicy = connectorStore.record(for: connectorIdentifier).approvalPolicy
+        let approvalPolicy = ApprovalMode.current().connectorPolicy(
+            connectorStore.record(for: connectorIdentifier).approvalPolicy)
         if approvalPolicy.requiresApproval(forRisk: risk) {
             let wasApproved = await connectorToolCoordinator.requestApproval(
                 for: ConnectorToolApprovalRequest(
@@ -5157,6 +5158,16 @@ final class CompanionManager: ObservableObject {
     }
 
     private func handleAgentEvent(runID: UUID, event: AgentEvent) {
+        // Full access starts a plan that stays off the floor without a card.
+        // Approved on the next turn so the launcher finishes its own update.
+        if case .planReady = event, let run = agentRunStore.run(id: runID),
+           run.status == .awaitingPlanApproval, ApprovalMode.current().autoApprovesPlan(run.planText) {
+            Task { @MainActor [weak self] in
+                guard self?.agentRunStore.run(id: runID)?.status == .awaitingPlanApproval else { return }
+                self?.approveAgentPlan(runID: runID)
+            }
+            return
+        }
         if let run = agentRunStore.run(id: runID) {
             agentUserNotifier.handle(run: run, event: event)
         }

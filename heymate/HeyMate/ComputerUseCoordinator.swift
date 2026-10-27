@@ -141,7 +141,7 @@ final class ComputerUseCoordinator: ObservableObject {
         var approvalToken: ComputerUseApprovalToken?
         if action.risk > .readOnly {
             if let takeBackReason { return takeBackReason.modelMessage }
-            if !hasStandingInputGrant() {
+            if !hasStandingInputGrant(for: action.risk) {
                 let didApprove = await requestApproval(for: request)
                 guard didApprove else {
                     lastOutcomeSummary = "Skipped: \(action.approvalDescription.lowercased())."
@@ -223,8 +223,13 @@ final class ComputerUseCoordinator: ObservableObject {
         resolvePendingRequest(approved: false)
     }
 
-    /// True when a previous yes already covers this input action.
-    private func hasStandingInputGrant() -> Bool {
+    /// True when a previous yes, or full access, already covers this input
+    /// action. Destructive chords are the floor: they ask every time.
+    private func hasStandingInputGrant(for risk: ConnectorToolRisk) -> Bool {
+        guard risk < .destructive else { return false }
+        if ApprovalMode.current(userDefaults).skipsComputerUseApproval(for: risk) {
+            return true
+        }
         if userDefaults.bool(forKey: Self.alwaysAllowPreferenceKey) {
             return true
         }

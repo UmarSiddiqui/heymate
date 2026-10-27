@@ -184,6 +184,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
     case agentSignIn
     case projectFolder
     case computerControl
+    case approvalMode
     case backgroundAppControl
     case behaviorContract
 
@@ -219,7 +220,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
             return .notch
         case .yourAI, .model, .effort, .voiceChat, .otherEngines, .helperApps:
             return .brain
-        case .agentSignIn, .projectFolder, .computerControl, .backgroundAppControl, .behaviorContract:
+        case .agentSignIn, .projectFolder, .computerControl, .approvalMode, .backgroundAppControl, .behaviorContract:
             return .permissions
         case .permissionList, .repairShortcuts:
             return .permissions
@@ -273,6 +274,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .agentSignIn: return "Agent sign-in"
         case .projectFolder: return "Project folder"
         case .computerControl: return "Let HeyMate use this Mac"
+        case .approvalMode: return "Approvals"
         case .backgroundAppControl: return "Background app control"
         case .behaviorContract: return "Honesty and safety rules"
         case .permissionList: return "Permissions"
@@ -332,6 +334,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .agentSignIn: return "agents jobs terminal sign out account login"
         case .projectFolder: return "sandbox projects folder finder"
         case .computerControl: return "computer use accessibility automation click type control"
+        case .approvalMode: return "ask me full access approve approval permission prompts auto yolo"
         case .backgroundAppControl: return "cua driver background"
         case .behaviorContract: return "behavior contract rules honesty safety edit"
         case .permissionList: return "permission allow accessibility input monitoring screen recording microphone speech notifications calendar contacts"
