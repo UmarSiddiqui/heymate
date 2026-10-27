@@ -2524,11 +2524,7 @@ final class CompanionManager: ObservableObject {
         currentResponseTask = nil
         streamingAssistantText = ""
         voiceSynthesisClient.stopPlayback()
-        isGuidancePointerHeld = false
-        cursorCaptionTask?.cancel()
-        cursorCaptionTask = nil
-        cursorCaptionText = ""
-        cursorCaptionProgress = nil
+        clearCursorCaption()
         clearPointingTarget()
         if activeRoutineTurn != nil {
             completeActiveRoutineTurn(.cancelled)
@@ -3575,6 +3571,7 @@ final class CompanionManager: ObservableObject {
             // Cancel any in-flight response/TTS — one interaction at a time.
             currentResponseTask?.cancel()
             voiceSynthesisClient.stopPlayback()
+            clearCursorCaption()
             clearPointingTarget()
             clearAnnotations()
 
@@ -3823,6 +3820,7 @@ final class CompanionManager: ObservableObject {
             // Cancel any in-progress response and TTS from a previous utterance
             currentResponseTask?.cancel()
             voiceSynthesisClient.stopPlayback()
+            clearCursorCaption()
             clearPointingTarget()
 
             // Interrupting whatever was happening (speaking/thinking/guiding)

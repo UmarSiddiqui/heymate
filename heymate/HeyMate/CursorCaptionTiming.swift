@@ -59,6 +59,16 @@ extension CompanionManager {
         }
     }
 
+    /// Hides the caption at once. An interrupted reply never reaches its
+    /// linger timer, so whatever stops it must clear the caption itself.
+    func clearCursorCaption() {
+        isGuidancePointerHeld = false
+        cursorCaptionTask?.cancel()
+        cursorCaptionTask = nil
+        cursorCaptionText = ""
+        cursorCaptionProgress = nil
+    }
+
     /// Keeps the finished reply beside the cursor while it is spoken and
     /// for long enough to read, then hides it.
     func lingerCursorCaption(
