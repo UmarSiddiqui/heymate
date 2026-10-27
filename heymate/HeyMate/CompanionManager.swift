@@ -71,11 +71,13 @@ final class CompanionManager: ObservableObject {
         talkGmailEvidence[token] = nil
     }
 
+    /// Connector tools plus the mate delegation tools, for the scoped MCP
+    /// bridge a Pi turn attaches. Delegation rides the same bridge so First
+    /// Mate can hand work to a specialist; start_mate_work stays native-only.
     func scopedConnectorToolDescriptions(token: String) -> [[String: Any]] {
         guard let scope = talkToolScopes[token], ownsCurrentResponse(scope.completion) else { return [] }
         return TalkToolCatalog.availableTools(connectorRuntime: connectorRuntime).compactMap { tool in
-            guard case .connector(let identifier, _, _) = tool.origin,
-                  isConnectorEnabledForChat(identifier), !Self.isWithheldFromTalk(tool.toolDefinition.name.components(separatedBy: "__").last ?? tool.toolDefinition.name) else { return nil }
+            guard isScopedBridgeTool(tool) else { return nil }
             let definition = tool.toolDefinition
             let schema = (try? JSONSerialization.jsonObject(with: Data(definition.inputSchemaJSON.utf8))) as? [String: Any]
             return ["name": definition.name, "description": definition.description,
@@ -83,12 +85,21 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    private func isScopedBridgeTool(_ tool: TalkTool) -> Bool {
+        switch tool.origin {
+        case .local:
+            return TalkToolCatalog.piDelegationToolNames.contains(tool.toolDefinition.name)
+        case .connector(let identifier, _, _):
+            let name = tool.toolDefinition.name
+            return isConnectorEnabledForChat(identifier)
+                && !Self.isWithheldFromTalk(name.components(separatedBy: "__").last ?? name)
+        }
+    }
+
     func executeScopedConnectorTool(token: String, name: String, arguments: [String: Any]) async -> (text: String, isError: Bool) {
         guard let scope = talkToolScopes[token], ownsCurrentResponse(scope.completion),
               let tool = TalkToolCatalog.availableTools(connectorRuntime: connectorRuntime).first(where: {
-                  guard case .connector(let identifier, _, _) = $0.origin else { return false }
-                  return isConnectorEnabledForChat(identifier) && $0.toolDefinition.name == name
-                      && !Self.isWithheldFromTalk(name.components(separatedBy: "__").last ?? name)
+                  $0.toolDefinition.name == name && isScopedBridgeTool($0)
               }) else { return ("This conversation tool scope expired or the connector is unavailable.", true) }
         let result = await executeTalkTool(.init(toolUseIdentifier: UUID().uuidString, toolName: name,
             inputArgumentsJSON: String(data: (try? JSONSerialization.data(withJSONObject: arguments)) ?? Data("{}".utf8), encoding: .utf8) ?? "{}"),
@@ -4289,7 +4300,8 @@ final class CompanionManager: ObservableObject {
                 defer { revokeTalkToolScope(talkScopeToken) }
                 let effectiveSystemPrompt = MateAgentConversationClient.interfaceInstructions(mateIdentity: mateIdentityBlock(for: speakingMate) ?? "")
                     + "\n\n" + MateAgentServeConversationClient.connectorInstructions(
-                        tools: scopedConnectorToolDescriptions(token: talkScopeToken).compactMap { $0["name"] as? String },
+                        tools: scopedConnectorToolDescriptions(token: talkScopeToken).compactMap { $0["name"] as? String }
+                            .filter { !TalkToolCatalog.piDelegationToolNames.contains($0) },
                         enabledApps: enabledChatComposioSlugs.sorted())
                     // Screen turns need the tag contract the guided-reply parser reads.
                     + (screenCaptures.isEmpty ? "" : "\n\n" + CompanionPrompts.screenTools)

@@ -47,6 +47,11 @@ enum TalkToolCatalog {
     static let answerRequestToolName = HarnessToolName.answerRequest.rawValue
     static let askDeeperToolName = HarnessToolName.askDeeper.rawValue
 
+    /// Local tools a Pi turn also gets through the scoped bridge, so one mate
+    /// can hand work to another. start_mate_work is left out on purpose: a
+    /// Pi mate does its own work rather than spawning native runs for itself.
+    static let piDelegationToolNames: Set<String> = [sendToMateToolName, getMateStatusToolName, answerRequestToolName]
+
     /// Every tool available this turn: the local actions, always present,
     /// plus one per tool from every connector `ConnectorRuntime` currently
     /// has a live MCP session for.

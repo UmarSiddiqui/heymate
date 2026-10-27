@@ -32,7 +32,7 @@ enum MateAgentBrief {
             lines.append("- for email, calendar, and other services listed as connected apps, use those tools directly in this chat. they answer in seconds; a run is slower and needs the user's approval.")
         }
         if mate.conductsOthers {
-            lines.append("- for a specialist agent's execution work, hand it over with [ASK: ...] instead of [WORK: ...]. keep a requested teaching walkthrough in this chat.")
+            lines.append("- for a specialist agent's execution work, hand it over with the send_to_mate tool instead of doing it here. keep a requested teaching walkthrough in this chat.")
         }
         return lines.joined(separator: "\n")
     }
