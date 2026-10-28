@@ -57,6 +57,24 @@ struct CompanionCursorView: View {
     @State private var pointingLabel = ""
     @State private var pointingLabelOpacity: Double = 0
     @State private var pointingLabelScale: CGFloat = 1
+    /// Settle, tap and inspect moves layered on the parked cursor.
+    @State private var pointingPose = CursorPointingMotion.Pose.rest
+    /// The spot being pointed at, and the unit step from the cursor toward it.
+    @State private var pointingSpot: CGPoint = .zero
+    @State private var leanDirection = CGVector(dx: -0.55, dy: -0.83)
+    @State private var pointingMotionTimer: Timer?
+
+    /// Reply speed while thinking, sampled from the streamed text.
+    @State private var workTempo = CursorWorkPace.Tempo.calm
+    @State private var paceTracker = PaceTracker()
+    @State private var paceTimer: Timer?
+    /// Banks a few degrees toward the way the pointer is moving.
+    @State private var followTilt: Double = 0
+    /// A slow breath while the pointer rests and nothing is happening.
+    @State private var isBreathing = false
+    @State private var pointerRestingSince = CACurrentMediaTime()
+    @AppStorage(CompanionAppearancePreference.idleAnimationsKey) private var idleAnimations = true
+    private static let breathDelay: TimeInterval = 3
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var captionSize: CGSize = .zero
@@ -131,10 +149,32 @@ struct CompanionCursorView: View {
 
             // The position is sampled every frame, so it is not animated;
             // a spring here would run a full-screen transaction per sample.
-            CompanionCursorGlyph(headingDegrees: headingDegrees, extraGlow: (flightScale - 1) * 20)
-                .scaleEffect(flightScale)
+            if let ring = pointingPose.tapRingProgress, isVisibleOnThisScreen {
+                Circle()
+                    .stroke(companionManager.themeColor, lineWidth: 1.5)
+                    .frame(width: 30, height: 30)
+                    .scaleEffect(0.4 + 1.2 * ring)
+                    .opacity((1 - ring) * 0.8)
+                    .position(pointingSpot)
+                    .allowsHitTesting(false)
+            }
+
+            CompanionCursorGlyph(
+                headingDegrees: headingDegrees + pointingPose.headingOffsetDegrees + (mode == .following ? followTilt : 0),
+                extraGlow: (flightScale - 1) * 20
+            )
+                .scaleEffect(breathes ? 1.05 : 1)
+                .offset(y: breathes ? -1.4 : 0)
+                .animation(
+                    breathes ? .easeInOut(duration: 1.25).repeatForever(autoreverses: true) : .easeOut(duration: 0.3),
+                    value: breathes
+                )
+                .scaleEffect(flightScale * pointingPose.scale)
                 .opacity(showsArrow ? visibleOpacity : 0)
-                .position(position)
+                .position(
+                    x: position.x + leanDirection.dx * pointingPose.lean,
+                    y: position.y + leanDirection.dy * pointingPose.lean
+                )
                 .animation(.easeIn(duration: 0.25), value: companionManager.voiceState)
                 .animation(
                     mode == .flying ? nil : .spring(response: 0.42, dampingFraction: 0.72),
@@ -150,7 +190,10 @@ struct CompanionCursorView: View {
             }
 
             if isVisibleOnThisScreen && companionManager.voiceState == .processing {
-                CompanionThinkingSpinner()
+                CompanionThinkingSpinner(
+                    tempo: workTempo,
+                    activity: CursorActivityKind.classify(companionManager.mateAgentActivity.last?.text)
+                )
                     .opacity(visibleOpacity)
                     .position(position)
                     .animation(.easeIn(duration: 0.15), value: companionManager.voiceState)
@@ -165,6 +208,9 @@ struct CompanionCursorView: View {
             let display = target.displayFrame
             guard display == screenFrame || screenFrame.contains(CGPoint(x: display.midX, y: display.midY)) else { return }
             flyToTarget(target.location)
+        }
+        .onChange(of: companionManager.voiceState) { _, state in
+            state == .processing ? startPaceSampling() : stopPaceSampling()
         }
         .onChange(of: companionManager.cursorDockPhase) { _, phase in
             if phase == .returning && runsDockFlightOnThisScreen {
@@ -298,6 +344,8 @@ struct CompanionCursorView: View {
         flightTimer?.invalidate()
         flightTimer = nil
         pointingTask?.cancel()
+        stopPointingMotion()
+        stopPaceSampling()
         welcomeTask?.cancel()
         removeTypingMonitor()
     }
@@ -341,8 +389,16 @@ struct CompanionCursorView: View {
             // Only the return flight gives way to the user moving the mouse.
             let local = localPoint(mouse)
             let moved = hypot(local.x - pointerAtFlightStart.x, local.y - pointerAtFlightStart.y)
-            if moved > Self.returnCancelDistance { resumeFollowing() }
+            if moved > Self.returnCancelDistance {
+                resumeFollowing()
+                // Blink out and back at the pointer so the snap reads as a choice.
+                if !reduceMotion {
+                    cursorOpacity = 0.2
+                    withAnimation(.easeOut(duration: 0.3)) { cursorOpacity = 1 }
+                }
+            }
             return
+
         case .flying, .pointing:
             return
         case .following:
@@ -351,10 +407,60 @@ struct CompanionCursorView: View {
 
         companionManager.revealCursorIfPointerMoved(to: mouse)
         let next = Self.followPosition(for: mouse, in: screenFrame)
-        if hypot(next.x - position.x, next.y - position.y) >= 0.5 {
-            position = next
+        let step = CGVector(dx: next.x - position.x, dy: next.y - position.y)
+        let moved = hypot(step.dx, step.dy) >= 0.5
+        if moved { position = next }
+        updateFollowTilt(horizontalStep: moved ? step.dx : 0)
+        updateBreathing(pointerMoved: moved)
+    }
+
+    /// Eases toward a lean of up to 8° in the direction of travel, and
+    /// back to upright when the pointer stops. Writes only on real change.
+    private func updateFollowTilt(horizontalStep: CGFloat) {
+        let target = reduceMotion ? 0 : min(max(Double(horizontalStep) * 0.5, -8), 8)
+        var next = followTilt + (target - followTilt) * 0.2
+        if abs(next) < 0.05 && target == 0 { next = 0 }
+        if abs(next - followTilt) > 0.05 || (next == 0 && followTilt != 0) { followTilt = next }
+    }
+
+    /// Starts a slow breath after the pointer has rested for a few seconds
+    /// with nothing else going on; any movement stops it at once.
+    private func updateBreathing(pointerMoved: Bool) {
+        let now = CACurrentMediaTime()
+        if pointerMoved { pointerRestingSince = now }
+        let shouldBreathe = !pointerMoved
+            && !reduceMotion
+            && idleAnimations
+            && isPointerOnThisScreen
+            && companionManager.voiceState == .idle
+            && !companionManager.hidesCursorForTyping
+            && !companionManager.cursorDockPhase.isTransitioning
+            && now - pointerRestingSince >= Self.breathDelay
+        if shouldBreathe != isBreathing { isBreathing = shouldBreathe }
+    }
+
+    // MARK: - Work pace
+
+    /// Samples reply speed four times a second; only a tempo change
+    /// reaches SwiftUI.
+    private func startPaceSampling() {
+        stopPaceSampling()
+        let tracker = paceTracker
+        tracker.pace.sample(textLength: companionManager.streamingAssistantText.count, at: CACurrentMediaTime())
+        paceTimer = Self.frameTimer(interval: 0.25) {
+            tracker.pace.sample(textLength: companionManager.streamingAssistantText.count, at: CACurrentMediaTime())
+            if tracker.pace.tempo != workTempo { workTempo = tracker.pace.tempo }
         }
     }
+
+    private func stopPaceSampling() {
+        paceTimer?.invalidate()
+        paceTimer = nil
+        paceTracker.pace = CursorWorkPace()
+        if workTempo != .calm { workTempo = .calm }
+    }
+
+    private var breathes: Bool { isBreathing && mode == .following }
 
     // MARK: - Pointing at things
 
@@ -369,9 +475,16 @@ struct CompanionCursorView: View {
             y: min(max(target.y + 12, 20), screenFrame.height - 20)
         )
         pointingTask?.cancel()
+        stopPointingMotion()
+        pointingSpot = target
+        let toward = CGVector(dx: target.x - destination.x, dy: target.y - destination.y)
+        let length = hypot(toward.dx, toward.dy)
+        if length > 0.5 { leanDirection = CGVector(dx: toward.dx / length, dy: toward.dy / length) }
         pointerAtFlightStart = localPoint(NSEvent.mouseLocation)
         mode = .flying
         isReturning = false
+        followTilt = 0
+        isBreathing = false
 
         fly(to: destination) {
             guard mode == .flying else { return }
@@ -391,7 +504,35 @@ struct CompanionCursorView: View {
             ?? "right here!"
         pointingTask?.cancel()
         pointingTask = Task { _ = try? await runPointing(phrase) }
+        startPointingMotion(CursorPointingMotion(caption: "\(phrase) \(companionManager.cursorCaptionText)"))
     }
+
+    /// Samples the parked moves by time since landing. Writes only when the
+    /// pose changes, so the rests between moves cost no SwiftUI work.
+    private func startPointingMotion(_ motion: CursorPointingMotion) {
+        stopPointingMotion()
+        guard !reduceMotion else { return }
+        let landedAt = CACurrentMediaTime()
+        pointingMotionTimer = Self.frameTimer(interval: 1.0 / 60) {
+            guard mode == .pointing else {
+                stopPointingMotion()
+                return
+            }
+            let pose = motion.pose(
+                at: CACurrentMediaTime() - landedAt,
+                isHeld: companionManager.isGuidancePointerHeld,
+                reduceMotion: reduceMotion
+            )
+            if pose != pointingPose { pointingPose = pose }
+        }
+    }
+
+    private func stopPointingMotion() {
+        pointingMotionTimer?.invalidate()
+        pointingMotionTimer = nil
+        if pointingPose != .rest { pointingPose = .rest }
+    }
+
 
     /// Types the label, holds for at least 3 s (and for as long as a guided
     /// step is still being spoken), fades the label and flies back.
@@ -416,6 +557,7 @@ struct CompanionCursorView: View {
     }
 
     private func flyBackToPointer() {
+        stopPointingMotion()
         let mouse = NSEvent.mouseLocation
         pointerAtFlightStart = localPoint(mouse)
         mode = .flying
@@ -430,6 +572,7 @@ struct CompanionCursorView: View {
         flightTimer = nil
         pointingTask?.cancel()
         pointingTask = nil
+        stopPointingMotion()
         mode = .following
         isReturning = false
         headingDegrees = CompanionCursorShape.restingHeadingDegrees
@@ -576,7 +719,13 @@ struct CompanionCursorView: View {
     }
 }
 
-/// Mutable state for one flight, shared with its frame timer.
+/// Reply-speed sampling state, kept out of SwiftUI so samples that don't
+/// change the tempo cost nothing.
+private final class PaceTracker {
+    var pace = CursorWorkPace()
+}
+
+
 private final class FlightInProgress {
     var path: CursorFlight
     let startTime = CACurrentMediaTime()
