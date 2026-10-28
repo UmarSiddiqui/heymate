@@ -1,0 +1,10 @@
+<!doctype html><meta charset="utf-8"><title>Browser port fixture</title>
+<label>Name <input aria-label="Name" id="name"></label>
+<button onclick="document.querySelector('#result').textContent='Hello '+document.querySelector('#name').value">Greet</button>
+<p id="result">Ready</p><a href="?next=1">Next page</a>
+<label>Password <input type="password" aria-label="Password"></label>
+<div style="height:1800px"></div><p>Bottom of fixture</p>
+<label>Upload fixture <input type="file" aria-label="Upload fixture" id="upload" onchange="document.querySelector('#upload-result').textContent=this.files[0]?.name || 'No file'"></label>
+<p id="upload-result">No file</p>
+<button onclick="document.querySelector('#dialog-result').textContent=confirm('Confirm local fixture?')?'Accepted':'Dismissed'">Open local dialog</button>
+<p id="dialog-result">No dialog</p>

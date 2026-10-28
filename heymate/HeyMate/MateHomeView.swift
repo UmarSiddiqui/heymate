@@ -566,10 +566,10 @@ struct MateHomeView: View {
                         .padding(.vertical, 10)
                     }
                     if showsActiveMateHeader {
-                        railHeader(searchText.isEmpty ? "Agents" : "Results")
+                        railHeader(searchText.isEmpty ? "Mates" : "Results")
                     }
                     if rail.others.isEmpty && rail.pinned.isEmpty && (archivedRail.isEmpty || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
-                        Text(searchText.isEmpty ? "New agents show up here." : "No agents match that.")
+                        Text(searchText.isEmpty ? "New mates show up here." : "No mates match that.")
                             .font(DS.Fonts.caption)
                             .foregroundColor(DS.Colors.textTertiary)
                             .padding(.horizontal, 12)

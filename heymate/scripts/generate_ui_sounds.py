@@ -482,6 +482,93 @@ def build_sounds() -> dict[str, tuple[str, list[float]]]:
     }
 
 
+# MARK: - Drawing sounds
+# What the drawing canvas asks for as it paints (its markSound descriptions): a texture under every stroke and a
+# small sound for a few moments. Clean-room, in the same deep, smooth profile; textures stay low and dry so they
+# loop under the voice without fizz.
+
+def grain(duration: float, center: float, width: float = 0.5, flutter: float = 0.0,
+          seed: int = 5, loop: bool = False) -> list[float]:
+    """Pen on a surface: band-limited noise (two one-pole filters), its level wandering a little; flutter pulses it
+    like a hand writing letters. loop crossfades the end into the start so it can repeat seamlessly."""
+    rng = random.Random(seed)
+    total = int(duration * SAMPLE_RATE)
+    hi = 1 - math.exp(-2 * math.pi * center * (1 + width) / SAMPLE_RATE)
+    lo = 1 - math.exp(-2 * math.pi * center * (1 - width) / SAMPLE_RATE)
+    a = b = drift = 0.0
+    out: list[float] = []
+    for i in range(total):
+        t = i / SAMPLE_RATE
+        x = rng.uniform(-1, 1)
+        a += hi * (x - a)
+        b += lo * (x - b)
+        drift += 0.0004 * (rng.uniform(-1, 1) - drift)
+        level = 0.8 + 6 * drift
+        if flutter:
+            level *= 0.55 + 0.45 * abs(math.sin(math.pi * flutter * t))
+        out.append((a - b) * level)
+    if loop:
+        fade = int(0.12 * SAMPLE_RATE)
+        for i in range(fade):
+            g = i / fade
+            out[i] = out[i] * g + out[total - fade + i] * (1 - g)
+        out = out[: total - fade]
+    else:
+        attack, release = int(0.01 * SAMPLE_RATE), int(0.06 * SAMPLE_RATE)
+        for i in range(len(out)):
+            out[i] *= min(1.0, i / attack) * min(1.0, (len(out) - i) / release)
+    return out
+
+
+def dry(samples: list[float]) -> list[tuple[float, float]]:
+    return [(v, v) for v in samples]
+
+
+def build_drawing_sounds() -> dict[str, tuple[str, list[float]]]:
+    taps = place([(k * 0.07, [v * 0.6 for v in mallet(G5 if k % 2 else E5, 0.04, brightness=0.4)]) for k in range(6)])
+    return {
+        # Textures, looped for as long as a stroke draws.
+        "DrawFelt": ("draw-felt.wav", finish(dry(grain(1.6, 700, 0.45, seed=21, loop=True)), level=0.35)),
+        "DrawPencil": ("draw-pencil.wav", finish(dry(grain(1.6, 1400, 0.35, seed=22, loop=True)), level=0.25)),
+        "DrawWriting": ("draw-writing.wav", finish(dry(grain(1.6, 1300, 0.35, flutter=5.5, seed=23, loop=True)), level=0.25)),
+        "DrawEraser": ("draw-eraser.wav", finish(dry(grain(1.6, 420, 0.5, flutter=3.0, seed=24, loop=True)), level=0.35)),
+        # Moments.
+        "DrawPaperPlace": ("draw-paper-place.wav", finish(room(place([
+            (0.0, thump(D3 * 2, 0.22, drop=0.7)), (0.0, grain(0.18, 900, 0.6, seed=31))]), tail=0.15, wet=0.25), level=0.5)),
+        "DrawTape": ("draw-tape.wav", finish(room(grain(0.14, 1600, 0.4, flutter=18, seed=32), tail=0.05, wet=0.2), level=0.35)),
+        "DrawPhotoDrop": ("draw-photo-drop.wav", finish(room(place([
+            (0.0, thump(A3, 0.28, drop=0.6)), (0.01, mallet(D4, 0.2, brightness=0.5)), (0.0, grain(0.12, 800, 0.6, seed=33))]),
+            tail=0.2), level=0.55)),
+        "DrawPop": ("draw-pop.wav", finish(room(mallet(E5, 0.09, brightness=0.6), tail=0.08, wet=0.2), level=0.35)),
+        "DrawTargetPing": ("draw-target-ping.wav", finish(room(echo(mallet(A5, 0.25, brightness=0.7), delay=0.12,
+            feedback=0.35, repeats=2), tail=0.2), level=0.45)),
+        "DrawPenFlick": ("draw-pen-flick.wav", finish(room(mallet(D6, 0.04, brightness=0.4), tail=0.05, wet=0.15), level=0.2)),
+        "DrawBuild3D": ("draw-build-3d.wav", finish(room(place([
+            (0.0, glide(C4, G4, 0.22, curve=0.7, body=0.5)), (0.05, mallet(G5, 0.2, brightness=0.6))]), tail=0.2), level=0.4)),
+        "DrawSlide": ("draw-slide.wav", finish(room(swell(400 * PITCH, 600 * PITCH, 0.25, air=1.0, rise=0.4), tail=0.1, wet=0.25), level=0.3)),
+        "DrawPageClear": ("draw-page-clear.wav", finish(room(place([
+            (0.0, swell(900 * PITCH, 400 * PITCH, 0.4, air=1.4, rise=0.3)), (0.0, grain(0.35, 700, 0.6, seed=34))]),
+            tail=0.2), level=0.4)),
+        "DrawHighlighter": ("draw-highlighter.wav", finish(dry(grain(0.35, 600, 0.6, seed=35)), level=0.3)),
+        "DrawTypeKeys": ("draw-type-keys.wav", finish(room(taps, tail=0.05, wet=0.15), level=0.3)),
+        "DrawCopyTick": ("draw-copy-tick.wav", finish(room(place([
+            (0.0, mallet(G5, 0.06, brightness=0.6)), (0.05, mallet(C6, 0.1, brightness=0.6))]), tail=0.1), level=0.35)),
+        # The model's sfx() accents.
+        "DrawTada": ("draw-tada.wav", finish(room(place([
+            (0.0, mallet(C5, 0.3)), (0.08, mallet(E5, 0.3)), (0.16, mallet(G5, 0.35)), (0.24, mallet(C6, 0.6))])), level=0.6)),
+        "DrawDing": ("draw-ding.wav", finish(room(mallet(A5, 0.7, brightness=0.8)), level=0.5)),
+        "DrawNope": ("draw-nope.wav", finish(room(place([
+            (0.0, glide(E4, B3, 0.3, curve=1.2)), (0.0, thump(D3 * 2, 0.2))]), tail=0.15), level=0.5)),
+        "DrawStamp": ("draw-stamp.wav", finish(room(place([
+            (0.0, thump(D3 * 2, 0.3, drop=0.5)), (0.0, grain(0.06, 500, 0.6, seed=36))]), tail=0.15, wet=0.3), level=0.6)),
+        "DrawSparkle": ("draw-sparkle.wav", finish(room(sparkle(E5, 0.5)), level=0.45)),
+        "DrawWhoosh": ("draw-whoosh.wav", finish(room(swell(300 * PITCH, 900 * PITCH, 0.4, air=1.6, rise=0.5), tail=0.15), level=0.4)),
+        "DrawBoing": ("draw-boing.wav", finish(room(place([
+            (0.0, glide(D4, A4, 0.12, curve=0.6)), (0.12, glide(A4, E4, 0.3, curve=0.8))]), tail=0.15), level=0.45)),
+        "DrawPageTurn": ("draw-page-turn.wav", finish(room(grain(0.3, 900, 0.6, flutter=2.0, seed=37), tail=0.1, wet=0.25), level=0.35)),
+    }
+
+
 def write_dataset_contents(dataset: str, file_name: str) -> None:
     contents = {
         "data": [{"filename": file_name, "idiom": "universal"}],
@@ -497,7 +584,9 @@ def main() -> None:
         out_dir = sys.argv[sys.argv.index("--out") + 1]
     assets_root = os.path.join(os.path.dirname(__file__), "..", "HeyMate", "Assets.xcassets")
 
-    for asset_name, (file_name, samples) in build_sounds().items():
+    # --drawing writes only the drawing sounds, leaving the approved UI set as it is.
+    sounds = build_drawing_sounds() if "--drawing" in sys.argv else build_sounds()
+    for asset_name, (file_name, samples) in sounds.items():
         if out_dir:
             write_wav(os.path.join(out_dir, file_name), samples)
         else:

@@ -6,19 +6,19 @@ Edits are grouped by priority, and line numbers refer to `website/index.html` as
 
 ## P0: positioning and accuracy (do these before any campaign traffic)
 
-### 1. Remove HeyClicky from public copy, pending your decision (PLAN.md §7)
+### 1. Remove ReferenceRenderer from public copy, pending your decision (PLAN.md §7)
 
 | Where | Current | Suggested |
 |---|---|---|
-| `<meta name="description">` | "…The open-source alternative to HeyClicky—bring your own…" | "Hold ⌃⌥ and ask about anything on your screen. HeyMate answers out loud and points. It lives in your Mac's notch and runs on the Claude, ChatGPT or OpenCode plan you already have. Free and open source (MIT) for macOS 14.2+." |
-| `<meta name="keywords">` | starts "HeyMate, HeyClicky alternative, …" | "HeyMate, AI for Mac screen, ask about my screen, MacBook notch app, voice assistant for Mac, push to talk AI, Claude for Mac, ChatGPT for Mac, open source macOS app" |
-| `og:description` | "…Open-source alternative to HeyClicky…" | "Ask about anything on your screen. HeyMate answers out loud and points. Runs on the Claude or ChatGPT plan you already have. Free, open source, macOS." |
+| `<meta name="description">` | "…The open-source alternative to ReferenceRenderer—bring your own…" | "Hold ⌃⌥ and ask about anything on your screen. HeyMate answers out loud and points. It lives in your Mac's notch and runs on the Claude, ChatGPT or OpenCode plan you already have. Free and open source (MIT) for macOS 14.2+." |
+| `<meta name="keywords">` | starts "HeyMate, ReferenceRenderer alternative, …" | "HeyMate, AI for Mac screen, ask about my screen, MacBook notch app, voice assistant for Mac, push to talk AI, Claude for Mac, ChatGPT for Mac, open source macOS app" |
+| `og:description` | "…Open-source alternative to ReferenceRenderer…" | "Ask about anything on your screen. HeyMate answers out loud and points. Runs on the Claude or ChatGPT plan you already have. Free, open source, macOS." |
 | `twitter:title` | "HeyMate — Learn your software. One step at a time." | "HeyMate: ask about anything on your screen" |
-| `twitter:description` | "…Open-source HeyClicky alternative…" | Same text as `og:description`. |
-| Hero `.small`, line 75 | "Free and open source (MIT). The open-source alternative to HeyClicky. macOS 14.2 or later." | "Free and open source (MIT). macOS 14.2 or later, with or without a notch." |
-| Footer `.legal`, line 414 | "Not affiliated with Apple, Anthropic, OpenAI, or HeyClicky." | "Not affiliated with Apple, Anthropic, or OpenAI." If you keep any comparison anywhere, keep the non-affiliation line. |
+| `twitter:description` | "…Open-source ReferenceRenderer alternative…" | Same text as `og:description`. |
+| Hero `.small`, line 75 | "Free and open source (MIT). The open-source alternative to ReferenceRenderer. macOS 14.2 or later." | "Free and open source (MIT). macOS 14.2 or later, with or without a notch." |
+| Footer `.legal`, line 414 | "Not affiliated with Apple, Anthropic, OpenAI, or ReferenceRenderer." | "Not affiliated with Apple, Anthropic, or OpenAI." If you keep any comparison anywhere, keep the non-affiliation line. |
 
-`website/llms.txt` also mentions HeyClicky; update it too. `how-to-use-heymate.html`, `privacy.html`, `permissions.html` and `changelog.html` don't mention it. The OG image text still needs a check.
+`website/llms.txt` also mentions ReferenceRenderer; update it too. `how-to-use-heymate.html`, `privacy.html`, `permissions.html` and `changelog.html` don't mention it. The OG image text still needs a check.
 
 ### 2. Hero: lead with the general capability
 

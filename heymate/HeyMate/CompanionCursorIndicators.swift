@@ -116,7 +116,8 @@ struct CursorPillLabel: View {
 
     var body: some View {
         Text(text)
-            .font(DS.Fonts.caption.weight(.medium))
+            // matches ReferenceRenderer mate-draw-engine.js / mate-draw-pieces.js parameter FONT.hand.
+            .font(DrawingHand.font(size: 14))
             .foregroundColor(.white)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)

@@ -15,12 +15,11 @@ final class MateAgentServeRequestPresenter {
         while presentingRequest, !Task.isCancelled {
             do { try await Task.sleep(for: .milliseconds(50)) } catch { return nil }
         }
-        guard !Task.isCancelled, case .object(let params) = request.params,
-              let window = (NSApp.keyWindow.flatMap { $0.sheetParent == nil ? $0 : nil })
-                ?? NSApp.windows.first(where: { $0.isVisible && $0.canBecomeKey && $0.sheetParent == nil }),
-              window.attachedSheet == nil else { return nil }
+        guard !Task.isCancelled, case .object(let params) = request.params else { return nil }
         presentingRequest = true
         defer { presentingRequest = false }
+        let hostWindow = (NSApp.keyWindow.flatMap { $0.sheetParent == nil ? $0 : nil })
+            ?? NSApp.windows.first(where: { $0.isVisible && $0.canBecomeKey && $0.sheetParent == nil })
         let alert = NSAlert()
         let answer: @MainActor () -> JSONValue?
         switch request.method {
@@ -84,11 +83,18 @@ final class MateAgentServeRequestPresenter {
         default:
             return nil
         }
+        // The notch often has no window that can host a sheet. Denying in that
+        // case shows the user nothing and the tool reports "not approved".
+        // A modal dialog still asks.
+        guard let hostWindow, hostWindow.attachedSheet == nil else {
+            let response = alert.runModal()
+            return response == .alertSecondButtonReturn ? answer() : nil
+        }
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 guard !Task.isCancelled else { continuation.resume(returning: nil); return }
                 pending[request.localID] = (alert, continuation)
-                alert.beginSheetModal(for: window) { [weak self] response in
+                alert.beginSheetModal(for: hostWindow) { [weak self] response in
                     self?.finish(request.localID, value: response == .alertSecondButtonReturn ? answer() : nil)
                 }
             }

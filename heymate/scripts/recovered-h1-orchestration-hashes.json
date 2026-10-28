@@ -1,0 +1,28 @@
+{
+  "source": "references/reference-renderer/source/formatted/1.1.1/mate-harness.bundle.js",
+  "sourceSHA256": "3c9da9c912c84bd0798719755eb3a2904c0281219649fb14e5f0f6b89a73c9d8",
+  "modules": [
+    {
+      "module": "agent-runtime/src/recovered-h1-script.mjs",
+      "moduleSHA256": "99f4662b7d3230e60289cf28bbd59b0ede3c6a609714cc750bd3c0dec70e9158",
+      "startByte": 530526,
+      "endByte": 536311,
+      "sourceSHA256": "d16c62573a3011fbad33974eb9f814e68099fbf22b89cf92fb8b9f0dd35e1cdb",
+      "bytes": 5785,
+      "preBrandingModuleSHA256": "78ac8b61d8be27481571fa6e34ffeef3edb4764ef2acbb5a15c55fde9abbf520"
+    },
+    {
+      "module": "agent-runtime/src/recovered-h1-early-reads.mjs",
+      "moduleSHA256": "d7f4b218816a9d795b72b816923285f9414441712d7060f6bf40d03250d41948",
+      "startByte": 614009,
+      "endByte": 615528,
+      "sourceSHA256": "a8f3839bf64a56215cb8cc6a643a84be8e4d663e6dd9e26fa6f90f54e01a6b1b",
+      "bytes": 1519,
+      "preBrandingModuleSHA256": "d7f4b218816a9d795b72b816923285f9414441712d7060f6bf40d03250d41948"
+    }
+  ],
+  "adaptations": [
+    "Module exports and recovered closure dependency bindings only. Original script runner executes unchanged inside QuickJS. Tool approvals, durable storage, argument validation and cancellation are HeyMate adapters."
+  ],
+  "brandingAdaptation": "Product names and private drawing symbols renamed; original source digests retained for audit."
+}

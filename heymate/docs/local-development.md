@@ -14,6 +14,14 @@ stopped. Unknown running HeyMate copies cause an error instead of silently
 creating another instance. If quitting is refused, finish pending work and quit
 HeyMate yourself before retrying; the script never force-kills it.
 
+The bundled agent needs a self-contained Node distribution. Packaging rejects
+Node executables linked to Homebrew or missing `@rpath` libraries, and starts
+the prepared backend in a disposable profile to check identity and health.
+If the shell selects Homebrew Node, set `HEYMATE_NODE_BINARY` to the absolute
+`bin/node` path from an official Node distribution before running this script.
+For an existing payload, run `python3 scripts/pi-runtime-smoke.py --root PATH`
+to check backend startup without opening a second app or touching sign-ins.
+
 `--debug` runs LLDB against the installed executable. `--logs` and `--telemetry`
 launch that same app and stream logs. `--verify` also checks that exactly one
 installed GUI instance survives startup. No mode launches a DerivedData copy.
@@ -109,3 +117,30 @@ direction, bundle identity, missing private keys, backup preservation, and
 failed replacement rollback. They do not claim to test or grant macOS TCC
 authorization. A live `--check` can validate this Mac's installed identity
 without rebuilding or relaunching.
+
+## Speech and 3D regression checks
+
+After a verified local install, run the cached Kokoro integration probe:
+
+```bash
+./script/verify_kokoro.sh
+node --test scripts/stage3d_tests.mjs
+```
+
+The speech probe compiles the production engines into a standalone CLI linked
+against the existing build dependencies. It never launches another HeyMate GUI
+or changes the app's preferences. It requires already-downloaded models and
+runs 400 sentences from four overlapping callers, then checks recovery after
+a cancelled call. `PROBE_ROUNDS=40` selects a shorter check. A pass reports the
+actual sentence count; an Xcode test summary with zero tests is not evidence.
+
+The 3D checks use the bundled Three.js math with a stub renderer to verify
+same-beat group parenting, complete model bounds, first-frame cursor projection
+and framing in narrow cards. Check rendering and speech playback in the installed
+app separately.
+
+For the native explanation renderer, `./scripts/verify_native_metal.sh` runs bridge
+regressions and renders production Metal pipelines on the local GPU with API
+validation, without installing or launching HeyMate. Gallery PNGs are written to
+`../output/metal/`. See `native-metal-renderer.md` for source provenance and
+remaining reference-calibration limits.

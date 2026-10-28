@@ -175,7 +175,7 @@ final class UISoundPlayer {
         return asset.data
     }
 
-    private var isSoundEnabled: Bool {
+    var isSoundEnabled: Bool {
         guard !SilentModePreferences.isEnabled else { return false }
         guard !QuietPolicy.shouldSilenceAnnouncements() else { return false }
         return UserDefaults.standard.object(forKey: CompanionManager.uiSoundPreferenceKey) == nil

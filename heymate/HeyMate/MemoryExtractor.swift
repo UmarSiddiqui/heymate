@@ -52,8 +52,7 @@ final class MemoryExtractor {
     var performRequest: (URLRequest) async throws -> (Data, URLResponse)
 
     /// Tests replace the on-device reply. Nil means "ask Foundation Models
-    /// if this Mac has them." `OnDeviceLanguageClient` only speaks as Talk,
-    /// so the extractor does not send the exchange through that client.
+    /// if this Mac has them." Extraction is independent of the chat harness.
     var performOnDeviceExtraction: ((String) async -> String?)?
 
     /// Tests force the cheap path on or off without touching the keychain.

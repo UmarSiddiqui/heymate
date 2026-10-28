@@ -26,6 +26,13 @@ struct Model3DTests {
     ```
     """
 
+    @Test func aModelIsDescribedAsAReplyBlockAndNotAFile() {
+        let contract = CompanionPrompts.model3DContract
+        #expect(contract.contains("do not call write"))
+        #expect(contract.contains("not files"))
+        #expect(CompanionPrompts.response(isSilentModeEnabled: true).contains("do not call write"))
+    }
+
     @Test func modelBlockIsLiftedOutOfTheSpokenReply() throws {
         let reply = GuidedReplyParser.parse(engineReply)
         #expect(reply.spokenText == "a piston engine turns fuel into motion: the piston slides in the cylinder and the rod turns the crank.")

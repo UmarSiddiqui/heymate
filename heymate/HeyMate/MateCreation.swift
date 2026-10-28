@@ -31,7 +31,7 @@ nonisolated enum MateCreationParser {
 
         if let colon = trimmed.firstIndex(of: ":") {
             let head = String(trimmed[..<colon])
-            let listHead = #"(?i)^(?:please\s+)?make\s+me\s+(?:(?:a|an|one|two|three|four|five|\d+)\s+)?(?:mates?|agents?|clickys?)\s*$"#
+            let listHead = #"(?i)^(?:please\s+)?make\s+me\s+(?:(?:a|an|one|two|three|four|five|\d+)\s+)?(?:mates?|agents?|mates?)\s*$"#
             if head.range(of: listHead, options: .regularExpression) != nil {
                 let tail = String(trimmed[trimmed.index(after: colon)...])
                 guard !hasRequestQualifier(in: tail) else { return nil }
@@ -44,7 +44,7 @@ nonisolated enum MateCreationParser {
             }
         }
 
-        let pattern = #"(?i)^(?:please\s+)?make\s+me\s+(?:(?:a|an|one|two|three|four|five|\d+)\s+)?(?:mate|mates|agent|agents|clicky|clickys)\s+(?:that|who|to)\s+(.+)$"#
+        let pattern = #"(?i)^(?:please\s+)?make\s+me\s+(?:(?:a|an|one|two|three|four|five|\d+)\s+)?(?:mate|mates|agent|agents|mate|mates)\s+(?:that|who|to)\s+(.+)$"#
         guard let job = firstCapture(pattern, in: trimmed) else { return nil }
         let jobText = job.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !jobText.isEmpty, !hasRequestQualifier(in: jobText) else { return nil }
@@ -100,7 +100,7 @@ nonisolated enum MateCreationParser {
             clause + #"(?:please\s+)?(?:wait|ask)\s+for\s+(?:my|our)\s+(?:approval|confirmation)\s*(?:[.!?]|$|before\s+(?:creating|making|adding|saving)\b)"#,
             clause + transition + #"is\s+(?:that|this|it)\s+(?:the|a)\s+(?:right|correct|valid)\s+(?:command|syntax)\s*\?"#,
             // Do not store a second roster command as the first mate's soul.
-            secondCommandStart + #"(?:create|make|add)\s+(?:me\s+)?(?:(?:a|an|another|one|two|three|four|five|\d+)\s+)?(?:test\s+)?(?:mates?|agents?|clickys?)\b"#
+            secondCommandStart + #"(?:create|make|add)\s+(?:me\s+)?(?:(?:a|an|another|one|two|three|four|five|\d+)\s+)?(?:test\s+)?(?:mates?|agents?|mates?)\b"#
         ]
         return patterns.contains { description.range(of: "(?i)" + $0, options: .regularExpression) != nil }
     }
@@ -143,7 +143,7 @@ nonisolated enum MateNameGenerator {
         "monitor", "monitoring", "tracks", "track", "tracking", "reads", "read",
         "reading", "scans", "scan", "scanning", "looks", "look", "looking", "helps",
         "help", "helping", "handles", "handle", "handling", "manages", "manage",
-        "managing", "does", "do", "doing", "buddy", "mate", "agent", "clicky"
+        "managing", "does", "do", "doing", "buddy", "mate", "agent", "mate"
     ]
 
     private static let roles = [

@@ -74,6 +74,8 @@ struct HarnessTurnNotesTests {
         #expect(routine.contains("This brief was written by HeyMate."))
         #expect(standing.contains("This brief was written by HeyMate."))
         #expect(!routine.contains("Report only what is new."))
+        #expect(routine.contains("This is the first scheduled run."))
+        #expect(routine.contains("Answer in this chat. Do not create files unless the task explicitly asks for them."))
     }
 
     @Test func laterRoutineRunsReportOnlyWhatIsNew() {
@@ -91,6 +93,7 @@ struct HarnessTurnNotesTests {
     @Test func aRoutineAfterAnUnfinishedRunChecksBeforeRepeating() {
         let notes = HarnessTurnNotes.prefix(input(kind: .routine(isFirstRun: false, lastAttemptDidNotFinish: true)))
         #expect(notes.contains("The last run did not finish."))
+        #expect(notes.contains("Verify uncertain outcomes before continuing."))
     }
 
     @Test func talkCanCarryRunningAndWaitingJobs() {

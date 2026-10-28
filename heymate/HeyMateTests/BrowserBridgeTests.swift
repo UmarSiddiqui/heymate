@@ -95,4 +95,23 @@ struct BrowserBridgeTests {
         #expect(TalkToolCatalog.piBridgeLocalToolNames.contains(TalkToolCatalog.useChromeToolName))
         #expect(TalkToolCatalog.piBridgeLocalToolNames.isSuperset(of: TalkToolCatalog.piDelegationToolNames))
     }
+
+    @Test @MainActor func fileWorkflowsValidateInputsAndKeepApprovalFloor() throws {
+        #expect(try BrowserCommand.make(["op": "keep", "tab_id": 4, "why": "result"]).get() == .keep(tabID: 4, why: "result"))
+        #expect(BrowserCommand.make(["op": "upload", "tab_id": 4, "ref": 1, "paths": ["relative.txt"]]) == .failure(.invalidFiles))
+        #expect(BrowserCommand.make(["op": "upload", "tab_id": 4, "ref": 1, "paths": []]) == .failure(.invalidFiles))
+        #expect(BrowserCommand.make(["op": "download", "url": "file:///etc/passwd"]) == .failure(.refusedURL))
+        #expect(BrowserCommand.make(["op": "dialog", "tab_id": 4]) == .failure(.missingText))
+        for mode in ApprovalMode.allCases {
+            guard case .askEveryTime = BrowserApproval.decide(.upload(tabID: 4, ref: 1, paths: ["/tmp/test.txt"]), element: nil, mode: mode, hasGrant: true) else {
+                Issue.record("Uploads require destination-specific approval"); return
+            }
+            guard case .askEveryTime = BrowserApproval.decide(.dialog(tabID: 4, accept: true, text: nil), element: nil, mode: mode, hasGrant: true) else {
+                Issue.record("Accepting dialogs keeps approval floor"); return
+            }
+            #expect(BrowserApproval.decide(.dialog(tabID: 4, accept: false, text: nil), element: nil, mode: mode, hasGrant: false) == .allow)
+        }
+        #expect(!BrowserBridge.readableUploadFile("/dev/null"))
+        #expect(!BrowserBridge.readableUploadFile("/tmp"))
+    }
 }

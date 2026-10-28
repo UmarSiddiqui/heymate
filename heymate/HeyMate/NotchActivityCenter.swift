@@ -2,9 +2,9 @@
 //  NotchActivityCenter.swift
 //  HeyMate
 //
-//  Retains local shelf storage and agent activity. Legacy micro-app types stay
+//  Retains agent activity. Legacy micro-app types stay
 //  available to internal tools, but their monitors and notch UI are retired.
-//  Provider usage is owned by NotchUsageStore; the shelf is drag-only.
+//  Provider usage is owned by NotchUsageStore.
 //
 
 import AppKit
@@ -14,7 +14,6 @@ import Foundation
 /// Which micro-apps the user has turned on. Persisted as a set of raw
 /// strings so adding a new one never invalidates the stored value.
 enum NotchMicroApp: String, CaseIterable, Identifiable, Sendable {
-    case shelf
     case media
     case timer
     case battery
@@ -31,7 +30,6 @@ enum NotchMicroApp: String, CaseIterable, Identifiable, Sendable {
 
     var displayName: String {
         switch self {
-        case .shelf: return "File Shelf"
         case .media: return "Now Playing"
         case .timer: return "Timers"
         case .battery: return "Battery"
@@ -50,7 +48,6 @@ enum NotchMicroApp: String, CaseIterable, Identifiable, Sendable {
     /// to accessibility and Settings.
     var compactDisplayName: String {
         switch self {
-        case .shelf: return "Shelf"
         case .media: return "Music"
         case .timer: return "Timer"
         case .battery: return "Battery"
@@ -67,7 +64,6 @@ enum NotchMicroApp: String, CaseIterable, Identifiable, Sendable {
 
     var explanation: String {
         switch self {
-        case .shelf: return "Drag files onto the notch to park them."
         case .media: return "Track and controls while music plays."
         case .timer: return "Countdowns and focus sessions."
         case .battery: return "Plug-in and low-battery moments."
@@ -84,7 +80,6 @@ enum NotchMicroApp: String, CaseIterable, Identifiable, Sendable {
 
     var symbolName: String {
         switch self {
-        case .shelf: return "tray.full"
         case .media: return "waveform"
         case .timer: return "timer"
         case .battery: return "bolt.fill"
@@ -109,14 +104,12 @@ enum NotchMicroApp: String, CaseIterable, Identifiable, Sendable {
         case .volumeHUD, .brightnessHUD: return "Accessibility access"
         case .bluetooth: return "Bluetooth access"
         case .reminders: return "Reminders access"
-        case .shelf, .timer, .battery, .clipboard, .downloads: return nil
+        case .timer, .battery, .clipboard, .downloads: return nil
         }
     }
 
-    /// Defaults chosen so a fresh install feels alive without asking for
-    /// anything: shelf and timer are pure local state, battery is a free
-    /// IOKit callback.
-    static let defaultEnabled: Set<NotchMicroApp> = [.shelf]
+    /// Legacy micro-apps remain disabled.
+    static let defaultEnabled: Set<NotchMicroApp> = []
 }
 
 @MainActor
@@ -124,15 +117,12 @@ final class NotchActivityCenter: ObservableObject {
 
     nonisolated static let enabledMicroAppsPreferenceKey = "notchEnabledMicroApps"
 
-    @Published var shelfPresentation: NotchShelfPresentation = .hidden
-
     @Published private(set) var enabledMicroApps: Set<NotchMicroApp>
 
     /// The single activity the collapsed pill should render right now.
     @Published private(set) var frontmostActivity: NotchActivity?
 
     // Producers. Public so the expanded card can drive them directly.
-    let shelfStore = NotchShelfStore()
     let timerStore = NotchTimerStore()
     let nowPlayingMonitor = NowPlayingMonitor()
     let batteryMonitor = BatteryActivityMonitor()
@@ -154,8 +144,7 @@ final class NotchActivityCenter: ObservableObject {
 
     init(userDefaults: UserDefaults = .standard) {
         // Legacy micro-app preferences no longer start background monitors.
-        // Keep the file shelf local and available only through file drag.
-        enabledMicroApps = [.shelf]
+        enabledMicroApps = NotchMicroApp.defaultEnabled
         observeProducers()
     }
 
@@ -184,23 +173,11 @@ final class NotchActivityCenter: ObservableObject {
     // MARK: Enablement
 
     func isEnabled(_ microApp: NotchMicroApp) -> Bool {
-        microApp == .shelf && enabledMicroApps.contains(microApp)
+        enabledMicroApps.contains(microApp)
     }
 
     func setEnabled(_ isEnabled: Bool, for microApp: NotchMicroApp) {
-        guard microApp == .shelf else { return }
-        if isEnabled {
-            enabledMicroApps.insert(microApp)
-            startProducer(for: microApp, promptForPermission: true)
-        } else {
-            enabledMicroApps.remove(microApp)
-            stopProducer(for: microApp)
-        }
-        UserDefaults.standard.set(
-            enabledMicroApps.map(\.rawValue),
-            forKey: Self.enabledMicroAppsPreferenceKey
-        )
-        recomputeFrontmostActivity()
+        // Retained for internal callers; retired micro-apps cannot be enabled.
     }
 
     private func startProducer(for microApp: NotchMicroApp, promptForPermission: Bool) {
@@ -209,7 +186,6 @@ final class NotchActivityCenter: ObservableObject {
         case .battery: batteryMonitor.start()
         case .clipboard: clipboardStore.setEnabled(true)
         case .calendar: Task { await calendarMonitor.start(promptForAccess: promptForPermission) }
-        case .shelf: shelfStore.pruneExpiredItems()
         case .timer: break   // purely user-initiated; nothing to spin up
         case .mirror: break  // session lives only while mirror UI is visible
         case .downloads: downloadsMonitor.start()
@@ -246,7 +222,6 @@ final class NotchActivityCenter: ObservableObject {
         case .battery: batteryMonitor.stop()
         case .clipboard: clipboardStore.setEnabled(false)
         case .calendar: calendarMonitor.stop()
-        case .shelf: break // Quitting must preserve parked files.
         case .timer: timerStore.cancel()
         case .mirror: break
         case .downloads: downloadsMonitor.stop()
@@ -263,7 +238,6 @@ final class NotchActivityCenter: ObservableObject {
         // Each producer publishes its own optional activity; the center
         // just re-runs the priority rule whenever any of them changes.
         let activityChangeSignals: [AnyPublisher<Void, Never>] = [
-            shelfStore.$items.map { _ in () }.eraseToAnyPublisher(),
             timerStore.$activity.map { _ in () }.eraseToAnyPublisher(),
             nowPlayingMonitor.$activity.map { _ in () }.eraseToAnyPublisher(),
             batteryMonitor.$activity.map { _ in () }.eraseToAnyPublisher(),
@@ -300,7 +274,6 @@ final class NotchActivityCenter: ObservableObject {
     private func recomputeFrontmostActivity() {
         var candidates: [NotchActivity] = []
         if let agentActivity { candidates.append(agentActivity) }
-        // The shelf never takes over the idle notch; file drags invoke it.
         if isEnabled(.timer), let timerActivity = timerStore.activity { candidates.append(timerActivity) }
         if isEnabled(.media), let mediaActivity = nowPlayingMonitor.activity { candidates.append(mediaActivity) }
         if isEnabled(.battery), let batteryActivity = batteryMonitor.activity { candidates.append(batteryActivity) }

@@ -46,10 +46,9 @@ struct NotchUsageTests {
     }
     @MainActor @Test func legacyMicroAppsNeverStartFromSavedPreferences() {
         let defaults = UserDefaults(suiteName: "notch-tests-\(UUID())")!
-        defaults.set(NotchMicroApp.allCases.map(\.rawValue), forKey: NotchActivityCenter.enabledMicroAppsPreferenceKey)
+        defaults.set(NotchMicroApp.allCases.map(\.rawValue) + ["shelf"], forKey: NotchActivityCenter.enabledMicroAppsPreferenceKey)
         let center = NotchActivityCenter(userDefaults: defaults)
-        #expect(center.enabledMicroApps == [.shelf])
-        #expect(!center.shelfPresentation.isVisible)
+        #expect(center.enabledMicroApps.isEmpty)
         center.setEnabled(true, for: .clipboard)
         #expect(!center.isEnabled(.clipboard))
         #expect(center.clipboardStore.entries.isEmpty)

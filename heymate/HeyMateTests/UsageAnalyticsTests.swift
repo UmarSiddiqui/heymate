@@ -111,18 +111,4 @@ struct UsageAnalyticsTests {
         #expect(preferences.string(forKey: UsageAnalytics.identityKey) == nil)
         #expect(requests == 1)
     }
-
-    @Test func fileShelfCountsValueWithoutPathsOrNames() {
-        let analytics = UsageAnalytics(defaults: defaults(), apiKey: "phc_test", send: { _ in 200 })
-        analytics.setOptedIn(true)
-        analytics.track(.filesShelved(count: 2))
-        #expect(analytics.pendingEvents.compactMap { $0["event"] as? String } == ["files_shelved", "active_use", "value_received"])
-        let properties = analytics.pendingEvents.last?["properties"] as? [String: Any]
-        #expect(properties?["file_count"] as? Int == 2)
-        #expect(properties?["source_event"] as? String == "files_shelved")
-        #expect(properties?["file_name"] == nil)
-        #expect(properties?["file_path"] == nil)
-        analytics.setOptedIn(false)
-    }
-
 }

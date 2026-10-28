@@ -25,14 +25,14 @@ struct NotchActivityTests {
     }
 
     @Test func somethingTheUserJustDidBeatsAmbientBackground() {
-        let shelf = NotchActivity(kind: .shelf, trailingText: "3 files")
+        let timer = NotchActivity(kind: .timer, trailingText: "5:00")
         let media = NotchActivity(kind: .media, trailingText: "Song")
         let battery = NotchActivity(kind: .battery, trailingText: "18%")
         let winner = NotchActivityArbiter.frontmostActivity(
-            among: [media, battery, shelf],
+            among: [media, battery, timer],
             asOf: referenceDate
         )
-        #expect(winner?.kind == .shelf)
+        #expect(winner?.kind == .timer)
     }
 
     @Test func expiredActivitiesAreNeverChosen() {

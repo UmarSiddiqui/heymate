@@ -508,6 +508,8 @@ struct OnDeviceVoiceGrid: View {
         selectedID = option.id
         SpeechStylePreferences.onDeviceVoice = option.id
         previewClient?.stopPlayback()
+        // On an OS where Kokoro crashes, picking a voice saves it but never loads the model.
+        guard KokoroEngine.unsupportedReason == nil else { return }
         let client = previewClient ?? KokoroTTSClient()
         previewClient = client
         previewingID = option.id

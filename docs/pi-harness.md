@@ -1,6 +1,6 @@
 # HeyMate's custom Pi harness
 
-2026-10-27. Replaces the Hermes runtime, ACP prototype, setup adapter and Python runtime packaging. Historical Hermes investigation documents remain historical; they do not describe the current engine.
+2026-10-27. Replaces the Hermes runtime, ACP prototype, setup adapter and Python runtime packaging. Retired engine prototypes and their packaging documentation have been removed.
 
 HeyMate owns its harness. `heymate/agent-runtime/src/harness.mjs` implements the desktop protocol, task ownership, per-chat identity, prompt acceptance, verified completion, cancellation, replay, approval requests and scoped connector registration. Pi is a dependency, pinned to `@earendil-works/pi-coding-agent` 1.4.0 with an npm lockfile. Pi supplies the model adapters, lower-level agent/tool loop, JSONL conversation history, retries and compaction. This does not launch the Pi CLI or rename Hermes.
 

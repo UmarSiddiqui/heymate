@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 extension NotchUsageProvider {
@@ -255,83 +254,5 @@ struct NotchUsageView: View {
             .padding(.vertical, 2)
         }
         .accessibilityIdentifier("usage-details-\(provider.rawValue)")
-    }
-}
-
-nonisolated enum NotchShelfPresentation: Equatable {
-    case hidden, hungry, eating, stored
-    var isVisible: Bool { self != .hidden }
-}
-
-/// Only constructed for a file drag/drop. Ordinary hover and clicks never open it.
-struct NotchShelfMouthView: View {
-    @ObservedObject var center: NotchActivityCenter
-    @ObservedObject var shelf: NotchShelfStore
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var clearConfirmation = false
-    var body: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 65) {
-                eye
-                eye
-            }.padding(.top, 8)
-            ZStack {
-                RoundedRectangle(cornerRadius: center.shelfPresentation == .eating ? 20 : 48)
-                    .fill(Color.black)
-                    .overlay(RoundedRectangle(cornerRadius: 48).strokeBorder(.white.opacity(0.15), lineWidth: 2))
-                if center.shelfPresentation == .hungry {
-                    VStack(spacing: 6) {
-                        Image(systemName: "arrow.down.doc.fill").font(.system(size: 24)).foregroundStyle(.white.opacity(0.85))
-                        Text("Feed me a file").font(.system(size: 13, weight: .medium))
-                    }
-                } else if center.shelfPresentation == .eating {
-                    Image(systemName: "checkmark").font(.system(size: 20, weight: .bold)).foregroundStyle(.green)
-                } else {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
-                            ForEach(shelf.items) { item in
-                                VStack(spacing: 4) {
-                                    Image(nsImage: item.thumbnail ?? NSWorkspace.shared.icon(forFile: item.fileURL.path))
-                                        .resizable().scaledToFit().frame(width: 38, height: 38)
-                                    Text(item.displayName).font(.system(size: 10)).lineLimit(1).frame(width: 72)
-                                }
-                                .onTapGesture { shelf.open(itemID: item.id) }
-                                .onDrag { NSItemProvider(object: item.fileURL as NSURL) }
-                                .contextMenu {
-                                    Button("Reveal in Finder") { shelf.reveal(itemID: item.id) }
-                                    Button("Remove from shelf") { shelf.remove(itemID: item.id) }
-                                }
-                                .help("Drag out, click to open, or right-click for more")
-                            }
-                        }.padding(.horizontal, 22)
-                    }
-                }
-            }
-            .frame(height: center.shelfPresentation == .eating ? 38 : 100)
-            .frame(maxWidth: center.shelfPresentation == .hungry ? 260 : center.shelfPresentation == .eating ? 160 : .infinity)
-            .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.65), value: center.shelfPresentation)
-            Text(center.shelfPresentation == .hungry ? "Drop to keep it here. Your original stays put." : "Saved on the shelf. Drag files back out whenever you need them.")
-                .font(DS.Fonts.caption).foregroundStyle(.secondary)
-            if !shelf.items.isEmpty {
-                HStack {
-                    Text("\(shelf.items.count) files").font(DS.Fonts.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    Button("AirDrop") { NSSharingService(named: .sendViaAirDrop)?.perform(withItems: shelf.items.map(\.fileURL)) }
-                        .dsCapsuleButtonStyle(.quiet)
-                    Button("Clear shelf") { clearConfirmation = true }.dsCapsuleButtonStyle(.quiet)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 32).padding(.top, 12)
-        .confirmationDialog("Clear the shelf? Original files will not be deleted.", isPresented: $clearConfirmation) {
-            Button("Clear shelf") { shelf.removeAll() }
-            Button("Cancel", role: .cancel) {}
-        }
-        .accessibilityLabel(center.shelfPresentation == .hungry ? "Mate mouth open. Drop files to add to shelf." : "File shelf")
-    }
-    private var eye: some View {
-        Capsule().fill(.white).frame(width: 12, height: center.shelfPresentation == .eating ? 4 : 19)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: center.shelfPresentation)
     }
 }

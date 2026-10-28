@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "reviewStatus": "unresolved",
+  "reason": "Known recovered implementations remain. Naming cleanup does not establish independent authorship or distribution rights.",
+  "unresolved": [
+    {
+      "path": "HeyMate/mate-draw-engine.js",
+      "status": "requires-reviewed-replacement-or-documented-permission"
+    },
+    {
+      "path": "HeyMate/mate-draw-native.js",
+      "status": "requires-reviewed-replacement-or-documented-permission"
+    },
+    {
+      "path": "HeyMate/mate-draw-pieces.js",
+      "status": "requires-reviewed-replacement-or-documented-permission"
+    },
+    {
+      "path": "HeyMate/mate-three-parts.js",
+      "status": "requires-reviewed-replacement-or-documented-permission"
+    },
+    {
+      "path": "HeyMate/DaVinciShaders.txt",
+      "status": "requires-reviewed-replacement-or-documented-permission"
+    },
+    {
+      "path": "scripts/native-shaders/davinci.metal",
+      "status": "requires-reviewed-replacement-or-documented-permission"
+    },
+    {
+      "path": "browser/extension/mate-core.mjs",
+      "status": "requires-reviewed-replacement-or-documented-permission"
+    },
+    {
+      "path": "agent-runtime/src/notes.mjs",
+      "status": "requires-reviewed-replacement-or-documented-permission"
+    },
+    {
+      "path": "agent-runtime/src/recovered-h1-script.mjs",
+      "status": "requires-reviewed-replacement-or-documented-permission"
+    },
+    {
+      "path": "agent-runtime/src/recovered-h1-early-reads.mjs",
+      "status": "requires-reviewed-replacement-or-documented-permission"
+    },
+    {
+      "path": "agent-runtime/src/recovered-h1-telemetry.mjs",
+      "status": "requires-reviewed-replacement-or-documented-permission"
+    },
+    {
+      "path": "agent-runtime/src/recovered-step-journal.mjs",
+      "status": "requires-reviewed-replacement-or-documented-permission"
+    },
+    {
+      "path": "HeyMate/mate-stage3d.js",
+      "status": "requires-reviewed-replacement-or-documented-permission"
+    },
+    {
+      "path": "HeyMate/mate-host.js",
+      "status": "requires-reviewed-replacement-or-documented-permission"
+    }
+  ],
+  "licensedDependencies": [
+    "Three.js (MIT): retain upstream notices",
+    "Patrick Hand (SIL Open Font License): retain bundled license"
+  ],
+  "clearance": "Engineering inventory only; not legal clearance. Replacements require behavioral and visual parity review.",
+  "enforcement": "advisory",
+  "releaseAuthorization": "User requested release on 2026-10-29 with source review unresolved."
+}

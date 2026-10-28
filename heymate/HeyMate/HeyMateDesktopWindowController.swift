@@ -409,6 +409,21 @@ final class AttachedDesktopPanel: NSWindow {
     override func cancelOperation(_ sender: Any?) {
         close()
     }
+
+    /// Escape folds the panel back into the notch from anywhere inside it.
+    /// A focused text view never forwards Escape as `cancelOperation` (it
+    /// maps it to `complete:`), so it is caught here before dispatch. An
+    /// in-progress IME composition and attached sheets keep their Escape.
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, event.keyCode == 53,
+           event.modifierFlags.isDisjoint(with: [.command, .option, .control, .shift]),
+           attachedSheet == nil,
+           (firstResponder as? NSTextInputClient)?.hasMarkedText() != true {
+            close()
+            return
+        }
+        super.sendEvent(event)
+    }
 }
 
 /// The attached panel's outline: a neck the width of the notch that

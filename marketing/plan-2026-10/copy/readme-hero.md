@@ -1,6 +1,6 @@
 # README hero rewrite (suggestion only, not applied)
 
-This replaces everything from the top of `README.md` down to and including the first GIF block. It keeps the badges, links and Boring Notch credit, and removes the HeyClicky line until you decide on it (PLAN.md §7).
+This replaces everything from the top of `README.md` down to and including the first GIF block. It keeps the badges, links and Boring Notch credit, and removes the ReferenceRenderer line until you decide on it (PLAN.md §7).
 
 **Why change it:**
 

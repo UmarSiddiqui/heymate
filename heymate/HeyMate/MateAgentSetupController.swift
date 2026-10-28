@@ -22,6 +22,7 @@ final class MateAgentSetupController: ObservableObject {
         if let provider = fields["provider"] as? String { currentProvider = provider }
         if let model = fields["model"] as? String { currentModel = model }
         if let effort = fields["effort"] as? String { currentEffort = effort }
+        currentSpeed = fields["speed"] as? String ?? "default"
     }
 
     static let providerNames = ["openai-codex": "ChatGPT", "anthropic": "Claude", "heymate-custom": "Custom API"]
@@ -38,6 +39,7 @@ final class MateAgentSetupController: ObservableObject {
         let efforts: [String: [String]]
         /// Display names ("Claude Sonnet 5.5") keyed by model ID.
         let modelNames: [String: String]
+        var speeds: [String: [String]] = [:]
         let authenticated: Bool
         let authType: String
     }
@@ -47,6 +49,8 @@ final class MateAgentSetupController: ObservableObject {
     @Published private(set) var currentModel = ""
     @Published private(set) var currentEffort = "medium"
     @Published private(set) var currentProvider = ""
+    @Published private(set) var currentSpeed = "default"
+    @Published private(set) var catalogWarning: String?
     @Published private(set) var currentBaseURL = ""
     @Published private(set) var currentAPIFormat = "openai-completions"
     @Published private(set) var ready = false
@@ -64,10 +68,10 @@ final class MateAgentSetupController: ObservableObject {
         self.writeModel = writeModel
     }
 
-    func check(_ configuration: MateAgentEngineConfiguration) async {
+    func check(_ configuration: MateAgentEngineConfiguration, refresh: Bool = false) async {
         await perform(configuration) { socket in
             let inventory = try await socket.request(method: "model.options", params: .object([
-                "include_unconfigured": .bool(true)
+                "include_unconfigured": .bool(true), "refresh": .bool(refresh)
             ]), timeout: .seconds(60))
             self.readInventory(inventory)
             try await self.readReadiness(socket)
@@ -80,7 +84,7 @@ final class MateAgentSetupController: ObservableObject {
 
     func connect(_ configuration: MateAgentEngineConfiguration, provider: String, model: String, key: String,
                  effort: String = "", confirmed: Bool = false, baseURL: String = "",
-                 apiFormat: String = "openai-completions") async {
+                 apiFormat: String = "openai-completions", speed: String = "") async {
         let supported = ["openai-codex", "anthropic", "heymate-custom"]
         guard supported.contains(provider), model.utf8.count <= 256, key.utf8.count <= 16384,
               !model.contains(where: \.isNewline), !key.contains(where: \.isNewline),
@@ -92,6 +96,7 @@ final class MateAgentSetupController: ObservableObject {
             if !model.isEmpty { fields["model"] = .string(model) }
             if !key.isEmpty { fields["api_key"] = .string(key) }
             if !effort.isEmpty { fields["effort"] = .string(effort) }
+            if !speed.isEmpty { fields["speed"] = .string(speed) }
             if provider == "heymate-custom" {
                 fields["base_url"] = .string(baseURL)
                 fields["api_format"] = .string(apiFormat)
@@ -159,6 +164,7 @@ final class MateAgentSetupController: ObservableObject {
         if case .string(let provider) = fields["provider"] { currentProvider = provider }
         if case .string(let model) = fields["model"] { currentModel = model }
         if case .string(let effort) = fields["effort"] { currentEffort = effort }
+        currentSpeed = fields["speed"].flatMap { if case .string(let value) = $0 { return value }; return nil } ?? "default"
         if let expectedProvider { ready = ready && currentProvider == expectedProvider }
         if let expectedModel { ready = ready && currentModel == expectedModel }
         status = ready ? "HeyMate is ready. Your selected provider and model will answer the next turn."
@@ -170,8 +176,10 @@ final class MateAgentSetupController: ObservableObject {
         if case .string(let model) = fields["model"] { currentModel = model }
         if case .string(let provider) = fields["provider"] { currentProvider = provider }
         if case .string(let effort) = fields["effort"] { currentEffort = effort }
+        currentSpeed = fields["speed"].flatMap { if case .string(let value) = $0 { return value }; return nil } ?? "default"
         currentBaseURL = fields["base_url"].flatMap { if case .string(let value) = $0 { return value }; return nil } ?? ""
         currentAPIFormat = fields["api_format"].flatMap { if case .string(let value) = $0 { return value }; return nil } ?? "openai-completions"
+        catalogWarning = fields["catalog_warning"].flatMap { if case .string(let value) = $0 { return value }; return nil }
         guard case .array(let rows) = fields["providers"] else { return }
         providers = rows.compactMap { value in
             guard case .object(let row) = value, case .string(let slug) = row["slug"],
@@ -191,9 +199,25 @@ final class MateAgentSetupController: ObservableObject {
             if case .object(let map) = row["model_names"] {
                 for (id, value) in map { if case .string(let name) = value { modelNames[id] = name } }
             }
+            var speeds: [String: [String]] = [:]
+            if case .object(let map) = row["speeds"] {
+                for (id, value) in map {
+                    if case .array(let entries) = value {
+                        speeds[id] = entries.compactMap { if case .string(let level) = $0 { return level }; return nil }
+                    }
+                }
+            }
             let authType: String
             if case .string(let value) = row["auth_type"] { authType = value } else { authType = "" }
-            return Provider(id: slug, name: name, models: models, efforts: efforts, modelNames: modelNames, authenticated: row["authenticated"] == .bool(true), authType: authType)
+            return Provider(id: slug, name: name, models: models, efforts: efforts, modelNames: modelNames, speeds: speeds, authenticated: row["authenticated"] == .bool(true), authType: authType)
+        }
+    }
+
+    nonisolated static func speedName(_ speed: String) -> String {
+        switch speed {
+        case "priority", "fast": return "Fast"
+        case "ultrafast": return "Ultrafast"
+        default: return "Standard"
         }
     }
 

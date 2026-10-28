@@ -1,3 +1,4 @@
+import { speedNames } from './model-speeds.mjs';
 import path from 'node:path';
 import { clampThinkingLevel, getSupportedThinkingLevels } from '@earendil-works/pi-ai';
 import { readJSON, saveJSON } from './store.mjs';
@@ -34,6 +35,7 @@ export async function configureBrain(harness, p) {
   const selectedID = p.model ? modelID(p.model) : null;
   if (p.model && !selectedID) throw new Error('Invalid model.');
   if (p.effort !== undefined && !brainEfforts.includes(p.effort)) throw new Error('Unsupported effort.');
+  if (p.speed !== undefined && !Object.hasOwn(speedNames, p.speed)) throw new Error('Unsupported speed.');
   let custom;
   if (provider.id === 'heymate-custom') {
     if (!selectedID) throw new Error('Enter the API model ID.');
@@ -67,7 +69,12 @@ export async function configureBrain(harness, p) {
   if (!model) throw new Error('No supported chat model available.');
   const requested = p.effort ?? (current.provider === provider.id && current.model === model.id ? current.effort : null) ?? 'medium';
   const effort = clampThinkingLevel(model, requested);
-  const config = { provider: provider.id, model: model.id, effort,
+  const sameModel = current.provider === provider.id && current.model === model.id;
+  const speed = p.speed ?? (sameModel ? current.speed : undefined) ?? 'default';
+  if (speed !== 'default' && (provider.id !== 'openai-codex' || !harness.modelSpeeds?.[model.id]?.includes(speed))) {
+    throw new Error('Speed is not available for this model. Refresh models and try again.');
+  }
+  const config = { provider: provider.id, model: model.id, effort, speed,
     ...(custom ? { base_url: custom.endpoint, api_format: custom.api } : {}) };
   await saveJSON(path.join(harness.home, 'model.json'), config);
   for (const state of harness.sessions.values()) { state.session?.dispose(); state.session = null; }

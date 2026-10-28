@@ -23,6 +23,8 @@ enum CompanionCursorMode: Equatable {
     case flying
     /// Parked beside a target with its label showing.
     case pointing
+    /// Building a drawing stroke by stroke, driven by the choreographer.
+    case drawing
 }
 
 struct CompanionCursorView: View {
@@ -63,6 +65,10 @@ struct CompanionCursorView: View {
     @State private var pointingSpot: CGPoint = .zero
     @State private var leanDirection = CGVector(dx: -0.55, dy: -0.83)
     @State private var pointingMotionTimer: Timer?
+    /// Permission coach moves (slide demo, wait bob, success hop), timed
+    /// from landing or from the coach's latest phase change.
+    @State private var coachPose = PermissionCoachMotion.Pose.rest
+    @State private var coachPhaseStartedAt = CACurrentMediaTime()
 
     /// Reply speed while thinking, sampled from the streamed text.
     @State private var workTempo = CursorWorkPace.Tempo.calm
@@ -91,6 +97,8 @@ struct CompanionCursorView: View {
     @State private var pointingTask: Task<Void, Never>?
     @State private var welcomeTask: Task<Void, Never>?
     @State private var typingMonitorInstalled = false
+    /// Runs the pen-down build when a reply draws on this screen.
+    @StateObject private var choreographer = DrawingChoreographer()
 
     init(screenFrame: CGRect, isFirstAppearance: Bool, companionManager: CompanionManager) {
         self.screenFrame = screenFrame
@@ -108,7 +116,12 @@ struct CompanionCursorView: View {
             // Keeps the layer composited; invisible and click-through.
             Color.black.opacity(0.001)
 
-            AnnotationCanvasView(annotations: companionManager.activeAnnotations, screenFrame: screenFrame)
+            AnnotationCanvasView(
+                annotations: companionManager.activeAnnotations,
+                screenFrame: screenFrame,
+                progressOverrides: choreographer.frame.progressByID.isEmpty
+                    ? nil : choreographer.frame.progressByID
+            )
                 .frame(width: screenFrame.width, height: screenFrame.height)
                 .allowsHitTesting(false)
 
@@ -159,6 +172,16 @@ struct CompanionCursorView: View {
                     .allowsHitTesting(false)
             }
 
+            if let ring = coachPose.successRingProgress, isVisibleOnThisScreen {
+                Circle()
+                    .stroke(DS.Colors.success, lineWidth: 2)
+                    .frame(width: 34, height: 34)
+                    .scaleEffect(0.5 + 1.3 * ring)
+                    .opacity((1 - ring) * 0.85)
+                    .position(position)
+                    .allowsHitTesting(false)
+            }
+
             CompanionCursorGlyph(
                 headingDegrees: headingDegrees + pointingPose.headingOffsetDegrees + (mode == .following ? followTilt : 0),
                 extraGlow: (flightScale - 1) * 20
@@ -172,12 +195,12 @@ struct CompanionCursorView: View {
                 .scaleEffect(flightScale * pointingPose.scale)
                 .opacity(showsArrow ? visibleOpacity : 0)
                 .position(
-                    x: position.x + leanDirection.dx * pointingPose.lean,
-                    y: position.y + leanDirection.dy * pointingPose.lean
+                    x: position.x + leanDirection.dx * pointingPose.lean + coachPose.offset.dx,
+                    y: position.y + leanDirection.dy * pointingPose.lean + coachPose.offset.dy
                 )
                 .animation(.easeIn(duration: 0.25), value: companionManager.voiceState)
                 .animation(
-                    mode == .flying ? nil : .spring(response: 0.42, dampingFraction: 0.72),
+                    mode == .flying || mode == .drawing ? nil : .spring(response: 0.42, dampingFraction: 0.72),
                     value: headingDegrees
                 )
 
@@ -205,9 +228,45 @@ struct CompanionCursorView: View {
         .onDisappear(perform: disappear)
         .onChange(of: companionManager.pointingTarget) { _, target in
             guard let target else { return }
+            // A drawing in progress hands off to pointing when it drains.
+            guard mode != .drawing else { return }
             let display = target.displayFrame
             guard display == screenFrame || screenFrame.contains(CGPoint(x: display.midX, y: display.midY)) else { return }
+            // A coach phase change at the same switch reacts in place
+            // instead of flying a zero-length hop first.
+            if mode == .pointing, companionManager.permissionCoachCue != nil {
+                let local = localPoint(target.location)
+                if hypot(local.x - pointingSpot.x, local.y - pointingSpot.y) < 4 { return }
+            }
             flyToTarget(target.location)
+        }
+        .onChange(of: companionManager.permissionCoachCue) { _, cue in
+            guard let cue, mode == .pointing else { return }
+            coachPhaseStartedAt = CACurrentMediaTime()
+            pointingTask?.cancel()
+            pointingTask = nil
+            pointingLabel = cue.caption
+            pointingLabelOpacity = 1
+            pointingLabelScale = 0.5
+            DispatchQueue.main.async { pointingLabelScale = 1 }
+            pointingTask = Task { _ = try? await holdThenReturn() }
+        }
+        .onChange(of: companionManager.modelBuildEvent) { _, event in
+            beginModelBuild(event)
+        }
+        .onChange(of: companionManager.pendingDrawingBatch) { _, batch in
+            beginDrawing(batch)
+        }
+        .onChange(of: choreographer.frame) { _, frame in
+            applyDrawingFrame(frame)
+        }
+        .onChange(of: companionManager.activeAnnotations.isEmpty) { _, isEmpty in
+            guard isEmpty, mode == .drawing else { return }
+            choreographer.cancel()
+            resumeFollowing()
+        }
+        .onChange(of: reduceMotion) { _, reduceMotion in
+            choreographer.reduceMotion = reduceMotion
         }
         .onChange(of: companionManager.voiceState) { _, state in
             state == .processing ? startPaceSampling() : stopPaceSampling()
@@ -295,7 +354,7 @@ struct CompanionCursorView: View {
         switch mode {
         case .following:
             return companionManager.pointingTarget == nil && isPointerOnThisScreen
-        case .flying, .pointing:
+        case .flying, .pointing, .drawing:
             return true
         }
     }
@@ -347,6 +406,7 @@ struct CompanionCursorView: View {
         stopPointingMotion()
         stopPaceSampling()
         welcomeTask?.cancel()
+        choreographer.cancel()
         removeTypingMonitor()
     }
 
@@ -398,8 +458,7 @@ struct CompanionCursorView: View {
                 }
             }
             return
-
-        case .flying, .pointing:
+        case .flying, .pointing, .drawing:
             return
         case .following:
             break
@@ -462,6 +521,81 @@ struct CompanionCursorView: View {
 
     private var breathes: Bool { isBreathing && mode == .following }
 
+    // MARK: - Choreographed drawing
+
+    /// Starts (or extends) a pen-down build for the strokes that belong to
+    /// this screen. The choreographer owns position and ink progress until
+    /// the queue drains.
+    private func beginDrawing(_ batch: [ResolvedAnnotation]) {
+        let strokes = batch
+            .filter { $0.screenFrame == screenFrame }
+            .map(DrawingStrokeSampler.stroke(for:))
+        guard !strokes.isEmpty else { return }
+        HeyMateLog.log("beginDrawing: \(strokes.count) strokes on \(Int(screenFrame.width))x\(Int(screenFrame.height))", category: "Drawing")
+
+        choreographer.reduceMotion = reduceMotion
+        flightTimer?.invalidate()
+        flightTimer = nil
+        pointingTask?.cancel()
+        stopPointingMotion()
+        pointingLabel = ""
+        pointingLabelOpacity = 0
+        mode = .drawing
+        isReturning = false
+        choreographer.enqueue(strokes, from: position)
+    }
+
+    /// Mirrors one choreographer frame into the cursor's pose, and hands off
+    /// to pointing or pointer-follow when the build is done.
+    private func applyDrawingFrame(_ frame: DrawingFrameState) {
+        guard mode == .drawing else { return }
+        position = frame.cursorPosition
+        headingDegrees = frame.headingDegrees
+        // Pen-down reads as pressure: the glyph settles slightly onto the page.
+        flightScale = frame.penIsDown ? 1 - 0.12 * frame.pressDepth : 1
+
+        guard !frame.isActive else { return }
+        flightScale = 1
+        headingDegrees = CompanionCursorShape.restingHeadingDegrees
+        if let target = companionManager.pointingTarget {
+            flyToTarget(target.location)
+        } else {
+            resumeFollowing()
+        }
+    }
+
+    /// Taps the buddy across the model window's stage in the same rhythm the
+    /// parts pop in, so it reads as the thing assembling the model.
+    private func beginModelBuild(_ event: ModelBuildEvent?) {
+        guard let event, screenFrame.contains(CGPoint(x: event.windowFrame.midX, y: event.windowFrame.midY)) else { return }
+
+        // AppKit global frame → this overlay's top-left coordinates.
+        let local = CGRect(
+            x: event.windowFrame.minX - screenFrame.minX,
+            y: screenFrame.maxY - event.windowFrame.maxY,
+            width: event.windowFrame.width,
+            height: event.windowFrame.height
+        )
+        let count = max(1, min(event.partCount, 30))
+        let taps: [DrawingStroke] = (0..<count).map { index in
+            let spread = count > 1 ? CGFloat(index) / CGFloat(count - 1) : 0.5
+            let spot = CGPoint(
+                x: local.minX + local.width * (0.18 + 0.64 * spread),
+                // The stage sits between the header and the footer strip.
+                y: local.minY + local.height * 0.48
+            )
+            return DrawingStroke(id: UUID(), role: .tap, points: [spot],
+                                 duration: Model3DSceneBuilder.buildStagger)
+        }
+
+        choreographer.reduceMotion = reduceMotion
+        flightTimer?.invalidate()
+        flightTimer = nil
+        mode = .drawing
+        isReturning = false
+        choreographer.enqueue(taps, from: position)
+    }
+
     // MARK: - Pointing at things
 
     private func flyToTarget(_ screenPoint: CGPoint) {
@@ -502,6 +636,7 @@ struct CompanionCursorView: View {
         let phrase = companionManager.pointingTarget?.caption
             ?? Self.pointingPhrases.randomElement()
             ?? "right here!"
+        coachPhaseStartedAt = CACurrentMediaTime()
         pointingTask?.cancel()
         pointingTask = Task { _ = try? await runPointing(phrase) }
         startPointingMotion(CursorPointingMotion(caption: "\(phrase) \(companionManager.cursorCaptionText)"))
@@ -518,6 +653,17 @@ struct CompanionCursorView: View {
                 stopPointingMotion()
                 return
             }
+            if let cue = companionManager.permissionCoachCue {
+                let coach = PermissionCoachMotion.pose(
+                    cue.phase,
+                    at: CACurrentMediaTime() - coachPhaseStartedAt,
+                    reduceMotion: reduceMotion
+                )
+                if coach != coachPose { coachPose = coach }
+                if coach.pointing != pointingPose { pointingPose = coach.pointing }
+                return
+            }
+            if coachPose != .rest { coachPose = .rest }
             let pose = motion.pose(
                 at: CACurrentMediaTime() - landedAt,
                 isHeld: companionManager.isGuidancePointerHeld,
@@ -531,11 +677,10 @@ struct CompanionCursorView: View {
         pointingMotionTimer?.invalidate()
         pointingMotionTimer = nil
         if pointingPose != .rest { pointingPose = .rest }
+        if coachPose != .rest { coachPose = .rest }
     }
 
-
-    /// Types the label, holds for at least 3 s (and for as long as a guided
-    /// step is still being spoken), fades the label and flies back.
+    /// Types the label, then holds and flies back.
     private func runPointing(_ phrase: String) async throws {
         for (index, character) in phrase.enumerated() {
             guard mode == .pointing else { return }
@@ -543,9 +688,16 @@ struct CompanionCursorView: View {
             if index == 0 { pointingLabelScale = 1 }
             try await Task.sleep(for: .milliseconds(Int.random(in: 30...60)))
         }
+        try await holdThenReturn()
+    }
 
+    /// Holds for at least 3 s, and while a guided step or the permission
+    /// coach still needs the buddy here, then fades the label and flies back.
+    private func holdThenReturn() async throws {
         let holdUntil = Date().addingTimeInterval(3)
-        while Date() < holdUntil || companionManager.isGuidancePointerHeld {
+        while Date() < holdUntil
+            || companionManager.isGuidancePointerHeld
+            || companionManager.permissionCoachCue != nil {
             try await Task.sleep(for: .milliseconds(200))
             guard mode == .pointing else { return }
         }
@@ -725,7 +877,7 @@ private final class PaceTracker {
     var pace = CursorWorkPace()
 }
 
-
+/// Mutable state for one flight, shared with its frame timer.
 private final class FlightInProgress {
     var path: CursorFlight
     let startTime = CACurrentMediaTime()

@@ -80,15 +80,7 @@ struct ClaudeModelCatalogTests {
         #expect(ClaudeEffortCatalog.options(fromHelpText: help).isEmpty)
     }
 
-    @Test func effortReachesClaudeTalkAndAgentLaunches() {
-        let talk = SubscriptionCLIVisionClient.claudeTalkArguments(
-            prompt: "hi",
-            systemPrompt: "",
-            model: "opus",
-            effort: "high"
-        )
-        #expect(talk.firstIndex(of: "--effort").map { talk[$0 + 1] } == "high")
-
+    @Test func effortReachesClaudeAgentLaunches() {
         let spec = ClaudePrintAdapter(modelIdentifier: "opus", effort: "max").launchSpec(
             workspaceURL: URL(fileURLWithPath: "/tmp"),
             leg: .plan(prompt: "do it"),

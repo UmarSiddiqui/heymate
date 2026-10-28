@@ -21,9 +21,9 @@ nonisolated struct GuidanceStep: Equatable {
     /// previous step was pointing at.
     let pointing: PointingParseResult?
 
-    /// What the user hears and reads: every control tag removed.
+    /// What the user hears and reads: every control tag and markdown emphasis removed.
     var displayText: String {
-        GuidedReplyParser.strippingControlTags(from: text)
+        GuidedReplyParser.strippingMarkdownEmphasis(GuidedReplyParser.strippingControlTags(from: text))
     }
 
     var pointsSomewhere: Bool {
@@ -48,6 +48,12 @@ nonisolated struct GuidedReply: Equatable {
     var visualActions: [VisualAction] = []
     /// A 3D model from a {"model3d": {...}} block, built as the reply starts.
     var model3D: Model3DSpec?
+    /// A change to the model already showing, from a {"model3d_patch": {...}} block.
+    var modelPatch: Model3DPatch?
+    /// A drawn explanation from a ```js block; its say() lines are the last
+    /// `explainerLineCount` steps.
+    var explainerProgram: String?
+    var explainerLineCount = 0
 
     /// The reply as one passage, visual and walkthrough tags removed.
     /// Other directives ([ACT], [WORK], handoffs) stay for their own parsers.
@@ -76,21 +82,32 @@ nonisolated enum GuidedReplyParser {
 
     static func parse(_ responseText: String) -> GuidedReply {
         // The json blocks are silent: lift them out before anything is spoken.
-        let (withoutModel, model3D) = Model3DParser.extract(from: responseText)
-        let (withoutDrawings, visualActions) = VisualActionParser.extract(from: withoutModel)
+        // A drawing program is spoken through its say() lines instead.
+        let (withoutProgram, program, sayLines) = ExplainerParser.extract(from: responseText)
+        let (withoutModel, model3D) = Model3DParser.extract(from: withoutProgram)
+        let (withoutPatch, modelPatch) = Model3DParser.extractPatch(from: withoutModel)
+        let (withoutDrawings, visualActions) = VisualActionParser.extract(from: withoutPatch)
         let (withoutWalkthrough, directives) = extractWalkthroughDirectives(from: withoutDrawings)
         return GuidedReply(
-            steps: steps(from: withoutWalkthrough),
+            steps: steps(from: withoutWalkthrough) + sayLines.map { GuidanceStep(text: $0, pointing: nil) },
             walkthroughDirectives: directives,
             visualActions: visualActions,
-            model3D: model3D
+            model3D: model3D,
+            modelPatch: modelPatch,
+            explainerProgram: program,
+            explainerLineCount: sayLines.count
         )
     }
 
     /// Text safe to show while a reply is still streaming: complete tags
     /// removed anywhere, and a half-arrived tag at the end dropped.
     static func streamingDisplayText(_ partialText: String) -> String {
-        var text = Model3DParser.extract(from: partialText).text
+        var text = ExplainerParser.extract(from: partialText).text
+        if let programStart = ExplainerParser.openBlockStart(in: text) {
+            text = String(text[..<programStart])
+        }
+        text = Model3DParser.extract(from: text).text
+        text = Model3DParser.extractPatch(from: text).text
         // A model block still arriving is never shown.
         if let blockStart = Model3DParser.openBlockStart(in: text) {
             text = String(text[..<blockStart])
@@ -106,6 +123,17 @@ nonisolated enum GuidedReplyParser {
             }
         }
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The reply as kept in the chat: its silent tags ([POINT:none], [STEP:2] …) removed, its lines kept.
+    static func chatText(_ text: String) -> String {
+        text.replacingOccurrences(of: #"[ \t]*\[(?:POINT|STEP|PLAN|CIRCLE|ARROW|RECT|CARD):[^\]\n]*\]"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Spoken and captioned words carry no markdown: **bold**, __bold__ and `code` become their words.
+    static func strippingMarkdownEmphasis(_ text: String) -> String {
+        text.replacingOccurrences(of: #"\*\*([^*]+)\*\*|__([^_]+)__|`([^`]+)`"#, with: "$1$2$3", options: .regularExpression)
     }
 
     static func strippingControlTags(from text: String) -> String {

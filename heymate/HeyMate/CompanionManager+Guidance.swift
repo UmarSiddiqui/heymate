@@ -176,6 +176,135 @@ extension CompanionManager {
         }
     }
 
+    /// A new model replaces the window. A patch changes the one already showing,
+    /// or the model in this same reply when both arrived together.
+    private func modelToShow(from reply: GuidedReply) -> Model3DSpec? {
+        if let model = reply.model3D {
+            guard let patch = reply.modelPatch else { return model }
+            return model.patched(remove: patch.remove, about: patch.about, explode: patch.explode, section: patch.section)
+        }
+        guard let patch = reply.modelPatch, let current = model3DWindowController.currentModel else { return nil }
+        return current.patched(remove: patch.remove, about: patch.about, explode: patch.explode, section: patch.section)
+    }
+
+    // MARK: - A drawing told as it streams in
+
+    /// A reply drawing an explanation is drawn and told while it is still arriving, as ReferenceRenderer does: the overlay
+    /// opens at its first say() line, takes the program as it grows, and each line is spoken as soon as it is complete,
+    /// its strokes drawn while it is heard.
+    func streamExplainer(_ replySoFar: String, owner: ObjectIdentifier, screenCaptures: [ScreenSnapshot]) {
+        guard explainerWindowController.dismissedStreamOwner != owner else { return }
+        guard let (code, closed) = ExplainerParser.streamingProgram(in: replySoFar) else { return }
+        let lines = ExplainerParser.sayLines(in: code)
+        let explainer = explainerWindowController
+        if explainer.streamOwner != owner {
+            // Only a block that speaks is a drawing (code they asked for has no say() lines).
+            guard !lines.isEmpty else { return }
+            let screen = screenCaptures.first(where: \.isCursorScreen) ?? screenCaptures.first
+            guard let frame = screen?.displayFrame ?? NSScreen.main?.frame else { return }
+            explainer.beginStream(owner: owner, on: frame, canvas: screen.map { CGSize(width: $0.screenshotWidthInPixels, height: $0.screenshotHeightInPixels) }, screenshot: screen?.imageData)
+            explainer.streamSpeaker = Task { [weak self] in await self?.tellStreamingExplainer() }
+        }
+        explainer.streamLines = lines
+        explainer.streamDone = closed
+        explainer.feed(code, done: closed)
+    }
+
+    /// Speaks the drawing's lines in order as they arrive, each one's strokes drawn while it is heard.
+    private func tellStreamingExplainer() async {
+        let explainer = explainerWindowController
+        HeyMateLog.log("🖍️ Explainer streaming: first line arrived")
+        var k = 0
+        while !Task.isCancelled {
+            guard k < explainer.streamLines.count else {
+                if explainer.streamDone { break }
+                try? await Task.sleep(nanoseconds: 60_000_000)
+                continue
+            }
+            let words = GuidedReplyParser.strippingMarkdownEmphasis(GuidedReplyParser.strippingControlTags(from: explainer.streamLines[k]))
+            explainer.lineStart(k)
+            cursorCaptionText = words
+            let startedAt = Date()
+            if !isSilentModeEnabled {
+                do { try await voiceSynthesisClient.speakText(words) } catch {
+                    // Without voice the drawing still follows the sentence's reading time.
+                    HeyMateLog.log("🖍️ Explainer line \(k) not spoken: \(error)")
+                }
+            }
+            let minimum = isSilentModeEnabled || !voiceSynthesisClient.isPlaying ? CursorCaptionTiming.readingSeconds(for: words) : 0
+            while !Task.isCancelled, voiceSynthesisClient.isPlaying || Date().timeIntervalSince(startedAt) < minimum {
+                try? await Task.sleep(nanoseconds: 80_000_000)
+            }
+            explainer.lineEnd(k)
+            k += 1
+        }
+        guard !Task.isCancelled else { return }
+        explainer.finish()
+    }
+
+    // MARK: - A drawing's buttons and actions
+
+    /// A button the drawing put up was pressed (ReferenceRenderer's ScreenDrawingActionButtons): open a page, copy, or ask.
+    func runDrawingButton(kind: String, value: Any?) {
+        switch kind {
+        case "open": openDrawingPage(value as? String)
+        case "copy": copyForDrawing(value as? String, note: "Copied")
+        case "ask":
+            if let words = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !words.isEmpty {
+                sendTranscriptToClaudeWithScreenshot(transcript: words, shouldCaptureScreen: true)
+            }
+        case "handoff":
+            if let payload = value as? [String: Any] { handOffFromDrawing(payload) }
+            else if let task = value as? String { handOffFromDrawing(["task": task]) }
+        default:
+            HeyMateLog.log("🖍️ Drawing button \(kind) is not supported yet")
+        }
+    }
+
+    /// A line's action, as it is heard. typeText is ReferenceRenderer's drive for one step: with computer use on it goes
+    /// through HeyMate's own drive (its approval rules, and the user can take the screen back): click the field, type.
+    /// Without it, the text goes on the clipboard to paste, as ReferenceRenderer does when a field refuses it.
+    func runDrawingAction(role: String, text: String, at point: CGPoint?) {
+        switch role {
+        case "copy": copyForDrawing(text, note: "Copied")
+        case "type":
+            guard computerUseCoordinator.isEnabled, let point, !text.isEmpty else {
+                copyForDrawing(text, note: "Copied — paste it with ⌘V")
+                return
+            }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let reason = "Type \"\(text.prefix(80))\" into the field you pointed at."
+                self.computerUseCoordinator.beginDrive()
+                defer { self.computerUseCoordinator.endDrive() }
+                let clicked = await self.computerUseCoordinator.perform(.clickPoint(point), statedReason: reason)
+                HeyMateLog.log("🖍️ Drawing typeText click at \(Int(point.x)),\(Int(point.y)): \(clicked)")
+                guard self.computerUseCoordinator.takeBackReason == nil else { return }
+                let typed = await self.computerUseCoordinator.perform(.typeText(text), statedReason: reason)
+                HeyMateLog.log("🖍️ Drawing typeText: \(typed)")
+            }
+        case "open": openDrawingPage(text)
+        case "handoff":
+            let payload = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
+            handOffFromDrawing(payload ?? ["task": text])
+        default: HeyMateLog.log("🖍️ Drawing action \(role) is not supported yet")
+        }
+    }
+
+    private func copyForDrawing(_ text: String?, note: String) {
+        guard let text, !text.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        cursorCaptionText = note
+    }
+
+    /// Only web pages: a drawing never opens files or apps.
+    private func openDrawingPage(_ address: String?) {
+        guard let address, let url = URL(string: address.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http", url.host != nil else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     /// Escape: stop the guided sequence and forget the plan.
     func cancelGuidance() {
         guard activeWalkthrough != nil || isGuidancePointerHeld else { return }
@@ -202,14 +331,40 @@ extension CompanionManager {
         if !reply.visualActions.isEmpty, !screenCaptures.isEmpty {
             applyVisualActions(reply.visualActions, screenCaptures: screenCaptures)
         }
-        if let model = reply.model3D {
+        if let shown = modelToShow(from: reply) {
             let screen = screenCaptures.first(where: \.isCursorScreen) ?? screenCaptures.first
             if let frame = screen?.displayFrame ?? NSScreen.main?.frame {
-                model3DWindowController.show(model, on: frame)
+                model3DWindowController.show(shown, on: frame)
+                if let windowFrame = model3DWindowController.windowFrame {
+                    modelBuildEvent = ModelBuildEvent(
+                        id: UUID(), windowFrame: windowFrame, partCount: shown.parts.count)
+                }
+            }
+        }
+        if let program = reply.explainerProgram, let speaker = explainerWindowController.streamSpeaker {
+            // Drawn and told while it streamed in: the whole program is in now, and the reply ends when its last
+            // line has been heard.
+            explainerWindowController.streamLines = ExplainerParser.sayLines(in: program)
+            explainerWindowController.feed(program, done: true)
+            explainerWindowController.streamDone = true
+            isGuidancePointerHeld = true
+            dispatch(.beginSpeaking)
+            await withTaskCancellationHandler { await speaker.value } onCancel: { speaker.cancel() }
+            isGuidancePointerHeld = false
+            try Task.checkCancellation()
+            return (nil, nil)
+        }
+        if let program = reply.explainerProgram {
+            let screen = screenCaptures.first(where: \.isCursorScreen) ?? screenCaptures.first
+            if let frame = screen?.displayFrame ?? NSScreen.main?.frame {
+                explainerWindowController.showOrContinue(program: program, on: frame,
+                                               canvas: screen.map { CGSize(width: $0.screenshotWidthInPixels, height: $0.screenshotHeightInPixels) }, screenshot: screen?.imageData)
             }
         }
         let steps = reply.steps.filter { !$0.displayText.isEmpty || $0.pointsSomewhere }
         guard !steps.isEmpty else { return (nil, nil) }
+        // The program's say() lines close the reply; line k draws while it is spoken.
+        let firstExplainerStep = reply.explainerProgram == nil ? steps.count : steps.count - reply.explainerLineCount
 
         try Task.checkCancellation()
         let responseCompletion = currentResponseCompletion
@@ -222,7 +377,7 @@ extension CompanionManager {
 
         // Without anything to point at there is nothing to keep in sync, so
         // the reply plays as before: start speaking and hand back.
-        let pacesSteps = reply.pointingStepCount > 0
+        let pacesSteps = reply.pointingStepCount > 0 || reply.explainerProgram != nil
         let progressPrefix: String? = activeWalkthrough?.progressLabel
         let pointingStepCount = reply.pointingStepCount
         var pointingStepNumber = 0
@@ -232,8 +387,10 @@ extension CompanionManager {
         var hasBegunSpeaking = false
         var lastStepStartedAt = Date()
 
-        for step in steps {
+        for (stepIndex, step) in steps.enumerated() {
             try Task.checkCancellation()
+            let explainerLine = stepIndex >= firstExplainerStep ? stepIndex - firstExplainerStep : nil
+            if let explainerLine { explainerWindowController.lineStart(explainerLine) }
 
             if step.pointsSomewhere, let pointing = step.pointing {
                 // Circles, arrows and cards build one picture across the
@@ -293,6 +450,7 @@ extension CompanionManager {
                 }
             }
             lastStepStartedAt = stepStartedAt
+            if let explainerLine { explainerWindowController.lineEnd(explainerLine) }
 
             if computerUseCoordinator.isEnabled,
                let outcome = await performComputerUseDirectives(in: step.text) {
@@ -310,6 +468,7 @@ extension CompanionManager {
             }
         }
 
+        if reply.explainerProgram != nil { explainerWindowController.finish() }
         let lastWords = steps.last(where: { !$0.displayText.isEmpty })?.displayText ?? ""
         lingerCursorCaption(
             lastWords,

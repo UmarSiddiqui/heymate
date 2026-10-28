@@ -22,8 +22,12 @@ final class Model3DWindowController {
     var onAskAboutPart: ((String, String) -> Void)?
 
     var isShowingModel: Bool { panel != nil }
+    private(set) var currentModel: Model3DSpec?
+    /// Global frame of the model window while it is up.
+    var windowFrame: CGRect? { panel?.frame }
 
     func show(_ model: Model3DSpec, on screenFrame: CGRect) {
+        currentModel = model
         close()
         let panel = Self.makePanel()
         let view = Model3DCardView(
@@ -52,6 +56,7 @@ final class Model3DWindowController {
     func close() {
         guard let panel else { return }
         self.panel = nil
+        currentModel = nil
         NSAnimationContext.runAnimationGroup { context in
             context.duration = DS.Animation.fast
             panel.animator().alphaValue = 0
@@ -262,8 +267,13 @@ enum Model3DSceneBuilder {
         let scene = SCNScene()
         let root = SCNNode()
         root.name = modelName
-        for part in model.parts {
-            root.addChildNode(node(for: part))
+        let visible = model.parts.filter { part in
+            guard let role = part.role else { return true }
+            return !model.hiddenRoles.contains(role)
+        }
+        let centroid = centroid(of: visible)
+        for part in visible {
+            root.addChildNode(node(for: part.exploded(from: centroid, distance: model.explode)))
         }
 
         // Centre the model on the origin so it turns about its middle.
@@ -324,6 +334,20 @@ enum Model3DSceneBuilder {
             try? await Task.sleep(for: .milliseconds(500))
             material.emission.contents = original
         }
+    }
+
+    private static func centroid(of parts: [Model3DSpec.Part]) -> simd_double3 {
+        guard !parts.isEmpty else { return .zero }
+        var sum = simd_double3.zero
+        for part in parts {
+            if part.shape == .tube, let from = part.from, let to = part.to {
+                sum += (simd_double3(from[0], from[1], from[2]) + simd_double3(to[0], to[1], to[2])) / 2
+            } else {
+                let position = part.position
+                sum += simd_double3(position[0], position[1], position[2])
+            }
+        }
+        return sum / Double(parts.count)
     }
 
     private static func node(for part: Model3DSpec.Part) -> SCNNode {

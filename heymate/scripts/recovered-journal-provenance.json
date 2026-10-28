@@ -1,0 +1,43 @@
+{
+  "sourceSHA256": "c155fff8ae8ec5460faccf5408d42edcf12770dec1a4f618bf26ff012d10c09f",
+  "sourceVersion": "ReferenceRenderer 1.1.1 (66)",
+  "target": "heymate/agent-runtime/src/recovered-step-journal.mjs",
+  "targetSHA256": "60b350ce9ffb69c746bdd310631ae2ebf5e47fc897e1c397ffc3da6545b81ede",
+  "segments": [
+    {
+      "source": "references/reference-renderer/source/original/1.1.1/mate-harness-arm64.bundle.js",
+      "startByte": 314607,
+      "endByte": 314690,
+      "sha256": "ee2ddcc8001c8946f5b85e8d7fd95bb15e00cc058372ca8c2e2e71325b97df1b"
+    },
+    {
+      "source": "references/reference-renderer/source/original/1.1.1/mate-harness-arm64.bundle.js",
+      "startByte": 425632,
+      "endByte": 425716,
+      "sha256": "51731dfa8d945623ceab0786a25f89553dd3ed8deeb3716b29a1eca0a7bd64c6"
+    },
+    {
+      "source": "references/reference-renderer/source/original/1.1.1/mate-harness-arm64.bundle.js",
+      "startByte": 425738,
+      "endByte": 425904,
+      "sha256": "0db59c5589db256b1de9b5820c17c7eb8d81c98e69744f4e7b8514d24abf8811"
+    },
+    {
+      "source": "references/reference-renderer/source/original/1.1.1/mate-harness-arm64.bundle.js",
+      "startByte": 431889,
+      "endByte": 434180,
+      "sha256": "1679bf16fbee9c38edb6fb42b4bebd1edbd3acc1f813fbc9ea9d3817a3fc5607"
+    }
+  ],
+  "adaptations": [
+    "Prefix Vo/$2 variable declaration with var and terminate it; source groups these with private session token variable, which is excluded.",
+    "Close Yo class after step(); omit start() that invokes private H1 workflow.",
+    "Export journal class and NonRetryableError bindings."
+  ],
+  "limits": [
+    "Original step journal retry/replay logic, not entire H1 model loop or job server.",
+    "Storage adapter and tool boundary integration belong to HeyMate."
+  ],
+  "preBrandingTargetSHA256": "4c059d633bc97114c4d54663908caa4ce898a8b35f46cbc4609b97720354a77f",
+  "brandingAdaptation": "Product names and private drawing symbols renamed; original source digests retained for audit."
+}

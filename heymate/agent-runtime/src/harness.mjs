@@ -1,10 +1,14 @@
+import { fetchModelSpeeds, speedAccount } from './model-speeds.mjs';
 import { brainProviders, hasBrainCredential, configureBrain, modelEfforts } from './brain.mjs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { appendFile, mkdir, readFile, readdir, realpath, rename, stat } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { noteHash, noteClosingIssues } from './note-workflow.mjs';
+import { noteEdits, noteToolDefinitions } from './notes.mjs';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { SessionStore, validID, readJSON, saveJSON } from './store.mjs';
+import { StepJournal } from './step-journal.mjs';
 
 const boundedText = (value, max) => typeof value === 'string' && value.length > 0 && Buffer.byteLength(value) <= max;
 const errorText = 'HeyMate could not finish this operation. Check model access or retry after reviewing progress.';
@@ -25,6 +29,15 @@ export class HeyMateHarness {
     if (!this.sessions.has(id)) {
       const record = await this.store.load(id);
       if (!record) throw new Error('Session not found.');
+      if (record.pending && record.activeTurnID) {
+        const journal = new StepJournal({ home: this.home, sessionID: record.id });
+        const answer = journal.completedAnswer(record.activeTurnID);
+        if (answer) {
+          record.rows.push({ id: record.rows.length + 1, role: 'assistant', content: answer, finish_reason: 'stop' });
+          record.pending = false;
+          await this.store.save(record);
+        }
+      }
       this.sessions.set(id, { record, events: [], sequence: 0, peers: new Set(), images: [],
         requests: new Map(), session: null, running: false, run: null, cancelled: false, bridgeNames: new Set() });
     }
@@ -46,9 +59,11 @@ export class HeyMateHarness {
     if (!peer) throw new Error('No native approval window is connected.');
     const id = randomUUID();
     const message = { jsonrpc: '2.0', id, method, params: { ...params, session_id: state.record.id } };
+    state.session?.holdBudget?.(true);
     return new Promise((resolve, reject) => {
       const finish = (error, value) => {
         if (!state.requests.delete(id)) return;
+        state.session?.holdBudget?.(false);
         clearTimeout(timer); signal?.removeEventListener('abort', abort);
         this.emit(state, 'request.cancel', { id });
         error ? reject(error) : resolve(value);
@@ -80,6 +95,7 @@ export class HeyMateHarness {
   }
   async tools(state) {
     const tools = [];
+    const batchReads = [];
     for (const name of state.bridgeNames) {
       const bridge = this.bridges.get(name);
       if (!bridge || bridge.sessionID !== state.record.id) continue;
@@ -95,15 +111,41 @@ export class HeyMateHarness {
           if (result.isError) throw new Error('Connector action failed. Inspect returned tool evidence before reporting success.');
           return { content: result.content ?? [], details: {} };
         };
-        tools.push({ name: `${name}_${tool.name}`, label: tool.name, description: tool.description || tool.name,
+        const adapted = { name: `${name}_${tool.name}`, label: tool.name, description: tool.description || tool.name,
           parameters: tool.inputSchema,
           // Reads may run beside each other; writes run one at a time, keyed and ledgered.
           ...(readOnly ? {} : { executionMode: 'sequential' }),
           execute: (id, args, signal) => readOnly ? call(null, args, signal)
             : this.sideEffect(state, `${name}_${tool.name}`, args, id, key => call(key, args, signal))
-        });
+        };
+        tools.push(adapted);
+        if (readOnly) batchReads.push({ tool: adapted });
+        else if (tool.name === 'use_chrome') batchReads.push({ tool: adapted, allows: args => ['tabs', 'snapshot', 'read', 'extract'].includes(args.op) });
       }
     }
+    // ReferenceRenderer's note tools (notes.mjs): one note per chat, kept as markdown in HeyMate's Notes folder, which the
+    // app watches, so the user sees the page change as each edit lands.
+    for (const definition of noteToolDefinitions) {
+      tools.push({ name: definition.name, label: definition.name, description: definition.description,
+        parameters: definition.parameters, executionMode: 'sequential',
+        execute: async (id, args, signal) => {
+          signal?.throwIfAborted();
+          (state.closedNotePreviews ??= new Set()).add(id);
+          await state.notePreviewWrite;
+          await this.clearNotePreview(state);
+          const saved = await this.editNote(state, definition.name, args ?? {}, id);
+          return { content: [{ type: 'text', text: saved }], details: {} };
+        } });
+    }
+    tools.push({ name: 'note_read', label: 'Read this chat’s note',
+      description: 'Read the saved note for this chat before continuing earlier work or after compaction. Returns the current markdown without changing it.',
+      parameters: { type: 'object', properties: {}, additionalProperties: false },
+      execute: async (_id, _args, signal) => {
+        signal?.throwIfAborted();
+        await state.noteWrite;
+        const markdown = await this.readNote(state);
+        return { content: [{ type: 'text', text: markdown || 'This chat has no saved note.' }], details: {} };
+      } });
     tools.push({ name: 'ask_user', label: 'Ask a question',
       description: 'Ask the user one short question when a required fact or decision is missing. Offer up to 6 likely answers as choices; the user may still type their own. The turn pauses until they answer.',
       parameters: { type: 'object', properties: { question: { type: 'string' },
@@ -122,7 +164,80 @@ export class HeyMateHarness {
         return { content: [{ type: 'text', text: `User answered: ${answer}` }], details: {} };
       }
     });
+    Object.defineProperty(tools, "batchReads", { value: batchReads });
     return tools;
+  }
+  get notesFolder() { return path.join(this.home, '..', 'Notes'); }
+  noteFile(state) {
+    if (!state.record.noteID) return null;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(state.record.noteID)) throw new Error('Invalid note identity.');
+    return path.join(this.notesFolder, `${state.record.noteID}.md`);
+  }
+  async readNote(state) {
+    const file = this.noteFile(state);
+    if (!file) return '';
+    try { return await readFile(file, 'utf8'); }
+    catch (error) { if (error.code === 'ENOENT') return ''; throw error; }
+  }
+  editNote(state, name, args, callID = null) {
+    // The tool scheduler normally runs these sequentially, but restore and
+    // concurrent callers must not lose edits or allocate two notes for a chat.
+    const write = (state.noteWrite ?? Promise.resolve()).then(() => this.writeNote(state, name, args, callID));
+    state.noteWrite = write.catch(() => {});
+    return write;
+  }
+  async writeNote(state, name, args, callID = null) {
+    const folder = this.notesFolder;
+    await mkdir(folder, { recursive: true, mode: 0o700 });
+    if (!state.record.noteID) {
+      if (name !== 'note' && name !== 'note_add') return 'There is no note yet: start it with note (its # title and plan).';
+      state.record.noteID = randomUUID().toUpperCase();
+      await this.store.save(state.record);
+    }
+    const file = this.noteFile(state);
+    const current = await this.readNote(state);
+    const receipts = state.record.noteReceipts ??= [];
+    const fingerprint = noteHash(JSON.stringify([name, args]));
+    const earlier = callID && receipts.find(r => r.id === callID);
+    if (earlier && earlier.fingerprint !== fingerprint) throw new Error('Note call identity reused with different arguments.');
+    if (earlier?.status === 'done') return earlier.result;
+    if (earlier && ![earlier.before, earlier.after].includes(noteHash(current))) throw new Error('Pending note edit conflicts with newer content. Read the note before retrying.');
+    const { md, error, note } = earlier ? { md: earlier.markdown } : noteEdits[name](current, args);
+    if (error) return error;
+    if (Buffer.byteLength(md) > 1024 * 1024) throw new Error('Note exceeds 1 MiB.');
+    const receipt = earlier || { id: callID, fingerprint, before: noteHash(current), after: noteHash(md), markdown: md, status: 'started', result: note ? `Saved (${note}).` : 'Saved.' };
+    if (callID && !earlier) { receipts.push(receipt); while (receipts.length > 100) receipts.shift(); await this.store.save(state.record); }
+    const temp = `${file}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temp, md, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+      await rename(temp, file);
+    } finally { await rm(temp, { force: true }); }
+    if (callID) { receipt.status = 'done'; delete receipt.markdown; await this.store.save(state.record); }
+    state.noteChanged = true;
+    return receipt.result;
+  }
+  async clearNotePreview(state) {
+    if (state.record.noteID) await rm(path.join(this.notesFolder, `${state.record.noteID}.preview.json`), { force: true });
+  }
+  previewNote(state, call) {
+    const previous = state.notePreviewWrite ?? Promise.resolve();
+    state.notePreviewWrite = previous.catch(() => {}).then(async () => {
+      if (state.closedNotePreviews?.has(call.id) || !state.running) return;
+      if (Date.now() - (state.lastNotePreview ?? 0) < 200) return;
+      state.lastNotePreview = Date.now();
+      if (!state.record.noteID) {
+        if (!['note', 'note_add'].includes(call.name)) return;
+        state.record.noteID = randomUUID().toUpperCase(); await this.store.save(state.record);
+      }
+      const args = Object.fromEntries(Object.entries(call.arguments).filter(([, value]) => typeof value === 'string'));
+      let preview;
+      try { preview = noteEdits[call.name](await this.readNote(state), args); } catch { return; }
+      if (!preview.md || preview.error || Buffer.byteLength(preview.md) > 1024 * 1024) return;
+      await saveJSON(path.join(this.notesFolder, `${state.record.noteID}.preview.json`), {
+        noteID: state.record.noteID, markdown: preview.md, updatedAt: Date.now()
+      });
+    }).catch(() => {});
+    return state.notePreviewWrite;
   }
   // Every action that can change the world is recorded before and after it runs,
   // keyed by its tool call, so a replayed call returns the earlier receipt
@@ -187,18 +302,40 @@ export class HeyMateHarness {
         state.session = await this.createSession({ home: this.home, record: state.record, access: this.access,
           tools, system, seed, approve: (name, args, signal) => this.approve(state, name, args, signal),
           sideEffect: (name, args, id, run) => this.sideEffect(state, name, args, id, run),
-          effectsNote: () => this.effectsNote(state), stats: stats => this.logStats(state, stats),
-          emit: (type, payload) => this.emit(state, type, payload) });
+          previewNote: call => this.previewNote(state, call), effectsNote: () => this.effectsNote(state), stats: stats => this.logStats(state, stats),
+          emit: (type, payload) => { if (!(state.noteFinishing && type === 'message.delta')) this.emit(state, type, payload); } });
         state.sessionKey = key;
         await this.store.save(state.record);
       }
       if (state.cancelled) throw new Error('Turn interrupted.');
+      state.noteChanged = false; state.closedNotePreviews = new Set();
       await state.session.prompt(text, { images, expandPromptTemplates: false });
       const last = state.session.messages.filter(m => m.role === 'assistant').at(-1);
       const answer = state.session.getLastAssistantText();
       if (state.session.limitReached) throw new Error(state.session.limitReached);
       if (state.cancelled || last?.stopReason === 'aborted') throw new Error('Turn interrupted.');
       if (!answer?.trim() || last?.stopReason === 'error' || last?.stopReason === 'toolUse') throw new Error('No verified final answer.');
+      if (state.noteChanged && !state.cancelled && typeof state.session.setActiveToolsByName === 'function') {
+        const issues = noteClosingIssues(await this.readNote(state));
+        if (issues.length) {
+          const active = state.session.getActiveToolNames();
+          state.noteFinishing = true;
+          this.emit(state, 'agent.thinking', { status: 'Finishing saved note' });
+          const cleanupTimer = setTimeout(() => { Promise.resolve(state.session.abort()).catch(() => {}); }, 12000);
+          try {
+            state.session.setActiveToolsByName(['note_read', ...noteToolDefinitions.map(t => t.name)]);
+            await state.session.prompt('Finish the saved note only. Do not perform additional external work or claim unfinished tasks are done. ' + issues.join(' '), { expandPromptTemplates: false });
+          } catch { this.emit(state, 'agent.note', { status: 'unfinished', issues }); }
+          finally { clearTimeout(cleanupTimer); state.session.setActiveToolsByName(active); state.noteFinishing = false; }
+          if (state.cancelled) throw new Error('Turn interrupted.');
+          const remaining = noteClosingIssues(await this.readNote(state));
+          if (remaining.length) this.emit(state, 'agent.note', { status: 'unfinished', issues: remaining });
+        }
+      }
+      // Restart may restore only this verified native answer, never an arbitrary
+      // model stop or note-cleanup response. No action is rerun during recovery.
+      if (state.record.activeTurnID) await new StepJournal({ home: this.home, sessionID: state.record.id })
+        .checkpointAnswer({ turnID: state.record.activeTurnID, answer });
       state.record.rows.push({ id: state.record.rows.length + 1, role: 'assistant', content: answer, finish_reason: 'stop' });
       state.record.pending = false;
       // Persist the terminal result before announcing completion.
@@ -216,20 +353,47 @@ export class HeyMateHarness {
       this.emit(state, 'message.complete', { status: state.cancelled ? 'interrupted' : 'error',
         error: state.cancelled ? 'Turn interrupted.' : reason ? `${errorText} Reason: ${reason}` : errorText });
     } finally {
+      await state.notePreviewWrite;
+      await this.clearNotePreview(state).catch(() => {});
       state.running = false;
       for (const request of [...state.requests.values()]) request.finish(new Error('Turn ended.'));
     }
   }
+  // The runtime starts offline, so its list of a plan's models only grows when
+  // asked. Brain asks each time it opens: a newly released model shows up
+  // without signing in again. Bounded and at most every ten minutes; offline
+  // keeps the list it has.
+  async refreshModelCatalog(force = false) {
+    const account = speedAccount(await this.access.credentials.read('openai-codex'));
+    if (account !== this.catalogAccount) {
+      this.catalogAccount = account;
+      this.catalogCheckedAt = 0;
+      this.modelSpeeds = {};
+    }
+    if (!force && Date.now() - (this.catalogCheckedAt ?? 0) < 600000) return;
+    this.catalogCheckedAt = Date.now();
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 6000);
+    try {
+      const result = await this.access.runtime.refresh({ allowNetwork: true, force, signal: abort.signal });
+      this.catalogWarning = result?.aborted || result?.errors?.size ? 'Some models could not refresh. Showing cached choices.' : null;
+      try { this.modelSpeeds = await fetchModelSpeeds(this.access, { signal: abort.signal }); }
+      catch { this.modelSpeeds = {}; this.catalogWarning = 'Speed availability could not refresh. Try Refresh models again.'; }
+    } catch { this.catalogWarning = 'Models could not refresh. Showing cached choices.'; }
+    finally { clearTimeout(timer); }
+  }
   async dispatch(peer, method, p = {}) {
     if (method === 'client.capabilities') { peer.serverRequests = p.server_requests === true; return { ok: true }; }
     if (method === 'model.options') {
+      await this.refreshModelCatalog(p.refresh === true);
       const config = await readJSON(path.join(this.home, 'model.json'), {});
       const providers = await Promise.all(brainProviders.map(async provider => ({ slug: provider.id,
         name: provider.name, models: this.access.runtime.getModels(provider.id).map(m => m.id),
         efforts: Object.fromEntries(this.access.runtime.getModels(provider.id).map(m => [m.id, modelEfforts(m)])),
+        speeds: provider.id === 'openai-codex' ? this.modelSpeeds ?? {} : {},
         model_names: Object.fromEntries(this.access.runtime.getModels(provider.id).map(m => [m.id, m.name ?? m.id])),
         authenticated: await hasBrainCredential(this.access, provider.id), auth_type: provider.auth })));
-      return { ...config, providers };
+      return { ...config, providers, catalog_warning: this.catalogWarning ?? null };
     }
     if (method === 'setup.runtime_check') {
       const config = await readJSON(path.join(this.home, 'model.json'), {});
@@ -305,6 +469,7 @@ export class HeyMateHarness {
       state.running = true; state.cancelled = false;
       const rowID = state.record.rows.length + 1;
       state.record.rows.push({ id: rowID, role: 'user', content: p.text }); state.record.pending = true;
+      state.record.activeTurnID = randomUUID();
       try { await this.store.save(state.record); } catch (error) { state.running = false; throw error; }
       const images = state.images.splice(0);
       // Acceptance is separate from completion; native ledger records this exact row.

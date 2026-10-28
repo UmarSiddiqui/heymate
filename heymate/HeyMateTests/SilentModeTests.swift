@@ -86,7 +86,8 @@ struct SilentModeTests {
         // Pointing and drawing must survive in both styles.
         #expect(voicePrompt.contains("[POINT:x,y:label]"))
         #expect(readingPrompt.contains("[POINT:x,y:label]"))
-        #expect(readingPrompt.contains("visualActions"))
+        #expect(voicePrompt.contains("target(x, y, w, h, 'name')"))
+        #expect(readingPrompt.contains("target(x, y, w, h, 'name')"))
     }
 
     @Test func speakersOfferOnlyWhenEveryConditionHolds() {

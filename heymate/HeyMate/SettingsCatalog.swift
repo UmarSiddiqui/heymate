@@ -74,7 +74,7 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
         case .voice:
             return "Choose how HeyMate sounds and how fast it talks."
         case .notch:
-            return "Coding usage, reset times, agent activity, and a file shelf that opens when you drag."
+            return "Coding usage, reset times, and agent activity."
         case .brain:
             return "Pick a subscription, a model, and how hard it thinks."
         case .permissions:
@@ -170,7 +170,6 @@ enum SettingsItem: String, CaseIterable, Identifiable {
     // Notch
     case microApps
     case hoverOpensCard
-    case notchContent
 
     // AI
     case yourAI
@@ -217,7 +216,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
              .microphone, .listenProvider, .speakProvider, .onDeviceVoice, .speechSpeed, .onDeviceVoiceStyle,
              .macVoice, .elevenLabsKey, .elevenLabsVoice:
             return .voice
-        case .microApps, .hoverOpensCard, .notchContent:
+        case .microApps, .hoverOpensCard:
             return .notch
         case .yourAI, .model, .effort, .voiceChat, .otherEngines, .helperApps:
             return .brain
@@ -265,7 +264,6 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .elevenLabsVoice: return "ElevenLabs voice"
         case .microApps: return "Coding usage"
         case .hoverOpensCard: return "Open the card on hover"
-        case .notchContent: return "Feed your mate"
         case .yourAI: return "Plan or API provider"
         case .model: return "Model"
         case .effort: return "Effort"
@@ -326,7 +324,6 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .elevenLabsVoice: return "elevenlabs voice id clone"
         case .microApps: return "codex claude cursor usage limits rings reset coding"
         case .hoverOpensCard: return "hover peek notch card expand"
-        case .notchContent: return "file shelf drag drop mouth feed mate"
         case .yourAI: return "claude chatgpt codex gemini google opencode deepseek api provider model plan subscription sign in brain"
         case .model: return "claude chatgpt gpt sonnet opus haiku model"
         case .effort: return "reasoning thinking effort"

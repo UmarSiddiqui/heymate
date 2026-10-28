@@ -132,17 +132,7 @@ struct ArtifactPresentationRegressionTests {
 }
 
 @MainActor
-struct SubscriptionArtifactToolRegistrationTests {
-    @Test func bothSubscriptionProvidersCarryScopedNativeToolsWithoutConnectedAccounts() throws {
-        for backend in [SubscriptionCLIVisionClient.Backend.codex, .claude] {
-            let client = SubscriptionCLIVisionClient(backend: backend, model: "fixture", connectedAppsReachable: false)
-            client.enableTalkToolScope("fixture-capability")
-            guard let launch = client.warmLaunch() else { continue }
-            #expect(launch.environmentOverrides["HEYMATE_TALK_SCOPE"] == "fixture-capability")
-            #expect(launch.arguments.contains { $0.contains("heymate") })
-        }
-    }
-
+struct ArtifactApprovalPrivacyTests {
     @Test func privateApprovalKeepsCommandPathButRedactsSecrets() {
         let details = AgentReceiptPrivacy.privateToolDetails("mkdir /Users/example/deliverable; api_key=sk-test-secret")
         #expect(details.contains("/Users/example/deliverable"))

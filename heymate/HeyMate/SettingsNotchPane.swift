@@ -44,9 +44,6 @@ struct SettingsNotchPane: View {
             SettingsSection("Behavior", footer: "Clicking the notch always opens the card.") {
                 SettingsToggleRow(SettingsItem.hoverOpensCard.title, subtitle: "Hover to see usage limits and agent activity.", item: .hoverOpensCard, isOn: $hoverOpensCard)
             }
-            SettingsSection("Feed your mate", footer: "The shelf opens only when you drag a file onto the notch. The mate opens its mouth, then keeps the file ready to drag back out. Original files stay where they are; shelf bookmarks expire after one day.") {
-                SettingsRow("File shelf", subtitle: "Drag a file to the notch to open your shelf.", systemImage: "arrow.down.doc") { EmptyView() }
-            }.settingsAnchor(.notchContent)
         }
     }
 }

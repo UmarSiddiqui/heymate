@@ -93,6 +93,45 @@ struct VisualActionTests {
         isCursorScreen: false
     )
 
+    @Test func focusedWindowCaptureIsRebasedOntoItsDisplay() {
+        // A focused-window capture reports the window's frame, not the
+        // display's: without rebasing, the overlay (which owns a whole
+        // display) would never match the annotation's screenFrame.
+        let window = VisualActionResolver.ScreenGeometryInfo(
+            id: "screen1",
+            frame: CGRect(x: 100, y: 200, width: 600, height: 400),
+            isCursorScreen: true
+        )
+        let display = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        let action = VisualAction(
+            type: .circle, screenId: nil, x: nil, y: nil,
+            points: nil, center: [0.5, 0.5], radius: [0.1, 0.1], rect: nil, label: nil, ttlMs: nil
+        )
+
+        let resolved = VisualActionResolver.resolve([action], screens: [window], displays: [display])
+        #expect(resolved.count == 1)
+
+        let annotation = resolved[0]
+        #expect(annotation.screenFrame == display)
+        // Window-local (300, 200) → overlay x += 100; y flips: overlay y
+        // = display.maxY - window.maxY + local y = (982 - 600) + 200.
+        #expect(annotation.center.x == CGFloat(400))
+        #expect(annotation.center.y == CGFloat(582))
+        #expect(annotation.radius == CGSize(width: 60, height: 40))
+    }
+
+    @Test func fullScreenCaptureIsNotRebased() {
+        let action = VisualAction(
+            type: .point, screenId: nil, x: 0.25, y: 0.75,
+            points: nil, center: nil, radius: nil, rect: nil, label: nil, ttlMs: nil
+        )
+
+        let resolved = VisualActionResolver.resolve(
+            [action], screens: [Self.mainDisplay], displays: [Self.mainDisplay.frame])
+        #expect(resolved[0].screenFrame == Self.mainDisplay.frame)
+        #expect(resolved[0].center.x == 0.25 * 1512)
+    }
+
     @Test func normalizedPointsConvertToOverlayLocalCoordinates() {
         let action = VisualAction(
             type: .point, screenId: nil, x: 0.25, y: 0.75,

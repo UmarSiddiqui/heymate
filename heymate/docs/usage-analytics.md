@@ -23,12 +23,12 @@ Metric definitions:
 
 - Daily active installs: `active_use`, unique users, daily.
 - Weekly active installs: `active_use`, unique users, weekly.
-- Activation: first-ever `value_received`. This means a successful AI response or a saved shelf file. Filter `source_event = ai_response_received` for AI-only activation.
+- Activation: first-ever `value_received`. New events represent successful AI responses. Historical cohorts may include shelf saves from older app versions; filter `source_event = ai_response_received` for AI-only activation.
 - Retention: first-ever `value_received` as the cohort event; `active_use` as the return event. Show day 1, day 7, day 30 and weekly cohorts.
 
 Optional future charts (not created during initial setup): activation funnel `active_use` → `value_received` by `app_version`, and conversational reliability `response_error` versus `ai_response_received`.
 
-`active_use` accompanies accepted user messages (typed or voice, including Hermes), deliberate notch clicks, and successful shelf saves. Its `source_event` property separates these actions. Launches, hover, idle timers, provider quota polls, and background update checks do not count. `value_received` accompanies successful replies or shelf saves; only the file count is included, never names or paths. Scheduled/background agent jobs are excluded from active use. Events carry `app_version`, `analytics_schema: 1`, timestamps and bounded numeric metadata; they never carry message content. Anonymous events set `$process_person_profile: false` and `$geoip_disable: true`. HTTPS requests still expose a network IP to the service in transit.
+`active_use` accompanies accepted user messages (typed or voice, including Hermes), deliberate notch clicks. Its `source_event` property separates these actions. Launches, hover, idle timers, provider quota polls, and background update checks do not count. `value_received` accompanies successful replies. Shelf-save events are no longer emitted. Scheduled/background agent jobs are excluded from active use. Events carry `app_version`, `analytics_schema: 1`, timestamps and bounded numeric metadata; they never carry message content. Anonymous events set `$process_person_profile: false` and `$geoip_disable: true`. HTTPS requests still expose a network IP to the service in transit.
 
 ## Interpretation and limitations
 

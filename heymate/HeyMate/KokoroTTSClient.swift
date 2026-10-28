@@ -37,7 +37,7 @@ final class KokoroTTSClient: TTSClient {
     func speakText(_ text: String) async throws {
         stopPlayback()
 
-        let sentences = Self.splitIntoSentences(text)
+        let sentences = Self.splitIntoSentences(SpeechText.sanitize(text))
         guard !sentences.isEmpty else { return }
 
         playbackGeneration += 1
@@ -47,8 +47,7 @@ final class KokoroTTSClient: TTSClient {
         HeyMateLog.log("🔊 Kokoro: reply of \(sentences.count) sentence(s), \(text.count) chars")
 
         // The first sentence is synthesized before returning so a failure
-        // (model missing, synthesis error) surfaces to the caller, which
-        // falls back to the Mac voice.
+        // (model missing, synthesis error) surfaces to the caller.
         let firstSentenceAudio = try await Self.synthesizeLogged(sentences[0], index: 0)
         try Task.checkCancellation()
         guard generation == playbackGeneration else { return }

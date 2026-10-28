@@ -229,6 +229,14 @@ struct OnboardingRootView: View {
             }
         case .interview:
             OnboardingInterviewStep(tour: tour)
+        case .showMe:
+            OnboardingStepFrame(
+                title: "Here's how I'd help you",
+                subtitle: "I'll draw right on your screen, then show what that looks like in your week."
+            ) {
+                OnboardingShortcutPrompt(keys: tour.talkKeys, verb: "Hold", phrase: "Show me how you'd help me")
+                OnboardingStatusLine(text: tour.status ?? "waiting for you…", isDone: tour.isStepDone)
+            }
         case .point:
             OnboardingStepFrame(
                 title: "I can see your screen",

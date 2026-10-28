@@ -79,7 +79,7 @@ final class ElevenLabsVoiceClient: TTSClient {
     }
 
     func speakText(_ text: String) async throws {
-        let request = try makeRequest(for: text)
+        let request = try makeRequest(for: SpeechText.sanitize(text))
         let (audio, response) = try await Self.session.data(for: request)
         guard let status = (response as? HTTPURLResponse)?.statusCode else {
             throw ElevenLabsVoiceError.invalidResponse

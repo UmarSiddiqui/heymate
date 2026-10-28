@@ -37,7 +37,7 @@ struct NotchVisualPreviewTests {
         #expect(abs(shoulder - belowShoulder) < 0.02)
     }
 
-    @Test func usageAndDragShelfRender() throws {
+    @Test func usageRenders() throws {
         let suite = "notch-preview-\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -63,11 +63,6 @@ struct NotchVisualPreviewTests {
                 try render(NotchTabSwitcher(selectedTab: .constant(tab)), name: "tabs-\(tab.rawValue)-\(Int(width))", size: CGSize(width: width, height: 32))
             }
         }
-        let shelfURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("shelf-preview-\(UUID()).json")
-        let shelf = NotchShelfStore(bookmarkFileURL: shelfURL)
-        let center = NotchActivityCenter(userDefaults: defaults)
-        center.shelfPresentation = .hungry
-        try render(NotchShelfMouthView(center: center, shelf: shelf), name: "mouth", size: CGSize(width: 680, height: 320))
     }
 
     @Test func homeKeepsUsageNavigationWhileKeyboardPermissionsAreMissing() async throws {

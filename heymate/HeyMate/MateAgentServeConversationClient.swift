@@ -8,6 +8,9 @@ final class MateAgentServeConversationClient: VisionConversationClient {
     var model = "HeyMate agent profile"
     var connectorScope: String?
     var verifyReply: (@MainActor (String) -> String)?
+    /// The reply so far on every delta, even while verifyReply holds the text back: a drawing program is drawn as it
+    /// arrives, and it makes no Gmail claim.
+    var onDrawingText: (@MainActor (String) -> Void)?
 
     /// Fresh Macs use the sealed Node packaged with the custom harness.
     static func bridgeRuntime(environment: [String: String], fallback: () -> URL? = {
@@ -27,10 +30,10 @@ final class MateAgentServeConversationClient: VisionConversationClient {
         return """
         HeyMate connector status for this turn: enabled apps: \(enabledApps.joined(separator: ", ")).
         HeyMate is attaching a scoped MCP bridge before submitting this request. Available connector tools: \(tools.joined(separator: ", ")).
-        Use the registered MCP tools whose names contain COMPOSIO_SEARCH_TOOLS to find Gmail actions,
+        Use the registered MCP tools whose names contain COMPOSIO_SEARCH_TOOLS to find each app's actions,
         then COMPOSIO_MULTI_EXECUTE_TOOL to execute them. Search results are capability discovery,
         not proof that an action ran or that an account is authenticated. Check execution results.
-        Never report Gmail disconnected merely because you cannot find a tool. Distinguish enabled,
+        Never report an app disconnected merely because you cannot find a tool. Distinguish enabled,
         tool delivery, authentication failure and action failure, using actual returned evidence.
         Earlier replies about unavailable integrations are stale; use this turn's tools.
         """
@@ -152,6 +155,7 @@ final class MateAgentServeConversationClient: VisionConversationClient {
         func bind(_ active: MateAgentServeSession) {
             active.onTextDelta = { [weak self] delta in
                 accumulated += delta
+                self?.onDrawingText?(accumulated)
                 // Gmail completion claims are held until action receipts are checked.
                 if self?.verifyReply == nil { onTextChunk(accumulated) }
             }

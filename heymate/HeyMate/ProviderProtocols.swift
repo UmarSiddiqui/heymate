@@ -4,7 +4,7 @@
 //
 //  Provider-neutral seams for the AI services so backends can be swapped
 //  without touching CompanionManager. These mirror the surfaces of the
-//  shipping implementations (AnthropicMessagesClient, ElevenLabsVoiceClient). The STT seam
+//  shipping implementations (MateAgentServeConversationClient, ElevenLabsVoiceClient). The STT seam
 //  already exists as SpeechToTextProvider + LiveTranscriptionSession
 //  with three interchangeable conformers, so it stays as the canonical
 //  StreamingSTTClient boundary.
@@ -18,9 +18,8 @@ import Foundation
 
 /// Streaming vision/model conversation client.
 ///
-/// Conformed to by AnthropicMessagesClient (direct or via a proxy). Any future
-/// provider (OpenAI, Gemini, local models) implements this protocol and can
-/// be injected into CompanionManager without other changes.
+/// Implemented by the HeyMate harness client. Tests inject deterministic
+/// clients through the same boundary.
 protocol VisionConversationClient: AnyObject {
     /// The model identifier used for requests (e.g. "claude-sonnet-4-6").
     var model: String { get set }
@@ -78,10 +77,8 @@ struct AssistantToolCall: Sendable {
 /// `onToolCallRequested`, feed the result back, and continue until the model
 /// produces a final answer with no further tool calls.
 ///
-/// Only `AnthropicMessagesClient` conforms today. The subscription CLI and OpenCode
-/// backends already run their own tool loops server-side (or have none at
-/// all for a scratch Talk session), so they stay on the plain
-/// `VisionConversationClient` path and never advertise tools to the model.
+/// The production harness owns its tool loop. This optional boundary supports
+/// injected clients that ask HeyMate to execute individual tool calls.
 protocol ToolCallingConversationClient: VisionConversationClient {
     /// Same shape as `analyzeImageStreaming`, plus the tools the model may
     /// call and a handler that executes one and returns its result text.

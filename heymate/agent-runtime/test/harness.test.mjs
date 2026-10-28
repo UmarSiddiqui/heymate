@@ -17,8 +17,9 @@ async function fixture(t, createSession = async () => ({
   messages: [{ role: 'assistant', stopReason: 'stop' }],
   async prompt() {}, getLastAssistantText: () => 'Verified fixture answer', async abort() {}, dispose() {}
 })) {
-  const home = await mkdtemp(path.join(os.tmpdir(), 'heymate-pi-test-'));
-  t.after(() => rm(home, { recursive: true, force: true }));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'heymate-pi-test-'));
+  const home = path.join(root, 'agent'); await mkdir(home);
+  t.after(() => rm(root, { recursive: true, force: true }));
   const workspace = path.join(home, 'work'); await mkdir(workspace);
   const access = { credentials: new FileCredentials(path.join(home, 'auth.json')),
     runtime: { getModels: () => [{ id: 'fixture' }], getModel: () => ({}), async refresh() {} } };
@@ -241,7 +242,7 @@ for (const provider of ['openai-codex', 'anthropic']) {
       await new Promise(resolve => setTimeout(resolve, 5));
     }
     assert.equal(status, 'approved');
-    assert.deepEqual(JSON.parse(await readFile(path.join(f.home, 'model.json'), 'utf8')), { provider, model: 'fixture', effort: 'off' });
+    assert.deepEqual(JSON.parse(await readFile(path.join(f.home, 'model.json'), 'utf8')), { provider, model: 'fixture', effort: 'off', speed: 'default' });
     assert.equal((await server.harness.dispatch(f.peer, 'setup.runtime_check')).ok, true);
   });
 }
@@ -423,6 +424,20 @@ test('a runaway turn is nudged to wrap up at 80% and stopped at its step limit w
   assert.ok(stats.at(-1).usage.input >= 15 && stats.at(-1).usage.cacheRead >= 5);
 });
 
+test('time spent waiting on the user for an answer does not count against the turn', async t => {
+  const f = await piFixture(t, n => n === 1
+    ? [{ type: 'toolCall', id: 'ask-1', name: 'ask_user', arguments: { question: 'Which color?' } }]
+    : [{ type: 'text', text: 'Blue it is.' }], { steps: 20, ms: 300, nudgeAt: 0.8 });
+  f.peer.send = message => {
+    if (message.method === 'clarify') setTimeout(() => f.harness.answer(f.peer, { id: message.id, result: { answers: { answer: 'Blue' } } }), 600);
+  };
+  await f.harness.dispatch(f.peer, 'prompt.submit', { session_id: f.id, text: 'Pick a color with me' });
+  await (await f.harness.get(f.id)).run;
+  const row = (await f.harness.messages(f.id, 1)).messages.at(-1);
+  assert.notEqual(row.display_kind, 'failed_turn');
+  assert.match(row.content, /Blue it is/);
+});
+
 test('after compaction the side-effect ledger comes from the durable record, not the summary', async t => {
   const f = await piFixture(t, (round, context) => [{ type: 'text', text: JSON.stringify(context).includes('Summarize') || round === 2 ? 'Goal: fixture summary' : `Reply ${round}` }],
     { steps: 60, ms: 60000, nudgeAt: 0.8 });
@@ -456,6 +471,20 @@ test('ask_user offers choices, records the answer and keeps it past compaction',
   assert.match((await ask.execute('q2', { question: 'Size?' })).content[0].text, /gave no answer/);
 });
 
+test('note tools keep one live markdown note per chat in the Notes folder', async t => {
+  const f = await fixture(t), state = await f.harness.get(f.id);
+  const tool = async name => (await f.harness.tools(state)).find(item => item.name === name);
+  const text = result => result.content[0].text;
+  assert.match(text(await (await tool('note_tick')).execute('t0', { item: 'x' })), /no note yet/);
+  assert.equal(text(await (await tool('note')).execute('n1', { md: '# Lisbon\n\n## In short\n- [ ] Pick a hotel {now}\n- [ ] Dinner' })), 'Saved.');
+  assert.equal(text(await (await tool('note_tick')).execute('n2', { item: 'Pick a hotel', next: 'Dinner' })), 'Saved.');
+  assert.match(text(await (await tool('note_replace')).execute('n3', { find: 'nothing like this at all', md: 'x' })), /Couldn't find/);
+  const noteID = (await f.harness.store.load(f.id)).noteID;
+  assert.match(noteID, /^[0-9A-F-]{36}$/);
+  const md = await readFile(path.join(f.harness.notesFolder, `${noteID}.md`), 'utf8');
+  assert.match(md, /- \[x\] Pick a hotel\n- \[ \] Dinner \{now\}/);
+});
+
 test('a steer message can carry images attached during the running turn', async t => {
   let release; const steered = [];
   const f = await fixture(t, async () => ({ messages: [{ role: 'assistant', stopReason: 'stop' }],
@@ -468,4 +497,78 @@ test('a steer message can carry images attached during the running turn', async 
   assert.deepEqual(steered, [['Look at this', 1]]);
   assert.equal((await f.harness.get(f.id)).images.length, 0);
   release(); await (await f.harness.get(f.id)).run;
+});
+
+test('incremental note edits serialize, survive restart and can be read back', async t => {
+  const f = await fixture(t), state = await f.harness.get(f.id);
+  await f.harness.editNote(state, 'note', { md: '# Comparison\n\n## Options\n| Name | Cost |\n| --- | --- |\n| Alpha | $10 |\n\n## Plan\n- [ ] Compare\n- [ ] Decide\n' });
+  await Promise.all([
+    f.harness.editNote(state, 'note_add', { after: '## Options', md: '| Beta | $20 |' }),
+    f.harness.editNote(state, 'note_replace', { find: '$10', md: '$12' }),
+    f.harness.editNote(state, 'note_remove', { find: '| Beta |', why: 'Over budget' }),
+    f.harness.editNote(state, 'note_tick', { item: 'Compare', next: 'Decide' }),
+    f.harness.editNote(state, 'note_answer', { line: 'Choose Alpha', big: '$12', aside: 'Within budget' })
+  ]);
+  const markdown = await f.harness.readNote(state);
+  assert.match(markdown, /Alpha \| \$12/); assert.match(markdown, /Beta.*\{out\}/);
+  assert.match(markdown, /\[x\] Compare/); assert.match(markdown, /\[ \] Decide \{now\}/);
+  assert.match(markdown, /> Choose Alpha \{big="\$12" note="Within budget"\}/);
+  const restarted = new HeyMateHarness({ home: f.home, access: f.access, createSession: async () => ({}) });
+  t.after(() => restarted.close());
+  const resumed = await restarted.get(f.id);
+  assert.equal(resumed.record.noteID, state.record.noteID);
+  const readTool = (await restarted.tools(resumed)).find(tool => tool.name === 'note_read');
+  assert.equal((await readTool.execute('read', {})).content[0].text, markdown);
+  const file = f.harness.noteFile(state);
+  assert.equal((await stat(file)).mode & 0o777, 0o600);
+  const other = await f.harness.dispatch(f.peer, 'session.create', { cwd: f.workspace });
+  assert.equal(await f.harness.readNote(await f.harness.get(other.session_id)), '');
+});
+
+test('note replay deduplicates saved edits, resumes after rename, and refuses changed call identities', async t => {
+  const f = await fixture(t), state = await f.harness.get(f.id);
+  await f.harness.editNote(state, 'note', { md: '# Replay\n\n## Findings\n' }, 'start');
+  const args = { after: '', md: 'One finding' };
+  await f.harness.editNote(state, 'note_add', args, 'append');
+  await f.harness.editNote(state, 'note_add', args, 'append');
+  assert.equal((await f.harness.readNote(state)).match(/One finding/g).length, 1);
+  await assert.rejects(f.harness.editNote(state, 'note_add', { after: '', md: 'different' }, 'append'), /different arguments/);
+  const receipt = state.record.noteReceipts.find(r => r.id === 'append');
+  receipt.status = 'started'; receipt.markdown = await f.harness.readNote(state);
+  await f.harness.store.save(state.record);
+  const restarted = new HeyMateHarness({ home: f.home, access: f.access });
+  t.after(() => restarted.close());
+  const restored = await restarted.get(f.id);
+  await restarted.editNote(restored, 'note_add', args, 'append');
+  assert.equal((await restarted.readNote(restored)).match(/One finding/g).length, 1);
+});
+test('live previews do not commit saved Markdown and close before tool execution', async t => {
+  const f = await fixture(t), state = await f.harness.get(f.id); state.running = true;
+  await f.harness.previewNote(state, { id: 'n1', name: 'note', arguments: { md: '# Live\nPartial content' } });
+  assert.equal(await f.harness.readNote(state), '');
+  const file = path.join(f.harness.notesFolder, `${state.record.noteID}.preview.json`);
+  assert.match(JSON.parse(await readFile(file, 'utf8')).markdown, /Partial/);
+  const tool = (await f.harness.tools(state)).find(t => t.name === 'note');
+  await tool.execute('n1', { md: '# Live\nSaved content' });
+  await f.harness.previewNote(state, { id: 'n1', name: 'note', arguments: { md: 'late stale preview' } });
+  await assert.rejects(readFile(file), { code: 'ENOENT' });
+  assert.match(await f.harness.readNote(state), /Saved content/);
+});
+test('note closing pass is bounded, note-only and preserves original answer', async t => {
+  let prompts = 0, active = ['read', 'bash', 'note'];
+  const f = await fixture(t, async () => ({
+    messages: [{ role: 'assistant', stopReason: 'stop' }],
+    async prompt() {
+      prompts++;
+      if (prompts === 1) await f.harness.editNote(await f.harness.get(f.id), 'note', { md: '# Work\n- [ ] Pending {now}\n' });
+      else { assert.ok(!active.includes('bash')); await f.harness.editNote(await f.harness.get(f.id), 'note', { md: '# Work\n> Still blocked\n- [ ] Pending\n' }); }
+    },
+    getActiveToolNames: () => active, setActiveToolsByName: names => { active = names; },
+    getLastAssistantText: () => prompts === 1 ? 'Original verified result' : 'Note finished',
+    async abort() {}, dispose() {}
+  }));
+  await f.harness.dispatch(f.peer, 'prompt.submit', { session_id: f.id, text: 'Work' });
+  await (await f.harness.get(f.id)).run;
+  assert.equal(prompts, 2); assert.deepEqual(active, ['read', 'bash', 'note']);
+  assert.equal((await f.harness.get(f.id)).record.rows.at(-1).content, 'Original verified result');
 });

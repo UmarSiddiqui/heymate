@@ -4,11 +4,11 @@
 //
 //  A "live activity" is one line of ambient truth the notch is allowed to
 //  show while the companion is otherwise idle: the track that is playing,
-//  the timer that is counting down, the file waiting on the shelf, the
+//  the timer that is counting down, the
 //  battery that just started charging, the agent that is still working.
 //
 //  Activities are deliberately dumb value types. Producers (media watcher,
-//  timer store, shelf store, power monitor, agent store) publish them; the
+//  timer store, power monitor, agent store) publish them; the
 //  notch pill renders whichever one currently has the highest priority.
 //  Nothing here touches AppKit, so the priority rules are unit-testable.
 //
@@ -21,7 +21,6 @@ import SwiftUI
 enum NotchActivityKind: String, CaseIterable, Identifiable, Sendable {
     case agent
     case timer
-    case shelf
     case media
     case battery
     case download
@@ -41,7 +40,6 @@ enum NotchActivityKind: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .agent: return "sparkle"
         case .timer: return "timer"
-        case .shelf: return "tray.full"
         case .media: return "waveform"
         case .battery: return "bolt.fill"
         case .download: return "arrow.down.circle"
@@ -57,12 +55,11 @@ enum NotchActivityKind: String, CaseIterable, Identifiable, Sendable {
     }
 
     /// Higher wins when several micro-apps want the notch at once. Things
-    /// the user just caused (a drop on the shelf, a started agent) outrank
+    /// the user just caused (a timer, a started agent) outrank
     /// ambient background facts (battery level, the next meeting).
     var priority: Int {
         switch self {
         case .agent: return 100
-        case .shelf: return 90
         case .timer: return 80
         case .download: return 70
         case .battery: return 60

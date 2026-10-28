@@ -19,6 +19,7 @@ extension CompanionManager: MateRoutineRunning {
         mates = mateDirectory.mates
         routines = mateDirectory.routines
         activeMateID = mateDirectory.activeMateID
+        mateRoutineScheduler.schedulesChanged()
     }
 
     func finishMateLaunch() {
@@ -482,6 +483,14 @@ extension CompanionManager: MateRoutineRunning {
         }
     }
 
+    var scheduledRoutines: [MateRoutine] { routines }
+
+    func deferRoutine(id: UUID, now: Date) {
+        guard let routine = routines.first(where: { $0.id == id }) else { return }
+        mateDirectory.apply(MateRoutineAccounting.recordRefusal(routine, now: now))
+        syncMatePublications()
+    }
+
     func dueRoutines(now: Date) -> [MateRoutine] {
         routines.filter { MateRoutineAccounting.isDue($0, now: now) }
     }
@@ -508,17 +517,24 @@ extension CompanionManager: MateRoutineRunning {
     }
 
     func kickoffRoutine(_ routine: MateRoutine, deliverySession: ChatSession?) -> MateRoutineKickoff {
+        guard mateDirectory.mates.contains(where: { $0.id == routine.mateID && !$0.archived }),
+              routine.enabled, routine.pausedReason == nil else { return .busy }
         if isChatTurnBusy || openCodeTrainingNotice != nil { return .busy }
         let openMateID = currentChat.mateID ?? mateDirectory.defaultMateID
         let session = deliverySession ?? (openMateID == routine.mateID
             ? currentChat : sessionForRoutineAppend(mateID: routine.mateID))
+        // Include detached work and approval waits, even when chat itself is idle.
+        if agentRuns.contains(where: { run in
+            !run.status.isTerminal && (run.chatOwner?.mateID == routine.mateID || run.chatOwner?.chatID == session.id)
+        }) { return .busy }
         let visible = session.id == currentChat.id
         if !visible { backgroundRoutineSession = session }
         activeRoutineTurn = ActiveRoutineTurn(
             routineID: routine.id,
             mateID: routine.mateID,
             task: routine.task,
-            writesIntoOpenChat: visible
+            writesIntoOpenChat: visible,
+            promptRoutine: routine
         )
         if typedMessageBusyReason != nil {
             clearRoutineDelivery()
@@ -529,6 +545,10 @@ extension CompanionManager: MateRoutineRunning {
             clearRoutineDelivery()
             if openCodeTrainingNotice != nil { return .busy }
             return .failed("Couldn't send that routine.")
+        }
+        if let current = mateDirectory.routines.first(where: { $0.id == routine.id }) {
+            mateDirectory.apply(MateRoutineAccounting.recordLaunch(current, now: Date(), calendar: .current))
+            syncMatePublications()
         }
         if !isResponseInFlight {
             completeActiveRoutineTurn(.success("Started."))
@@ -693,7 +713,7 @@ extension CompanionManager: MateRoutineRunning {
     private func acceptImagePlayground(_ text: String) -> Bool {
         guard let concept = ImagePlaygroundRequest.concept(in: text) else { return false }
         appendUserMessage(text)
-        guard OnDeviceLanguageAvailability.imagePlaygroundIsAvailable else {
+        guard ImagePlaygroundAvailability.isAvailable else {
             appendAssistantMessage("Image Playground isn't available on this Mac. Turn it on in System Settings if Apple Intelligence offers it.")
             return true
         }

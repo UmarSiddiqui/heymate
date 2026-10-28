@@ -11,6 +11,8 @@
 import AppKit
 import Foundation
 import Network
+import IOKit.pwr_mgt
+import IOKit.ps
 
 protocol MateNetworkMonitoring: AnyObject {
     var hasUsableNetwork: Bool { get }
@@ -20,12 +22,15 @@ protocol MateNetworkMonitoring: AnyObject {
 
 @MainActor
 protocol MateWakeSource: AnyObject {
-    func start(onWake: @escaping () -> Void)
+    func shouldHold(now: Date) -> Bool
+    func start(onWake: @escaping @MainActor @Sendable () -> Void)
     func stop()
 }
 
 @MainActor
 protocol MateRoutineRunning: AnyObject {
+    var scheduledRoutines: [MateRoutine] { get }
+    func deferRoutine(id: UUID, now: Date)
     func dueRoutines(now: Date) -> [MateRoutine]
     func markRoutineWaiting(id: UUID)
     func kickoffRoutine(_ routine: MateRoutine) -> MateRoutineKickoff
@@ -41,16 +46,31 @@ final class MateRoutineScheduler {
     private var wake: MateWakeSource?
     private var timer: Timer?
     private var generation = 0
+    private var started = false
+    private var power: MateRoutinePowerManaging
 
     init(
         network: MateNetworkMonitoring? = nil,
-        wake: MateWakeSource? = nil
+        wake: MateWakeSource? = nil,
+        power: MateRoutinePowerManaging? = nil
     ) {
         self.network = network
         self.wake = wake
+        self.power = power ?? RoutinePowerAssertion()
     }
 
     func start() {
+        started = true
+        schedulesChanged()
+    }
+
+    func schedulesChanged() {
+        guard started else { return }
+        guard let owner, !owner.scheduledRoutines.isEmpty else {
+            stopSources()
+            return
+        }
+        power.update(armed: owner.scheduledRoutines.contains { $0.enabled && $0.pausedReason == nil })
         guard timer == nil else { return }
         generation += 1
         let currentGeneration = generation
@@ -74,15 +94,25 @@ final class MateRoutineScheduler {
     }
 
     func stop() {
+        started = false
+        stopSources()
+    }
+
+    private func stopSources() {
         generation += 1
         timer?.invalidate()
         timer = nil
         network?.stop()
         wake?.stop()
+        power.stop()
     }
 
     func tick(now: Date = Date()) {
         guard let owner else { return }
+        if started {
+            power.update(armed: owner.scheduledRoutines.contains { $0.enabled && $0.pausedReason == nil })
+        }
+        guard !resolvedWake().shouldHold(now: now) else { return }
         for routine in owner.dueRoutines(now: now) {
             attempt(routine, now: now, owner: owner)
         }
@@ -91,6 +121,7 @@ final class MateRoutineScheduler {
     func run(_ routine: MateRoutine, now: Date = Date()) {
         guard let owner else { return }
         guard routine.enabled, routine.pausedReason == nil else { return }
+        guard !resolvedWake().shouldHold(now: now) else { return }
         attempt(routine, now: now, owner: owner)
     }
 
@@ -100,10 +131,11 @@ final class MateRoutineScheduler {
             return
         }
         switch owner.kickoffRoutine(routine) {
-        case .started, .busy:
+        case .started:
             break
-        case .failed(let message):
-            owner.noteRoutineFailure(id: routine.id, message: message, now: now)
+        case .busy, .failed:
+            // A refused dispatch did not run. Never count it as a failed run.
+            owner.deferRoutine(id: routine.id, now: now)
         }
     }
 
@@ -173,41 +205,143 @@ final class PathMateNetworkMonitor: MateNetworkMonitoring, @unchecked Sendable {
 
 }
 
+// State survives ordinary ticks, so a dark wake cannot bypass the gate via
+// a timer or network callback. The 180-second fallback begins with awake screens.
+nonisolated struct RoutineWakeGate {
+    static let maximumFullWakeWait: TimeInterval = 180
+    var awaitingScreens = false
+    var awaitingFullWake = false
+    var screensAwakeSince: Date?
+
+    mutating func willSleep() {
+        awaitingScreens = true
+        awaitingFullWake = true
+        screensAwakeSince = nil
+    }
+
+    mutating func screensDidWake() { awaitingScreens = false }
+
+    mutating func didWake() {
+        awaitingFullWake = false
+        screensAwakeSince = nil
+    }
+
+    mutating func shouldHold(displayAsleep: Bool, now: Date) -> Bool {
+        guard awaitingScreens || awaitingFullWake else { return false }
+        if displayAsleep { return true }
+        awaitingScreens = false
+        guard awaitingFullWake else { return false }
+        guard let screensAwakeSince else {
+            self.screensAwakeSince = now
+            return true
+        }
+        if now.timeIntervalSince(screensAwakeSince) < Self.maximumFullWakeWait { return true }
+        didWake()
+        return false
+    }
+}
+
 @MainActor
 final class WorkspaceMateWakeSource: MateWakeSource {
     private var tokens: [NSObjectProtocol] = []
-    private var settleTask: Task<Void, Never>?
     private var generation = 0
-    /// Wi-Fi and the display take a moment after wake; checking straight
-    /// away would mark every due routine as waiting for the internet.
-    static let settleDelay: Duration = .seconds(5)
+    private var gate = RoutineWakeGate()
 
-    func start(onWake: @escaping () -> Void) {
+    func shouldHold(now: Date) -> Bool {
+        gate.shouldHold(displayAsleep: CGDisplayIsAsleep(CGMainDisplayID()) != 0, now: now)
+    }
+
+    func start(onWake: @escaping @MainActor @Sendable () -> Void) {
         guard tokens.isEmpty else { return }
         generation += 1
         let currentGeneration = generation
         let center = NSWorkspace.shared.notificationCenter
-        tokens = [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification].map { name in
+        tokens = [NSWorkspace.willSleepNotification, NSWorkspace.didWakeNotification,
+                  NSWorkspace.screensDidWakeNotification].map { name in
             center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in
+                MainActor.assumeIsolated {
                     guard let self, self.generation == currentGeneration else { return }
-                    self.settleTask?.cancel()
-                    self.settleTask = Task { [weak self] in
-                        try? await Task.sleep(for: Self.settleDelay)
-                        guard !Task.isCancelled, let self, self.generation == currentGeneration else { return }
+                    switch name {
+                    case NSWorkspace.willSleepNotification:
+                        self.gate.willSleep()
+                    case NSWorkspace.didWakeNotification:
+                        self.gate.didWake()
                         onWake()
-                        self.settleTask = nil
+                    default:
+                        self.gate.screensDidWake()
+                        onWake()
                     }
                 }
             }
         }
     }
+
     func stop() {
         generation += 1
-        settleTask?.cancel()
-        settleTask = nil
         tokens.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
         tokens.removeAll()
+        gate = RoutineWakeGate()
+    }
+}
+
+@MainActor
+protocol MateRoutinePowerManaging: AnyObject {
+    func update(armed: Bool)
+    func stop()
+}
+
+@MainActor
+final class RoutinePowerAssertion: MateRoutinePowerManaging {
+    private var assertion: IOPMAssertionID?
+    private var source: CFRunLoopSource?
+    private var armed = false
+
+    func update(armed: Bool) {
+        self.armed = armed
+        if armed && source == nil {
+            let context = Unmanaged.passUnretained(self).toOpaque()
+            source = IOPSNotificationCreateRunLoopSource({ context in
+                guard let context else { return }
+                let owner = Unmanaged<RoutinePowerAssertion>.fromOpaque(context).takeUnretainedValue()
+                MainActor.assumeIsolated { owner.refresh() }
+            }, context)?.takeRetainedValue()
+            if let source { CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes) }
+        }
+        refresh()
+        if !armed { stop() }
     }
 
+    private func refresh() {
+        let onAC: Bool
+        if let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+           let type = IOPSGetProvidingPowerSourceType(info)?.takeUnretainedValue() {
+            onAC = type as String == kIOPSACPowerValue
+        } else {
+            onAC = false
+        }
+        if armed && onAC {
+            guard assertion == nil else { return }
+            var identifier: IOPMAssertionID = 0
+            if IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
+                                          IOPMAssertionLevel(kIOPMAssertionLevelOn),
+                                          "HeyMate has an armed routine schedule" as CFString,
+                                          &identifier) == kIOReturnSuccess {
+                assertion = identifier
+            }
+        } else {
+            releaseAssertion()
+        }
+    }
+
+    func stop() {
+        armed = false
+        if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
+        source = nil
+        releaseAssertion()
+    }
+
+    private func releaseAssertion() {
+        if let assertion { IOPMAssertionRelease(assertion) }
+        assertion = nil
+    }
 }

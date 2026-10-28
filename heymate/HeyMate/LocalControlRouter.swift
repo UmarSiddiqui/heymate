@@ -20,6 +20,23 @@ nonisolated enum LocalControlCommand: Equatable {
     case showCaption(text: String, point: CGPoint?, duration: TimeInterval)
     case captureScreenshot(focused: Bool)
     case speak(text: String)
+    /// Draws the same visual actions a reply can emit; the pen cursor builds
+    /// them stroke by stroke on the matching display.
+    case draw(actionsJSON: String)
+    /// Runs ReferenceRenderer-style drawing pieces (ring, ink, write, frame, etc.)
+    /// as Swift-native drawing actions on screen.
+    case drawPieces(commandsJSON: String)
+    /// Shows a 3D model in a floating SceneKit window.
+    case showModel3D(specJSON: String)
+    /// Opens the desktop window on the Notes section.
+    case openNotes
+    /// Draws and speaks a ```js explanation program, as a reply would.
+    case explain(program: String, streamed: Bool = false)
+    case drawingState
+    /// Runs a typed question as a Talk turn, as if it had been spoken.
+    case ask(text: String, newChat: Bool)
+    /// The welcome tour's drawn "show me" step, run outside the tour (ReferenceRenderer's developer test of the drawn tour).
+    case drawnTour(text: String, interview: String)
     case clear
     /// Every tool the connected accounts expose, so a child CLI can offer
     /// them without opening its own session with the provider.
@@ -78,6 +95,7 @@ nonisolated enum LocalControlRouter {
 
         // Pre-flight and liveness checks need no body.
         if method == "OPTIONS" || (method == "GET" && path == "/health") { return .accepted(.health) }
+        if method == "GET", path == "/explain/state" { return .accepted(.drawingState) }
         if refusedPaths.contains(path) { return unknown }
         guard method == "POST" else {
             return method == "GET" ? unknown : .rejected(statusCode: 405, message: "Use POST for control commands")
@@ -97,6 +115,32 @@ nonisolated enum LocalControlRouter {
         case "/speak":
             guard let text = fields.nonBlank("text") else { return .rejected(statusCode: 400, message: "Missing text") }
             return .accepted(.speak(text: text))
+        case "/draw":
+            guard let actionsJSON = fields.visualActionsJSON else {
+                return .rejected(statusCode: 400, message: "Missing actions")
+            }
+            return .accepted(.draw(actionsJSON: actionsJSON))
+        case "/draw-js":
+            guard let code = fields.nonBlank("code") else {
+                return .rejected(statusCode: 400, message: "Missing code")
+            }
+            return .accepted(.explain(program: code))
+        case "/model3d":
+            guard let specJSON = fields.string("spec") else {
+                return .rejected(statusCode: 400, message: "Missing spec JSON")
+            }
+            return .accepted(.showModel3D(specJSON: specJSON))
+        case "/notes":
+            return .accepted(.openNotes)
+        case "/ask":
+            guard let text = fields.nonBlank("text") else { return .rejected(statusCode: 400, message: "Missing text") }
+            return .accepted(.ask(text: text, newChat: fields.bool("newChat") ?? false))
+        case "/tour/show-me":
+            return .accepted(.drawnTour(text: fields.nonBlank("text") ?? "Show me how you'd help me",
+                                        interview: fields.nonBlank("interview") ?? ""))
+        case "/explain":
+            guard let program = fields.nonBlank("program") else { return .rejected(statusCode: 400, message: "Missing program") }
+            return .accepted(.explain(program: program, streamed: fields.bool("stream") ?? false))
         case "/clear":
             return .accepted(.clear)
         case "/talk/tools":
@@ -187,6 +231,16 @@ nonisolated enum LocalControlRouter {
                 Self.number(nested["x"]).flatMap { x in Self.number(nested["y"]).map { (x, $0) } }
             } ?? number("x").flatMap { x in number("y").map { (x, $0) } }
             return source.map { CGPoint(x: $0.0, y: $0.1) }
+        }
+
+        /// `{"actions": [...]}` or a raw `{"visualActions": [...]}` block,
+        /// re-wrapped so validation stays in VisualActionParser.
+        var visualActionsJSON: String? {
+            let list = (body["actions"] ?? body["visualActions"]) as? [[String: Any]]
+            guard let list, !list.isEmpty,
+                  let data = try? JSONSerialization.data(withJSONObject: ["visualActions": list]),
+                  let json = String(data: data, encoding: .utf8) else { return nil }
+            return json
         }
 
         /// How long to show something: `durationMs` or `ttlMs`, else

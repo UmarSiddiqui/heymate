@@ -1,13 +1,29 @@
-// HeyMate's Chrome side. The app talks through the native host; this worker
-// opens pages in one "HeyMate" tab group, reads them, and clicks or types
-// only inside that group. It never runs code the model wrote: every page
-// function below is fixed here.
+// HeyMate's Chrome side. The app talks through the native host; ReferenceRenderer's browser engine (mate-core.mjs, copied
+// verbatim from ReferenceRenderer 1.1.1) does the work through Chrome's debugger: pages read as accessibility snapshots,
+// clicks and keys sent as real input, tabs kept in a "HeyMate" group. This file only adapts HeyMate's requests to
+// it and its results back. The model never sends JavaScript (the engine's `javascript` op is not reachable from
+// here), and covering banners are never accepted for the user (no `dismiss`).
+
+import { BrowserBridge, snapshotLines } from "./mate-core.mjs";
 
 const HOST = "com.heymate.browser";
-const GROUP = "HeyMate";
+const OWNER = "heymate";
+const GROUP_TITLE = "HeyMate";
+const CURSOR = "#3380FF";
 const RECONNECT_ALARM = "heymate-reconnect";
 
+// Whose tabs are whose, saved for the browser session: Chrome stops this worker when the app's connection drops.
+const bridge = new BrowserBridge(chrome, undefined, { store: {
+  load: async () => (await chrome.storage.session.get("heymateTabs")).heymateTabs ?? null,
+  save: (state) => chrome.storage.session.set({ heymateTabs: state }),
+} });
+const restored = bridge.restore();
+bridge.cursor = true;
+
+// One turn of work in Chrome. `end` finishes it (its tabs tidied) and the next request starts a fresh one.
+let task = crypto.randomUUID();
 let port = null;
+let commands = Promise.resolve();
 
 function connect() {
   if (port) return;
@@ -17,240 +33,161 @@ function connect() {
     port = null;
     return;
   }
-  port.onMessage.addListener(onMessage);
-  port.onDisconnect.addListener(() => {
+  const connection = port;
+  connection.onMessage.addListener(message => onMessage(message, connection));
+  connection.onDisconnect.addListener(() => {
+    // The helper exits whenever HeyMate quits or restarts; the alarm reconnects. Reading lastError marks it handled.
+    void chrome.runtime.lastError;
+    if (port !== connection) return;
     port = null;
+    // Stop in-flight work now; queue the new identity after cleanup. A stopped
+    // engine task can never be reused after the native host reconnects.
+    const stopped = bridge.stop("the connection to the HeyMate app dropped").catch(error => console.warn("HeyMate browser cleanup failed", error));
+    commands = commands.catch(() => {}).then(() => stopped).finally(() => { task = crypto.randomUUID(); });
   });
-  port.postMessage({ type: "hello", protocol: 2, version: chrome.runtime.getManifest().version });
+  port.postMessage({ type: "hello", protocol: 3, version: chrome.runtime.getManifest().version });
 }
 
-async function onMessage(message) {
+async function onMessage(message, connection) {
   if (!message || message.type !== "command") return;
   const id = message.id;
-  try {
-    const result = await run(message);
-    port?.postMessage({ type: "result", id, ok: true, result });
-  } catch (error) {
-    port?.postMessage({ type: "result", id, ok: false, error: String(error && error.message ? error.message : error) });
-  }
+  // Serialize turn boundaries as well as actions. Replies belong only to the
+  // connection which issued them, never a newer native host.
+  commands = commands.catch(() => {}).then(async () => {
+    if (port !== connection) return;
+    try {
+      await restored;
+      const result = await run(message);
+      if (port === connection) connection.postMessage({ type: "result", id, ok: true, result });
+    } catch (error) {
+      if (port === connection) connection.postMessage({ type: "result", id, ok: false, error: String(error && error.message ? error.message : error) });
+    }
+  });
+  return commands;
 }
 
-function httpURL(value) {
-  const parsed = new URL(value);
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error("only http and https pages");
-  }
-  if (parsed.username || parsed.password) {
-    throw new Error("pages with a username or password in the address are refused");
-  }
-  return parsed.href;
+const request = (operation, fields = {}) => bridge.execute({ task, owner: OWNER, groupTitle: GROUP_TITLE, cursorColor: CURSOR, operation, ...fields });
+const engineRef = (ref) => (typeof ref === "string" && /^e\d+$/.test(ref) ? ref : `e${Number(ref)}`);
+const EDITABLE = new Set(["textbox", "searchbox", "combobox", "textarea", "spinbutton", "listbox"]);
+
+// The engine's snapshot in the shape HeyMate's approvals read: numbered elements (role, name, editable) and the rest
+// of the page as text.
+function page(snapshot, extra = {}) {
+  if (!snapshot || !Array.isArray(snapshot.nodes)) return extra;
+  const elements = [], text = [];
+  const lines = snapshotLines(snapshot);
+  snapshot.nodes.forEach((node, index) => {
+    const ref = typeof node.ref === "string" ? Number(node.ref.slice(1)) : NaN;
+    if (Number.isInteger(ref)) {
+      elements.push({ ref, role: node.role, name: String(node.name ?? "").replace(/\s+/g, " ").trim().slice(0, 120),
+        editable: EDITABLE.has(String(node.role).toLowerCase()) || node.editable === true || node.editable === "true" });
+    } else {
+      text.push(lines[index]);
+    }
+  });
+  return { ...extra, tabId: snapshot.tabId ?? extra.tabId, title: snapshot.title ?? "", url: snapshot.url ?? extra.url ?? "", text: text.join("\n").slice(0, 12000), elements };
 }
 
-async function heymateGroupId() {
-  const groups = await chrome.tabGroups.query({ title: GROUP });
-  return groups.length ? groups[0].id : null;
+// An action answers with the settled page (the engine's one-step batch).
+function settled(out, extra) {
+  // Single-step batches can return an error alongside a perfectly good page.
+  // A snapshot proves observation, not that the preceding action succeeded.
+  if (out?.error) throw new Error(out.error);
+  const failed = out?.steps?.find(step => step?.error);
+  if (failed) throw new Error(failed.error);
+  const tabId = out?.tabId ?? out?.snapshot?.tabId ?? extra.tabId;
+  extra = { ...extra, ...(tabId == null ? {} : { tabId }) };
+  if (out && out.snapshot) return page(out.snapshot, extra);
+  if (out && out.snapshotError) return { ...extra, note: `Done; the page could not be read afterwards (${out.snapshotError}).` };
+  return extra;
 }
-
-async function placeInGroup(tabId) {
-  const groupId = await heymateGroupId();
-  if (groupId !== null) {
-    await chrome.tabs.group({ tabIds: [tabId], groupId });
-    return;
-  }
-  const created = await chrome.tabs.group({ tabIds: [tabId] });
-  await chrome.tabGroups.update(created, { title: GROUP, color: "grey" });
-}
-
-// HeyMate may act only in tabs inside its own group; the user's other tabs
-// can be listed and read, never clicked or typed into.
-async function ownedTab(tabId) {
-  if (typeof tabId !== "number") throw new Error("missing tab");
-  const tab = await chrome.tabs.get(tabId);
-  const groupId = await heymateGroupId();
-  if (groupId === null || tab.groupId !== groupId) {
-    throw new Error("HeyMate can only act in tabs in its own group. Open the page with open first.");
-  }
-  return tab;
-}
-
-async function waitForLoad(tabId, timeoutMs = 15000) {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    const tab = await chrome.tabs.get(tabId);
-    if (tab.status === "complete") return;
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-}
-
-async function inPage(tabId, func, args = []) {
-  const [injected] = await chrome.scripting.executeScript({ target: { tabId }, func, args });
-  return injected ? injected.result : null;
-}
-
-// --- Page functions (run inside the page; must be self-contained) ---------
-
-function pageSnapshot() {
-  const selector = "a[href], button, input, select, textarea, [role=button], [role=link], [role=tab], [role=menuitem], [role=checkbox], [contenteditable=true], summary";
-  const visible = (el) => {
-    const rect = el.getBoundingClientRect();
-    if (rect.width < 2 || rect.height < 2) return false;
-    const style = getComputedStyle(el);
-    return style.visibility !== "hidden" && style.display !== "none" && style.opacity !== "0";
-  };
-  const nameOf = (el) => {
-    const label = el.getAttribute("aria-label") || el.getAttribute("title") || el.getAttribute("placeholder")
-      || (el.labels && el.labels[0] && el.labels[0].innerText) || el.innerText || el.value || el.getAttribute("name") || "";
-    return label.replace(/\s+/g, " ").trim().slice(0, 80);
-  };
-  document.querySelectorAll("[data-heymate-ref]").forEach((el) => el.removeAttribute("data-heymate-ref"));
-  const elements = [];
-  for (const el of document.querySelectorAll(selector)) {
-    if (elements.length >= 150) break;
-    if (!visible(el) || el.disabled) continue;
-    const ref = elements.length + 1;
-    el.setAttribute("data-heymate-ref", String(ref));
-    const tag = el.tagName.toLowerCase();
-    const type = (el.getAttribute("type") || "").toLowerCase();
-    const role = el.getAttribute("role") || (tag === "a" ? "link" : tag === "input" ? (type || "text") : tag);
-    elements.push({
-      ref,
-      role,
-      name: nameOf(el),
-      secret: type === "password" || /cc-|one-time-code/.test(el.getAttribute("autocomplete") || ""),
-      editable: tag === "textarea" || tag === "select" || el.isContentEditable
-        || (tag === "input" && !["button", "submit", "reset", "checkbox", "radio", "file", "image"].includes(type)),
-    });
-  }
-  const text = (document.body && document.body.innerText ? document.body.innerText : "").replace(/\n{3,}/g, "\n\n");
-  return { title: document.title, url: location.href, text: text.slice(0, 6000), elements };
-}
-
-function pageClick(ref) {
-  const el = document.querySelector(`[data-heymate-ref="${ref}"]`);
-  if (!el) return { error: "That element is gone. Take a new snapshot." };
-  el.scrollIntoView({ block: "center", inline: "center" });
-  el.focus({ preventScroll: true });
-  el.click();
-  return { clicked: ref };
-}
-
-function pageType(ref, text, submit) {
-  const el = document.querySelector(`[data-heymate-ref="${ref}"]`);
-  if (!el) return { error: "That element is gone. Take a new snapshot." };
-  const type = (el.getAttribute("type") || "").toLowerCase();
-  if (type === "password" || /cc-|one-time-code/.test(el.getAttribute("autocomplete") || "")) {
-    return { error: "HeyMate never types into password, card or code fields. Ask the user to do it." };
-  }
-  el.scrollIntoView({ block: "center" });
-  el.focus();
-  if (el.isContentEditable) {
-    document.execCommand("selectAll", false);
-    document.execCommand("insertText", false, text);
-  } else if (el.tagName === "SELECT") {
-    const option = [...el.options].find((o) => o.text.trim() === text || o.value === text);
-    if (!option) return { error: "No option named that." };
-    el.value = option.value;
-  } else {
-    const proto = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-    const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
-    setter.call(el, text);
-  }
-  el.dispatchEvent(new Event("input", { bubbles: true }));
-  el.dispatchEvent(new Event("change", { bubbles: true }));
-  if (submit) {
-    el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, bubbles: true }));
-    if (el.form) el.form.requestSubmit ? el.form.requestSubmit() : el.form.submit();
-  }
-  return { typed: ref };
-}
-
-function pageScroll(direction) {
-  const amount = Math.round(window.innerHeight * 0.8);
-  window.scrollBy({ top: direction === "up" ? -amount : amount });
-  return { scrolledTo: Math.round(window.scrollY) };
-}
-
-// --- Commands ---------------------------------------------------------------
 
 async function run(message) {
   switch (message.op) {
     case "tabs": {
-      const groupId = await heymateGroupId();
-      const tabs = await chrome.tabs.query({ windowType: "normal" });
-      return {
-        tabs: tabs
-          .filter((tab) => tab.url && /^https?:/i.test(tab.url))
-          .slice(0, 40)
-          .map((tab) => ({
-            id: tab.id,
-            title: tab.title || "",
-            url: tab.url,
-            owned: groupId !== null && tab.groupId === groupId,
-            active: Boolean(tab.active),
-          })),
-      };
+      const out = await request("tabs");
+      const owned = (tabId) => bridge.ownedTabs.has(tabId);
+      return { tabs: out.tabs.slice(0, 60).map((tab) => ({ id: tab.id, title: tab.title || "", url: tab.url, owned: owned(tab.id), active: tab.current === true })) };
     }
     case "open": {
-      const url = httpURL(message.url);
-      const tab = await chrome.tabs.create({ url, active: false });
-      await placeInGroup(tab.id);
-      await waitForLoad(tab.id);
-      return { tabId: tab.id, url };
+      const out = await request("open", { url: message.url });
+      return settled(out, { tabId: out.tabId, url: message.url });
     }
     case "navigate": {
-      await ownedTab(message.tabId);
-      const url = httpURL(message.url);
-      await chrome.tabs.update(message.tabId, { url });
-      await waitForLoad(message.tabId);
-      return { tabId: message.tabId, url };
+      const out = await request("open", { url: message.url, tabId: message.tabId });
+      return settled(out, { tabId: message.tabId, url: message.url });
     }
     case "read":
-    case "snapshot": {
-      if (typeof message.tabId !== "number") throw new Error("missing tab");
-      await waitForLoad(message.tabId, 5000);
-      return { tabId: message.tabId, ...(await inPage(message.tabId, pageSnapshot)) };
-    }
-    case "click": {
-      await ownedTab(message.tabId);
-      const result = await inPage(message.tabId, pageClick, [message.ref]);
-      if (result && result.error) throw new Error(result.error);
-      await new Promise((resolve) => setTimeout(resolve, 600));
-      await waitForLoad(message.tabId, 8000);
-      return { tabId: message.tabId, ...result };
-    }
+    case "snapshot":
+      return page({ ...(await request("snapshot", { tabId: message.tabId })), tabId: message.tabId });
+    case "extract":
+      return { tabId: message.tabId, ...(await request("extract", { tabId: message.tabId })) };
+    case "click":
+      return settled(await request("click", { tabId: message.tabId, ref: engineRef(message.ref) }), { tabId: message.tabId, clicked: Number(message.ref) });
     case "type": {
-      await ownedTab(message.tabId);
-      const result = await inPage(message.tabId, pageType, [message.ref, String(message.text ?? ""), Boolean(message.submit)]);
-      if (result && result.error) throw new Error(result.error);
-      if (message.submit) await waitForLoad(message.tabId, 8000);
-      return { tabId: message.tabId, ...result };
+      const steps = [{ operation: "fill", ref: engineRef(message.ref), text: String(message.text ?? "") }];
+      if (message.submit) steps.push({ operation: "press", key: "Enter" });
+      const out = await request("batch", { tabId: message.tabId, steps });
+      const failed = (out.steps || []).find((step) => step && step.error);
+      if (failed) throw new Error(failed.error);
+      return settled(out, { tabId: message.tabId, typed: Number(message.ref) });
     }
-    case "scroll": {
-      await ownedTab(message.tabId);
-      return { tabId: message.tabId, ...(await inPage(message.tabId, pageScroll, [message.direction === "up" ? "up" : "down"])) };
+    case "press":
+      return settled(await request("press", { tabId: message.tabId, key: message.key }), { tabId: message.tabId, pressed: message.key });
+    case "scroll":
+      return settled(await request("scroll", { tabId: message.tabId, direction: message.direction === "up" ? "up" : "down" }), { tabId: message.tabId, scrolled: true });
+    case "back":
+      return settled(await request("back", { tabId: message.tabId }), { tabId: message.tabId, back: true });
+    case "wait_for":
+      return settled(await request("wait_for", { tabId: message.tabId, text: message.text, url: message.url, timeout: message.timeout }), { tabId: message.tabId, waited: true });
+    case "keep":
+      return request("keep", { tabId: message.tabId, why: message.why });
+    case "upload": {
+      if (!message.expectedURL || (await chrome.tabs.get(message.tabId)).url !== message.expectedURL) throw new Error("Upload destination changed. Read the page and approve again.");
+      return settled(await request("upload", { tabId: message.tabId, ref: engineRef(message.ref), paths: message.paths }), { tabId: message.tabId, uploaded: message.paths.map(p => p.split('/').pop()) });
     }
+    case "download":
+      return request("download", { url: message.url });
+    case "dialog":
+      return settled(await request("dialog", { tabId: message.tabId, accept: message.accept, text: message.text }), { tabId: message.tabId, dialogAnswered: true });
     case "show": {
-      const tab = await ownedTab(message.tabId);
+      const tab = await chrome.tabs.get(message.tabId);
       await chrome.tabs.update(tab.id, { active: true });
       await chrome.windows.update(tab.windowId, { focused: true });
       return { shown: tab.id };
     }
     case "close": {
-      await ownedTab(message.tabId);
-      await chrome.tabs.remove(message.tabId);
+      await request("close", { tabId: message.tabId });
       return { closed: message.tabId };
     }
     case "end": {
-      const groupId = await heymateGroupId();
-      const tabs = groupId === null ? [] : await chrome.tabs.query({ groupId });
-      const ids = tabs.map((tab) => tab.id);
-      if (ids.length) await chrome.tabs.remove(ids);
-      return { closed: ids };
+      const out = await request("end", { tidy: true });
+      task = crypto.randomUUID();
+      return { closed: out.closed ?? [] };
     }
     default:
       throw new Error("unknown request");
   }
 }
+
+// The engine's view of each page expires with navigation; dialogs and file pickers are its to handle.
+const mainFrames = new Map();
+chrome.debugger.onEvent.addListener((source, method, params) => {
+  if (method === "Page.frameNavigated" && !params?.frame?.parentId) { mainFrames.set(source.tabId, params?.frame?.id); bridge.invalidate(source.tabId); }
+  if (method === "Page.navigatedWithinDocument" && [undefined, params?.frameId].includes(mainFrames.get(source.tabId))) bridge.invalidate(source.tabId);
+  if (method === "Page.javascriptDialogOpening") bridge.dialogOpened(source.tabId, params);
+  if (method === "Page.javascriptDialogClosed") bridge.dialogClosed(source.tabId);
+  if (method === "Page.fileChooserOpened") bridge.fileChooserOpened(source.tabId, params);
+  if (method.startsWith("Network.")) bridge.network(source.tabId, method, params);
+});
+chrome.debugger.onDetach.addListener((source, reason) => { mainFrames.delete(source.tabId); bridge.detached(source.tabId, reason); });
+chrome.tabs.onUpdated.addListener((tabId, change) => { if (change.url || change.status === "loading") bridge.invalidate(tabId); });
+chrome.tabs.onRemoved.addListener((tabId) => bridge.removed(tabId));
+chrome.downloads?.onCreated.addListener(item => bridge.downloadStarted(item));
+chrome.downloads?.onDeterminingFilename.addListener((item, suggest) => {
+  const name = bridge.determineFilename(item);
+  if (name) suggest({ ...name, filename: name.filename.replace(/^ReferenceRenderer\//, "HeyMate/") }); else suggest();
+});
 
 chrome.runtime.onInstalled.addListener(connect);
 chrome.runtime.onStartup.addListener(connect);

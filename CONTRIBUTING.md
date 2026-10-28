@@ -49,7 +49,7 @@ Open `http://localhost:8080`. Check a narrow and a wide window, keyboard navigat
 | --- | --- |
 | Screen guidance | `CompanionPrompts.swift`, `CompanionManager+Guidance.swift`, `GuidedReplyParser.swift`, `TalkContextPolicy.swift` |
 | Mates and routines | `MateProfile.swift`, `MateStore.swift`, `CompanionManager+Mates.swift`, `MateRoutineScheduler.swift` |
-| Provider and agent execution | `SubscriptionCLIVisionClient.swift`, `HeadlessCLIAdapter.swift`, `HeadlessAgentLauncher.swift` |
+| Provider and agent execution | `MateAgentServeConversationClient.swift`, `agent-runtime/src/harness.mjs`, `HeadlessAgentLauncher.swift` |
 | Local storage and privacy | `ChatHistoryStore.swift`, `MemoryRepository.swift`, `CaptureAudit.swift`, `HeyMateAnalytics.swift` |
 | Website | `website/` |
 | Video source | `marketing/demo-video/` |

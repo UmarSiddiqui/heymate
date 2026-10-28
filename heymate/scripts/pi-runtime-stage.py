@@ -10,6 +10,17 @@ import subprocess
 import tempfile
 
 
+def verify_node_dependencies(binary):
+    """The payload copies Node alone, so only macOS libraries may be linked."""
+    output = subprocess.check_output(['/usr/bin/otool', '-L', str(binary)], text=True)
+    libraries = [line.strip().split(' (', 1)[0] for line in output.splitlines()[1:] if line.strip()]
+    external = [name for name in libraries
+                if not name.startswith(('/usr/lib/', '/System/Library/'))]
+    if external:
+        raise ValueError('Bundled Node must be self-contained; external libraries: '
+                         + ', '.join(external) + '. Use an official Node distribution, not Homebrew Node.')
+
+
 def child(root, relative, allow_root=False):
     if not isinstance(relative, str) or pathlib.PurePath(relative).is_absolute() or '..' in pathlib.PurePath(relative).parts:
         raise ValueError('Runtime path escapes payload.')
@@ -54,6 +65,7 @@ def verify(root, expected_arch=None, pristine=False):
         raise ValueError('Runtime inventory differs from manifest.')
     if 'bin/node' not in manifest['nativeImages']:
         raise ValueError('Bundled Node missing.')
+    verify_node_dependencies(child(root, 'bin/node'))
     if not os.access(child(root, manifest['executablePath']), os.X_OK):
         raise ValueError('Harness launcher is not executable.')
     child(root, manifest['runtimePath'], allow_root=True)

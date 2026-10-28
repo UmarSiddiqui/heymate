@@ -48,7 +48,7 @@ Brew: brew install umarsiddiqui/tap/heymate
 Notes:
 
 - Upload Clip B somewhere the megathread allows (a Reddit video upload if comments support it, or the GitHub README anchor) and link it.
-- If the mods want a named competitor in "Comparison", don't add HeyClicky until you've decided PLAN.md §7. You could name Apple's own tools instead (for example, "vs Siri and Apple Intelligence: …"), but only after you've checked the claims yourself.
+- If the mods want a named competitor in "Comparison", don't add ReferenceRenderer until you've decided PLAN.md §7. You could name Apple's own tools instead (for example, "vs Siri and Apple Intelligence: …"), but only after you've checked the claims yourself.
 
 ---
 

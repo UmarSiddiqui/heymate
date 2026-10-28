@@ -15,6 +15,7 @@ struct MateAgentSetupPane: View {
     @State private var provider = "openai-codex"
     @State private var model = ""
     @State private var effort = "medium"
+    @State private var speed = "default"
     @State private var apiKey = ""
     @State private var baseURL = ""
     @State private var apiFormat = "openai-completions"
@@ -54,6 +55,8 @@ struct MateAgentSetupPane: View {
     /// Custom endpoints are unknown to Pi, so every level is offered and the user owns the choice.
     private var efforts: [String] { isCustom ? Self.allEfforts : selected?.efforts[model] ?? [] }
 
+    private var speeds: [String] { selected?.speeds[model] ?? [] }
+
     var body: some View {
         VStack(alignment: .leading, spacing: DS.SettingsLayout.sectionSpacing) {
             SettingsSection("Subscription") {
@@ -66,6 +69,15 @@ struct MateAgentSetupPane: View {
             }
 
             SettingsSection("Model") {
+                if provider == "openai-codex" {
+                    SettingsRow("ChatGPT models", subtitle: "Check your account for available models and speeds.") {
+                        Button {
+                            Task { await setup.check(configuration, refresh: true); reflectSavedChoice() }
+                        } label: { Label(busy ? "Refreshing…" : "Refresh models", systemImage: "arrow.clockwise") }
+                        .dsCapsuleButtonStyle(.secondary).disabled(busy)
+                    }
+                    if let warning = setup.catalogWarning { SettingsInlineHelp(warning, tone: .attention).settingsRowContentInsets() }
+                }
                 if isCustom {
                     SettingsRow("Model ID", subtitle: "Exactly as your provider names it.") {
                         TextField("model-name", text: $model).settingsFieldChrome(isMonospaced: true)
@@ -102,6 +114,17 @@ struct MateAgentSetupPane: View {
                 }
             }
 
+            if speeds.count > 1 {
+                SettingsSection("Speed") {
+                    VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+                        DSSegmentedControl(accessibilityTitle: "Speed", selection: $speed,
+                            segments: speeds.map { DSSegment(value: $0, title: MateAgentSetupController.speedName($0)) }, width: nil)
+                        Text("Faster speeds can use more of your plan. Availability depends on your account.")
+                            .font(DS.Fonts.caption).foregroundColor(DS.Colors.textSecondary)
+                    }.settingsRowInsets().disabled(busy)
+                }
+            }
+
             statusLine
         }
         .disabled(profileError != nil)
@@ -129,8 +152,13 @@ struct MateAgentSetupPane: View {
             apiKey = ""; authorizationCode = ""; subscription.resetStatus()
             chooseModel(); apply()
         }
-        .onChange(of: model) { chooseEffort(); apply() }
+        .onChange(of: model) {
+            speed = setup.currentProvider == provider && setup.currentModel == model ? setup.currentSpeed : "default"
+            chooseEffort(); apply()
+        }
         .onChange(of: effort) { apply() }
+        .onChange(of: speed) { apply() }
+        .onChange(of: setup.currentSpeed) { if !busy, setup.currentProvider == provider { speed = setup.currentSpeed } }
         .onChange(of: subscription.state) {
             if subscription.state == .connected {
                 Task { await setup.check(configuration); chooseModel(); apply() }
@@ -315,7 +343,7 @@ struct MateAgentSetupPane: View {
     /// Signed-in plans apply right away; a custom API waits for "Save and use".
     private func apply() {
         guard !isCustom, connected, !model.isEmpty,
-              setup.currentProvider != provider || setup.currentModel != model || setup.currentEffort != effort else { return }
+              setup.currentProvider != provider || setup.currentModel != model || setup.currentEffort != effort || setup.currentSpeed != speed else { return }
         save()
     }
 
@@ -324,7 +352,7 @@ struct MateAgentSetupPane: View {
         apiKey = ""
         Task {
             await setup.connect(configuration, provider: provider, model: model, key: key,
-                                effort: effort, baseURL: baseURL, apiFormat: apiFormat)
+                                effort: effort, baseURL: baseURL, apiFormat: apiFormat, speed: speed)
             if setup.ready { await setup.check(configuration) }
         }
     }
@@ -332,6 +360,7 @@ struct MateAgentSetupPane: View {
     private func chooseModel() {
         model = setup.currentProvider == provider ? setup.currentModel : models.first ?? ""
         if isCustom { baseURL = setup.currentBaseURL; apiFormat = setup.currentAPIFormat }
+        speed = setup.currentProvider == provider && setup.currentModel == model ? setup.currentSpeed : "default"
         chooseEffort()
     }
     /// Keeps the saved effort for the saved model, otherwise the closest level the new model supports.

@@ -26,7 +26,7 @@ Related files in this folder:
 | PR #55 (draft) | Live faces, floating agent cards, v5 sounds, Permissions tab. Not merged. QA and the test suite are still open. | `gh pr view 55` |
 | Analytics | Vercel Web Analytics (cookieless) with `download_click`, `github_click`, `install_copy`, `brew_copy` events. Hotjar 6785426 runs alongside it. | `website/js/*.js` |
 
-**Positioning gap to fix first.** README.md, website/index.html and LAUNCH.md all lead with "Learn your software. One step at a time." and call HeyMate "the open-source alternative to HeyClicky". The README GIF example is "why is my Mac so slow?". All three conflict with your current rules: lead with the general capability, keep it from sounding like a Mac-optimisation tool, and keep HeyClicky out unless verified. See §7 and `website-suggestions.md`.
+**Positioning gap to fix first.** README.md, website/index.html and LAUNCH.md all lead with "Learn your software. One step at a time." and call HeyMate "the open-source alternative to ReferenceRenderer". The README GIF example is "why is my Mac so slow?". All three conflict with your current rules: lead with the general capability, keep it from sounding like a Mac-optimisation tool, and keep ReferenceRenderer out unless verified. See §7 and `website-suggestions.md`.
 
 ---
 
@@ -89,7 +89,7 @@ Demo examples always come after the core message, phrased "Here I asked…". Pic
 
 Backup hook for the second act, once agents land: "A small team in your notch that asks before it acts."
 
-**Words to avoid:** "HeyClicky alternative" (pending §7), "optimise your Mac", "AI coding assistant", "revolutionary", "best", unqualified "always-on". Don't say "it sees everything" either; the screen is captured when you ask.
+**Words to avoid:** "ReferenceRenderer alternative" (pending §7), "optimise your Mac", "AI coding assistant", "revolutionary", "best", unqualified "always-on". Don't say "it sees everything" either; the screen is captured when you ask.
 
 ---
 
@@ -101,7 +101,7 @@ One clear call to action per post. Every clip that is recreated rather than reco
 
 | Day | Channel | Action | Who |
 |---|---|---|---|
-| Thu 15 | Decision | Decide the HeyClicky question (§7) and approve or edit `website-suggestions.md` and the README hero (`copy/readme-hero.md`). | You |
+| Thu 15 | Decision | Decide the ReferenceRenderer question (§7) and approve or edit `website-suggestions.md` and the README hero (`copy/readme-hero.md`). | You |
 | Thu 15 to Fri 16 | Repo and site | Apply the approved edits on a branch in a separate session. Bring "What's new" up to 1.0.59. | Claude preps, you approve; you deploy and repoint `getheymate.vercel.app` |
 | Daily | HN | Start real comment history: 1–2 thoughtful comments a day on macOS, Swift, local AI or accessibility threads where you know something. Don't link HeyMate or mention it. | You |
 | Daily | Reddit | Comment helpfully in r/macapps and r/ClaudeAI, with no links. Goal: 10+ karma before any Reddit promo. r/ClaudeAI needs 50 total karma for a feed showcase; below that, it routes you to the megathread. | You |
@@ -191,7 +191,7 @@ Release tiers:
 - Record real screen clips with your voice or the app's voice. Computer-use can't drive HeyMate.
 - Submit the awesome-claude-code web form and create or schedule the Product Hunt account and launch.
 - Approve website edits, deploy, and repoint the alias.
-- Decide the HeyClicky question.
+- Decide the ReferenceRenderer question.
 - Run the pilot and talk to testers.
 
 **Claude can prepare:**
@@ -210,11 +210,11 @@ Release tiers:
 
 ## 7. Open questions and risks
 
-1. **HeyClicky in public copy (decision needed).**
-   - **Current state.** README.md, website/index.html and marketing/LAUNCH.md all say "the open-source alternative to HeyClicky". So do the `<meta>` keywords, the description, OG and Twitter tags, and the footer.
-   - **Overlap.** Third-party listings describe HeyClicky as a YC Spring 2026 Mac product. It has a hotkey to see your screen, voice answers, an on-screen pointer, a "Clicky agent" voice trigger for background tasks, macOS 14.2+, and paid tiers. HeyMate overlaps closely, down to the minimum macOS version and the "HeyMate agent, …" phrasing in the README.
+1. **ReferenceRenderer in public copy (decision needed).**
+   - **Current state.** README.md, website/index.html and marketing/LAUNCH.md all say "the open-source alternative to ReferenceRenderer". So do the `<meta>` keywords, the description, OG and Twitter tags, and the footer.
+   - **Overlap.** Third-party listings describe ReferenceRenderer as a YC Spring 2026 Mac product. It has a hotkey to see your screen, voice answers, an on-screen pointer, a "Mate agent" voice trigger for background tasks, macOS 14.2+, and paid tiers. HeyMate overlaps closely, down to the minimum macOS version and the "HeyMate agent, …" phrasing in the README.
    - **What I couldn't verify.** I didn't confirm feature parity from primary sources. Most results were aggregators.
-   - **Recommendation.** Remove "HeyClicky" from all public copy and meta until you've done your own primary-source check, ideally with someone qualified to advise on comparative advertising and trademark use. Position on HeyMate's own merits.
+   - **Recommendation.** Remove "ReferenceRenderer" from all public copy and meta until you've done your own primary-source check, ideally with someone qualified to advise on comparative advertising and trademark use. Position on HeyMate's own merits.
    - **What to expect.** Commenters on HN and r/macapps will likely raise it themselves. `copy/show-hn.md` has a neutral answer, marked "don't post until you decide".
    - **Also review** the "HeyMate agent, …" voice phrase.
 2. **r/macapps requires a "Comparison".** Their megathread format is Problem / Comparison / Pricing. The draft compares against generic workflows (pasting screenshots into a chat app) and against notch utilities, and names no competitor. Check that this satisfies the mods.
@@ -234,4 +234,4 @@ Sources consulted (read-only):
 - r/macapps App Pile megathread rules, via mirror: https://redlib.groet-infra.nl/r/macapps
 - r/ClaudeAI showcase megathread note on 50 karma, via mirror: https://redlib.groet-infra.nl/r/ClaudeAI/comments/1sly3jm/built_with_claude_project_showcase_megathread/
 - Product Hunt specs (third-party guides): https://app.getlaunchlist.com/blog/how-to-launch-on-product-hunt-2026 and https://screenhance.com/blog/product-hunt-launch-checklist-2026
-- HeyClicky descriptions (third-party): https://moge.ai/product/heyclicky and https://www.voiceos.com/compare/heyclicky-windows
+- ReferenceRenderer descriptions (third-party): https://moge.ai/product/reference-renderer and https://www.voiceos.com/compare/reference-renderer-windows

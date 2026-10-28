@@ -176,6 +176,7 @@ struct BrainQuickPicker: View {
     @ObservedObject var brain = MateAgentSetupController.shared
     @State private var model = ""
     @State private var effort = "medium"
+    @State private var speed = "default"
 
     static func brand(for provider: String) -> AgentBrain? {
         switch provider {
@@ -196,6 +197,7 @@ struct BrainQuickPicker: View {
     private var efforts: [String] {
         brain.currentProvider == "heymate-custom" ? ["off", "low", "medium", "high", "max"] : current?.efforts[model] ?? []
     }
+    private var speeds: [String] { current?.speeds[model] ?? [] }
     private var locked: Bool { brain.busy || companionManager.isResponseInFlight || companionManager.isMateAgentTurnInFlight }
 
     var body: some View {
@@ -204,6 +206,15 @@ struct BrainQuickPicker: View {
             HStack(spacing: DS.Spacing.xs) {
                 ForEach(["openai-codex", "anthropic", "heymate-custom"], id: \.self) { id in
                     providerButton(id)
+                }
+            }
+            if brain.currentProvider == "openai-codex" {
+                Button {
+                    Task { await brain.check(.load(), refresh: true) }
+                } label: { Label("Refresh models", systemImage: "arrow.clockwise") }
+                .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)
+                if let warning = brain.catalogWarning {
+                    Text(warning).font(DS.Fonts.caption).foregroundColor(DS.Colors.textSecondary)
                 }
             }
             if brain.currentProvider != "heymate-custom", !models.isEmpty {
@@ -218,6 +229,12 @@ struct BrainQuickPicker: View {
                                    segments: efforts.map { DSSegment(value: $0, title: MateAgentSetupPane.effortName($0)) },
                                    width: nil)
             }
+            if speeds.count > 1 {
+                Text("SPEED").font(DS.Fonts.sectionLabel).tracking(0.8).foregroundColor(DS.Colors.textTertiary)
+                DSSegmentedControl(accessibilityTitle: "Speed", selection: $speed,
+                    segments: speeds.map { DSSegment(value: $0, title: MateAgentSetupController.speedName($0)) }, width: nil)
+                Text("Faster speeds can use more of your plan.").font(DS.Fonts.caption).foregroundColor(DS.Colors.textSecondary)
+            }
             HStack {
                 if brain.busy { ProgressView().controlSize(.small) }
                 Spacer()
@@ -229,9 +246,13 @@ struct BrainQuickPicker: View {
         }
         .padding(DS.Spacing.lg)
         .disabled(locked)
-        .task { model = brain.currentModel; effort = brain.currentEffort; await brain.check(.load()); model = brain.currentModel; effort = brain.currentEffort }
-        .onChange(of: model) { apply(provider: brain.currentProvider) }
+        .task { model = brain.currentModel; effort = brain.currentEffort; speed = brain.currentSpeed; await brain.check(.load()); model = brain.currentModel; effort = brain.currentEffort; speed = brain.currentSpeed }
+        .onChange(of: model) {
+            speed = model == brain.currentModel ? brain.currentSpeed : "default"
+            apply(provider: brain.currentProvider)
+        }
         .onChange(of: effort) { apply(provider: brain.currentProvider) }
+        .onChange(of: speed) { apply(provider: brain.currentProvider) }
     }
 
     private func providerButton(_ id: String) -> some View {
@@ -268,13 +289,14 @@ struct BrainQuickPicker: View {
     /// Saves only real changes; the harness keeps the model's saved effort and clamps it.
     private func apply(provider: String, model chosen: String? = nil) {
         let target = chosen ?? model
-        guard !brain.busy, provider != brain.currentProvider || target != brain.currentModel || effort != brain.currentEffort else { return }
+        guard !brain.busy, provider != brain.currentProvider || target != brain.currentModel || effort != brain.currentEffort || speed != brain.currentSpeed else { return }
         Task {
             await brain.connect(.load(), provider: provider, model: target, key: "",
                                 effort: provider == brain.currentProvider ? effort : "",
-                                baseURL: brain.currentBaseURL, apiFormat: brain.currentAPIFormat)
+                                baseURL: brain.currentBaseURL, apiFormat: brain.currentAPIFormat,
+                                speed: provider == brain.currentProvider ? speed : "default")
             await brain.check(.load())
-            model = brain.currentModel; effort = brain.currentEffort
+            model = brain.currentModel; effort = brain.currentEffort; speed = brain.currentSpeed
         }
     }
 }
