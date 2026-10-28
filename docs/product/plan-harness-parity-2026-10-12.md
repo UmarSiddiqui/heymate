@@ -1,19 +1,19 @@
-# HeyMate harness plan: the open-source HeyClicky alternative
+# HeyMate harness plan: the open-source ReferenceRenderer alternative
 
-Date: 12 October 2026. Branch: `feat/heyclicky-parity`.
+Date: 12 October 2026. Branch: `feat/reference-renderer-parity`.
 
-Positioning: **HeyMate is the open-source HeyClicky. Bring your own AI. Your existing Claude, ChatGPT, or OpenCode subscription does the work; nothing is metered by us, nothing leaves your Mac that you did not choose to send.** Every item below either closes a felt gap against HeyClicky 1.0.53 or strengthens that position.
+Positioning: **HeyMate is the open-source ReferenceRenderer. Bring your own AI. Your existing Claude, ChatGPT, or OpenCode subscription does the work; nothing is metered by us, nothing leaves your Mac that you did not choose to send.** Every item below either closes a felt gap against ReferenceRenderer 1.0.53 or strengthens that position.
 
-## What we learned (evidence in `HeyMate_HeyClicky_Research_Pack/rea/`, gitignored)
+## What we learned (evidence in `HeyMate_ReferenceRenderer_Research_Pack/rea/`, gitignored)
 
-Sources: HeyClicky's public changelog; the OpenClicky source (same codebase lineage, confirmed by shared class names `CompanionManager`, `CodexAgentSession`, `CodexHomeManager`, `ElementLocationDetector`); the HeyClicky bundle (`ClickyModelInstructions.md`, skills, Codex model catalog, binary strings); and its local Codex home on this Mac (`config.toml`, five Clicky workspaces, session rollouts with every injected turn).
+Sources: ReferenceRenderer's public changelog; the OpenMate source (same codebase lineage, confirmed by shared class names `CompanionManager`, `CodexAgentSession`, `CodexHomeManager`, `ElementLocationDetector`); the ReferenceRenderer bundle (`MateModelInstructions.md`, skills, Codex model catalog, binary strings); and its local Codex home on this Mac (`config.toml`, five Mate workspaces, session rollouts with every injected turn).
 
-1. **Agent memory is a folder.** Each Clicky owns a workspace with `AGENTS.md`: Identity, Standing preferences, dated Notes. The CLI loads it natively at thread start; the brief tells the agent to keep Notes current and that the newest dated fact wins. Deliverables go to `output/`, scratch to `tmp/`.
+1. **Agent memory is a folder.** Each Mate owns a workspace with `AGENTS.md`: Identity, Standing preferences, dated Notes. The CLI loads it natively at thread start; the brief tells the agent to keep Notes current and that the newest dated fact wins. Deliverables go to `output/`, scratch to `tmp/`.
 2. **The standing agent brief is 4.3 KB** (`developer_instructions` in `config.toml`). Everything else arrives as short, state-driven notes in the user message: lease metadata, role note, today's date, "no screenshot attached", workspace rules, the complete routine list, then `User transcript:`.
 3. **A fixed output contract** parsed from the final message: `<SUMMARY>` (under 200 chars, spoken), `<NEXT_ACTIONS>` (1 to 4 tappable imperatives under 40 chars), `<ARTIFACTS>` (up to 8, first auto-opened), `<DONE_TITLE>`, `<ROUTINE>` (JSON: action create/update/pause/resume/delete, `every_minutes`, `title`, `task`), `<COMPUTER_USE_REQUEST>`.
 4. **Ask-once policy.** Do the part that does not depend on the answer, then one bundled set of questions; SUMMARY becomes the question; never invent the user's facts; confirm only before delete, overwrite, send, spend. Email is draft-first.
 5. **Consent is a message, not a modal.** Computer-use observation tools always work; input tools return a refusal that tells the agent to finish the rest and end with a request block; approval arrives as a prefix on the next turn and lasts the conversation. A local AX-element picker (`jev-use` `drive_until`) runs the click loop at ~0.5 s a step without an LLM turn per click, with a code-enforced deny list.
-6. **Voice owns the session tools.** The realtime model calls `sessions_spawn` (with `new_clicky`), `sessions_send`, `sessions_answer_request`, `send_to_higher_model`; fast/deep is a tool call, not a separate classifier. Recent companion turns are passed to a new agent as `<RECENT_COMPANION_CONTEXT>` with "use only if the transcript refers to it".
+6. **Voice owns the session tools.** The realtime model calls `sessions_spawn` (with `new_mate`), `sessions_send`, `sessions_answer_request`, `send_to_higher_model`; fast/deep is a tool call, not a separate classifier. Recent companion turns are passed to a new agent as `<RECENT_COMPANION_CONTEXT>` with "use only if the transcript refers to it".
 7. **Routines are declared by the agent and owned by the app.** The agent emits `<ROUTINE>`; the scheduler injects the authoritative list every turn.
 8. **Quiet rules and recovery notes**: calls and screen share silence everything; retry notes say "check what is done, continue"; stale-screenshot notes say "the new screenshot is the only truth"; stop within 10 s is refunded.
 
@@ -25,7 +25,7 @@ Talk: `VoiceRouter` regex, Haiku `VoiceIntentClassifier` on ambiguity, `Behavior
 
 ## Waves
 
-Each wave is a set of tasks that touch disjoint files so they can run in parallel. Every task ships with unit tests in `heymate/HeyMateTests/` and passes `./heymate/scripts/typecheck.sh --tests`. Repo rules: imports at the top, exhaustive `switch` with a `never`-style default for enums, no prompt text copied from HeyClicky.
+Each wave is a set of tasks that touch disjoint files so they can run in parallel. Every task ships with unit tests in `heymate/HeyMateTests/` and passes `./heymate/scripts/typecheck.sh --tests`. Repo rules: imports at the top, exhaustive `switch` with a `never`-style default for enums, no prompt text copied from ReferenceRenderer.
 
 ### Wave 1: foundations (parallel, no edits to `CompanionManager.swift`)
 
@@ -34,7 +34,7 @@ Each wave is a set of tasks that touch disjoint files so they can run in paralle
 - **1C Lean standing brief and ask-once.** Rewrite `AgentPlanBrief` and the agent half of `MateAgentBrief` in HeyMate's own words to: act on the request, confirm only for delete/overwrite/send/spend, draft-first email, ask-once with the independent part done first, deliverables in `output/`, never invent user facts, final message leads with the result. Target under 5 KB total. Files: `AgentPlanBrief.swift`, `MateAgentBrief.swift` (brief half).
 - **1D Consent that carries.** `ComputerUseCoordinator` gains a per-conversation grant (allow once, allow for this chat, always) and a refusal message that instructs the model to finish and emit a request block; `BehaviorContract.computerControlSection` describes it; `HeyMateMCPServer` returns the same refusal text to agent children. Files: `ComputerUseCoordinator.swift`, `ComputerUseApprovalCard.swift`, `BehaviorContract.swift` (that section only), `HeyMateMCPServer.swift`.
 - **1E Memory extractor.** `MemoryExtractor` turns a finished Talk exchange into zero or more `preference` / `projectFact` items using the configured brain's cheapest text path (same proxy as `VoiceIntentClassifier` when available, on-device Foundation Models otherwise), deduplicated against existing items; `FileMemoryRepository.append` is the writer. No call-site wiring yet. Files: new `MemoryExtractor.swift`, `MemoryRepository.swift` (dedupe helper only).
-- **1F Positioning.** README, `website/` hero and feature copy, `marketing/LAUNCH.md`: "the open-source HeyClicky; bring your own AI; your existing subscription does the work". No superiority claims without a recording. Files: `README.md`, `website/index.html`, `website/css`, `marketing/LAUNCH.md`.
+- **1F Positioning.** README, `website/` hero and feature copy, `marketing/LAUNCH.md`: "the open-source ReferenceRenderer; bring your own AI; your existing subscription does the work". No superiority claims without a recording. Files: `README.md`, `website/index.html`, `website/css`, `marketing/LAUNCH.md`.
 
 
 

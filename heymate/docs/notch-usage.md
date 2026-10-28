@@ -1,6 +1,6 @@
 # Coding usage notch
 
-Connected coding tools appear in a compact row of provider-logo rings. Three full logos fit beside the hardware notch; overflow uses a count badge. Open **Usage** for the horizontal overview, select one provider for quota windows/reset times and observed sessions, and use **All providers** to return. Home, voice, mates, approvals and the file shelf keep their existing navigation.
+Connected coding tools appear in a compact row of provider-logo rings. Three full logos fit beside the hardware notch; overflow uses a count badge. Open **Usage** for the horizontal overview, select one provider for quota windows/reset times and observed sessions, and use **All providers** to return. Home, voice, mates and approvals keep their existing navigation.
 
 Settings → Notch keeps **connections** separate from **display**:
 
@@ -46,6 +46,8 @@ Actual motion geometry, spring vocabulary, ring layers, usage parsers and suppor
 
 Settings → Notch → "Add your own source" connects any JSON usage endpoint: name, URL (HTTPS, or http on localhost), optional token and header name, a dot path to the percent (or used + limit paths), optional reset path (epoch seconds/ms or ISO date), and a logo. The token is stored in the Keychain (`HeyMate Notch Usage`), sent only to that URL, and deleted on Remove. Redirects are refused; a missing or non-numeric field reads as unavailable.
 
-## Drag-only shelf
+## File attachments
 
-File drag into the notch shows a mate face with an open mouth. Successful drop briefly closes the mouth, then shows parked files. Click opens, drag exports a file URL, and the context menu reveals/removes a bookmark. AirDrop remains available after a drop. Originals are never moved or deleted. Existing shelf bookmarks survive this change and app exit. Dragging a file opens the shelf again; ordinary clicks/hover never select it. Closing or canceling returns to usage/home. Legacy micro-app preferences no longer start clipboard, camera, calendar or device monitors.
+The notch does not accept file drops or store files for later sharing. Chat attachments remain part of the chat composer. The former shelf, bookmark storage, file-eating animation and AirDrop controls have been removed; old shelf bookmarks are no longer loaded. Original files are untouched.
+
+Legacy micro-app preferences no longer start clipboard, camera, calendar or device monitors.

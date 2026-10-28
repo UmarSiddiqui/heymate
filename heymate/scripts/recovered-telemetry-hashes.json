@@ -1,0 +1,26 @@
+{
+  "source": "ReferenceRenderer 1.1.1 (66), recovered shipped JavaScript",
+  "formattedSourceSHA256": "3c9da9c912c84bd0798719755eb3a2904c0281219649fb14e5f0f6b89a73c9d8",
+  "module": "agent-runtime/src/recovered-h1-telemetry.mjs",
+  "moduleSHA256": "76ec90f93e4663740ffef488aa3602217a18476c73c71591739da95ba0f0a824",
+  "blocks": [
+    {
+      "startMarker": "function ra(e) {",
+      "endMarker": "function Zl(e) {",
+      "startLine": 19403,
+      "endLine": 19412,
+      "bytes": 266,
+      "sha256": "2ce1114c0ecd5f1651cd5fd4c454cc06c2ce13243058b45a8646a6bce05f52ea"
+    },
+    {
+      "startMarker": "function Y2() {",
+      "endMarker": "function Z2(e) {",
+      "startLine": 25886,
+      "endLine": 25965,
+      "bytes": 2320,
+      "sha256": "d1d3bd6ed283385de658b7d657dd2a0b41698fbe694f7fdb1fb34d351564be1a"
+    }
+  ],
+  "preBrandingModuleSHA256": "d5a1606a5a3d190c80837e5591c425fcd49568e380f30f451a1b55f55a3d00db",
+  "brandingAdaptation": "Product names and private drawing symbols renamed; original source digests retained for audit."
+}

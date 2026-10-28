@@ -1,66 +1,81 @@
 #!/usr/bin/env python3
-"""Start only a scratch-profile harness and check its attested local API."""
+"""Launch the packaged backend in a disposable profile, never a second GUI."""
 import argparse
 import json
+import os
 import pathlib
-import platform
 import secrets
 import selectors
 import subprocess
 import tempfile
-import urllib.error
+import time
 import urllib.request
 
 
-def smoke(payload):
-    manifest = json.loads((payload / 'manifest.json').read_text())
-    if 'payloads' in manifest:
-        architecture = 'arm64' if platform.machine().lower() in ('arm64', 'aarch64') else 'x86_64'
-        payload = payload / manifest['payloads'][architecture]
-        manifest = json.loads((payload / 'manifest.json').read_text())
-    with tempfile.TemporaryDirectory(prefix='heymate-pi-smoke-') as scratch:
-        token = secrets.token_hex(32)
-        child = subprocess.Popen([str(payload / manifest['executablePath']), 'serve'],
-            env={'PATH': '/usr/bin:/bin', 'HEYMATE_AGENT_HOME': scratch,
-                 'HEYMATE_AGENT_DASHBOARD_SESSION_TOKEN': token},
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        try:
-            selector = selectors.DefaultSelector()
-            selector.register(child.stdout, selectors.EVENT_READ)
-            if not selector.select(timeout=30):
-                raise RuntimeError('Harness did not announce readiness.')
-            line = child.stdout.readline().strip()
-            prefix = 'HEYMATE_AGENT_BACKEND_READY port='
-            if not line.startswith(prefix):
-                raise RuntimeError('Invalid harness readiness.')
-            port = int(line[len(prefix):])
-            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-
-            def get(route, authorized=True):
-                headers = {'X-HeyMate-Agent-Token': token} if authorized else {}
-                with opener.open(urllib.request.Request(f'http://127.0.0.1:{port}' + route, headers=headers), timeout=10) as response:
-                    return json.load(response)
-
-            identity = get('/api/host/identity')
-            assert identity['pid'] == child.pid and identity['engine'] == 'pi'
-            assert get('/api/status')['agent_home'] == str(pathlib.Path(scratch).resolve())
-            assert get('/api/health')['commit'] == manifest['sourceCommit']
+def verify(root):
+    root = root.resolve()
+    with tempfile.TemporaryDirectory(prefix='heymate-backend-smoke-') as scratch:
+        token = secrets.token_urlsafe(32)
+        environment = dict(os.environ, HEYMATE_AGENT_HOME=scratch,
+                           HEYMATE_AGENT_DASHBOARD_SESSION_TOKEN=token,
+                           HEYMATE_AGENT_DISABLE_LAZY_INSTALLS='1')
+        # Exercise the packaged WASM dependency from the copied payload, not
+        # this checkout's node_modules. No GUI, credentials or external tools.
+        probe = '''
+const { runRecoveredScript } = await import(process.argv[1]);
+const result = await runRecoveredScript('text(await tools.fixture({value:7}))', {
+  hasTool: name => name === 'fixture',
+  callTool: async () => ({text:'{"value":7}',ok:true})
+});
+if (!result.ok || result.calls !== 1 || !result.output.includes('7')) throw Error('Packaged H1 runner failed');
+console.log('PASS: packaged recovered H1 runner and QuickJS WASM execute isolated tool program.');
+'''
+        subprocess.run([str(root / 'bin/node'), '--input-type=module', '-e', probe,
+                        (root / 'src/script-tools.mjs').as_uri()], cwd=scratch,
+                       env=environment, check=True, timeout=15)
+        with tempfile.TemporaryFile() as errors:
+            process = subprocess.Popen([str(root / 'bin/heymate-agent'), 'serve', '--isolated',
+                                        '--host', '127.0.0.1', '--port', '0', '--no-open'],
+                                       cwd=scratch, env=environment, stdout=subprocess.PIPE,
+                                       stderr=errors, text=True)
             try:
-                get('/api/status', False)
-                raise AssertionError('Unauthenticated API succeeded.')
-            except urllib.error.HTTPError as error:
-                assert error.code == 401
-            print('PASS: bundled Pi harness startup, ownership and authentication; no model requests')
-        finally:
-            child.terminate()
-            try:
-                child.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                child.kill()
-                child.wait(timeout=5)
+                deadline = time.monotonic() + 30
+                port = None
+                with selectors.DefaultSelector() as selector:
+                    selector.register(process.stdout, selectors.EVENT_READ)
+                    while time.monotonic() < deadline and process.poll() is None:
+                        if not selector.select(timeout=min(1, max(0, deadline - time.monotonic()))):
+                            continue
+                        line = process.stdout.readline().strip()
+                        if line.startswith('HEYMATE_AGENT_BACKEND_READY port='):
+                            port = int(line.split('=', 1)[1])
+                            break
+                if port is None:
+                    errors.seek(0)
+                    detail = errors.read().decode(errors='replace')[-2000:]
+                    raise RuntimeError('Packaged backend did not become ready: ' + detail)
+                for route in ['host/identity', 'health', 'config']:
+                    request = urllib.request.Request(f'http://127.0.0.1:{port}/api/{route}',
+                                                     headers={'x-heymate-agent-token': token})
+                    with urllib.request.urlopen(request, timeout=5) as response:
+                        result = json.load(response)
+                    if route == 'host/identity' and (result.get('pid') != process.pid or result.get('engine') != 'pi'):
+                        raise RuntimeError('Backend identity did not match the owned process.')
+                    if route == 'health' and not result.get('ok'):
+                        raise RuntimeError('Backend health check failed.')
+                print('PASS: packaged backend starts; owned identity, health and config respond.')
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=5)
+                process.stdout.close()
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--payload', type=pathlib.Path, required=True)
-    smoke(parser.parse_args().payload.resolve())
+    parser.add_argument('--root', type=pathlib.Path, required=True)
+    verify(parser.parse_args().root)

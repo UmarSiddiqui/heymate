@@ -1,0 +1,16 @@
+<!doctype html><meta charset="utf-8"><title>HeyMate recovered port validation</title>
+<style>html,body{margin:0;background:#202632;color:white;overflow:hidden;height:100%;font-family:system-ui}</style>
+<script src="../HeyMate/three-r159.min.js"></script>
+<script src="../HeyMate/mate-three.js"></script>
+<script src="../HeyMate/mate-three-parts.js"></script>
+<script src="../HeyMate/mate-stage3d.js"></script>
+<script>
+window.portMessages=[];
+window.webkit={messageHandlers:{heymate:{postMessage:m=>portMessages.push(m)}}};
+(async()=>{
+ const load=async name=>(await fetch('../HeyMate/'+name+'.js')).text();
+ window.__mateSources={native:await load('mate-draw-native'),engine:await load('mate-draw-engine'),pieces:await load('mate-draw-pieces')};
+ const script=document.createElement('script');script.src='../HeyMate/mate-host.js';
+ script.onload=()=>{window.portReady=true};document.head.appendChild(script);
+})();
+</script>

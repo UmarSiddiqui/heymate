@@ -23,6 +23,15 @@ struct CursorPointingTarget: Equatable {
     var caption: String?
 }
 
+/// A 3D model window mid-build: the overlay on that display taps the buddy
+/// along as parts pop in, so the cursor reads as the thing assembling it.
+struct ModelBuildEvent: Equatable {
+    let id: UUID
+    /// Global AppKit frame of the model window.
+    let windowFrame: CGRect
+    let partCount: Int
+}
+
 enum CompanionVoiceState {
     case idle
     case listening
@@ -57,6 +66,8 @@ final class CompanionManager: ObservableObject {
     /// UserDefaults key backing `selectedSpeakProvider`.
     nonisolated static let speakPreferenceKey = "selectedVoiceSpeakProvider"
 
+    /// A note for the next turn only (the drawn welcome tour's step), added to its context and then cleared.
+    var pendingTurnNote: String?
     private var talkToolScopes: [String: (owner: AgentChatOwner, completion: HeyMateRequestCompletionState)] = [:]
     private var talkGmailEvidence: [String: [String: Set<String>]] = [:]
 
@@ -71,11 +82,13 @@ final class CompanionManager: ObservableObject {
         talkGmailEvidence[token] = nil
     }
 
+    /// Connector tools plus the mate delegation tools, for the scoped MCP
+    /// bridge a Pi turn attaches. Delegation rides the same bridge so First
+    /// Mate can hand work to a specialist; start_mate_work stays native-only.
     func scopedConnectorToolDescriptions(token: String) -> [[String: Any]] {
         guard let scope = talkToolScopes[token], ownsCurrentResponse(scope.completion) else { return [] }
         return TalkToolCatalog.availableTools(connectorRuntime: connectorRuntime).compactMap { tool in
-            guard case .connector(let identifier, _, _) = tool.origin,
-                  isConnectorEnabledForChat(identifier), !Self.isWithheldFromTalk(tool.toolDefinition.name.components(separatedBy: "__").last ?? tool.toolDefinition.name) else { return nil }
+            guard isScopedBridgeTool(tool) else { return nil }
             let definition = tool.toolDefinition
             let schema = (try? JSONSerialization.jsonObject(with: Data(definition.inputSchemaJSON.utf8))) as? [String: Any]
             return ["name": definition.name, "description": definition.description,
@@ -83,12 +96,21 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    private func isScopedBridgeTool(_ tool: TalkTool) -> Bool {
+        switch tool.origin {
+        case .local:
+            return TalkToolCatalog.piBridgeLocalToolNames.contains(tool.toolDefinition.name)
+        case .connector(let identifier, _, _):
+            let name = tool.toolDefinition.name
+            return isConnectorEnabledForChat(identifier)
+                && !Self.isWithheldFromTalk(name.components(separatedBy: "__").last ?? name)
+        }
+    }
+
     func executeScopedConnectorTool(token: String, name: String, arguments: [String: Any]) async -> (text: String, isError: Bool) {
         guard let scope = talkToolScopes[token], ownsCurrentResponse(scope.completion),
               let tool = TalkToolCatalog.availableTools(connectorRuntime: connectorRuntime).first(where: {
-                  guard case .connector(let identifier, _, _) = $0.origin else { return false }
-                  return isConnectorEnabledForChat(identifier) && $0.toolDefinition.name == name
-                      && !Self.isWithheldFromTalk(name.components(separatedBy: "__").last ?? name)
+                  $0.toolDefinition.name == name && isScopedBridgeTool($0)
               }) else { return ("This conversation tool scope expired or the connector is unavailable.", true) }
         let result = await executeTalkTool(.init(toolUseIdentifier: UUID().uuidString, toolName: name,
             inputArgumentsJSON: String(data: (try? JSONSerialization.data(withJSONObject: arguments)) ?? Data("{}".utf8), encoding: .utf8) ?? "{}"),
@@ -147,6 +169,9 @@ final class CompanionManager: ObservableObject {
     /// Injectable so tests can point chats at a temp file.
     let chatHistoryStore: FileChatHistoryStore
 
+    /// Notes: HeyMate's own notes canvas (modeled on ReferenceRenderer's MateInk).
+    let noteStore: NoteStore
+
     /// Mates and their routines. Chats stay in `chatHistoryStore`.
     let mateDirectory: MateDirectory
     let mateRoutineScheduler: MateRoutineScheduler
@@ -191,6 +216,7 @@ final class CompanionManager: ObservableObject {
     init(
         memoryRepository: FileMemoryRepository? = nil,
         chatHistoryStore: FileChatHistoryStore? = nil,
+        noteStore: NoteStore? = nil,
         agentRunStore: FileAgentRunStore? = nil,
         standingOrderRepository: FileStandingOrderRepository? = nil,
         agentUndoLedger: FileAgentUndoLedger? = nil,
@@ -207,6 +233,7 @@ final class CompanionManager: ObservableObject {
         let chats = chatHistoryStore
             ?? FileChatHistoryStore(fileURL: FileChatHistoryStore.appSupportFileURL())
         self.chatHistoryStore = chats
+        self.noteStore = noteStore ?? NoteStore.shared
         let mateFileStore = mateStore ?? FileMateStore(fileURL: FileMateStore.appSupportFileURL())
         let routineFileStore = routineStore
             ?? FileMateRoutineStore(fileURL: FileMateRoutineStore.appSupportFileURL())
@@ -374,6 +401,11 @@ final class CompanionManager: ObservableObject {
     /// visualActions JSON). Each overlay renders only those matching its
     /// display frame; entries self-expire via their TTL.
     @Published var activeAnnotations: [ResolvedAnnotation] = []
+    /// The newest batch of annotations, not yet built by the pen cursor. Each
+    /// screen overlay's drawing choreographer claims the entries on its display.
+    @Published var pendingDrawingBatch: [ResolvedAnnotation] = []
+    /// A 3D model window mid-build: the buddy taps along with the parts.
+    @Published var modelBuildEvent: ModelBuildEvent?
     private var annotationExpiryTask: Task<Void, Never>?
     // lazy so the closure can capture self (stored-property initializers cannot).
     private lazy var annotationClearKeyMonitor = AnnotationClearKeyMonitor { [weak self] in
@@ -600,6 +632,8 @@ final class CompanionManager: ObservableObject {
         let parsedActions = ComputerUseTagParser.parseActions(in: responseText)
         guard !parsedActions.isEmpty else { return nil }
 
+        computerUseCoordinator.beginDrive()
+        defer { computerUseCoordinator.endDrive() }
         var outcomeLines: [String] = []
         for parsed in parsedActions {
             guard !Task.isCancelled else { return nil }
@@ -609,6 +643,7 @@ final class CompanionManager: ObservableObject {
             )
             guard !Task.isCancelled else { return nil }
             outcomeLines.append(outcome)
+            if computerUseCoordinator.takeBackReason != nil { break }
         }
         return outcomeLines.joined(separator: "\n")
     }
@@ -728,10 +763,8 @@ final class CompanionManager: ObservableObject {
         return true
     }
 
-    /// Micro-apps that share the notch with the assistant: file shelf,
-    /// timers, now playing, battery, next event, clipboard. Every one is
-    /// opt-in and each publishes at most one ambient activity; the center
-    /// arbitrates which activity the collapsed pill shows.
+    /// Agent activity arbitration and retained internal micro-app producers.
+    /// Legacy micro-app monitors remain disabled.
     let notchActivityCenter = NotchActivityCenter()
 
     /// Whatever the notch should be showing when the companion itself is
@@ -755,6 +788,12 @@ final class CompanionManager: ObservableObject {
                 displayFrame: Self.nearestOnScreenPoint(to: location).display
             )
         }
+        // Talking is taking the wheel back, same as the mouse or Escape.
+        computerUseTakeBackCancellable = $state
+            .sink { [weak self] state in
+                guard case .listening = state else { return }
+                self?.computerUseCoordinator.takeBack(.voice)
+            }
     }
 
     /// Bridges the activity center's arbitration result onto this manager
@@ -990,28 +1029,6 @@ final class CompanionManager: ObservableObject {
     /// the Cloud engine routes through.
     var workerBaseURLForDisplay: String { Self.workerBaseURL }
 
-    /// Answers screen questions for every brain that is not OpenCode.
-    ///
-    /// Rebuilt rather than cached, because the user can change the endpoint,
-    /// the model, or the key from Settings and the next question should use
-    /// them.
-    private var customAPIClient: any VisionConversationClient {
-        switch CustomAPIConfiguration.format {
-        case .anthropic:
-            return AnthropicMessagesClient(
-                endpoint: CustomAPIConfiguration.baseURL,
-                model: CustomAPIConfiguration.model,
-                apiKey: Self.nativeCredentialAccessAllowed ? CustomAPIConfiguration.apiKey() : nil
-            )
-        case .openAI:
-            return OpenAIChatClient(
-                endpoint: CustomAPIConfiguration.baseURL,
-                model: CustomAPIConfiguration.model,
-                apiKey: Self.nativeCredentialAccessAllowed ? CustomAPIConfiguration.apiKey() : nil
-            )
-        }
-    }
-
     /// Routes the sentences `VoiceRouter` cannot settle for free. Uses the
     /// same custom endpoint as Talk — not a CLI, because this has to answer
     /// in under two seconds.
@@ -1021,10 +1038,6 @@ final class CompanionManager: ObservableObject {
     )
 
     var voiceSynthesisClient: any TTSClient = KokoroTTSClient()
-
-    /// Last-resort speaker when the selected TTS client throws. Retained so
-    /// the utterance is not deallocated mid-sentence.
-    private let emergencySpeechSynthesizer = NSSpeechSynthesizer()
 
     /// Speech-to-text backend for Talk / Dictate. Persisted independently of the brain.
     @Published var selectedListenProvider: VoiceListenProvider = VoiceListenProvider.fromUserDefaults()
@@ -1108,12 +1121,11 @@ final class CompanionManager: ObservableObject {
     @Published private(set) var codexModelCatalogErrorText: String?
 
     /// Base URL of the locally running `opencode serve` HTTP server.
-    /// Persisted and applied by rebuilding the client.
+    /// Persisted for server health and model discovery.
     @Published var openCodeServerURLString: String =
         UserDefaults.standard.string(forKey: "openCodeServerURLString") ?? "http://127.0.0.1:4096" {
         didSet {
             UserDefaults.standard.set(openCodeServerURLString, forKey: "openCodeServerURLString")
-            rebuildOpenCodeClient()
         }
     }
 
@@ -1123,14 +1135,12 @@ final class CompanionManager: ObservableObject {
         UserDefaults.standard.string(forKey: "openCodeBasicAuthUsername") ?? "" {
         didSet {
             UserDefaults.standard.set(openCodeBasicAuthUsername, forKey: "openCodeBasicAuthUsername")
-            rebuildOpenCodeClient()
         }
     }
     @Published var openCodeBasicAuthPassword: String =
         CompanionManager.loadOpenCodeBasicAuthPassword() {
         didSet {
             CompanionManager.persistOpenCodeBasicAuthPassword(openCodeBasicAuthPassword)
-            rebuildOpenCodeClient()
         }
     }
 
@@ -1189,14 +1199,12 @@ final class CompanionManager: ObservableObject {
         UserDefaults.standard.string(forKey: "selectedOpenCodeProviderID") ?? "" {
         didSet {
             UserDefaults.standard.set(openCodeProviderID, forKey: "selectedOpenCodeProviderID")
-            rebuildOpenCodeClient()
         }
     }
     @Published var openCodeModelID: String =
         UserDefaults.standard.string(forKey: "selectedOpenCodeModelID") ?? "" {
         didSet {
             UserDefaults.standard.set(openCodeModelID, forKey: "selectedOpenCodeModelID")
-            rebuildOpenCodeClient()
         }
     }
 
@@ -1215,12 +1223,6 @@ final class CompanionManager: ObservableObject {
     /// True while a health/models refresh against the OpenCode server runs,
     /// so the UI can show a spinner instead of flickering stale state.
     @Published private(set) var isOpenCodeRefreshInFlight = false
-
-    private(set) var openCodeClient = OpenCodeClient(
-        serverBaseURL: URL(string: "http://127.0.0.1:4096")!,
-        providerID: nil,
-        modelID: ""
-    )
 
     /// The brain used for every conversation-style request this turn.
     var activeConversationClient: any VisionConversationClient {
@@ -1244,34 +1246,10 @@ final class CompanionManager: ObservableObject {
         return client
     }
 
-    /// Whether a subscription CLI child would find anything behind HeyMate's
-    /// loopback server this turn: Composio, or any other connector with a
-    /// live session that this chat has left on.
-    private var connectedAppsReachableFromChildCLI: Bool {
-        ComposioAgentAttachment.isAttachable()
-            || connectorRuntime.availableMCPTools.contains { namespaced in
-                namespaced.connectorID != ComposioSessionStore.connectorID
-                    && isConnectorEnabledForChat(namespaced.connectorID)
-                    && !Self.isWithheldFromTalk(namespaced.tool.name)
-            }
-    }
-
-    /// The model the user picked is the model that answers, with or without
-    /// a screenshot. Spark is only the stand-in before Codex has a selection.
-    /// Talk's client. A subscription CLI brain is bound to the open chat so
-    /// follow-ups continue one CLI session instead of starting cold; other
-    /// callers of `activeConversationClient` (dictation rewrite, onboarding)
-    /// stay one-off and never touch that session.
+    /// All conversation requests use the per-chat HeyMate harness client.
     private func conversationClient(hasScreenContext: Bool, brain: AgentBrain? = nil) -> any VisionConversationClient {
         _ = hasScreenContext
-        if let conversationClientOverride { return conversationClientOverride }
-        let client = conversationClient(for: brain ?? conversationBrainForTurn)
-        guard let subscriptionClient = client as? SubscriptionCLIVisionClient,
-              backgroundRoutineSession == nil else { return client }
-        return subscriptionClient.boundToConversation(
-            key: currentChat.id.uuidString,
-            position: currentChat.messages.count
-        )
+        return conversationClient(for: brain ?? conversationBrainForTurn)
     }
 
     /// Trims user-edited server URLs (trailing slashes/spaces) and falls back
@@ -1282,32 +1260,7 @@ final class CompanionManager: ObservableObject {
         return URL(string: trimmed) ?? URL(string: "http://127.0.0.1:4096")!
     }
 
-    private func rebuildOpenCodeClient() {
-        openCodeClient = OpenCodeClient(
-            serverBaseURL: normalizedOpenCodeServerURL(),
-            providerID: openCodeProviderID.isEmpty ? nil : openCodeProviderID,
-            modelID: openCodeModelID,
-            basicAuthUsername: openCodeBasicAuthUsername.isEmpty ? nil : openCodeBasicAuthUsername,
-            basicAuthPassword: openCodeBasicAuthPassword.isEmpty ? nil : openCodeBasicAuthPassword
-        )
-    }
-
     func setSelectedBrain(_ brain: AgentBrain, freeModelsOnly: Bool = false) {
- return
-    }
-
-    /// Starts the Claude child the next Talk question will use, if Claude
-    /// answers Talk. A warm child whose model or tools no longer match is
-    /// replaced, so a stale one is never handed a turn.
-    func prewarmTalkEngine() {
- return
-    }
-
-    func setSelectedClaudeModel(_ choice: ClaudeModelChoice) {
- return
-    }
-
-    func setSelectedClaudeModel(_ option: ClaudeModelOption) {
  return
     }
 
@@ -1876,7 +1829,6 @@ final class CompanionManager: ObservableObject {
     var activeHandoffMessageStart = 0
     var activeHandoffRunIDs: [UUID] = []
     let meetingNotes = MeetingNotes(fileURL: MeetingNotes.appSupportFileURL())
-    private let onDeviceLanguageClient = OnDeviceLanguageClient()
 
     /// Persisted chats, newest first. Empty when "Remember conversations" is off.
     @Published var savedChats: [ChatSession] = []
@@ -1990,6 +1942,11 @@ final class CompanionManager: ObservableObject {
     /// True while a guided reply is pointing and speaking step by step; the
     /// overlay keeps the buddy at its target until this clears.
     @Published var isGuidancePointerHeld = false
+
+    /// The permission coach's current phase; the overlay keeps the buddy
+    /// at the System Settings switch until this clears.
+    @Published var permissionCoachCue: PermissionCoachCue?
+    lazy var permissionCoachDirector = PermissionCoachDirector(manager: self)
 
     /// The multi-turn plan being walked through, if any.
     @Published var activeWalkthrough: GuidedWalkthrough?
@@ -2125,6 +2082,7 @@ final class CompanionManager: ObservableObject {
     private var spatialTransitionCancellable: AnyCancellable?
     private var chatTransitionCancellable: AnyCancellable?
     private var voiceStateCancellable: AnyCancellable?
+    private var computerUseTakeBackCancellable: AnyCancellable?
     private var audioPowerCancellable: AnyCancellable?
 
     /// Subscriptions owned by the notch micro-app layer. Separate from the
@@ -2186,10 +2144,6 @@ final class CompanionManager: ObservableObject {
 
     /// Flipped true when a job starts so the expanded card can switch to Agents.
     @Published var shouldRevealAgentsTab = false
-
-    /// Flipped when a file drag reaches the notch so the Apps shelf appears
-    /// before the pointer drops the files.
-    @Published var shouldRevealAppsTab = false
 
     @Published private(set) var isOpenCodeCLIAvailable: Bool?
     @Published private(set) var isClaudeCLIAvailable: Bool?
@@ -2514,11 +2468,7 @@ final class CompanionManager: ObservableObject {
         currentResponseTask = nil
         streamingAssistantText = ""
         voiceSynthesisClient.stopPlayback()
-        isGuidancePointerHeld = false
-        cursorCaptionTask?.cancel()
-        cursorCaptionTask = nil
-        cursorCaptionText = ""
-        cursorCaptionProgress = nil
+        clearCursorCaption()
         clearPointingTarget()
         if activeRoutineTurn != nil {
             completeActiveRoutineTurn(.cancelled)
@@ -2991,10 +2941,34 @@ final class CompanionManager: ObservableObject {
     }
 
     private let floatingAgentWindowController = FloatingAgentWindowController()
+    let drawCardWindowController = DrawCardWindowController()
+    let model3DWindowController = Model3DWindowController()
+    let explainerWindowController = ExplainerWindowController()
 
     func start() {
         floatingAgentWindowController.start(manager: self)
+        model3DWindowController.onAskAboutPart = { [weak self] title, part in
+            self?.askAboutModelPart(part, inModel: title)
+        }
+        explainerWindowController.onAskAboutPart = { [weak self] part in
+            self?.askAboutModelPart(part, inModel: "3D")
+        }
+        explainerWindowController.onButton = { [weak self] kind, value in self?.runDrawingButton(kind: kind, value: value) }
+        explainerWindowController.onAction = { [weak self] role, text, point in self?.runDrawingAction(role: role, text: text, at: point) }
+        // A drawing's point, target and hover: HeyMate's cursor flies there and names it, as ReferenceRenderer's pointer does.
+        explainerWindowController.onPoint = { [weak self] point, label, display in
+            guard let self else { return }
+            if !self.overlayWindowManager.isShowingOverlay() {
+                self.overlayWindowManager.hasShownOverlayBefore = true
+                self.overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: self)
+            }
+            let caption = label?.trimmingCharacters(in: .whitespacesAndNewlines)
+            HeyMateLog.log("🖍️ Drawing points at \(Int(point.x)),\(Int(point.y)) \(caption ?? "")")
+            self.pointingTarget = CursorPointingTarget(location: point, displayFrame: display, caption: caption?.isEmpty == false ? caption : nil)
+        }
+        explainerWindowController.onDropPointing = { [weak self] in self?.pointingTarget = nil }
         refreshAllPermissions()
+        permissionCoachDirector.start()
         HeyMateLog.log("🔑 HeyMate start — accessibility: \(hasAccessibilityPermission), inputMonitoring: \(MacPermissions.hasInputMonitoringPermission()), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
         startPermissionPolling()
         bindVoiceStateObservation()
@@ -3019,6 +2993,7 @@ final class CompanionManager: ObservableObject {
             self?.floatingAgentWindowController.setYielded(yielded)
         }
         systemOverlayYield.start()
+        BrowserBridge.shared.start()
         // Load skill files + refresh the published memory snapshot. Bundled
         // defaults are seeded first so a fresh install starts with skills.
         reloadSkills()
@@ -3274,8 +3249,6 @@ final class CompanionManager: ObservableObject {
                     self.dispatch(.finishListening)
                 } else if isRecording {
                     self.dispatch(.startListening(self.inputModeOfActiveSession))
-                    // The seconds spent speaking cover the CLI's boot.
-                    self.prewarmTalkEngine()
                 } else if isPreparing {
                     // The microphone is still starting. Keep showing
                     // Listening instead of flickering to idle and back.
@@ -3524,6 +3497,11 @@ final class CompanionManager: ObservableObject {
         activeSpatialSelection = nil
         spatialSelectionScreenFrame = nil
         clearAnnotations()
+        // Cards and models outlive a turn, but Escape clears the whole screen.
+        drawCardWindowController.closeAll()
+        model3DWindowController.close()
+        explainerWindowController.close()
+        modelBuildEvent = nil
     }
 
     func clearSpatialSelection() {
@@ -3565,6 +3543,7 @@ final class CompanionManager: ObservableObject {
             // Cancel any in-flight response/TTS — one interaction at a time.
             currentResponseTask?.cancel()
             voiceSynthesisClient.stopPlayback()
+            clearCursorCaption()
             clearPointingTarget()
             clearAnnotations()
 
@@ -3813,6 +3792,7 @@ final class CompanionManager: ObservableObject {
             // Cancel any in-progress response and TTS from a previous utterance
             currentResponseTask?.cancel()
             voiceSynthesisClient.stopPlayback()
+            clearCursorCaption()
             clearPointingTarget()
 
             // Interrupting whatever was happening (speaking/thinking/guiding)
@@ -4125,6 +4105,7 @@ final class CompanionManager: ObservableObject {
         guidedClickLandedDuringTurn = false
         let turnSession = backgroundRoutineSession ?? (isHeyMateTalkTurn ? heyMateTalkSession : currentChat)
         computerUseCoordinator.conversationID = turnSession.id
+        computerUseCoordinator.beginTurn()
         currentResponseCompletion?.didComplete = true
         currentResponseTask?.cancel()
         voiceSynthesisClient.stopPlayback()
@@ -4136,6 +4117,7 @@ final class CompanionManager: ObservableObject {
         // OpenCode settings can change while connector/screen capture awaits.
         // Keep the client whose exact model passed the consent check above.
         currentResponseCompletion = completion
+        explainerWindowController.resetStreamDismissal()
         currentResponseTask = Task {
             // Every exit, early returns included, ends the turn. Runs after
             // the closing `guard !completion.didComplete` below, so the
@@ -4186,9 +4168,11 @@ final class CompanionManager: ObservableObject {
 
                 dispatch(.contextCaptured)
 
-                let screenImages = screenCaptures.map { capture in
-                    let dimensionInfo = " (image dimensions: \(capture.screenshotWidthInPixels)x\(capture.screenshotHeightInPixels) pixels)"
-                    return (data: capture.imageData, label: capture.label + dimensionInfo)
+                var screenImages: [(data: Data, label: String)] = []
+                for capture in screenCaptures {
+                    let label = await ScreenCapture.annotationLabel(for: capture)
+                    guard !Task.isCancelled, !completion.didComplete else { return }
+                    screenImages.append((data: capture.imageData, label: label))
                 }
                 let attachedImages = imageAttachments.map {
                     (data: $0.data, label: $0.modelLabel)
@@ -4218,7 +4202,19 @@ final class CompanionManager: ObservableObject {
                 if userActedWhileThinking || guidedClickLandedDuringTurn {
                     turnContext.append("The user acted while you were thinking.")
                 }
+                // ReferenceRenderer's canvas says what its drawing holds, so a follow-up can build on it or change it.
+                if let drawing = await explainerWindowController.drawingState() {
+                    turnContext.append(CompanionPrompts.drawingOnScreen(drawing))
+                }
+                if let note = pendingTurnNote {
+                    pendingTurnNote = nil
+                    turnContext.append(note)
+                }
                 guidedClickLandedDuringTurn = false
+                // The first turn after launch waits for connectors to come back (and Composio to retry a timed-out
+                // tool list), after the screen is captured; otherwise the turn's scope holds no app tools and the
+                // model says Gmail wasn't delivered.
+                if conversationClientOverride == nil { await awaitConnectorActivation() }
                 guard !Task.isCancelled, ownsCurrentResponse(completion) else { return }
                 if !imageAttachments.isEmpty {
                     turnContext.append(
@@ -4260,15 +4256,12 @@ final class CompanionManager: ObservableObject {
                         return client
 
                 }()
-                // CLI brains get actual native MCP schemas too. The random
+                // The harness receives native MCP schemas. The random
                 // per-turn capability binds every local call to the initiating
                 // chat, and expires on cancellation or completion.
                 let talkScopeToken = registerTalkToolScope(
                     owner: AgentChatOwner(mateID: turnSession.mateID ?? mateDirectory.defaultMateID, chatID: turnSession.id),
                     completion: completion)
-                if let subscription = talkClient as? SubscriptionCLIVisionClient {
-                    subscription.enableTalkToolScope(talkScopeToken)
-                }
                 if let mateAgent = talkClient as? MateAgentServeConversationClient {
                     mateAgent.connectorScope = scopedConnectorToolDescriptions(token: talkScopeToken).isEmpty ? nil : talkScopeToken
                     let emailContext = ([transcript] + turnSession.messages.filter { $0.role == .user }.suffix(8).map(\.text))
@@ -4276,12 +4269,23 @@ final class CompanionManager: ObservableObject {
                     mateAgent.verifyReply = { [weak self] text in
                         MateAgentGmailVerification.checkedReply(text, verifiedActions: self?.talkGmailEvidence[talkScopeToken] ?? [:], emailContext: emailContext)
                     }
+                    mateAgent.onDrawingText = { [weak self] text in
+                        guard let self, self.ownsCurrentResponse(completion) else { return }
+                        self.streamExplainer(text, owner: ObjectIdentifier(completion), screenCaptures: screenCaptures)
+                    }
                 }
                 defer { revokeTalkToolScope(talkScopeToken) }
+                let scopedToolNames = scopedConnectorToolDescriptions(token: talkScopeToken).compactMap { $0["name"] as? String }
                 let effectiveSystemPrompt = MateAgentConversationClient.interfaceInstructions(mateIdentity: mateIdentityBlock(for: speakingMate) ?? "")
                     + "\n\n" + MateAgentServeConversationClient.connectorInstructions(
-                        tools: scopedConnectorToolDescriptions(token: talkScopeToken).compactMap { $0["name"] as? String },
+                        tools: scopedToolNames.filter { !TalkToolCatalog.piBridgeLocalToolNames.contains($0) },
                         enabledApps: enabledChatComposioSlugs.sorted())
+                    + { let guides = AppGuides.text(for: Array(enabledChatComposioSlugs)); return guides.isEmpty ? "" : "\n\n" + guides }()
+                    + (scopedToolNames.contains(TalkToolCatalog.useChromeToolName) ? "\n\n" + BrowserGuide.text : "")
+                    // Screen turns need the tag contract the guided-reply parser reads.
+                    // A 3D model does not need a screenshot, and it is never a file.
+                    + (screenCaptures.isEmpty ? "" : "\n\n" + CompanionPrompts.screenTools)
+                    + "\n\n" + CompanionPrompts.explainerContract
 
                 let fullResponseText: String
                 let engineUserPrompt = MateAgentServeConversationClient.turnPrompt(
@@ -4302,6 +4306,7 @@ final class CompanionManager: ObservableObject {
                             self.publishStreamingAssistantText(GuidedReplyParser.streamingDisplayText(
                                 VisualActionParser.extract(from: chunk).spokenText
                             ))
+                            self.streamExplainer(chunk, owner: ObjectIdentifier(completion), screenCaptures: screenCaptures)
                         }
                     )
 
@@ -4313,15 +4318,35 @@ final class CompanionManager: ObservableObject {
                     // its answer as a second native work/connector invocation.
                     let serveClient = talkClient as? MateAgentServeConversationClient
                     let delivery = serveClient?.latestDelivery
-                    appendAssistantMessage(fullResponseText, resultKey: delivery?.key)
+                    // The chat keeps the words; a model block becomes a short note.
+                    let (modelText, shownModel) = Model3DParser.extract(from: fullResponseText)
+                    let (chatText, modelPatch) = Model3DParser.extractPatch(from: modelText)
+                    var shownText = shownModel.map { chatText + "\n\n(Built a 3D model: \($0.title).)" }
+                        ?? (modelPatch != nil ? chatText.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n(Changed the 3D model.)" : fullResponseText)
+                    shownText = GuidedReplyParser.chatText(shownText)
+                    // A drawing program becomes what was said, and a note that it was drawn.
+                    let drawn = ExplainerParser.extract(from: shownText)
+                    if drawn.program != nil {
+                        let said = ([drawn.text.trimmingCharacters(in: .whitespacesAndNewlines)] + drawn.lines)
+                            .filter { !$0.isEmpty }.joined(separator: " ")
+                        shownText = said + (ExplainerParser.onlyPoints(drawn.program ?? "") ? "\n\n(Pointed it out.)" : "\n\n(Drew an explanation.)")
+                    }
+                    appendAssistantMessage(shownText, resultKey: delivery?.key)
                     if let delivery { try serveClient?.acknowledgeDelivery(delivery.id) }
-                    rememberFinishedTalkExchange(user: transcript, assistant: fullResponseText)
+                    rememberFinishedTalkExchange(user: transcript, assistant: shownText)
                     updateRollingSessionSummary()
                     if activeRoutineTurn != nil {
                         completeActiveRoutineTurn(.success(fullResponseText))
                     } else if activeHandoffMateID != nil {
                         completeActiveHandoff(succeeded: true)
-                    } else if !isSilentModeEnabled {
+                    } else if explainerWindowController.dismissedStreamOwner == ObjectIdentifier(completion) {
+                        // Clear dismisses this response's drawing, including its final replay.
+                    } else if isSilentModeEnabled {
+                        if let program = drawn.program {
+                            // Finish the visual stream even when the model omitted its closing fence.
+                            streamExplainer("```js\n" + program + "\n```", owner: ObjectIdentifier(completion), screenCaptures: screenCaptures)
+                        }
+                    } else {
                         // The reply is already in the chat. A voice that cannot
                         // play must not turn it into a failed turn.
                         do {
@@ -4400,7 +4425,7 @@ final class CompanionManager: ObservableObject {
     // MARK: - Talk tool calls
 
     /// Runs one tool call the model asked for mid-turn and returns the
-    /// result text (plus whether it was an error) for `AnthropicMessagesClient` to feed
+    /// result text (plus whether it was an error) for tool-calling clients to feed
     /// back as a `tool_result`. Never throws — a missing tool, a bad
     /// argument, a denied connector call, and a connector failure are all
     /// just different result texts the model can react to in its next
@@ -4419,6 +4444,20 @@ final class CompanionManager: ObservableObject {
 
         switch matchedTool.origin {
         case .local:
+            if toolCall.toolName == TalkToolCatalog.useChromeToolName {
+                return await BrowserBridge.shared.perform(arguments: arguments) { summary, everyTime in
+                    let approved = await self.connectorToolCoordinator.requestApproval(
+                        for: ConnectorToolApprovalRequest(
+                            connectorDisplayName: "Chrome",
+                            toolName: TalkToolCatalog.useChromeToolName,
+                            argumentsSummary: TalkToolCatalog.argumentsSummary(arguments),
+                            risk: everyTime ? .externalSideEffect : .reversibleWrite,
+                            actions: [everyTime ? summary : summary + " (then HeyMate keeps working in its Chrome tabs for 20 minutes)"]
+                        )
+                    )
+                    return approved && !Task.isCancelled && self.ownsCurrentResponse(completion)
+                }
+            }
             return executeLocalTalkTool(named: toolCall.toolName, arguments: arguments, resultOwner: resultOwner)
         case .connector(let connectorIdentifier, let connectorDisplayName, let maximumRisk):
             return await executeConnectorTalkTool(
@@ -4521,7 +4560,8 @@ final class CompanionManager: ObservableObject {
             arguments: arguments,
             ceiling: maximumRisk
         )
-        let approvalPolicy = connectorStore.record(for: connectorIdentifier).approvalPolicy
+        let approvalPolicy = ApprovalMode.current().connectorPolicy(
+            connectorStore.record(for: connectorIdentifier).approvalPolicy)
         if approvalPolicy.requiresApproval(forRisk: risk) {
             let wasApproved = await connectorToolCoordinator.requestApproval(
                 for: ConnectorToolApprovalRequest(
@@ -4600,7 +4640,7 @@ final class CompanionManager: ObservableObject {
             } catch is CancellationError {
                 return
             } catch {
-                self.emergencySpeechSynthesizer.startSpeaking(utterance)
+                HeyMateLog.log("⚠️ Speak: voice failed (\(error.localizedDescription)); reply stays on screen")
             }
         }
     }
@@ -4643,19 +4683,49 @@ final class CompanionManager: ObservableObject {
 
     // MARK: - Structured Drawing Annotations
 
+    /// A click on a part of a 3D model asks about that part, with the
+    /// screen (and so the model) in view.
+    func askAboutModelPart(_ part: String, inModel title: String) {
+        sendTranscriptToClaudeWithScreenshot(
+            transcript: "In the \(title) model, what is the \(part) and what does it do?",
+            shouldCaptureScreen: true
+        )
+    }
+
     /// Resolves the model's visual actions against the captured displays and
     /// publishes them for rendering. A "clear" action removes everything
     /// drawn before it in the same list.
     func applyVisualActions(_ actions: [VisualAction], screenCaptures: [ScreenSnapshot]) {
-        let screens = screenCaptures.enumerated().map { index, capture in
+        var screens = screenCaptures.enumerated().map { index, capture in
             VisualActionResolver.ScreenGeometryInfo(
                 id: "screen\(index + 1)",
                 frame: capture.displayFrame,
                 isCursorScreen: capture.isCursorScreen
             )
         }
+        if screens.isEmpty {
+            // No captures (e.g. screen recording not granted): fall back to
+            // live display frames so a drawing is never silently dropped.
+            let mouse = NSEvent.mouseLocation
+            screens = NSScreen.screens.enumerated().map { index, screen in
+                VisualActionResolver.ScreenGeometryInfo(
+                    id: "screen\(index + 1)",
+                    frame: screen.frame,
+                    isCursorScreen: screen.frame.contains(mouse)
+                )
+            }
+        }
+        guard !screens.isEmpty else { return }
+        HeyMateLog.log("applyVisualActions: \(actions.count) actions, \(screenCaptures.count) captures, \(screens.count) screens", category: "Drawing")
 
-        activeAnnotations = VisualActionResolver.apply(actions, to: activeAnnotations, screens: screens)
+        let previousIDs = Set(activeAnnotations.map(\.id))
+        activeAnnotations = VisualActionResolver.apply(
+            actions, to: activeAnnotations, screens: screens,
+            displays: NSScreen.screens.map(\.frame)
+        )
+        // The choreographers on each screen's overlay pick up the new strokes
+        // and build them pen-down, in order.
+        pendingDrawingBatch = activeAnnotations.filter { !previousIDs.contains($0.id) }
         scheduleAnnotationExpiryCleanup()
     }
 
@@ -4663,6 +4733,7 @@ final class CompanionManager: ObservableObject {
     func clearAnnotations() {
         guard !activeAnnotations.isEmpty else { return }
         activeAnnotations = []
+        pendingDrawingBatch = []
         annotationExpiryTask?.cancel()
         annotationExpiryTask = nil
     }
@@ -4719,7 +4790,12 @@ final class CompanionManager: ObservableObject {
             return screenCaptures.first(where: { $0.isCursorScreen })
         }()
 
-        if let targetScreenCapture, parseResult.visualGuidance != nil {
+        if case .card(let card)? = parseResult.visualGuidance {
+            let screen = targetScreenCapture ?? screenCaptures.first
+            if let frame = screen?.displayFrame ?? NSScreen.main?.frame {
+                drawCardWindowController.show(card, on: frame)
+            }
+        } else if let targetScreenCapture, parseResult.visualGuidance != nil {
             let actions = PointingTagParser.visualActions(
                 from: parseResult,
                 screenshotPixelWidth: targetScreenCapture.screenshotWidthInPixels,
@@ -5134,6 +5210,16 @@ final class CompanionManager: ObservableObject {
     }
 
     private func handleAgentEvent(runID: UUID, event: AgentEvent) {
+        // Full access starts a plan that stays off the floor without a card.
+        // Approved on the next turn so the launcher finishes its own update.
+        if case .planReady = event, let run = agentRunStore.run(id: runID),
+           run.status == .awaitingPlanApproval, ApprovalMode.current().autoApprovesPlan(run.planText) {
+            Task { @MainActor [weak self] in
+                guard self?.agentRunStore.run(id: runID)?.status == .awaitingPlanApproval else { return }
+                self?.approveAgentPlan(runID: runID)
+            }
+            return
+        }
         if let run = agentRunStore.run(id: runID) {
             agentUserNotifier.handle(run: run, event: event)
         }
@@ -5488,6 +5574,38 @@ extension CompanionManager {
                               requestingMateID: sourceMateID, requestingChatID: source.id)
     }
 
+    /// A drawing's handOff({task, label, mate | newMate: {name, role, description}}) (ReferenceRenderer gives the work to
+    /// one of the user's Mates). Here a Mate is a mate: the job goes to its chat as a handoff, after the drawing's
+    /// reply finishes, under the same consent and approval rules as any message there. newMate makes the mate first.
+    func handOffFromDrawing(_ payload: [String: Any]) {
+        let trimmed = { (value: Any?) -> String? in
+            guard let text = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+            return text
+        }
+        guard let task = trimmed(payload["task"]) else { return }
+        var mate: Mate?
+        if let name = trimmed(payload["mate"]) {
+            mate = mateForHarnessWork(named: name)
+            if mate == nil { cursorCaptionText = "No agent named \(name)"; return }
+        } else if let fresh = payload["newMate"] as? [String: Any], let name = trimmed(fresh["name"]) {
+            mate = mateForHarnessWork(named: name)
+            if mate == nil {
+                let job = [fresh["role"], fresh["description"]].compactMap(trimmed).joined(separator: ". ")
+                mate = createMate(name: name, job: job.isEmpty ? task : job, opensChat: false)
+                if mate == nil { cursorCaptionText = "Couldn't make \(name)"; return }
+            }
+        } else {
+            mate = mateForHarnessWork(named: nil)
+        }
+        guard let mate else { return }
+        let requester = AgentChatOwner(mateID: currentChat.mateID ?? mateDirectory.defaultMateID, chatID: currentChat.id)
+        pendingHandoffs.append(MateHandoff(mateID: mate.id, mateName: mate.name, instruction: task,
+                                           requester: requester.mateID == mate.id ? nil : requester))
+        HeyMateLog.log("🖍️ Drawing handOff to \(mate.name) queued")
+        cursorCaptionText = trimmed(payload["label"]) ?? "Sent to \(mate.name)"
+        scheduleNextHandoffIfNeeded()
+    }
+
     fileprivate func sendFollowUpToMate(named name: String, message: String, fromToolLoop: Bool) -> (text: String, isError: Bool) {
         guard let mate = mateForHarnessWork(named: name) else {
             return ("No mate named \(name).", true)
@@ -5587,7 +5705,7 @@ extension CompanionManager {
 
     fileprivate func routineKindForActiveTurn() -> HarnessTurnKind {
         guard let turn = activeRoutineTurn,
-              let routine = routines.first(where: { $0.id == turn.routineID }) else {
+              let routine = turn.promptRoutine ?? routines.first(where: { $0.id == turn.routineID }) else {
             return .conversation
         }
         return .routine(

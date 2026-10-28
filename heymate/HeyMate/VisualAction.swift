@@ -15,7 +15,7 @@ import Foundation
 
 /// One drawing/pointing instruction from the model. All coordinates are
 /// normalized 0…1 relative to the target display's size, top-left origin.
-struct VisualAction: Equatable {
+nonisolated struct VisualAction: Equatable {
     enum Kind: String, CaseIterable {
         case point
         case arrow
@@ -45,9 +45,12 @@ struct VisualAction: Equatable {
     let label: String?
     /// Optional per-action lifetime in milliseconds.
     let ttlMs: Int?
+    /// How the mark is drawn: brush, colour, dash, glow, wash. When nil the
+    /// renderer applies the default screen-pen style.
+    var style: DrawingStyle?
 }
 
-enum VisualActionParser {
+nonisolated enum VisualActionParser {
 
     /// Extracts a {"visualActions": [...]} JSON block from model output.
     /// Returns the response text with the block removed (safe to speak)
@@ -120,6 +123,16 @@ enum VisualActionParser {
         let rect: [Double]?
         let label: String?
         let ttlMs: Int?
+        /// Brush name, e.g. "pen", "marker", "pencil", "brush", "highlighter", "wash".
+        let brush: String?
+        /// Colour name, e.g. "ink", "red", "mint", "sky".
+        let color: String?
+        /// Dash pattern [on, off, ...] or nil for solid.
+        let dash: [Double]?
+        /// Whether the mark has a soft glow.
+        let glow: Bool?
+        /// Whether the mark is a filled wash.
+        let wash: Bool?
     }
 
     private static func decode(_ action: WireAction) -> VisualAction {
@@ -133,8 +146,70 @@ enum VisualActionParser {
             radius: action.radius,
             rect: action.rect,
             label: action.label,
-            ttlMs: action.ttlMs
+            ttlMs: action.ttlMs,
+            style: style(from: action)
         )
+    }
+
+    /// Builds a `DrawingStyle` from the wire action's optional style fields.
+    /// Returns nil when no style fields are present, so the renderer uses
+    /// its default screen-pen style.
+    private static func style(from action: WireAction) -> DrawingStyle? {
+        guard action.brush != nil || action.color != nil || action.dash != nil
+                || action.glow != nil || action.wash != nil else { return nil }
+
+        var style = DrawingStyle()
+
+        if let brush = action.brush {
+            style.brush = brushNamed(brush) ?? .pen
+        }
+        if let color = action.color {
+            style.color = colorNamed(color) ?? .ink
+        }
+        if let dash = action.dash, !dash.isEmpty {
+            style.dash = dash.map { CGFloat($0) }
+        }
+        if let glow = action.glow { style.glow = glow }
+        if let wash = action.wash { style.wash = wash }
+
+        return style
+    }
+
+    private static func brushNamed(_ name: String) -> DrawingBrush? {
+        switch name.lowercased() {
+        case "pen": return .pen
+        case "marker": return .marker
+        case "pencil": return .pencil
+        case "brush": return .brush
+        case "highlighter": return .highlighter
+        case "wash": return .wash
+        default: return nil
+        }
+    }
+
+    private static func colorNamed(_ name: String) -> DrawingColor? {
+        switch name.lowercased() {
+        case "ink": return .ink
+        case "white": return .white
+        case "grey": return .grey
+        case "butter": return .butter
+        case "sun": return .sun
+        case "orange": return .orange
+        case "peach": return .peach
+        case "coral": return .coral
+        case "red": return .red
+        case "pink": return .pink
+        case "lilac": return .lilac
+        case "violet": return .violet
+        case "sky": return .sky
+        case "blue": return .blue
+        case "mint": return .mint
+        case "leaf": return .leaf
+        case "brown": return .brown
+        case "tan": return .tan
+        case "cream": return .cream
+        default: return nil
+        }
     }
 
     /// Clamps normalized values into 0…1 and drops malformed actions so a
@@ -192,8 +267,11 @@ struct ResolvedAnnotation: Equatable, Identifiable {
     let rect: CGRect
     let label: String?
     let expiresAt: Date
+    /// How the mark is drawn. Nil = default screen-pen style.
+    var style: DrawingStyle?
 }
 
+/// Converts normalized actions into per-screen annotations.
 enum VisualActionResolver {
 
     struct ScreenGeometryInfo {
@@ -209,13 +287,19 @@ enum VisualActionResolver {
     /// Converts normalized actions into per-screen annotations. Unknown
     /// screenIds fall back to the cursor screen; "clear" actions are handled
     /// by the caller (they remove prior annotations instead of rendering).
+    /// `displays` are the real NSScreen frames: a capture may cover only the
+    /// focused window, and such annotations are rebased onto the display that
+    /// holds the window so the overlays (which own whole displays) can draw
+    /// them. Nil keeps capture frames as-is.
     static func resolve(
         _ actions: [VisualAction],
         screens: [ScreenGeometryInfo],
         now: Date = Date(),
-        defaultTTL: TimeInterval = defaultTTL
+        defaultTTL: TimeInterval = defaultTTL,
+        displays: [CGRect]? = nil
     ) -> [ResolvedAnnotation] {
         let cursorScreen = screens.first(where: { $0.isCursorScreen }) ?? screens.first
+        let displayFrames = displays ?? screens.map(\.frame)
 
         func screen(for action: VisualAction) -> ScreenGeometryInfo? {
             guard let screenId = action.screenId?.lowercased() else { return cursorScreen }
@@ -269,7 +353,7 @@ enum VisualActionResolver {
                 annotationRect = .zero
             }
 
-            resolved.append(ResolvedAnnotation(
+            resolved.append(rebase(ResolvedAnnotation(
                 id: UUID(),
                 kind: action.type,
                 screenFrame: frame,
@@ -278,11 +362,41 @@ enum VisualActionResolver {
                 radius: annotationRadius,
                 rect: annotationRect,
                 label: action.label,
-                expiresAt: expiresAt
-            ))
+                expiresAt: expiresAt,
+                style: action.style
+            ), displays: displayFrames))
         }
 
         return resolved
+    }
+
+    /// A focused-window capture's annotations are local to the window, but
+    /// overlays own whole displays. Rebases the annotation onto the display
+    /// containing the capture, translating every coordinate: capture-global
+    /// x becomes overlay x by the frame gap; y flips because overlay space
+    /// is top-left origin while AppKit frames are bottom-left.
+    private static func rebase(_ annotation: ResolvedAnnotation, displays: [CGRect]) -> ResolvedAnnotation {
+        let capture = annotation.screenFrame
+        guard let display = displays.first(where: {
+            $0.contains(CGPoint(x: capture.midX, y: capture.midY))
+        }), display != capture else { return annotation }
+
+        let dx = capture.minX - display.minX
+        let dy = display.maxY - capture.maxY
+        func moved(_ point: CGPoint) -> CGPoint { CGPoint(x: point.x + dx, y: point.y + dy) }
+
+        return ResolvedAnnotation(
+            id: annotation.id,
+            kind: annotation.kind,
+            screenFrame: display,
+            points: annotation.points.map(moved),
+            center: moved(annotation.center),
+            radius: annotation.radius,
+            rect: annotation.rect.offsetBy(dx: dx, dy: dy),
+            label: annotation.label,
+            expiresAt: annotation.expiresAt,
+            style: annotation.style
+        )
     }
 
     /// Applies an ordered action list to existing annotations — a "clear"
@@ -291,7 +405,8 @@ enum VisualActionResolver {
         _ actions: [VisualAction],
         to existing: [ResolvedAnnotation],
         screens: [ScreenGeometryInfo],
-        now: Date = Date()
+        now: Date = Date(),
+        displays: [CGRect]? = nil
     ) -> [ResolvedAnnotation] {
         var result = existing
         for action in actions {
@@ -299,7 +414,7 @@ enum VisualActionResolver {
                 result.removeAll()
                 continue
             }
-            result.append(contentsOf: resolve([action], screens: screens, now: now))
+            result.append(contentsOf: resolve([action], screens: screens, now: now, displays: displays))
         }
         return result
     }

@@ -34,6 +34,7 @@ final class MacOSSpeechSynthesizerClient: NSObject, TTSClient {
         // matching how push-to-talk re-presses cut off the previous reply.
         stopPlayback()
 
+        let text = SpeechText.sanitize(text)
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
         let utterance = AVSpeechUtterance(string: text)

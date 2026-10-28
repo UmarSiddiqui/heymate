@@ -75,15 +75,18 @@ enum HarnessTurnNotes {
             break
         case .routine(let isFirstRun, let lastRunAt, let lastAttemptDidNotFinish):
             lines.append("This brief was written by HeyMate.")
-            if !isFirstRun {
+            if isFirstRun {
+                lines.append("This is the first scheduled run. Establish the initial result for later comparisons.")
+            } else {
                 if let lastRunAt {
                     lines.append("It last ran \(lastRunAt.formatted(date: .abbreviated, time: .shortened)).")
                 }
                 lines.append("Report only what is new.")
             }
             if lastAttemptDidNotFinish {
-                lines.append("The last run did not finish. Do not repeat anything it already sent or changed outside this Mac; check first.")
+                lines.append("The last run did not finish. Do not repeat anything it already sent or changed outside this Mac; check first. Verify uncertain outcomes before continuing.")
             }
+            lines.append("Answer in this chat. Do not create files unless the task explicitly asks for them.")
         case .standingOrder:
             lines.append("This brief was written by HeyMate.")
         }

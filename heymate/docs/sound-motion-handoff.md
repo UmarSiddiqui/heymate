@@ -36,7 +36,7 @@ micro-animation, so a cue is felt as one event instead of "a beep plus some UI".
   curve `.swoosh`. Deployment target macOS 14.2, so `keyframeAnimator` and
   `phaseAnimator` are available.
 
-## What HeyClicky does (reference only)
+## What ReferenceRenderer does (reference only)
 
 We only looked at public bundle metadata (type names, resource list) and the bundled demo
 videos; we didn't decompile anything. Copy nothing: no code, no assets, no sounds.
@@ -44,9 +44,9 @@ What their type names show about their motion system:
 
 - **An actor with choreography:** `CompanionActorChoreography`, `CompanionActorMotionMode`, and a
   mascot drawn from shapes (`AgentCloudShape`, `AgentCloudEyeShape`,
-  `AgentCloudSleepZShape`, `ClickyCloudLimbsShape`). The character itself
+  `AgentCloudSleepZShape`, `MateCloudLimbsShape`). The character itself
   reacts: eyes, limbs, sleep Zs.
-- **Props that pop out of the character:** `ClickyPropSparkleShape`, `…StarShape`,
+- **Props that pop out of the character:** `MatePropSparkleShape`, `…StarShape`,
   `…PaperPlaneShape`, `…BoltShape`, `…ChartArrowShape`, `…OpenBookShape`. The
   takeaway: each event gets a small symbolic object (plane = sent, star = done,
   bolt = started) that springs out and fades.

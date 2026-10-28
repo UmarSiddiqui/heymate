@@ -121,6 +121,7 @@ struct PermissionWalkthrough: View {
     }
 
     private func advance() {
+        if let current { guide.endCoaching(current, unlessGranted: true) }
         isWaitingInSettings = false
         isWaitingLong = false
         withAnimation(accessibilityReduceMotion ? DS.Animation.reducedMotionFade : Self.pageSpring) {

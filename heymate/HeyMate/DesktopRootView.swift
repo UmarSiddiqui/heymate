@@ -32,6 +32,7 @@ import SwiftUI
 enum DesktopSection: String, CaseIterable, Identifiable, Hashable {
     case chat
     case connectors
+    case notes
     case notch
     case skills
     case memory
@@ -44,6 +45,7 @@ enum DesktopSection: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .chat: return "Chat"
         case .connectors: return "Integrations"
+        case .notes: return "Notes"
         case .notch: return "Notch Apps"
         case .skills: return "Skills"
         case .memory: return "Memory"
@@ -56,6 +58,7 @@ enum DesktopSection: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .chat: return "bubble.left.and.bubble.right"
         case .connectors: return "puzzlepiece.extension"
+        case .notes: return "doc.on.doc"
         case .notch: return "rectangle.topthird.inset.filled"
         case .skills: return "wand.and.stars"
         case .memory: return "brain"
@@ -66,7 +69,7 @@ enum DesktopSection: String, CaseIterable, Identifiable, Hashable {
 
     /// What the sidebar lists under "Back to chat". Everything else is
     /// reached from inside chat or Settings.
-    static let sidebarSections: [DesktopSection] = [.connectors, .settings]
+    static let sidebarSections: [DesktopSection] = [.connectors, .notes, .settings]
 
     /// The `@AppStorage` key Settings reads to pick its section.
     static let settingsTabDefaultsKey = DesktopSettingsTab.storageKey
@@ -397,6 +400,8 @@ struct DesktopRootView: View {
             DesktopSkillsView(companionManager: companionManager)
         case .memory:
             DesktopMemoryView(companionManager: companionManager)
+        case .notes:
+            NoteListView(store: companionManager.noteStore)
         }
     }
 }

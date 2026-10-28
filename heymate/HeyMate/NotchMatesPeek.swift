@@ -68,7 +68,7 @@ struct NotchMatesPeek: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack {
-                DSSectionLabel(title: "Agents")
+                DSSectionLabel(title: "Mates")
                 Spacer()
                 Button("All") {
                     companionManager.openDesktopWindow(section: .chat)
@@ -77,7 +77,7 @@ struct NotchMatesPeek: View {
                 .font(DS.Fonts.caption.weight(.semibold))
                 .foregroundColor(DS.Colors.textSecondary)
                 .pointerCursor()
-                .help("Open all agents")
+                .help("Open all mates")
             }
             VStack(spacing: 0) {
                 ForEach(Array(rows.enumerated()), id: \.element.mate.id) { index, row in

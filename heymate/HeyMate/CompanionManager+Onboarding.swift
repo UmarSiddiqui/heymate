@@ -124,6 +124,27 @@ extension CompanionManager {
         }
     }
 
+    /// ReferenceRenderer's drawn "here's how I'd help you" step: one real turn, drawn on their screen, carrying the tour's note
+    /// and what they said in the interview. Returns once it has been drawn and said, or false when it never started.
+    func runDrawnTourStep(_ request: String, interview: [OnboardingInterviewLine], name: String?) async -> Bool {
+        guard !isFrontmostAppScreenExcluded else { return false }
+        let told = interview.map { ($0.speaker == .user ? (name ?? "Them") : "HeyMate") + ": " + $0.text }
+            .joined(separator: "\n")
+        pendingTurnNote = CompanionPrompts.drawnTourStep(interview: told, talkKeys: PushToTalkShortcut.talk.displayText)
+        sendTranscriptToClaudeWithScreenshot(transcript: request, shouldCaptureScreen: true)
+        let began = ContinuousClock.now
+        var started = false
+        while ContinuousClock.now - began < .seconds(300) {
+            try? await Task.sleep(for: .milliseconds(250))
+            let busy = state != .idle || isResponseInFlight
+            if busy { started = true } else if started { break }
+            if !started, ContinuousClock.now - began > .seconds(10) { break }
+        }
+        pendingTurnNote = nil
+        HeyMateLog.log("🖍️ Drawn tour step \(started ? "drawn" : "never started")")
+        return started
+    }
+
     /// Called by the cursor once its welcome line has faded.
     func continueOnboardingAfterWelcome() {
         onboardingIntroTask?.cancel()

@@ -2,11 +2,13 @@
 """Build the locked HeyMate Pi harness using a caller-supplied Node binary."""
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import pathlib
 import shutil
 import subprocess
+import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -14,6 +16,10 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 def build(out, node, npm):
     if out.exists():
         raise ValueError('Output already exists; choose a new runtime directory.')
+    spec = importlib.util.spec_from_file_location('pi_stage', ROOT / 'scripts/pi-runtime-stage.py')
+    stage = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(stage)
+    stage.verify_node_dependencies(node)
     version = subprocess.check_output([str(node), '--version'], text=True).strip()
     numbers = tuple(map(int, version.lstrip('v').split('.')))
     if numbers < (22, 19, 0):
@@ -27,6 +33,11 @@ def build(out, node, npm):
     for name in ('package.json', 'package-lock.json'):
         shutil.copy2(source / name, out / name)
     shutil.copy2(node, out / 'bin/node')
+    # Execute the copied binary before signing/staging. A working source on
+    # the build machine does not prove its relocatable payload can launch.
+    copied_version = subprocess.check_output([str(out / 'bin/node'), '--version'], text=True).strip()
+    if copied_version != version:
+        raise ValueError('Copied Node version differs from the source.')
     license_file = node.parent.parent / 'LICENSE'
     if not license_file.is_file():
         raise ValueError('Node distribution LICENSE is required alongside its bin directory.')
@@ -64,13 +75,14 @@ def build(out, node, npm):
                 'executablePath': 'bin/heymate-agent', 'runtimePath': 'bin',
                 'files': files, 'nativeImages': native_images, 'nativeDigests': native_digests}
     (out / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    subprocess.run([sys.executable, str(ROOT / 'scripts/pi-runtime-smoke.py'), '--root', str(out)], check=True)
     print(f'Prepared HeyMate Pi harness ({architecture}, Node {version})')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--out', type=pathlib.Path, required=True)
-    parser.add_argument('--node', type=pathlib.Path, default=shutil.which('node'))
+    parser.add_argument('--node', type=pathlib.Path, default=os.environ.get('HEYMATE_NODE_BINARY') or shutil.which('node'))
     parser.add_argument('--npm', type=pathlib.Path, default=shutil.which('npm'))
     args = parser.parse_args()
     build(args.out.resolve(), args.node.resolve(), args.npm.resolve())

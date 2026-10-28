@@ -294,8 +294,16 @@ final class MateAgentServeSession {
             return try await withTaskCancellationHandler {
                 try Task.checkCancellation()
                 return try await withCheckedThrowingContinuation { continuation in
+                    // Time spent waiting on the user (an approval or a question is pending) does not count
+                    // against the turn, as in ReferenceRenderer's harness.
                     let timer = Task { [weak self] in
-                        do { try await ContinuousClock().sleep(for: timeout) } catch { return }
+                        var left = timeout
+                        let tick: Duration = .milliseconds(500)
+                        while left > .zero {
+                            do { try await ContinuousClock().sleep(for: tick) } catch { return }
+                            guard let self, self.turn?.id == id else { return }
+                            if self.requests.isEmpty { left -= tick }
+                        }
                         guard let self, self.turn?.id == id else { return }
                         self.finish(.failure(MateAgentServeWebSocket.Failure.timedOut))
                     }

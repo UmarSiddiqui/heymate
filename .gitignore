@@ -1,5 +1,5 @@
 .DS_Store
-HeyMate_HeyClicky_Research_Pack/
+HeyMate_ReferenceRenderer_Research_Pack/
 *.xcuserstate
 xcuserdata/
 *.xccheckout
@@ -29,7 +29,24 @@ heymate/design/
 # LLVM coverage output from Debug runs
 *.profraw
 
-# Prepared Hermes runtime payloads (generated, never profile data)
-/build/hermes-runtime*/
-/build/pi-runtime*/
+# Generated runtime payloads and build scratch files
+/build/
 heymate/agent-runtime/node_modules/
+
+# Local reference material and work outputs
+/references/
+/outputs/
+
+# Python caches from local tooling
+__pycache__/
+*.py[cod]
+
+# Local browser captures and generated output
+/output/
+/.playwright-cli/
+/.playwright-mcp/
+
+# Local mate memory and launcher stub
+/AGENTS.md
+/CLAUDE.md
+/.heymate-claude-stub

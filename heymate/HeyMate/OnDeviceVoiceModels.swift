@@ -263,19 +263,24 @@ actor KokoroEngine {
     nonisolated static let installedMarkerKey = "onDeviceKokoroModelsInstalled"
 
     private var manager: KokoroAneManager?
+    private var isSynthesizing = false
+    private var turnWaiters: [CheckedContinuation<Void, Never>] = []
 
     nonisolated static var unsupportedReason: String? {
         #if arch(arm64)
-        // macOS 26.4 and 26.5 ship an Apple BNNS bug that can crash Kokoro
-        // mid-sentence (FluidAudio #844). 26.6 fixes it.
-        let version = ProcessInfo.processInfo.operatingSystemVersion
+        Self.unsupportedReason(for: ProcessInfo.processInfo.operatingSystemVersion)
+        #else
+        return "On-device voice needs an Apple Silicon Mac."
+        #endif
+    }
+
+    /// Keep the known macOS 26.4–26.5 BNNS exclusion. FluidAudio's 27
+    /// warning concerns iOS; macOS 27 uses the serialized engine below.
+    nonisolated static func unsupportedReason(for version: OperatingSystemVersion) -> String? {
         if version.majorVersion == 26, (4...5).contains(version.minorVersion) {
             return "On-device speaking needs macOS 26.6 or later."
         }
         return nil
-        #else
-        return "On-device voice needs an Apple Silicon Mac."
-        #endif
     }
 
     /// FluidAudio's TTS cache on macOS. Kokoro has no public "is it on disk"
@@ -295,26 +300,25 @@ actor KokoroEngine {
 
     /// Downloads on first call, then loads from disk.
     func prepare() async throws {
-        if manager != nil { return }
-        let kokoroManager = KokoroAneManager(defaultVoice: Self.defaultVoice)
-        try await kokoroManager.initialize()
-        manager = kokoroManager
-        UserDefaults.standard.set(true, forKey: Self.installedMarkerKey)
-    }
-
-    func loadIfNeeded() async throws -> KokoroAneManager {
-        if let manager { return manager }
-        guard Self.modelsAreInstalled() else {
-            throw OnDeviceVoiceError.modelNotDownloaded
-        }
-        try await prepare()
-        guard let manager else { throw OnDeviceVoiceError.modelNotDownloaded }
-        return manager
+        await waitForTurn()
+        defer { endTurn() }
+        try Task.checkCancellation()
+        if let reason = Self.unsupportedReason { throw OnDeviceVoiceError.unsupported(reason) }
+        _ = try await loadedManager()
     }
 
     /// Text in, 24 kHz mono float samples out.
+    /// One synthesis at a time. An actor lets a second call in while the
+    /// first awaits Core ML. Warm-up, interrupted replies and voice previews
+    /// must not run the same model concurrently. Loading and deletion share
+    /// this gate too, so cleanup cannot race a load or synthesis.
     func synthesize(_ text: String) async throws -> (samples: [Float], sampleRate: Int) {
-        let kokoroManager = try await loadIfNeeded()
+        await waitForTurn()
+        defer { endTurn() }
+        try Task.checkCancellation()
+        if let reason = Self.unsupportedReason { throw OnDeviceVoiceError.unsupported(reason) }
+        guard Self.modelsAreInstalled() else { throw OnDeviceVoiceError.modelNotDownloaded }
+        let kokoroManager = try await loadedManager()
         let result = try await kokoroManager.synthesizeDetailed(
             text: text,
             voice: SpeechStylePreferences.onDeviceVoice,
@@ -323,7 +327,35 @@ actor KokoroEngine {
         return (result.samples, result.sampleRate)
     }
 
+    /// Only called while holding the gate. Every caller shares one load.
+    private func loadedManager() async throws -> KokoroAneManager {
+        if let manager { return manager }
+        let kokoroManager = KokoroAneManager(defaultVoice: Self.defaultVoice)
+        try await kokoroManager.initialize()
+        manager = kokoroManager
+        UserDefaults.standard.set(true, forKey: Self.installedMarkerKey)
+        return kokoroManager
+    }
+
+    private func waitForTurn() async {
+        guard isSynthesizing else {
+            isSynthesizing = true
+            return
+        }
+        await withCheckedContinuation { turnWaiters.append($0) }
+    }
+
+    private func endTurn() {
+        if turnWaiters.isEmpty {
+            isSynthesizing = false
+        } else {
+            turnWaiters.removeFirst().resume()
+        }
+    }
+
     func removeFromDisk() async {
+        await waitForTurn()
+        defer { endTurn() }
         await manager?.cleanup()
         manager = nil
         UserDefaults.standard.set(false, forKey: Self.installedMarkerKey)
@@ -336,11 +368,14 @@ actor KokoroEngine {
 
 enum OnDeviceVoiceError: LocalizedError {
     case modelNotDownloaded
+    case unsupported(String)
 
     var errorDescription: String? {
         switch self {
         case .modelNotDownloaded:
             return "The on-device voice isn't downloaded yet."
+        case .unsupported(let reason):
+            return reason
         }
     }
 }

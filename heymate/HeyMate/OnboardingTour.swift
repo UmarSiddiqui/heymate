@@ -8,7 +8,7 @@
 //  their screen. HeyMate narrates each step out loud.
 //
 //      hello → voice → permissions → your AI → mic check → talk (your name)
-//            → interview → point → circle → type → reveal
+//            → interview → show me → point → circle → type → reveal
 //
 //  Progress is saved per step, so quitting partway resumes there next
 //  launch. Skip ends the tour from anywhere; nothing here blocks HeyMate.
@@ -27,6 +27,7 @@ enum OnboardingStep: String, CaseIterable, Identifiable {
     case mic
     case talk
     case interview
+    case showMe
     case point
     case circle
     case type
@@ -241,6 +242,11 @@ final class OnboardingTour: ObservableObject {
         case .interview:
             await startInterview()
 
+        case .showMe:
+            watchListening(prompt: "listening…")
+            listen { [weak self] transcript in self?.showMe(transcript) }
+            await say("Now let me show you what I can do. Hold the keys and say: show me how you'd help me.")
+
         case .point:
             watchListening(prompt: "listening…")
             listen { [weak self] transcript in self?.answer(transcript, aboutSelection: false) }
@@ -390,6 +396,29 @@ final class OnboardingTour: ObservableObject {
         markDone(name.map { "Hi, \($0)." } ?? "Heard you.")
         companionManager.onboardingTranscriptSink = nil
         speak(name.map { "Nice to meet you, \($0)!" } ?? "Got it, I can hear you!")
+    }
+
+    // MARK: Show me
+
+    /// ReferenceRenderer's drawn "here's how I'd help you" step: one real drawing turn on their screen, built from the
+    /// interview. A second press while it draws stays in the tour.
+    private func showMe(_ request: String) {
+        guard !isAnswering else {
+            status = "still drawing…"
+            return
+        }
+        isAnswering = true
+        status = "drawing…"
+        let interview = interviewLines
+        let name = heardName
+        Task { [weak self] in
+            guard let self else { return }
+            let drew = await self.companionManager.runDrawnTourStep(request, interview: interview, name: name)
+            self.isAnswering = false
+            guard !Task.isCancelled else { return }
+            self.status = drew ? nil : "I couldn't draw just now. You can ask me anything from the notch later."
+            self.markDone(drew ? "That's what I'm here for." : nil)
+        }
     }
 
     // MARK: Point and circle

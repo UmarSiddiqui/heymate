@@ -24,6 +24,7 @@ struct SettingsVoicePane: View {
     @State private var credentialsRevision = 0
     @State private var hasElevenLabsKey = ElevenLabsCredentials.hasUserAPIKey
     @State private var elevenLabsKeyMessage: String?
+    @AppStorage(CompanionCursorView.bottomCaptionsPreferenceKey) private var showsBottomCaptions = false
 
     var body: some View {
         SettingsPage(tab: .voice, navigation: navigation) {
@@ -33,6 +34,12 @@ struct SettingsVoicePane: View {
                 .settingsAnchor(.onDeviceVoiceStyle)
             OnDeviceVoiceDownloadRow(companionManager: companionManager, isCompact: true)
                 .settingsAnchor(.onDeviceVoice)
+            SettingsToggleRow(
+                SettingsItem.captions.title,
+                subtitle: "Show HeyMate's words at the bottom of the screen instead of beside the cursor.",
+                item: .captions,
+                isOn: $showsBottomCaptions
+            )
             DisclosureGroup("Advanced", isExpanded: $showsAdvanced) {
                 VStack(alignment: .leading, spacing: DS.SettingsLayout.sectionSpacing) {
                     listenAndSpeakSection.id(credentialsRevision)
@@ -56,7 +63,7 @@ struct SettingsVoicePane: View {
 
     private func revealAdvancedIfNeeded() {
         guard let item = navigation.revealRequest?.item, item.tab == .voice else { return }
-        if ![SettingsItem.speechSpeed, .onDeviceVoiceStyle, .onDeviceVoice].contains(item) {
+        if ![SettingsItem.speechSpeed, .onDeviceVoiceStyle, .onDeviceVoice, .captions].contains(item) {
             showsAdvanced = true
         }
     }
@@ -501,6 +508,8 @@ struct OnDeviceVoiceGrid: View {
         selectedID = option.id
         SpeechStylePreferences.onDeviceVoice = option.id
         previewClient?.stopPlayback()
+        // On an OS where Kokoro crashes, picking a voice saves it but never loads the model.
+        guard KokoroEngine.unsupportedReason == nil else { return }
         let client = previewClient ?? KokoroTTSClient()
         previewClient = client
         previewingID = option.id

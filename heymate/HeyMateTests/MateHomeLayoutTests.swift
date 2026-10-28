@@ -44,11 +44,11 @@ struct MateHomeLayoutTests {
 
     @Test func workspacePagesAreNotPeersOfMates() {
         #expect(MateHomeLayout.workspaceSections.contains(.chat) == false)
-        #expect(MateHomeLayout.workspaceSections == [.connectors, .settings])
+        #expect(MateHomeLayout.workspaceSections == [.connectors, .notes, .settings])
     }
 
     @Test func sidebarIsChatAppsAndSettings() {
-        #expect(DesktopSection.sidebarSections == [.connectors, .settings])
+        #expect(DesktopSection.sidebarSections == [.connectors, .notes, .settings])
         #expect(DesktopSection.connectors.displayName == "Integrations")
         #expect(DesktopSection.connectors.rawValue == "connectors")
     }

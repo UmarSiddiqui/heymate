@@ -1,0 +1,30 @@
+{
+  "source": "ReferenceRenderer 1.1.1 (66), recovered shipped JavaScript",
+  "files": {
+    "HeyMate/mate-draw-engine.js": "79c9968851a7aedc46c56fe744bf9def64ecf2ff9e844fba450acf1d8085ea43",
+    "HeyMate/mate-draw-native.js": "7f8c4f870d11af23389750aae9e9944d07f647d480595bd11f2d52abc9d17a8b",
+    "HeyMate/mate-draw-pieces.js": "5b9b9bdb1baa3736989bf9bbf7ff737c574801e364875f349cb227fa8deb30f4",
+    "HeyMate/mate-three.js": "974d06ab1280d047af15f6b12f4bbc98b080355712f6ba825b5911bb67fc31c2",
+    "HeyMate/mate-three-parts.js": "a18523fae34db1ca3a632b485dfe11ba32f50b37359df11a74d94f70e1d53a7b",
+    "browser/extension/mate-core.mjs": "80df0dca17b59ba92994787682267dc85a9d2b6472c1801ddc81be798936cb28"
+  },
+  "noteEditingFunctions": "70320c5dd37ec3920a6ede35b15e77cfd81e58ef76271ecf3e865388dc344dd1",
+  "preBrandingFiles": {
+    "HeyMate/mate-draw-engine.js": "f2161b9c4def6092f5f866d5135ef3fea23a25e01787c22844b0002cebd8b966",
+    "HeyMate/mate-draw-native.js": "599407179fac65b5bae9d360b93b7a292bd869ede5c14d63cd09cbc5680bae95",
+    "HeyMate/mate-draw-pieces.js": "13872a70cddfb18368a1f3f789be76dca127608b91eea1928e24fb145cae96b8",
+    "HeyMate/mate-three.js": "c36acdd6028e3b84b5d66dd2f89ed077683f8066f0a9a72f686ef186ae8f07dd",
+    "HeyMate/mate-three-parts.js": "0db80e7902cfffa7b543a18d129a61a0a23119f674a0c45591f608c5da1a0410",
+    "browser/extension/mate-core.mjs": "cc9cdce31af2d09201b0e213180f640c90dbc8105e271b4115c673cd33b35353"
+  },
+  "preBrandingNoteEditingFunctions": "70320c5dd37ec3920a6ede35b15e77cfd81e58ef76271ecf3e865388dc344dd1",
+  "brandingAdaptation": "Product names and private drawing symbols renamed; original source digests retained for audit.",
+  "preTextCleanupFiles": {
+    "HeyMate/mate-draw-engine.js": "64be4305249db3cf41555f7c94b6bba276ddac654d8067c16b24333849cd58d8",
+    "HeyMate/mate-draw-native.js": "07bf0c8e3c7246280404d877067e177154102d817d1c3177968a2fa9d1bd50e9",
+    "HeyMate/mate-draw-pieces.js": "5b9b9bdb1baa3736989bf9bbf7ff737c574801e364875f349cb227fa8deb30f4",
+    "HeyMate/mate-three.js": "974d06ab1280d047af15f6b12f4bbc98b080355712f6ba825b5911bb67fc31c2",
+    "HeyMate/mate-three-parts.js": "a18523fae34db1ca3a632b485dfe11ba32f50b37359df11a74d94f70e1d53a7b",
+    "browser/extension/mate-core.mjs": "8ea253b28545539307f8cb8b32f59bfea12f512f188cbf0455f67fd800f62151"
+  }
+}

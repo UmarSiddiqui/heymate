@@ -131,7 +131,8 @@ struct FirstMateTests {
         let nova = mate(name: "Nova")
         let scout = mate(name: "Scout")
         let block = MateMessagingBrief.promptBlock(sender: nova, mates: [nova, scout])
-        #expect(block?.contains("[ASK:Exact Name:") == true)
+        #expect(block?.contains("send_to_mate") == true)
+        #expect(block?.contains("[ASK:") == false)
         #expect(block?.contains("Scout") == true)
         #expect(block?.contains("- Nova") == false)
         #expect(MateMessagingBrief.promptBlock(sender: nova, mates: [nova]) == nil)
@@ -146,7 +147,10 @@ struct FirstMateTests {
             meetingNotesAreOn: false
         )
         #expect(block.contains("Nova"))
-        #expect(block.contains("[ASK:Exact Name:"))
+        #expect(block.contains("send_to_mate"))
+        #expect(block.contains("get_mate_status"))
+        #expect(block.contains("answer_request"))
+        #expect(!block.contains("[ASK:"))
         #expect(!block.contains("- Nova —") == false || block.contains("Nova"))
     }
 
@@ -382,7 +386,7 @@ struct MateAgentBriefTests {
         #expect(block.contains("<ARTIFACTS>"))
         #expect(block.contains("<ROUTINE>"))
         #expect(block.contains("<COMPUTER_USE_REQUEST>"))
-        #expect(block.contains("[ASK:"))
+        #expect(block.contains("send_to_mate"))
         #expect(AgentPlanBrief.planningContract.contains("do not attempt the work"))
         #expect(AgentPlanBrief.planningContract.contains("Never invent the user's facts"))
         #expect(AgentPlanBrief.replanContract.contains(AgentPlanBrief.planningContract))
@@ -400,5 +404,25 @@ struct MateAgentBriefTests {
         ].joined(separator: "\n")
         let combined = block.utf8.count + contracts.utf8.count
         #expect(combined < 5 * 1_024)
+    }
+}
+
+/// Pi turns reach delegation only through the scoped bridge. These names
+/// must stay real local tools, and a mate must not spawn native runs for
+/// itself from a Pi turn.
+struct PiDelegationToolTests {
+    @Test func delegationToolsAreRealLocalToolsWithoutStartMateWork() {
+        let local = Set(TalkToolCatalog.localTools.map(\.toolDefinition.name))
+        #expect(TalkToolCatalog.piDelegationToolNames == ["send_to_mate", "get_mate_status", "answer_request"])
+        #expect(TalkToolCatalog.piDelegationToolNames.isSubset(of: local))
+        #expect(!TalkToolCatalog.piDelegationToolNames.contains(TalkToolCatalog.startMateWorkToolName))
+    }
+
+    @Test func piInstructionsNameTheToolsAndForbidTextDirectives() {
+        let prompt = MateAgentConversationClient.interfaceInstructions(mateIdentity: "")
+        #expect(prompt.contains("send_to_mate"))
+        #expect(prompt.contains("get_mate_status"))
+        #expect(prompt.contains("answer_request"))
+        #expect(prompt.contains("tool calls as text"))
     }
 }

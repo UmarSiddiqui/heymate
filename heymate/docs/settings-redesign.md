@@ -57,9 +57,8 @@ which stays unchanged.
 ### Notch tab
 | Control | Type | Key |
 | --- | --- | --- |
-| Micro-apps (shelf, timer, now playing, battery, calendar, clipboard…) | switch per tile | `NotchActivityCenter` |
+| Micro-apps (timer, now playing, battery, calendar, clipboard…) | switch per tile | `NotchActivityCenter` |
 | Open the card on hover | switch | `notchHoverOpensCard` |
-| File shelf items, Clear shelf | list + destructive | `NotchShelfStore` |
 | Timer start/cancel | field + buttons | `NotchTimerStore` |
 | Clipboard history, Clear history | list + destructive | `ClipboardHistoryStore` |
 | Next event, Join | readout | `CalendarPeekMonitor` |

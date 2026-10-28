@@ -109,8 +109,8 @@ struct MateCreationTests {
         ])
     }
 
-    @Test func clickyIsAnAlias() {
-        let jobs = MateCreationParser.parse("make me a clicky that watches my inbox")
+    @Test func mateIsAnAlias() {
+        let jobs = MateCreationParser.parse("make me a mate that watches my inbox")
         #expect(jobs == ["watches my inbox"])
     }
 

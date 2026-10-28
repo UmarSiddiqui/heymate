@@ -168,6 +168,54 @@ struct MateRoutineScheduleTests {
         )
     }
 
+    @Test func dueBoundaryIsStrict() {
+        let routine = sample(failures: 0)
+        #expect(!MateRoutineAccounting.isDue(routine, now: routine.nextRunAt))
+        #expect(MateRoutineAccounting.isDue(routine, now: routine.nextRunAt.addingTimeInterval(0.001)))
+    }
+
+    @Test func acceptedRunAdvancesFromStartAndCompletionKeepsThatSlot() {
+        let original = sample(failures: 1)
+        let start = original.nextRunAt.addingTimeInterval(600)
+        let launched = MateRoutineAccounting.recordLaunch(original, now: start, calendar: calendar)
+        #expect(launched.runCount == 1)
+        #expect(launched.lastRunAt == start)
+        #expect(launched.lastStatusMessage == nil)
+        #expect(launched.nextRunAt == start.addingTimeInterval(3 * 3_600))
+        #expect(MateRoutineAccounting.lastAttemptDidNotFinish(launched))
+        let completed = MateRoutineAccounting.recordSuccess(launched, now: start.addingTimeInterval(60),
+                                                            calendar: calendar, status: "Done.")
+        #expect(completed.lastRunAt == start)
+        #expect(completed.lastRunFinishedAt == start.addingTimeInterval(60))
+        #expect(completed.nextRunAt == launched.nextRunAt)
+        #expect(!MateRoutineAccounting.lastAttemptDidNotFinish(completed))
+    }
+
+    @Test func refusalPreservesRunHistoryAndRetriesInFiveMinutes() {
+        let original = sample(failures: 2)
+        let now = original.nextRunAt.addingTimeInterval(1)
+        let retry = MateRoutineAccounting.recordRefusal(original, now: now)
+        #expect(retry.nextRunAt == now.addingTimeInterval(300))
+        #expect(retry.pendingRetryAt == retry.nextRunAt)
+        #expect(retry.consecutiveFailures == original.consecutiveFailures)
+        #expect(retry.lastRunAt == original.lastRunAt)
+        #expect(retry.runCount == nil)
+        let launched = MateRoutineAccounting.recordLaunch(retry, now: retry.nextRunAt, calendar: calendar)
+        #expect(launched.pendingRetryAt == nil)
+    }
+
+    @Test func oldSavedRoutinesDecodeAndInterruptedLaunchSurvivesRelaunch() throws {
+        let original = sample(failures: 0)
+        let encoded = try JSONEncoder().encode(original)
+        let legacy = try JSONDecoder().decode(MateRoutine.self, from: encoded)
+        #expect(legacy.runCount == nil)
+        #expect(legacy == original)
+        let launched = MateRoutineAccounting.recordLaunch(legacy, now: legacy.nextRunAt, calendar: calendar)
+        let restored = try JSONDecoder().decode(MateRoutine.self, from: JSONEncoder().encode(launched))
+        #expect(restored.runCount == 1)
+        #expect(MateRoutineAccounting.lastAttemptDidNotFinish(restored))
+    }
+
     private func sample(failures: Int) -> MateRoutine {
         let start = Date(timeIntervalSince1970: 1_700_000_000)
         return MateRoutine(
@@ -190,7 +238,7 @@ struct MateRoutineSchedulerTests {
     @Test func offlineWaitDoesNotStartOrFail() {
         let runner = FakeRoutineRunner(routines: [dueRoutine()])
         let network = FakeMateNetwork(hasUsableNetwork: false)
-        let scheduler = MateRoutineScheduler(network: network, wake: FakeMateWake())
+        let scheduler = MateRoutineScheduler(network: network, wake: FakeMateWake(), power: FakeRoutinePower())
         scheduler.owner = runner
         scheduler.tick(now: Date())
         #expect(runner.waitingIDs.count == 1)
@@ -198,12 +246,12 @@ struct MateRoutineSchedulerTests {
         #expect(runner.failures.isEmpty)
     }
 
-    @Test func busyTurnIsLeftDue() {
+    @Test func busyTurnGetsRetryWithoutFailure() {
         let runner = FakeRoutineRunner(routines: [dueRoutine()])
         runner.kickoff = .busy
         let scheduler = MateRoutineScheduler(
             network: FakeMateNetwork(hasUsableNetwork: true),
-            wake: FakeMateWake()
+            wake: FakeMateWake(), power: FakeRoutinePower()
         )
         scheduler.owner = runner
         scheduler.tick(now: Date())
@@ -212,22 +260,23 @@ struct MateRoutineSchedulerTests {
         #expect(runner.waitingIDs.isEmpty)
     }
 
-    @Test func sendErrorCountsAsFailure() {
+    @Test func refusedSendRetriesWithoutCountingFailure() {
         let runner = FakeRoutineRunner(routines: [dueRoutine()])
         runner.kickoff = .failed("Couldn't send that routine.")
         let scheduler = MateRoutineScheduler(
             network: FakeMateNetwork(hasUsableNetwork: true),
-            wake: FakeMateWake()
+            wake: FakeMateWake(), power: FakeRoutinePower()
         )
         scheduler.owner = runner
         scheduler.tick(now: Date())
-        #expect(runner.failures.count == 1)
+        #expect(runner.failures.isEmpty)
+        #expect(runner.deferredIDs.count == 1)
     }
 
     @Test func networkRecoveryRetriesDueWorkWithoutWaitingForTheTimer() {
         let runner = FakeRoutineRunner(routines: [dueRoutine()])
         let network = FakeMateNetwork(hasUsableNetwork: false)
-        let scheduler = MateRoutineScheduler(network: network, wake: FakeMateWake())
+        let scheduler = MateRoutineScheduler(network: network, wake: FakeMateWake(), power: FakeRoutinePower())
         scheduler.owner = runner
         scheduler.start()
         defer { scheduler.stop() }
@@ -243,7 +292,7 @@ struct MateRoutineSchedulerTests {
         let runner = FakeRoutineRunner(routines: [dueRoutine()])
         let network = FakeMateNetwork(hasUsableNetwork: true)
         let wake = FakeMateWake()
-        let scheduler = MateRoutineScheduler(network: network, wake: wake)
+        let scheduler = MateRoutineScheduler(network: network, wake: wake, power: FakeRoutinePower())
         scheduler.owner = runner
         scheduler.start()
         let oldNetwork = network.onUsableNetwork
@@ -265,6 +314,43 @@ struct MateRoutineSchedulerTests {
         #expect(runner.started.count == 3)
     }
 
+    @Test func wakeGateBlocksBothPollingAndManualDispatch() {
+        let runner = FakeRoutineRunner(routines: [dueRoutine()])
+        let wake = FakeMateWake()
+        wake.held = true
+        let scheduler = MateRoutineScheduler(network: FakeMateNetwork(hasUsableNetwork: true),
+                                             wake: wake, power: FakeRoutinePower())
+        scheduler.owner = runner
+        scheduler.tick()
+        scheduler.run(runner.routines[0])
+        #expect(runner.started.isEmpty)
+        #expect(runner.failures.isEmpty)
+        wake.held = false
+        scheduler.tick()
+        #expect(runner.started.count == 1)
+    }
+
+    @Test func emptyScheduleStopsSourcesAndAddingRoutineRestarts() {
+        let runner = FakeRoutineRunner(routines: [])
+        let power = FakeRoutinePower()
+        let network = FakeMateNetwork(hasUsableNetwork: true)
+        let scheduler = MateRoutineScheduler(network: network, wake: FakeMateWake(), power: power)
+        scheduler.owner = runner
+        scheduler.start()
+        defer { scheduler.stop() }
+        #expect(network.onUsableNetwork == nil)
+        runner.routines = [dueRoutine()]
+        scheduler.schedulesChanged()
+        #expect(network.onUsableNetwork != nil)
+        #expect(power.armed)
+        runner.routines[0].pausedReason = "Paused"
+        scheduler.schedulesChanged()
+        #expect(!power.armed)
+        runner.routines = []
+        scheduler.schedulesChanged()
+        #expect(network.onUsableNetwork == nil)
+    }
+
     private func dueRoutine() -> MateRoutine {
         MateRoutine(
             id: UUID(),
@@ -284,6 +370,9 @@ struct MateRoutineSchedulerTests {
 @MainActor
 private final class FakeRoutineRunner: MateRoutineRunning {
     var routines: [MateRoutine]
+    var scheduledRoutines: [MateRoutine] { routines }
+    var deferredIDs: [UUID] = []
+    func deferRoutine(id: UUID, now: Date) { deferredIDs.append(id) }
     var kickoff: MateRoutineKickoff = .started
     var waitingIDs: [UUID] = []
     var started: [UUID] = []
@@ -324,9 +413,11 @@ private final class FakeMateNetwork: MateNetworkMonitoring {
 
 @MainActor
 private final class FakeMateWake: MateWakeSource {
-    var onWake: (() -> Void)?
+    var held = false
+    func shouldHold(now: Date) -> Bool { held }
+    var onWake: (@MainActor @Sendable () -> Void)?
     var stops = 0
-    func start(onWake: @escaping () -> Void) { self.onWake = onWake }
+    func start(onWake: @escaping @MainActor @Sendable () -> Void) { self.onWake = onWake }
     func stop() { stops += 1; onWake = nil }
 }
 
@@ -489,4 +580,41 @@ struct MateRoutineUpdateTests {
 
 private final class PersistNoteBox: @unchecked Sendable {
     var posted = false
+}
+
+@MainActor
+private final class FakeRoutinePower: MateRoutinePowerManaging {
+    var armed = false
+    var stops = 0
+    func update(armed: Bool) { self.armed = armed }
+    func stop() { stops += 1; armed = false }
+}
+
+struct RoutineWakeGateTests {
+    @Test func darkWakeHasNoDeadlineUntilMainDisplayWakes() {
+        var gate = RoutineWakeGate()
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        gate.willSleep()
+        #expect(Bool(gate.shouldHold(displayAsleep: true, now: now)))
+        #expect(Bool(gate.shouldHold(displayAsleep: true, now: now.addingTimeInterval(500))))
+        gate.screensDidWake()
+        #expect(Bool(gate.shouldHold(displayAsleep: false, now: now.addingTimeInterval(500))))
+        #expect(Bool(gate.shouldHold(displayAsleep: false, now: now.addingTimeInterval(679))))
+        #expect(!Bool(gate.shouldHold(displayAsleep: false, now: now.addingTimeInterval(680))))
+    }
+
+    @Test func fullWakeClearsHoldAndSecondSleepResetsDeadline() {
+        var gate = RoutineWakeGate()
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        gate.willSleep()
+        #expect(Bool(gate.shouldHold(displayAsleep: false, now: now)))
+        gate.didWake()
+        #expect(!Bool(gate.shouldHold(displayAsleep: false, now: now)))
+        gate.willSleep()
+        gate.didWake()
+        #expect(Bool(gate.shouldHold(displayAsleep: true, now: now)))
+        #expect(!Bool(gate.shouldHold(displayAsleep: false, now: now)))
+        gate.willSleep()
+        #expect(Bool(gate.shouldHold(displayAsleep: false, now: now.addingTimeInterval(500))))
+    }
 }

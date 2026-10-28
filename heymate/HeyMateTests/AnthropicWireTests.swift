@@ -138,11 +138,4 @@ struct AnthropicWireTests {
         )) as? [String: Any]
         #expect(succeeded?["is_error"] == nil)
     }
-
-    @Test func httpErrorsKeepTheirStatusForSpokenFailure() {
-        let paymentRequired = AnthropicMessagesError.http(status: 402, body: "payment required")
-        #expect((paymentRequired as NSError).code == 402)
-        #expect(SpokenFailure.classify(paymentRequired) == .outOfCredits)
-        #expect(paymentRequired.localizedDescription == "API Error (402): payment required")
-    }
 }

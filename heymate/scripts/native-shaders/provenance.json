@@ -1,0 +1,66 @@
+{
+  "source": "ReferenceRenderer 1.1.1 (66), embedded literal Metal shader source",
+  "artifact": "Contents/MacOS/ReferenceRenderer arm64 slice",
+  "artifactSHA256": "bb98afe140170240037589647cbfe00099079655e9223ec87f7f702db3fb7911",
+  "sliceOffset": "0x2eb4350",
+  "bytes": 12201,
+  "sourceSHA256": "e1d04e4ee67ae9d17893297357935a287ea15bc7779955b3d999da61c5a54b16",
+  "port": "mate-stage3d.js illustrated material; exact functions with MSL-to-GLSL syntax and uniform adapters",
+  "limits": [
+    "Native Swift renderer, outline ID passes and studio multipass host not included",
+    "Illustrated light direction supplied by adapter using shader physical key direction [3,5,4]"
+  ],
+  "screenSamplingWindows": [
+    {
+      "entry": "0x101781e30",
+      "endExclusive": "0x1017831fc",
+      "listingSHA256": "f14be48c452efb372de9ee259e087c2be75b43129c22ef0debddb2fcfd53b6d4",
+      "rawBytesSHA256": "448125bba24458588029feb46de0671f9dc930f0258cd7051941be6bbd10a3b1"
+    },
+    {
+      "entry": "0x10178cce8",
+      "endExclusive": "0x10178ce14",
+      "listingSHA256": "9bb03dafad9eb4a29e5613999d98321e8bc53e64e9eafbf73f137a3819974b2c",
+      "rawBytesSHA256": "5e03334d2d2f3dffae157016af597a358f272a481f99fbdf90ccc4aceeb6179e"
+    },
+    {
+      "entry": "0x10178d124",
+      "endExclusive": "0x10178dd04",
+      "listingSHA256": "2d1e69591a1363916efe7cbf6f66e53513b56106e8fc93cb2e722833dc1fcbd7",
+      "rawBytesSHA256": "8900023e62ade6d2eb98e5d990416d15c1c53d5e30f57f927ca3305b5ebbd757"
+    },
+    {
+      "entry": "0x10178dff4",
+      "endExclusive": "0x10178f4b4",
+      "listingSHA256": "4503ed0bd5b521db7818c64eb748cf288db1b95cb566070831ad37c460608310",
+      "rawBytesSHA256": "e70b12c7f651a7dc73bb9c0fcb603de9fcbb5c1c1918836456b5024192b6ca13"
+    },
+    {
+      "entry": "0x1017933b0",
+      "endExclusive": "0x101793d10",
+      "listingSHA256": "6f944be0c42e48d7ae588fe7f4c03431f9ebff040a808b9e007f8d9319718cfd",
+      "rawBytesSHA256": "ab2c2f167b53601356045ed03faae825f3ffed0b7aef593cf9944cb5279f6ae4"
+    },
+    {
+      "entry": "0x101793d10",
+      "endExclusive": "0x10179410c",
+      "listingSHA256": "e930072f1cc99d034d26f8edff528082611e36c7cb1d9f323ff1e55423bff766",
+      "rawBytesSHA256": "c51e9df52cc7fec4bfd9c00a34ce1ce854accfff8ed67e4ad2ea27dfed1a2d94"
+    },
+    {
+      "entry": "0x10179410c",
+      "endExclusive": "0x1017941a0",
+      "listingSHA256": "8e0eb9cead3928ec34c87cddd00a9015ad4d5d45c9d42074bda5c9b5cb387572",
+      "rawBytesSHA256": "45937bdeb96545378b3b3fe0178ce112e8def69a35dd0bfa0c69317cbf2a4331"
+    },
+    {
+      "entry": "0x101794cc8",
+      "endExclusive": "0x101794d1c",
+      "listingSHA256": "308ac13414cc2df8fd39cf04ee8f21069b8fbfed9cfd38b20786ce162626424d",
+      "rawBytesSHA256": "595144cf6274b0a3a4ff17f4e8e6dc1b6263eb7182004a99d919c84e4c636559"
+    }
+  ],
+  "preBrandingSourceSHA256": "1162dd2d8f94e1e929a68c7bde0f521917121e1d928a406c29503c36b9d938ba",
+  "brandingAdaptation": "Product names and private drawing symbols renamed; original source digests retained for audit.",
+  "originalBytes": 12203
+}

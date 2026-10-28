@@ -13,8 +13,10 @@ import SwiftUI
 struct SettingsPermissionsPane: View {
     @ObservedObject var navigation: SettingsNavigationModel
     @ObservedObject private var guide = PermissionGuide.shared
+    @ObservedObject private var chrome = BrowserBridge.shared
 
     @State private var repairNote: String?
+    @AppStorage(ApprovalMode.preferenceKey) private var approvalMode = ApprovalMode.askMe.rawValue
     @State private var showsResetConfirmation = false
 
     private var shortcutsWork: Bool {
@@ -26,6 +28,8 @@ struct SettingsPermissionsPane: View {
             if !shortcutsWork {
                 shortcutsOffSection
             }
+            approvalsSection
+            chromeSection
             SettingsSection(
                 "All permissions",
                 footer: "Each one says what HeyMate can do with it. You can turn any of them off again in System Settings › Privacy & Security."
@@ -43,6 +47,51 @@ struct SettingsPermissionsPane: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Use this only if enabling the installed HeyMate app still fails. Reset removes its current Input Monitoring entry; you must allow it again in System Settings.")
+        }
+    }
+
+    // MARK: Approvals
+
+    private var approvalsSection: some View {
+        SettingsSection(
+            footer: "Sending, deleting, paying, passwords and keys like ⌘Q always ask, in either mode."
+        ) {
+            SettingsRow(
+                SettingsItem.approvalMode.title,
+                subtitle: approvalMode == ApprovalMode.fullAccess.rawValue
+                    ? "Clicks, typing, app edits and job plans run without asking."
+                    : "HeyMate asks before it clicks, types, edits an app, or starts a job.",
+                item: .approvalMode
+            ) {
+                DSSegmentedControl(
+                    accessibilityTitle: SettingsItem.approvalMode.title,
+                    selection: $approvalMode,
+                    segments: ApprovalMode.allCases.map { DSSegment(value: $0.rawValue, title: $0.title) },
+                    width: DS.SettingsLayout.segmentedWidth
+                )
+            }
+        }
+    }
+
+    // MARK: Chrome
+
+    private var chromeSection: some View {
+        SettingsSection(
+            footer: chrome.isConnected
+                ? "HeyMate works in a HeyMate tab group in your Chrome. It reads any tab, but clicks and types only in its own tabs, and never into password or card fields."
+                : "One-time setup: Set up opens Chrome's extensions page and the HeyMate folder (its path is copied). Turn on Developer mode, choose Load unpacked, and pick that folder."
+        ) {
+            SettingsRow(
+                SettingsItem.chrome.title,
+                subtitle: chrome.isConnected
+                    ? "Connected" + (chrome.extensionVersion.map { ", extension \($0)" } ?? "")
+                    : "Not connected",
+                item: .chrome
+            ) {
+                Button(chrome.isConnected ? "Show folder" : "Set up…") { chrome.openSetup() }
+                    .dsCapsuleButtonStyle(chrome.isConnected ? .secondary : .primary)
+                    .help(BrowserBridge.extensionFolderPath)
+            }
         }
     }
 

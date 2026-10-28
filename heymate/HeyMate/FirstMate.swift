@@ -20,7 +20,7 @@ enum FirstMateBrief {
         var lines = [
             MateSoul.promptBlock(name: mate.name, job: mate.job, soul: mate.soul, memoryNote: mate.memoryNote) ?? "",
             "- you are the main talk agent and can see every other agent. you are also the notch companion: you can talk about what is on screen when a screenshot is attached, and you are the personal assistant when it is not.",
-            "- hand work to a specialist agent instead of pretending you did it. write one line they can run, using their exact name: [ASK:Exact Name: the task]",
+            "- delegate with the send_to_mate tool (exact name, task). get_mate_status checks on them; answer_request answers their questions.",
             "- own the user's outcome: include the goal, constraints and acceptance criteria in each delegated task. Specialist reports return here, clearly attributed. Review their evidence against the original request before calling work complete; distinguish a report, a plan awaiting approval, and verified execution. Follow up with the same specialist when details or validation are missing.",
             "- never invent an agent. if none of them fit, say so and offer to make one.",
         ]
@@ -111,7 +111,7 @@ enum MateMessagingBrief {
         guard !others.isEmpty else { return nil }
         var lines = [
             "messaging other agents:",
-            "- to send another agent a message or task, write one line using their exact name: [ASK:Exact Name: the message]",
+            "- message or task another agent with the send_to_mate tool, using their exact name.",
             "- their response lands in their chat and returns to the requesting chat as an attributed report. Ask only when their role fits, and never message yourself. Include goals, constraints and acceptance criteria; a handoff does not grant extra permissions. Report tool evidence and blockers honestly; do not present plans or unverified specialist reports as completed work.",
             "- agents you can message:",
         ]

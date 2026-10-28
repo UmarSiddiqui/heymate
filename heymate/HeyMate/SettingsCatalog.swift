@@ -74,7 +74,7 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
         case .voice:
             return "Choose how HeyMate sounds and how fast it talks."
         case .notch:
-            return "Coding usage, reset times, agent activity, and a file shelf that opens when you drag."
+            return "Coding usage, reset times, and agent activity."
         case .brain:
             return "Pick a subscription, a model, and how hard it thinks."
         case .permissions:
@@ -156,6 +156,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
     case learnedWords
     case focusedWindow
     case interactionSounds
+    case captions
     case microphone
     case listenProvider
     case speakProvider
@@ -169,7 +170,6 @@ enum SettingsItem: String, CaseIterable, Identifiable {
     // Notch
     case microApps
     case hoverOpensCard
-    case notchContent
 
     // AI
     case yourAI
@@ -183,6 +183,8 @@ enum SettingsItem: String, CaseIterable, Identifiable {
     case agentSignIn
     case projectFolder
     case computerControl
+    case approvalMode
+    case chrome
     case backgroundAppControl
     case behaviorContract
 
@@ -210,15 +212,15 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .talkShortcut, .chatShortcut, .dictateShortcut, .regionShortcut,
              .doubleTapText, .doubleTapHandsFree, .restoreShortcuts:
             return .shortcuts
-        case .silentMode, .dictationMode, .learnedWords, .focusedWindow, .interactionSounds,
+        case .silentMode, .dictationMode, .learnedWords, .focusedWindow, .interactionSounds, .captions,
              .microphone, .listenProvider, .speakProvider, .onDeviceVoice, .speechSpeed, .onDeviceVoiceStyle,
              .macVoice, .elevenLabsKey, .elevenLabsVoice:
             return .voice
-        case .microApps, .hoverOpensCard, .notchContent:
+        case .microApps, .hoverOpensCard:
             return .notch
         case .yourAI, .model, .effort, .voiceChat, .otherEngines, .helperApps:
             return .brain
-        case .agentSignIn, .projectFolder, .computerControl, .backgroundAppControl, .behaviorContract:
+        case .agentSignIn, .projectFolder, .computerControl, .approvalMode, .chrome, .backgroundAppControl, .behaviorContract:
             return .permissions
         case .permissionList, .repairShortcuts:
             return .permissions
@@ -250,6 +252,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .learnedWords: return "Learned words"
         case .focusedWindow: return "Look at the front window only"
         case .interactionSounds: return "Interaction sounds"
+        case .captions: return "Captions while HeyMate talks"
         case .microphone: return "Microphone"
         case .listenProvider: return "Listen with"
         case .speakProvider: return "Speak with"
@@ -261,7 +264,6 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .elevenLabsVoice: return "ElevenLabs voice"
         case .microApps: return "Coding usage"
         case .hoverOpensCard: return "Open the card on hover"
-        case .notchContent: return "Feed your mate"
         case .yourAI: return "Plan or API provider"
         case .model: return "Model"
         case .effort: return "Effort"
@@ -271,6 +273,8 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .agentSignIn: return "Agent sign-in"
         case .projectFolder: return "Project folder"
         case .computerControl: return "Let HeyMate use this Mac"
+        case .approvalMode: return "Approvals"
+        case .chrome: return "Chrome"
         case .backgroundAppControl: return "Background app control"
         case .behaviorContract: return "Honesty and safety rules"
         case .permissionList: return "Permissions"
@@ -308,6 +312,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .learnedWords: return "dictionary vocabulary corrections custom words names spelling"
         case .focusedWindow: return "context screen capture focused window front app"
         case .interactionSounds: return "clicks chime blip sound effects feedback audio"
+        case .captions: return "subtitles bottom screen read along transcript words hearing"
         case .microphone: return "mic input device audio headset airpods"
         case .listenProvider: return "speech recognition transcription parakeet apple elevenlabs stt"
         case .speakProvider: return "text to speech tts kokoro elevenlabs reply voice"
@@ -319,7 +324,6 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .elevenLabsVoice: return "elevenlabs voice id clone"
         case .microApps: return "codex claude cursor usage limits rings reset coding"
         case .hoverOpensCard: return "hover peek notch card expand"
-        case .notchContent: return "file shelf drag drop mouth feed mate"
         case .yourAI: return "claude chatgpt codex gemini google opencode deepseek api provider model plan subscription sign in brain"
         case .model: return "claude chatgpt gpt sonnet opus haiku model"
         case .effort: return "reasoning thinking effort"
@@ -329,6 +333,8 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .agentSignIn: return "agents jobs terminal sign out account login"
         case .projectFolder: return "sandbox projects folder finder"
         case .computerControl: return "computer use accessibility automation click type control"
+        case .approvalMode: return "ask me full access approve approval permission prompts auto yolo"
+        case .chrome: return "chrome browser extension tabs web pages signed in tab group brave edge"
         case .backgroundAppControl: return "cua driver background"
         case .behaviorContract: return "behavior contract rules honesty safety edit"
         case .permissionList: return "permission allow accessibility input monitoring screen recording microphone speech notifications calendar contacts"

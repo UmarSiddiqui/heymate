@@ -40,6 +40,15 @@
 		151A60A9FBB001C6C5DFD4AE /* CodexExecutionIsolation.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEAE62A263FBC871D3B047EC /* CodexExecutionIsolation.swift */; };
 		CDE8DF3DD215F0E89082C9FD /* CodexPlanningIsolation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A15727D46CB0F40260D7A37 /* CodexPlanningIsolation.swift */; };
 		E76DA6263FD4F257B8FFB78F /* AnthropicWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = 875D178C0090F9829D43E768 /* AnthropicWire.swift */; };
+		A10006112F90061100000611 /* HeyMate/mate-draw-engine.js in Resources */ = {isa = PBXBuildFile; fileRef = A20006012F90060100000601 /* HeyMate/mate-draw-engine.js */; };
+		A10006122F90061200000612 /* HeyMate/mate-draw-native.js in Resources */ = {isa = PBXBuildFile; fileRef = A20006022F90060200000602 /* HeyMate/mate-draw-native.js */; };
+		A10006132F90061300000613 /* HeyMate/mate-draw-pieces.js in Resources */ = {isa = PBXBuildFile; fileRef = A20006032F90060300000603 /* HeyMate/mate-draw-pieces.js */; };
+		A10006142F90061400000614 /* HeyMate/mate-host.js in Resources */ = {isa = PBXBuildFile; fileRef = A20006042F90060400000604 /* HeyMate/mate-host.js */; };
+		A10006152F90061500000615 /* HeyMate/mate-stage3d.js in Resources */ = {isa = PBXBuildFile; fileRef = A20006052F90060500000605 /* HeyMate/mate-stage3d.js */; };
+		A10006162F90061600000616 /* HeyMate/mate-three.js in Resources */ = {isa = PBXBuildFile; fileRef = A20006062F90060600000606 /* HeyMate/mate-three.js */; };
+		A10006172F90061700000617 /* HeyMate/mate-three-parts.js in Resources */ = {isa = PBXBuildFile; fileRef = A20006072F90060700000607 /* HeyMate/mate-three-parts.js */; };
+		A10006182F90061800000618 /* HeyMate/three-r159.min.js in Resources */ = {isa = PBXBuildFile; fileRef = A20006082F90060800000608 /* HeyMate/three-r159.min.js */; };
+		A10006192F90061900000619 /* HeyMate/mate-metal-bridge.js in Resources */ = {isa = PBXBuildFile; fileRef = A20006092F90060900000609 /* HeyMate/mate-metal-bridge.js */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -81,7 +90,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		28F22CBF2F56440300A0FC59 /* Clicky.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = Clicky.app; path = HeyMate.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		28F22CBF2F56440300A0FC59 /* HeyMate.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = HeyMate.app; path = HeyMate.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		28F22CCC2F56440300A0FC59 /* HeyMateTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "HeyMateTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		28F22CD62F56440300A0FC59 /* HeyMateUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "HeyMateUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10003012F90030100000301 /* HeyMateAgentRunner */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = HeyMateAgentRunner; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -113,6 +122,15 @@
 		EEAE62A263FBC871D3B047EC /* CodexExecutionIsolation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/CodexExecutionIsolation.swift"; sourceTree = SOURCE_ROOT; };
 		9A15727D46CB0F40260D7A37 /* CodexPlanningIsolation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/CodexPlanningIsolation.swift"; sourceTree = SOURCE_ROOT; };
 		875D178C0090F9829D43E768 /* AnthropicWire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/AnthropicWire.swift"; sourceTree = SOURCE_ROOT; };
+		A20006012F90060100000601 /* HeyMate/mate-draw-engine.js */ = {isa = PBXFileReference; lastKnownFileType = text; path = "HeyMate/mate-draw-engine.js"; sourceTree = SOURCE_ROOT; };
+		A20006022F90060200000602 /* HeyMate/mate-draw-native.js */ = {isa = PBXFileReference; lastKnownFileType = text; path = "HeyMate/mate-draw-native.js"; sourceTree = SOURCE_ROOT; };
+		A20006032F90060300000603 /* HeyMate/mate-draw-pieces.js */ = {isa = PBXFileReference; lastKnownFileType = text; path = "HeyMate/mate-draw-pieces.js"; sourceTree = SOURCE_ROOT; };
+		A20006042F90060400000604 /* HeyMate/mate-host.js */ = {isa = PBXFileReference; lastKnownFileType = text; path = "HeyMate/mate-host.js"; sourceTree = SOURCE_ROOT; };
+		A20006052F90060500000605 /* HeyMate/mate-stage3d.js */ = {isa = PBXFileReference; lastKnownFileType = text; path = "HeyMate/mate-stage3d.js"; sourceTree = SOURCE_ROOT; };
+		A20006062F90060600000606 /* HeyMate/mate-three.js */ = {isa = PBXFileReference; lastKnownFileType = text; path = "HeyMate/mate-three.js"; sourceTree = SOURCE_ROOT; };
+		A20006072F90060700000607 /* HeyMate/mate-three-parts.js */ = {isa = PBXFileReference; lastKnownFileType = text; path = "HeyMate/mate-three-parts.js"; sourceTree = SOURCE_ROOT; };
+		A20006082F90060800000608 /* HeyMate/three-r159.min.js */ = {isa = PBXFileReference; lastKnownFileType = text; path = "HeyMate/three-r159.min.js"; sourceTree = SOURCE_ROOT; };
+		A20006092F90060900000609 /* HeyMate/mate-metal-bridge.js */ = {isa = PBXFileReference; lastKnownFileType = text; path = "HeyMate/mate-metal-bridge.js"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -196,7 +214,7 @@
 		28F22CC02F56440300A0FC59 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				28F22CBF2F56440300A0FC59 /* Clicky.app */,
+				28F22CBF2F56440300A0FC59 /* HeyMate.app */,
 				A10003012F90030100000301 /* HeyMateAgentRunner */,
 				28F22CCC2F56440300A0FC59 /* HeyMateTests.xctest */,
 				28F22CD62F56440300A0FC59 /* HeyMateUITests.xctest */,
@@ -268,7 +286,7 @@
 				AA00BB0B2F65000B0039DA55 /* HeyMateComputerUse */,
 			);
 			productName = "HeyMate";
-			productReference = 28F22CBF2F56440300A0FC59 /* Clicky.app */;
+			productReference = 28F22CBF2F56440300A0FC59 /* HeyMate.app */;
 			productType = "com.apple.product-type.application";
 		};
 		28F22CCB2F56440300A0FC59 /* HeyMateTests */ = {
@@ -394,6 +412,15 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10006112F90061100000611 /* HeyMate/mate-draw-engine.js in Resources */,
+				A10006122F90061200000612 /* HeyMate/mate-draw-native.js in Resources */,
+				A10006132F90061300000613 /* HeyMate/mate-draw-pieces.js in Resources */,
+				A10006142F90061400000614 /* HeyMate/mate-host.js in Resources */,
+				A10006152F90061500000615 /* HeyMate/mate-stage3d.js in Resources */,
+				A10006162F90061600000616 /* HeyMate/mate-three.js in Resources */,
+				A10006172F90061700000617 /* HeyMate/mate-three-parts.js in Resources */,
+				A10006182F90061800000618 /* HeyMate/three-r159.min.js in Resources */,
+				A10006192F90061900000619 /* HeyMate/mate-metal-bridge.js in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -421,10 +448,10 @@
             files = ();
             inputPaths = ();
             name = "Embed Pi Harness";
-            outputPaths = ("$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/MateAgent",);
+            outputPaths = ("$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/MateAgent", "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/BrowserExtension",);
             runOnlyForDeploymentPostprocessing = 0;
             shellPath = /bin/bash;
-            shellScript = "set -euo pipefail\n# Remove only the retired payload inside this generated app bundle.\n/bin/rm -rf -- \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Hermes\"\nif [[ -n \"${HEYMATE_PI_RUNTIME:-}\" ]]; then\n  /usr/bin/python3 \"${SRCROOT}/scripts/pi-runtime-stage.py\" --source \"${HEYMATE_PI_RUNTIME}\" --destination \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/MateAgent\"\nelif [[ \"${CONFIGURATION}\" == Release ]]; then\n  echo \"error: Release requires HEYMATE_PI_RUNTIME pointing to the prepared sealed Pi harness payload.\" >&2\n  exit 1\nfi\n";
+            shellScript = "set -euo pipefail\n# The Chrome extension ships inside the app; HeyMate copies it out for Load unpacked.\n/bin/rm -rf -- \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/BrowserExtension\"\n/bin/cp -R \"${SRCROOT}/browser/extension\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/BrowserExtension\"\n# Remove only the retired payload inside this generated app bundle.\n/bin/rm -rf -- \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Hermes\"\nif [[ -n \"${HEYMATE_PI_RUNTIME:-}\" ]]; then\n  /usr/bin/python3 \"${SRCROOT}/scripts/pi-runtime-stage.py\" --source \"${HEYMATE_PI_RUNTIME}\" --destination \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/MateAgent\"\nelif [[ \"${CONFIGURATION}\" == Release ]]; then\n  echo \"error: Release requires HEYMATE_PI_RUNTIME pointing to the prepared sealed Pi harness payload.\" >&2\n  exit 1\nfi\n";
         };
 /* End PBXShellScriptBuildPhase section */
 

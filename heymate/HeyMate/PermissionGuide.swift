@@ -165,6 +165,9 @@ final class PermissionGuide: ObservableObject {
     /// The permission "Allow all" is waiting on, if any.
     @Published private(set) var waitingFor: HeyMatePermission?
     @Published private(set) var isAllowingAll = false
+    /// A switch the person was just sent to System Settings for; the buddy
+    /// cursor coaches them through it (PermissionCoachDirector).
+    @Published private(set) var coaching: HeyMatePermission?
 
     /// How long "Allow all" waits for a switch in System Settings.
     nonisolated static let settingsWait: Duration = .seconds(90)
@@ -313,6 +316,17 @@ final class PermissionGuide: ObservableObject {
             }
         }
         await refresh()
+        if permission.isGrantedInSystemSettings, !isGranted(permission) {
+            coaching = permission
+        }
+    }
+
+    /// Stops coaching `permission`; a newer one being coached is left alone.
+    /// `unlessGranted` lets the coach finish its success reaction when the
+    /// caller is only moving on because the switch went on.
+    func endCoaching(_ permission: HeyMatePermission, unlessGranted: Bool = false) {
+        guard coaching == permission, !(unlessGranted && isGranted(permission)) else { return }
+        coaching = nil
     }
 
     /// Grants everything that is still off, one after another.
@@ -335,6 +349,7 @@ final class PermissionGuide: ObservableObject {
                 await refresh()
             }
             waitingFor = nil
+            endCoaching(permission, unlessGranted: true)
         }
         NSApp.activate(ignoringOtherApps: true)
     }

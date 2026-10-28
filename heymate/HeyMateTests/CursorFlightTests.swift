@@ -30,12 +30,35 @@ struct CursorFlightTests {
     }
 
     @Test func flightArcsUpwardAndSwellsMidAir() {
-        let flight = CursorFlight(from: CGPoint(x: 0, y: 500), to: CGPoint(x: 1000, y: 500))
+        let flight = CursorFlight(from: CGPoint(x: 0, y: 500), to: CGPoint(x: 800, y: 500))
         let middle = flight.sample(at: 0.5)
-        // The lift is capped at 80 pt, and the bezier peaks at half of it.
-        #expect(middle.position.x == 500)
+        // A medium flight lifts at most 80 pt, and the bezier peaks at half of it.
+        #expect(flight.reach == .medium)
+        #expect(middle.position.x == 400)
         #expect(middle.position.y == 460)
         #expect(abs(middle.scale - 1.3) < 0.0001)
+    }
+
+    @Test func reachSetsLiftAndSwell() {
+        #expect(CursorFlight.Reach(distance: 320) == .hop)
+        #expect(CursorFlight.Reach(distance: 321) == .medium)
+        #expect(CursorFlight.Reach(distance: 900) == .medium)
+        #expect(CursorFlight.Reach(distance: 901) == .long)
+
+        let hop = CursorFlight(from: CGPoint(x: 0, y: 500), to: CGPoint(x: 300, y: 500))
+        #expect(abs(hop.sample(at: 0.5).scale - 1.15) < 0.0001)
+        let long = CursorFlight(from: CGPoint(x: 0, y: 500), to: CGPoint(x: 1000, y: 500))
+        #expect(long.sample(at: 0.5).position.y == 440)
+        #expect(abs(long.sample(at: 0.5).scale - 1.4) < 0.0001)
+    }
+
+    @Test func longFlightsWindUpBeforeLeaving() {
+        let long = CursorFlight(from: CGPoint(x: 0, y: 500), to: CGPoint(x: 1600, y: 500))
+        // Pulled back against the flight (left of the start) early on.
+        #expect(long.sample(at: 0.04).position.x < 0)
+        #expect(long.sample(at: 0).position == CGPoint(x: 0, y: 500))
+        let medium = CursorFlight(from: CGPoint(x: 0, y: 500), to: CGPoint(x: 800, y: 500))
+        #expect(medium.sample(at: 0.04).position.x >= 0)
     }
 
     @Test func arrowheadFacesTheDirectionOfTravel() {

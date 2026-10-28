@@ -80,6 +80,11 @@ nonisolated struct MateRoutine: Codable, Equatable, Identifiable {
     var consecutiveFailures: Int
     /// Non-nil means paused. Paused routines do not run.
     var pausedReason: String?
+    // Optional additions keep pre-port routines.json files decodable.
+    var runCount: Int? = nil
+    var lastRunFinishedAt: Date? = nil
+    var pendingRetryAt: Date? = nil
+    var lastRunFailed: Bool? = nil
 }
 
 extension MateRoutine {
@@ -96,6 +101,7 @@ extension MateRoutine {
         copy.task = trimmedTask.isEmpty ? parsed.task : trimmedTask
         copy.schedule = parsed.schedule
         copy.nextRunAt = parsed.nextRunAt
+        copy.pendingRetryAt = nil
         return copy
     }
 }
@@ -111,16 +117,58 @@ nonisolated enum MateRoutineAccounting {
     /// the work. The next run checks before repeating anything.
     static func lastAttemptDidNotFinish(_ routine: MateRoutine) -> Bool {
         routine.consecutiveFailures > 0 || routine.lastStatusMessage == interruptedStatus
+            || routine.lastRunFailed == true
+            || ((routine.runCount ?? 0) > 0 && routine.lastRunFinishedAt == nil)
     }
 
     static func isDue(_ routine: MateRoutine, now: Date) -> Bool {
         guard routine.enabled, routine.pausedReason == nil else { return false }
-        return routine.nextRunAt <= now
+        return routine.nextRunAt < now
     }
 
     static func markWaitingForNetwork(_ routine: MateRoutine) -> MateRoutine {
         var copy = routine
+        if lastAttemptDidNotFinish(routine) { copy.lastRunFailed = true }
         copy.lastStatusMessage = networkWaitStatus
+        return copy
+    }
+
+    static let refusalRetryInterval: TimeInterval = 300
+
+    static func recordLaunch(_ routine: MateRoutine, now: Date, calendar: Calendar) -> MateRoutine {
+        var copy = routine
+        copy.runCount = (routine.runCount ?? 0) + 1
+        copy.lastRunAt = now
+        copy.lastRunFinishedAt = nil
+        copy.lastStatusMessage = nil
+        copy.lastRunFailed = false
+        copy.pendingRetryAt = nil
+        switch routine.schedule {
+        case .everyHours(let hours):
+            copy.nextRunAt = now.addingTimeInterval(Double(max(1, hours)) * 3_600)
+        case .daily:
+            copy.nextRunAt = routine.schedule.advance(from: now, now: now, calendar: calendar)
+        }
+        return copy
+    }
+
+    static func recordRefusal(_ routine: MateRoutine, now: Date) -> MateRoutine {
+        var copy = routine
+        copy.nextRunAt = now.addingTimeInterval(refusalRetryInterval)
+        copy.pendingRetryAt = copy.nextRunAt
+        return copy
+    }
+
+    private static func finish(_ routine: MateRoutine, now: Date, calendar: Calendar) -> MateRoutine {
+        var copy = routine
+        copy.lastRunFinishedAt = now
+        copy.pendingRetryAt = nil
+        // New runs advance at acceptance. Legacy callers without launch accounting
+        // still advance here. Completion must not drift a running schedule.
+        if routine.runCount == nil {
+            copy.lastRunAt = now
+            copy.nextRunAt = routine.schedule.advance(from: routine.nextRunAt, now: now, calendar: calendar)
+        }
         return copy
     }
 
@@ -130,11 +178,10 @@ nonisolated enum MateRoutineAccounting {
         calendar: Calendar,
         status: String
     ) -> MateRoutine {
-        var copy = routine
+        var copy = finish(routine, now: now, calendar: calendar)
         copy.consecutiveFailures = 0
-        copy.lastRunAt = now
+        copy.lastRunFailed = false
         copy.lastStatusMessage = status
-        copy.nextRunAt = routine.schedule.advance(from: routine.nextRunAt, now: now, calendar: calendar)
         return copy
     }
 
@@ -144,11 +191,10 @@ nonisolated enum MateRoutineAccounting {
         calendar: Calendar,
         status: String
     ) -> MateRoutine {
-        var copy = routine
+        var copy = finish(routine, now: now, calendar: calendar)
         copy.consecutiveFailures += 1
-        copy.lastRunAt = now
+        copy.lastRunFailed = true
         copy.lastStatusMessage = status
-        copy.nextRunAt = routine.schedule.advance(from: routine.nextRunAt, now: now, calendar: calendar)
         if copy.consecutiveFailures >= failurePauseCount {
             copy.pausedReason = "Paused after \(failurePauseCount) failed runs. \(status)"
         }
@@ -156,10 +202,9 @@ nonisolated enum MateRoutineAccounting {
     }
 
     static func recordInterrupted(_ routine: MateRoutine, now: Date, calendar: Calendar) -> MateRoutine {
-        var copy = routine
-        copy.lastRunAt = now
+        var copy = finish(routine, now: now, calendar: calendar)
+        copy.lastRunFailed = true
         copy.lastStatusMessage = interruptedStatus
-        copy.nextRunAt = routine.schedule.advance(from: routine.nextRunAt, now: now, calendar: calendar)
         return copy
     }
 
@@ -179,6 +224,7 @@ nonisolated enum MateRoutineAccounting {
         var copy = routine
         copy.pausedReason = nil
         copy.enabled = true
+        copy.pendingRetryAt = nil
         copy.consecutiveFailures = 0
         copy.nextRunAt = routine.schedule.advance(from: now, now: now, calendar: calendar)
         return copy
@@ -203,6 +249,7 @@ struct ActiveRoutineTurn: Equatable {
     let mateID: UUID
     let task: String
     let writesIntoOpenChat: Bool
+    var promptRoutine: MateRoutine? = nil
 }
 
 enum MateRoutineTurnOutcome: Equatable {

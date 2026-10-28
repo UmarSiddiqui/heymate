@@ -14,6 +14,10 @@
 //  One request at a time, on purpose: a queue of pending approvals is a
 //  queue of things a user will click through without reading.
 //
+//  The user can take the wheel back at any time during a drive (see
+//  ComputerUseTakeBack.swift). That cancels the action in flight and
+//  refuses further input until the next turn.
+//
 
 import AppKit
 import Combine
@@ -72,8 +76,20 @@ final class ComputerUseCoordinator: ObservableObject {
     /// closes. Cleared when a new request arrives.
     @Published private(set) var lastOutcomeSummary: String?
 
+    /// Set when the user took the screen back during this turn's drive.
+    /// Input actions are refused until `beginTurn()` clears it.
+    @Published private(set) var takeBackReason: ComputerUseTakeBackReason?
+
+    /// True between `beginDrive()` and `endDrive()`.
+    private(set) var isDriving = false
+
     private let userDefaults: UserDefaults
     private let executor: any ComputerUseExecuting
+    private let takeBackWatcher: any ComputerUseTakeBackWatching
+    private var isWatchingForTakeBack = false
+
+    /// The executor call in flight, cancelled on take-back.
+    private var currentExecution: Task<ComputerUseOutcome, Error>?
 
     /// Conversations whose user already said yes to input for the rest of
     /// that chat. Not persisted: a new launch asks again unless "always" is on.
@@ -93,9 +109,14 @@ final class ComputerUseCoordinator: ObservableObject {
         set { executor.onWillSynthesizeInput = newValue }
     }
 
-    init(userDefaults: UserDefaults = .standard, executor: (any ComputerUseExecuting)? = nil) {
+    init(
+        userDefaults: UserDefaults = .standard,
+        executor: (any ComputerUseExecuting)? = nil,
+        takeBackWatcher: (any ComputerUseTakeBackWatching)? = nil
+    ) {
         self.userDefaults = userDefaults
         self.executor = executor ?? ComputerUseExecutor()
+        self.takeBackWatcher = takeBackWatcher ?? ComputerUseTakeBackMonitor()
         self.accessibilityTrustCheck = { AccessibilityElementFinder.isAccessibilityTrusted }
         isEnabled = userDefaults.bool(forKey: Self.enabledPreferenceKey)
     }
@@ -119,24 +140,37 @@ final class ComputerUseCoordinator: ObservableObject {
 
         var approvalToken: ComputerUseApprovalToken?
         if action.risk > .readOnly {
-            if !hasStandingInputGrant() {
+            if let takeBackReason { return takeBackReason.modelMessage }
+            if !hasStandingInputGrant(for: action.risk) {
                 let didApprove = await requestApproval(for: request)
                 guard didApprove else {
                     lastOutcomeSummary = "Skipped: \(action.approvalDescription.lowercased())."
                     return Self.inputRefusalMessage
                 }
             }
+            if let takeBackReason { return takeBackReason.modelMessage }
             approvalToken = .grantedByUser(forRequestID: request.id)
         }
 
         do {
             try Task.checkCancellation()
-            let outcome = try await executor.execute(request, approval: approvalToken)
+            let executor = executor
+            let execution = Task { try await executor.execute(request, approval: approvalToken) }
+            currentExecution = execution
+            defer { if currentExecution == execution { currentExecution = nil } }
+            let outcome = try await withTaskCancellationHandler {
+                try await execution.value
+            } onCancel: {
+                execution.cancel()
+            }
             lastOutcomeSummary = outcome.summary
             if let payload = outcome.payload, !payload.isEmpty {
                 return "\(outcome.summary)\n\(payload)"
             }
             return outcome.summary
+        } catch is CancellationError {
+            if let takeBackReason { return takeBackReason.modelMessage }
+            return "This action was cancelled."
         } catch {
             let message = error.localizedDescription
             lastOutcomeSummary = message
@@ -154,6 +188,7 @@ final class ComputerUseCoordinator: ObservableObject {
 
         lastOutcomeSummary = nil
         pendingRequest = request
+        updateTakeBackWatching()
         NSSound.beep()
 
         return await withTaskCancellationHandler {
@@ -188,8 +223,13 @@ final class ComputerUseCoordinator: ObservableObject {
         resolvePendingRequest(approved: false)
     }
 
-    /// True when a previous yes already covers this input action.
-    private func hasStandingInputGrant() -> Bool {
+    /// True when a previous yes, or full access, already covers this input
+    /// action. Destructive chords are the floor: they ask every time.
+    private func hasStandingInputGrant(for risk: ConnectorToolRisk) -> Bool {
+        guard risk < .destructive else { return false }
+        if ApprovalMode.current(userDefaults).skipsComputerUseApproval(for: risk) {
+            return true
+        }
         if userDefaults.bool(forKey: Self.alwaysAllowPreferenceKey) {
             return true
         }
@@ -214,5 +254,49 @@ final class ComputerUseCoordinator: ObservableObject {
         pendingRequest = nil
         pendingApprovalContinuation?.resume(returning: approved)
         pendingApprovalContinuation = nil
+        updateTakeBackWatching()
+    }
+
+    // MARK: Taking back
+
+    /// A new user turn: a take-back from the last turn no longer applies.
+    func beginTurn() {
+        takeBackReason = nil
+    }
+
+    /// Start of a run of actions. The user's own input stops it from here
+    /// until `endDrive()`, except while an approval card is up, since
+    /// answering the card is not taking over.
+    func beginDrive() {
+        isDriving = true
+        updateTakeBackWatching()
+    }
+
+    func endDrive() {
+        isDriving = false
+        updateTakeBackWatching()
+    }
+
+    /// The user took over. Cancels the action in flight; later input
+    /// actions this turn are refused. Ignored outside a drive.
+    func takeBack(_ reason: ComputerUseTakeBackReason) {
+        guard isDriving, takeBackReason == nil else { return }
+        takeBackReason = reason
+        lastOutcomeSummary = reason.summary
+        currentExecution?.cancel()
+        updateTakeBackWatching()
+    }
+
+    private func updateTakeBackWatching() {
+        let shouldWatch = isDriving && takeBackReason == nil && pendingRequest == nil
+        guard shouldWatch != isWatchingForTakeBack else { return }
+        isWatchingForTakeBack = shouldWatch
+        if shouldWatch {
+            takeBackWatcher.start { [weak self] reason in
+                self?.takeBack(reason)
+            }
+        } else {
+            takeBackWatcher.stop()
+        }
     }
 }

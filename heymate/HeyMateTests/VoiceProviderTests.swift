@@ -131,6 +131,18 @@ struct VoiceProviderPersistenceTests {
         #expect(CompanionManager.makeSpeakingClient(for: .onDevice, workerBaseURL: "http://localhost") is KokoroTTSClient)
     }
 
+    @Test func kokoroStaysOffWhereAppleBNNSCrashesIt() {
+        func reason(_ major: Int, _ minor: Int) -> String? {
+            KokoroEngine.unsupportedReason(for: OperatingSystemVersion(majorVersion: major, minorVersion: minor, patchVersion: 0))
+        }
+        #expect(reason(26, 3) == nil)
+        #expect(reason(26, 4) != nil)
+        #expect(reason(26, 5) != nil)
+        #expect(reason(26, 6) == nil)
+        #expect(reason(27, 0) == nil)
+        #expect(reason(27, 1) == nil)
+    }
+
     @Test func companionDefaultsSpeakToLocalWhenNothingStored() {
         UserDefaults.standard.removeObject(forKey: CompanionManager.speakPreferenceKey)
         let manager = CompanionManager()

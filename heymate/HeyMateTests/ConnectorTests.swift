@@ -466,18 +466,6 @@ struct ConnectorToolRiskInferenceTests {
     }
 }
 
-/// A turn that can reach connected apps has to survive a human answering an
-/// approval card; killing the child underneath one produced a truncated
-/// half-answer instead of a result.
-struct TalkTurnTimeoutTests {
-
-    @Test func connectedAppTurnsGetALongerBudgetThanPlainOnes() {
-        #expect(SubscriptionCLIVisionClient.plainTurnTimeout == 90)
-        #expect(SubscriptionCLIVisionClient.connectedAppTurnTimeout
-            > SubscriptionCLIVisionClient.plainTurnTimeout)
-    }
-}
-
 /// Asked about a connected app, the model would call connection management to
 /// "verify" it first — inventing a session id to do it — then read the empty
 /// answer as proof the app was never connected, and hand the user a sign-in

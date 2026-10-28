@@ -94,7 +94,6 @@ enum HeyMateAnalytics {
     enum Event {
         case appOpened(version: String)
         case notchOpened
-        case filesShelved(count: Int)
         case onboardingStarted
         case onboardingReplayed
         case onboardingVideoCompleted
@@ -114,7 +113,6 @@ enum HeyMateAnalytics {
             switch self {
             case .appOpened: return "app_opened"
             case .notchOpened: return "notch_opened"
-            case .filesShelved: return "files_shelved"
             case .onboardingStarted: return "onboarding_started"
             case .onboardingReplayed: return "onboarding_replayed"
             case .onboardingVideoCompleted: return "onboarding_video_completed"
@@ -135,7 +133,6 @@ enum HeyMateAnalytics {
         var properties: [String: Any]? {
             switch self {
             case .appOpened(let version): return ["app_version": version]
-            case .filesShelved(let count): return ["file_count": count]
             case .notchOpened: return nil
             case .onboardingStepViewed(let step): return ["step": step]
             case .permissionGranted(let permission): return ["permission": permission]
@@ -241,12 +238,12 @@ final class UsageAnalytics: ObservableObject {
         var activityProperties = properties
         activityProperties["source_event"] = event.name
         switch event {
-        case .userMessageSent, .notchOpened, .filesShelved:
+        case .userMessageSent, .notchOpened:
             append("active_use", activityProperties)
         default: break
         }
         switch event {
-        case .aiResponseReceived, .filesShelved:
+        case .aiResponseReceived:
             append("value_received", activityProperties)
         default: break
         }

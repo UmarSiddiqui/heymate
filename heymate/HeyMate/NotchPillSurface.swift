@@ -49,9 +49,6 @@ final class NotchPillModel: ObservableObject {
     /// changing geometry; open-on-hover remains controller policy.
     @Published var isHovered = false
 
-    /// A file drag is hovering the notch. Outranks every other visual so
-    /// the drop target is unmistakable while the pointer holds a file.
-    @Published var isDropTargeted = false
     @Published var hasUsage = false
     @Published var usageProviderCount = 0
 
@@ -62,7 +59,7 @@ final class NotchPillModel: ObservableObject {
     @Published var isYieldingToCard = false
 
     /// Highest-priority ambient fact from the micro-apps (media, timer,
-    /// shelf, battery…). Shown in the trailing slot when the companion is
+    /// battery…). Shown in the trailing slot when the companion is
     /// idle, because voice state always outranks ambient state.
     @Published var activity: NotchActivity?
 
@@ -87,7 +84,7 @@ final class NotchPillModel: ObservableObject {
     /// only highlights the housing: widening before a click makes expansion
     /// read as two separate stages instead of one top-centre morph.
     var wantsWidenedFrame: Bool {
-        voiceState != .idle || isDropTargeted || activity != nil || hasUsage
+        voiceState != .idle || activity != nil || hasUsage
     }
 }
 
@@ -165,7 +162,6 @@ struct NotchPillView: View {
         .overlay(alignment: .bottom) { bottomHairline }
         .overlay { closeEchoGlow }
         .animation(accessibilityReduceMotion ? nil : .easeOut(duration: 0.18), value: model.isHovered)
-        .animation(accessibilityReduceMotion ? nil : .easeOut(duration: 0.16), value: model.isDropTargeted)
         .animation(
             accessibilityReduceMotion ? nil : .easeIn(duration: NotchLayoutMath.pillYieldDuration),
             value: model.isYieldingToCard
@@ -207,11 +203,11 @@ struct NotchPillView: View {
 
     private var outlineGlow: some View {
         NotchOutlineGlow(color: model.themeColor, cornerRadius: housingCornerRadius)
-            .opacity(model.voiceState == .idle && !model.isDropTargeted ? (model.isHovered ? 0.58 : 0.30) : 0.85)
+            .opacity(model.voiceState == .idle ? (model.isHovered ? 0.58 : 0.30) : 0.85)
     }
 
     /// One hairline under the housing, only while a voice interaction is
-    /// live or a drop is over the notch. At rest the housing has no edge, so
+    /// live. At rest the housing has no edge, so
     /// it reads as the hardware notch rather than a line across the screen.
     private var bottomHairline: some View {
         Rectangle()
@@ -220,7 +216,6 @@ struct NotchPillView: View {
     }
 
     private var hairlineColor: Color {
-        if model.isDropTargeted { return model.themeColor }
         if model.voiceState != .idle {
             return model.themeColor.opacity(0.5)
         }
@@ -243,30 +238,23 @@ struct NotchPillView: View {
     /// wins; an ambient activity fills in while idle.
     @ViewBuilder
     private var leadingSlot: some View {
-        if model.isDropTargeted {
-            HStack(spacing: 5) {
-                Capsule().fill(.white).frame(width: 4, height: 8)
-                Capsule().fill(.white).frame(width: 4, height: 8)
+        switch model.voiceState {
+        case .idle:
+            if let activity = model.activity {
+                NotchActivityGlyph(activity: activity, themeColor: model.themeColor)
+            } else if model.isSilentModeEnabled {
+                Image(systemName: "speaker.slash.fill")
+                    .font(DS.Glyph.small)
+                    .foregroundColor(DS.Colors.textPrimary.opacity(model.isHovered ? 0.9 : 0.6))
+            } else {
+                NotchReadyDot(isHovered: model.isHovered)
             }
-        } else {
-            switch model.voiceState {
-            case .idle:
-                if let activity = model.activity {
-                    NotchActivityGlyph(activity: activity, themeColor: model.themeColor)
-                } else if model.isSilentModeEnabled {
-                    Image(systemName: "speaker.slash.fill")
-                        .font(DS.Glyph.small)
-                        .foregroundColor(DS.Colors.textPrimary.opacity(model.isHovered ? 0.9 : 0.6))
-                } else {
-                    NotchReadyDot(isHovered: model.isHovered)
-                }
-            case .listening:
-                NotchListeningDot(themeColor: model.themeColor)
-            case .processing:
-                NotchThinkingDot()
-            case .responding:
-                NotchSpeakingRings(themeColor: model.themeColor)
-            }
+        case .listening:
+            NotchListeningDot(themeColor: model.themeColor)
+        case .processing:
+            NotchThinkingDot()
+        case .responding:
+            NotchSpeakingRings(themeColor: model.themeColor)
         }
     }
 
@@ -277,10 +265,7 @@ struct NotchPillView: View {
     /// activity's own label while idle, and a shortcut hint on bare hover.
     @ViewBuilder
     private var trailingSlot: some View {
-        if model.isDropTargeted {
-            Capsule().fill(.black).frame(width: 20, height: 14)
-                .overlay(Capsule().stroke(.white.opacity(0.8), lineWidth: 1.5))
-        } else if model.hasUsage && model.voiceState == .idle {
+        if model.hasUsage && model.voiceState == .idle {
             NotchCompactUsage()
         } else {
             switch model.voiceState {

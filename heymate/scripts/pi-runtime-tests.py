@@ -8,6 +8,7 @@ import subprocess
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('pi_stage', pathlib.Path(__file__).with_name('pi-runtime-stage.py'))
 stage = importlib.util.module_from_spec(spec)
@@ -36,6 +37,23 @@ class PayloadTests(unittest.TestCase):
 
     def test_valid_payload(self):
         self.assertEqual(stage.verify(self.root)['engine'], 'heymate-pi')
+
+    def test_node_with_only_system_libraries_is_portable(self):
+        output = 'node:\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0)\n'
+        with patch.object(stage.subprocess, 'check_output', return_value=output):
+            stage.verify_node_dependencies(self.root / 'bin/node')
+
+    def test_node_with_missing_relative_library_is_rejected(self):
+        output = 'node:\n\t@rpath/libnode.127.dylib (compatibility version 0.0.0)\n'
+        with patch.object(stage.subprocess, 'check_output', return_value=output):
+            with self.assertRaisesRegex(ValueError, 'self-contained'):
+                stage.verify_node_dependencies(self.root / 'bin/node')
+
+    def test_node_with_homebrew_library_is_rejected(self):
+        output = 'node:\n\t/opt/homebrew/opt/libuv/lib/libuv.1.dylib (compatibility version 1.0.0)\n'
+        with patch.object(stage.subprocess, 'check_output', return_value=output):
+            with self.assertRaisesRegex(ValueError, 'self-contained'):
+                stage.verify_node_dependencies(self.root / 'bin/node')
 
     def test_tampering_is_rejected(self):
         (self.root / 'bin/heymate-agent').write_text('modified')

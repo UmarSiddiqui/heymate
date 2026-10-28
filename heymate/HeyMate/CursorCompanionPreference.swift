@@ -11,7 +11,7 @@ import Foundation
 
 nonisolated enum CursorCompanionPreference {
     static let defaultsKey = "isCursorCompanionEnabled"
-    static let legacyDefaultsKey = "isClickyCursorEnabled"
+    static let legacyDefaultsKey = "isMateCursorEnabled"
 
     static func storedValue(in defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: defaultsKey) != nil {

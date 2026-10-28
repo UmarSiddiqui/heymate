@@ -4,7 +4,7 @@
 
 For a solo developer, lead with one real screen question and show the cursor landing on its answer. Keep it to 30 seconds, in a landscape screen recording. Put the question in the first five seconds and the cursor payoff on screen by about eight seconds. Skip a logo intro and feature list.
 
-The 15-video sample points to product-specific visuals and a clear spoken hook, but view counts are strongly affected by brand reach and distribution. The closest match, HeyClicky's screen-drawing demo, says what the feature does as the presenter starts showing it. The strongest broad examples use a distinctive opening image or established product recognition. HeyMate's advantage is its real cursor movement, so show that immediately.
+The 15-video sample points to product-specific visuals and a clear spoken hook, but view counts are strongly affected by brand reach and distribution. The closest match, ReferenceRenderer's screen-drawing demo, says what the feature does as the presenter starts showing it. The strongest broad examples use a distinctive opening image or established product recognition. HeyMate's advantage is its real cursor movement, so show that immediately.
 
 ## Hook line
 

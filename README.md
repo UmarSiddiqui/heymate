@@ -7,7 +7,7 @@
 **Learn your software. One step at a time.**<br>
 Ask how to do something in a desktop app or website. HeyMate points to the next step, explains it out loud, and waits while you try it. Currently available for macOS.
 
-The open-source alternative to HeyClicky. Bring your own AI: your existing Claude, ChatGPT (Codex), or OpenCode subscription does the work. HeyMate is free and MIT licensed; we do not meter your model use. Provider limits and optional paid connectors still apply.
+An open-source AI companion for macOS. Bring your own AI: your existing Claude, ChatGPT (Codex), or OpenCode subscription does the work. HeyMate is free and MIT licensed; we do not meter your model use. Provider limits and optional paid connectors still apply.
 
 [![Latest release](https://img.shields.io/github/v/release/UmarSiddiqui/heymate?label=download&color=3380FF&style=flat-square)](https://github.com/UmarSiddiqui/heymate/releases/latest)
 [![Release build](https://img.shields.io/github/actions/workflow/status/UmarSiddiqui/heymate/release.yml?branch=main&label=build&style=flat-square)](https://github.com/UmarSiddiqui/heymate/actions/workflows/release.yml)
@@ -17,7 +17,7 @@ The open-source alternative to HeyClicky. Bring your own AI: your existing Claud
 
 [**Download for Mac**](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg) · [Website](https://getheymate.vercel.app) · [Watch the demo](https://getheymate.vercel.app/#demo) · [Changelog](https://github.com/UmarSiddiqui/heymate/releases)
 
-<sub>Inspired by heyClicky</sub>
+<sub>Inspired by heyMate</sub>
 
 <br>
 
@@ -59,7 +59,7 @@ Screen guidance needs a vision-capable provider. The optional Apple Intelligence
 ### Lives in the notch
 Folds into the camera housing and opens on hover into **Usage** and **Home**. Macs without a notch get a top-center pill. There is no dock icon and no menu-bar clutter.
 
-Coding usage rings for **Codex, Claude Code, Cursor, Antigravity, Gemini, OpenCode Go, GitHub Copilot, Kimi Code, Grok, and GLM**, plus loaded-model displays for **Ollama and LM Studio**. Quotas, derived token/request counts, and supported local session states stay clearly distinguished. Settings control persistent idle rings, provider selection/order, used versus remaining, weekly rings, and reduced motion. Connect each provider using its existing sign-in; unavailable or stale readings stay clearly marked. Drag a file onto the notch and your mate opens its mouth to keep it on the **File Shelf**. Drag files back out or AirDrop them; originals stay where they are. The shelf only opens through a file drag.
+Coding usage rings for **Codex, Claude Code, Cursor, Antigravity, Gemini, OpenCode Go, GitHub Copilot, Kimi Code, Grok, and GLM**, plus loaded-model displays for **Ollama and LM Studio**. Quotas, derived token/request counts, and supported local session states stay clearly distinguished. Settings control persistent idle rings, provider selection/order, used versus remaining, weekly rings, and reduced motion. Connect each provider using its existing sign-in; unavailable or stale readings stay clearly marked.
 
 </td>
 <td width="50%" valign="top">
@@ -109,7 +109,7 @@ Read-only calls run quietly. Anything that sends, deletes, or pays always asks f
 
 ## Useful between questions
 
-HeyMate also includes Now Playing, a file shelf with AirDrop, calendar and battery status, volume and brightness controls, a camera mirror, focus timers, clipboard history, and downloads. Enable the tools you use and leave the rest out of the way.
+HeyMate also includes Now Playing, calendar and battery status, volume and brightness controls, a camera mirror, focus timers, clipboard history, and downloads. Enable the tools you use and leave the rest out of the way.
 
 ## Install
 

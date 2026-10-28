@@ -336,15 +336,6 @@ final class NotchCompanionController {
             }
             .store(in: &cancellables)
 
-        companionManager.$shouldRevealAppsTab
-            .removeDuplicates()
-            .filter { $0 }
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.expandForShelfDrag()
-            }
-            .store(in: &cancellables)
-
         companionManager.contextualConnectorSuggestionMonitor.$suggestion
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
@@ -887,12 +878,6 @@ final class NotchCompanionController {
         hostingView.setAccessibilityRole(.button)
         hostingView.setAccessibilityLabel("HeyMate notch")
         hostingView.setAccessibilityHelp("Opens HeyMate")
-        hostingView.registerAsFileDropTarget()
-        hostingView.onDragEnter = { [weak self] in self?.beginShelfDrag() }
-        hostingView.onDragExit = { [weak self] in self?.setPillDragTargeting(false) }
-        hostingView.onFileDrop = { [weak self] droppedURLs in
-            self?.acceptDroppedFiles(droppedURLs) ?? false
-        }
         return hostingView
     }
 
@@ -914,26 +899,6 @@ final class NotchCompanionController {
         hostingView.onMouseEnter = { [weak self] in self?.handleExpandedCardMouseEnter() }
         hostingView.onMouseExit = { [weak self] in self?.handleExpandedCardMouseExit() }
         hostingView.onClick = { [weak self] in self?.pinExpandedCardAndTakeKey() }
-        if surface == .fullCard {
-            hostingView.registerAsFileDropTarget()
-            hostingView.onDragEnter = { [weak self] in
-                self?.cancelPendingGraceCollapse()
-                self?.companionManager?.notchActivityCenter.shelfPresentation = .hungry
-            }
-            hostingView.onDragExit = { [weak self] in
-                guard let self else { return }
-                if self.isPinned {
-                    if self.companionManager?.notchActivityCenter.shelfPresentation == .hungry {
-                        self.companionManager?.notchActivityCenter.shelfPresentation = .hidden
-                    }
-                } else {
-                    self.scheduleGraceCollapse()
-                }
-            }
-            hostingView.onFileDrop = { [weak self] droppedURLs in
-                self?.acceptDroppedFiles(droppedURLs) ?? false
-            }
-        }
         return hostingView
     }
 
@@ -990,27 +955,6 @@ final class NotchCompanionController {
         syncPillFrameToModel()
     }
 
-    /// Widen the tab while a drag hovers it so the drop target is visibly
-    /// bigger than the camera housing, and so the shelf glyph is readable.
-    private func setPillDragTargeting(_ isTargeting: Bool) {
-        pillModel.isDropTargeted = isTargeting
-        syncPillFrameToModel()
-        if !isTargeting, companionManager?.notchActivityCenter.shelfPresentation == .hungry {
-            scheduleGraceCollapse()
-        }
-    }
-
-    private func beginShelfDrag() {
-        setPillDragTargeting(true)
-        companionManager?.notchActivityCenter.shelfPresentation = .hungry
-        companionManager?.shouldRevealAppsTab = true
-    }
-
-    private func expandForShelfDrag() {
-        guard !isExpanded, !isTransitioning else { return }
-        presentSurface(.fullCard, pinned: false)
-    }
-
     /// Browser context may surface a connector without user interaction.
     /// Keep it persistent enough to reach, but never take keyboard focus
     /// from the browser that produced the suggestion.
@@ -1029,36 +973,6 @@ final class NotchCompanionController {
               !isTransitioning else { return }
 
         presentSurface(.connectorSuggestion, pinned: true, takesKey: false)
-    }
-
-    private func acceptDroppedFiles(_ droppedURLs: [URL]) -> Bool {
-        guard let companionManager else { return false }
-        let shelfStore = companionManager.notchActivityCenter.shelfStore
-        // The shelf micro-app might be off; a deliberate drop onto the
-        // notch is a clear enough request to turn it on.
-        if !companionManager.notchActivityCenter.isEnabled(.shelf) {
-            companionManager.notchActivityCenter.setEnabled(true, for: .shelf)
-        }
-        let validURLs = droppedURLs.filter { $0.isFileURL && FileManager.default.fileExists(atPath: $0.path) }
-        guard !validURLs.isEmpty else { return false }
-        let acceptedCount = shelfStore.accept(fileURLs: validURLs)
-        let alreadyStored = validURLs.allSatisfy { url in shelfStore.items.contains { $0.fileURL == url } }
-        setPillDragTargeting(false)
-        if acceptedCount > 0 || alreadyStored {
-            if acceptedCount > 0 { HeyMateAnalytics.track(.filesShelved(count: acceptedCount)) }
-            cancelPendingGraceCollapse()
-            companionManager.notchActivityCenter.shelfPresentation = .eating
-            if !isExpanded { presentSurface(.fullCard, pinned: true) }
-            isPinned = true
-            expandedPanel?.makeKey()
-            Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .milliseconds(450))
-                guard let center = self?.companionManager?.notchActivityCenter,
-                      center.shelfPresentation == .eating else { return }
-                center.shelfPresentation = .stored
-            }
-        }
-        return acceptedCount > 0 || alreadyStored
     }
 
     private func handlePillClick() {
@@ -1327,8 +1241,6 @@ final class NotchCompanionController {
     }
 
     private func finishCollapse() {
-        companionManager?.notchActivityCenter.shelfPresentation = .hidden
-        pillModel.isDropTargeted = false
         removeDismissalMonitors()
         isTransitioning = false
         isExpanded = false
@@ -1341,8 +1253,6 @@ final class NotchCompanionController {
     /// `collapseAndUnpin` this does NOT bring the tab back — used when the
     /// feature is disabled or being torn down.
     private func dismissEverything() {
-        companionManager?.notchActivityCenter.shelfPresentation = .hidden
-        pillModel.isDropTargeted = false
         removeDismissalMonitors()
         cancelScheduledTransitions()
         frameAnimator.cancel()
@@ -1674,17 +1584,6 @@ private final class NotchInteractionHostingView: NSHostingView<AnyView> {
     var onMouseEnter: (() -> Void)?
     var onMouseExit: (() -> Void)?
 
-    /// Files dragged onto the notch. Returning true means "I took them",
-    /// which is what makes the drag animation land instead of snapping
-    /// back to the Finder window it came from.
-    var onFileDrop: (([URL]) -> Bool)?
-
-    /// A drag is hovering over the notch. Drives the "drop here" affordance
-    /// without going through the ordinary hover path, because a drag must
-    /// not trigger the peek or the card.
-    var onDragEnter: (() -> Void)?
-    var onDragExit: (() -> Void)?
-
     /// Called on raw mouse-down BEFORE SwiftUI sees the event. Callers that
     /// don't need it leave this nil (e.g. the expanded card, where only real
     /// controls should handle clicks).
@@ -1729,48 +1628,5 @@ private final class NotchInteractionHostingView: NSHostingView<AnyView> {
         guard let onClick else { return super.accessibilityPerformPress() }
         onClick()
         return true
-    }
-
-    // MARK: Dragging destination
-    //
-    // Implemented in AppKit rather than SwiftUI's `.dropDestination` because
-    // the notch panel is non-activating: SwiftUI's drop plumbing assumes a
-    // window that can become key, and silently never fires here.
-
-    func registerAsFileDropTarget() {
-        registerForDraggedTypes([.fileURL])
-    }
-
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard onFileDrop != nil, !fileURLs(from: sender).isEmpty else { return [] }
-        onDragEnter?()
-        return .copy
-    }
-
-    override func draggingExited(_ sender: NSDraggingInfo?) {
-        onDragExit?()
-    }
-
-    override func draggingEnded(_ sender: NSDraggingInfo) {
-        onDragExit?()
-    }
-
-    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        !fileURLs(from: sender).isEmpty
-    }
-
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        let urls = fileURLs(from: sender)
-        guard !urls.isEmpty, let onFileDrop else { return false }
-        onDragExit?()
-        return onFileDrop(urls)
-    }
-
-    private func fileURLs(from sender: NSDraggingInfo) -> [URL] {
-        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
-        return (sender.draggingPasteboard.readObjects(
-            forClasses: [NSURL.self],
-            options: options
-        ) as? [URL]) ?? []
     }
 }

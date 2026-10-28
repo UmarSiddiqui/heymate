@@ -240,7 +240,6 @@ struct NotchExpandedView: View {
     /// Called when the user presses the collapse chevron.
     var onClose: () -> Void
 
-    @ObservedObject private var activityCenter: NotchActivityCenter
     private let permissionGuide: PermissionGuide
     @State private var selectedTab: NotchExpandedTab
     @State private var isShowingAboutPopover = false
@@ -261,7 +260,6 @@ struct NotchExpandedView: View {
         self.hardwareNotchWidth = hardwareNotchWidth
         self.transitionModel = transitionModel
         self.onClose = onClose
-        self.activityCenter = companionManager.notchActivityCenter
         self.permissionGuide = permissionGuide
         _selectedTab = State(initialValue: initialTab)
     }
@@ -298,13 +296,9 @@ struct NotchExpandedView: View {
                 // Settings and the model picker live in the app window only,
                 // so every engine gets the same full-size controls there.
                 Group {
-                    if activityCenter.shelfPresentation.isVisible {
-                        NotchShelfMouthView(center: activityCenter, shelf: activityCenter.shelfStore)
-                    } else {
-                        switch selectedTab {
-                        case .home: NotchHomeTab(companionManager: companionManager, permissionGuide: permissionGuide)
-                        case .apps: NotchUsageView(companionManager: companionManager)
-                        }
+                    switch selectedTab {
+                    case .home: NotchHomeTab(companionManager: companionManager, permissionGuide: permissionGuide)
+                    case .apps: NotchUsageView(companionManager: companionManager)
                     }
                 }
                 .frame(maxHeight: .infinity, alignment: .top)
@@ -316,19 +310,10 @@ struct NotchExpandedView: View {
                     companionManager.shouldRevealAgentsTab = false
                 }
             }
-            .onChange(of: companionManager.shouldRevealAppsTab) { _, shouldReveal in
-                if shouldReveal {
-                    selectedTab = .apps
-                    companionManager.shouldRevealAppsTab = false
-                }
-            }
             .onAppear {
                 if companionManager.shouldRevealAgentsTab {
                     selectedTab = .home
                     companionManager.shouldRevealAgentsTab = false
-                } else if companionManager.shouldRevealAppsTab {
-                    selectedTab = .apps
-                    companionManager.shouldRevealAppsTab = false
                 }
             }
 
@@ -349,10 +334,7 @@ struct NotchExpandedView: View {
     private var notchWingHeader: some View {
         HStack(spacing: 0) {
             HStack(spacing: 4) {
-                NotchTabSwitcher(selectedTab: Binding(get: { selectedTab }, set: {
-                    activityCenter.shelfPresentation = .hidden
-                    selectedTab = $0
-                }))
+                NotchTabSwitcher(selectedTab: $selectedTab)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -396,12 +378,10 @@ struct NotchExpandedView: View {
         .accessibilityLabel("Status: \(headerStatusText)")
     }
 
-    /// Every way out of the card in one row: the engine, the three
-    /// window pages, the buddy, and About. Status, collapse and quit live
-    /// on the header's right wing.
+    /// Chat, Settings, the buddy, and About. Status, collapse and quit
+    /// live on the header's right wing.
     private var bottomActionBar: some View {
         HStack(spacing: DS.Spacing.sm) {
-            engineChip
             doorButtons
 
             Spacer(minLength: 0)
@@ -422,9 +402,7 @@ struct NotchExpandedView: View {
         .padding(.horizontal, DS.Spacing.lg)
     }
 
-    /// Window, Integrations and Settings as one grouped icon row. They used
-    /// to be three tall tiles; the names live in the tooltips and the
-    /// ⌘1–⌘3 shortcuts still work.
+    /// Chat and Settings share full-size, labeled controls.
     private var doorButtons: some View {
         HStack(spacing: 2) {
             Button {
@@ -436,69 +414,19 @@ struct NotchExpandedView: View {
             .keyboardShortcut("1", modifiers: .command)
             .help("Open chats, mates, and the character editor")
             .accessibilityLabel("Open chat and characters")
-            doorButton(title: "Integrations", systemName: "puzzlepiece.extension", detail: "apps every agent can use", key: "2") {
-                companionManager.openDesktopWindow(section: .connectors)
-            }
-            doorButton(title: "Settings", systemName: "gearshape", detail: "engine, voice, shortcuts, appearance", key: "3") {
+            Button {
                 companionManager.openDesktopWindow(section: .settings)
+            } label: {
+                Label("Settings", systemImage: "gearshape")
             }
+            .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.regular)
+            .keyboardShortcut("3", modifiers: .command)
+            .help("Settings: engine, voice, shortcuts, appearance (⌘3)")
+            .accessibilityLabel("Settings")
         }
         .padding(2)
         .background(Capsule().fill(Color.white.opacity(0.035)))
         .overlay(Capsule().strokeBorder(Color.white.opacity(0.075), lineWidth: 0.5))
-    }
-
-    private func doorButton(
-        title: String,
-        systemName: String,
-        detail: String,
-        key: KeyEquivalent,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(DS.Glyph.regular)
-                .foregroundColor(DS.Colors.textSecondary)
-                .frame(
-                    width: NotchControlMetrics.controlSize,
-                    height: NotchControlMetrics.controlSize
-                )
-        }
-        .notchSoftButtonStyle(.circle)
-        .keyboardShortcut(key, modifiers: .command)
-        .help("\(title): \(detail) (⌘\(key.character))")
-        .accessibilityLabel(title)
-        .accessibilityHint(detail)
-    }
-
-    /// Names the engine instead of hiding it behind a bare CPU glyph — which
-    /// brain answers is the one setting people check most.
-    private var engineChip: some View {
-        Button(action: {
-            companionManager.openDesktopWindow(section: .settings)
-            DesktopSection.openSettings(tab: DesktopSettingsTab.brain.rawValue)
-        }) {
-            HStack(spacing: 6) {
-                Image(systemName: "cpu")
-                    .font(DS.Glyph.small)
-                    .foregroundColor(DS.Colors.accentText)
-                Text("HeyMate")
-                    .font(DS.Fonts.control)
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .lineLimit(1)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(DS.Glyph.micro)
-                    .foregroundColor(DS.Colors.textTertiary)
-            }
-            .padding(.horizontal, 10)
-            .frame(height: NotchControlMetrics.controlSize)
-            .background(Capsule().fill(Color.white.opacity(0.035)))
-            .overlay(Capsule().strokeBorder(Color.white.opacity(0.075), lineWidth: 0.5))
-            .contentShape(Capsule())
-        }
-        .buttonStyle(NotchDoorButtonStyle())
-        .pointerCursor()
-        .help("Brain: plans, API providers, and models")
     }
 
     private func headerIconButton(
