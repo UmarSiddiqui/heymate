@@ -192,7 +192,7 @@ jobs:
           heymate_verify_embedded_agent_runner "$APP" release
           python3 heymate/scripts/pi-runtime-stage.py --source "$APP/Contents/Resources/MateAgent" --destination "$RUNNER_TEMP/verify/MateAgent" --verify-only
           # Startup/protocol smoke uses the signed bundled Node, no provider/model calls.
-          python3 heymate/scripts/pi-runtime-smoke.py --payload "$APP/Contents/Resources/MateAgent"
+          python3 heymate/scripts/pi-runtime-smoke.py --root "$APP/Contents/Resources/MateAgent/$(uname -m)"
           # Verify the seal after everything above has run the bundled code.
           codesign --verify --deep --strict --verbose=2 "$APP"
           # Permissions survive updates only while this requirement stays put.
