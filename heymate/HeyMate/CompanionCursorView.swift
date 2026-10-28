@@ -110,12 +110,22 @@ struct CompanionCursorView: View {
         _isPointerOnThisScreen = State(initialValue: screenFrame.contains(mouse))
     }
 
-    var body: some View {
-        let _ = companionManager.themeColorHex
+    // Bound each SwiftUI expression so CI's compiler can type-check the overlay.
+    // Groups preserve the existing ZStack ordering and presentation behavior.
+    private var overlayLayers: some View {
         ZStack {
-            // Keeps the layer composited; invisible and click-through.
             Color.black.opacity(0.001)
+            annotationLayers
+            cursorLabels
+            feedbackRings
+            cursorGlyph
+            voiceIndicators
+        }
+    }
 
+    @ViewBuilder
+    private var annotationLayers: some View {
+        Group {
             AnnotationCanvasView(
                 annotations: companionManager.activeAnnotations,
                 screenFrame: screenFrame,
@@ -131,6 +141,12 @@ struct CompanionCursorView: View {
                     .allowsHitTesting(false)
             }
 
+        }
+    }
+
+    @ViewBuilder
+    private var cursorLabels: some View {
+        Group {
             if isPointerOnThisScreen && showsWelcome && !welcomeText.isEmpty {
                 CursorPillLabel(text: welcomeText)
                     .opacity(welcomeOpacity)
@@ -160,6 +176,12 @@ struct CompanionCursorView: View {
                     .animation(.easeOut(duration: 0.5), value: pointingLabelOpacity)
             }
 
+        }
+    }
+
+    @ViewBuilder
+    private var feedbackRings: some View {
+        Group {
             // The position is sampled every frame, so it is not animated;
             // a spring here would run a full-screen transaction per sample.
             if let ring = pointingPose.tapRingProgress, isVisibleOnThisScreen {
@@ -182,28 +204,36 @@ struct CompanionCursorView: View {
                     .allowsHitTesting(false)
             }
 
-            CompanionCursorGlyph(
-                headingDegrees: headingDegrees + pointingPose.headingOffsetDegrees + (mode == .following ? followTilt : 0),
-                extraGlow: (flightScale - 1) * 20
-            )
-                .scaleEffect(breathes ? 1.05 : 1)
-                .offset(y: breathes ? -1.4 : 0)
-                .animation(
-                    breathes ? .easeInOut(duration: 1.25).repeatForever(autoreverses: true) : .easeOut(duration: 0.3),
-                    value: breathes
-                )
-                .scaleEffect(flightScale * pointingPose.scale)
-                .opacity(showsArrow ? visibleOpacity : 0)
-                .position(
-                    x: position.x + leanDirection.dx * pointingPose.lean + coachPose.offset.dx,
-                    y: position.y + leanDirection.dy * pointingPose.lean + coachPose.offset.dy
-                )
-                .animation(.easeIn(duration: 0.25), value: companionManager.voiceState)
-                .animation(
-                    mode == .flying || mode == .drawing ? nil : .spring(response: 0.42, dampingFraction: 0.72),
-                    value: headingDegrees
-                )
+        }
+    }
 
+    private var cursorGlyph: some View {
+        CompanionCursorGlyph(
+            headingDegrees: headingDegrees + pointingPose.headingOffsetDegrees + (mode == .following ? followTilt : 0),
+            extraGlow: (flightScale - 1) * 20
+        )
+            .scaleEffect(breathes ? 1.05 : 1)
+            .offset(y: breathes ? -1.4 : 0)
+            .animation(
+                breathes ? .easeInOut(duration: 1.25).repeatForever(autoreverses: true) : .easeOut(duration: 0.3),
+                value: breathes
+            )
+            .scaleEffect(flightScale * pointingPose.scale)
+            .opacity(showsArrow ? visibleOpacity : 0)
+            .position(
+                x: position.x + leanDirection.dx * pointingPose.lean + coachPose.offset.dx,
+                y: position.y + leanDirection.dy * pointingPose.lean + coachPose.offset.dy
+            )
+            .animation(.easeIn(duration: 0.25), value: companionManager.voiceState)
+            .animation(
+                mode == .flying || mode == .drawing ? nil : .spring(response: 0.42, dampingFraction: 0.72),
+                value: headingDegrees
+            )
+    }
+
+    @ViewBuilder
+    private var voiceIndicators: some View {
+        Group {
             // Built only while needed, so idle publishes don't lay them out.
             if isVisibleOnThisScreen && companionManager.voiceState == .listening {
                 CompanionListeningMeter(audioPowerLevel: companionManager.currentAudioPowerLevel)
@@ -220,8 +250,12 @@ struct CompanionCursorView: View {
                     .opacity(visibleOpacity)
                     .position(position)
                     .animation(.easeIn(duration: 0.15), value: companionManager.voiceState)
-            }
-        }
+            }        }
+    }
+
+    var body: some View {
+        let _ = companionManager.themeColorHex
+        overlayLayers
         .frame(width: screenFrame.width, height: screenFrame.height)
         .ignoresSafeArea()
         .onAppear(perform: appear)
