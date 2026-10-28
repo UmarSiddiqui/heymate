@@ -250,16 +250,25 @@ struct CompanionCursorView: View {
                     .opacity(visibleOpacity)
                     .position(position)
                     .animation(.easeIn(duration: 0.15), value: companionManager.voiceState)
-            }        }
+            }
+        }
     }
 
     var body: some View {
         let _ = companionManager.themeColorHex
+        systemObservations
+    }
+
+    private var overlayLayout: some View {
         overlayLayers
         .frame(width: screenFrame.width, height: screenFrame.height)
         .ignoresSafeArea()
         .onAppear(perform: appear)
         .onDisappear(perform: disappear)
+    }
+
+    private var pointingObservations: some View {
+        overlayLayout
         .onChange(of: companionManager.pointingTarget) { _, target in
             guard let target else { return }
             // A drawing in progress hands off to pointing when it drains.
@@ -285,6 +294,10 @@ struct CompanionCursorView: View {
             DispatchQueue.main.async { pointingLabelScale = 1 }
             pointingTask = Task { _ = try? await holdThenReturn() }
         }
+    }
+
+    private var drawingObservations: some View {
+        pointingObservations
         .onChange(of: companionManager.modelBuildEvent) { _, event in
             beginModelBuild(event)
         }
@@ -299,6 +312,10 @@ struct CompanionCursorView: View {
             choreographer.cancel()
             resumeFollowing()
         }
+    }
+
+    private var systemObservations: some View {
+        drawingObservations
         .onChange(of: reduceMotion) { _, reduceMotion in
             choreographer.reduceMotion = reduceMotion
         }
