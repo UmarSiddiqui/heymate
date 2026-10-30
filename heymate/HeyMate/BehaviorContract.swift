@@ -126,6 +126,7 @@ nonisolated enum BehaviorContract {
       </COMPUTER_USE_REQUEST>
     - never put a password, api key, or token inside [ACT:type:…]. ask the user to type it themselves.
     - one directive per step. wait for the result before assuming the screen changed.
+    - for a task that takes several clicks in one app (fill a form, change a setting, write a note), hand the whole thing to the drive engine with ONE directive instead of many: [ACT:drive:Notes|a new note says "buy milk"]. write the app name, a bar, then one literal sentence of what should be true when it is done. heymate asks the user once, works the window step by step, and the result comes back to you. never use it to send, pay, or delete.
     """
 
     /// Added only when the model has at least one tool available this turn

@@ -22,6 +22,7 @@ nonisolated enum TalkContextPolicy {
         }
 
         if VoiceRouter.isPerceptionQuestion(normalized) { return true }
+        if asksToActOnScreen(transcript) { return true }
 
         // "how do i export this" and "walk me through it" are asking to be
         // shown, and showing needs the screen the buddy will point at.
@@ -32,16 +33,31 @@ nonisolated enum TalkContextPolicy {
         return normalized.range(of: explicitVisualCue, options: .regularExpression) != nil
     }
 
+    /// "Use the browser to …", "open chrome", "go to my inbox": the request
+    /// names no screen word, yet the work happens on screen and starts from
+    /// what is open now.
+    static func asksToActOnScreen(_ transcript: String) -> Bool {
+        let candidate = SpokenText.normalizedCommandCandidate(from: transcript)
+        let normalized = SpokenText.normalizedSpokenCommandText(candidate)
+        let surface = #"\b(?:browser|chrome|safari|firefox|tab|tabs|website|webpage|url)\b"#
+        if normalized.range(of: surface, options: .regularExpression) != nil { return true }
+        let action = #"^(?:(?:can|could|would|will)\s+you\s+|please\s+)?(?:open|go\s+to|navigate\s+to|search\s+(?:for|on)|look\s+up|switch\s+to|fill\s+(?:in|out)|use\s+(?:the\s+|my\s+)?(?:computer|mac))\b"#
+        return normalized.range(of: action, options: .regularExpression) != nil
+    }
+
     /// Typed chat inside HeyMate must not attach a picture of HeyMate.
-    /// Voice and dictation in another app still may.
+    /// Voice and dictation in another app still may. A request to act on
+    /// screen still captures: HeyMate's own windows are cut from the
+    /// capture, so the model sees the app the user means.
     static func allowCapture(
         wantsScreen: Bool,
         typedInsideHeyMate: Bool,
         frontmostIsHeyMate: Bool,
-        hasSpatialSelection: Bool = false
+        hasSpatialSelection: Bool = false,
+        actsOnScreen: Bool = false
     ) -> Bool {
         if hasSpatialSelection { return true }
-        if typedInsideHeyMate && frontmostIsHeyMate { return false }
+        if typedInsideHeyMate && frontmostIsHeyMate { return actsOnScreen }
         return wantsScreen
     }
 

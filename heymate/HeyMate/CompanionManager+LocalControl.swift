@@ -96,6 +96,13 @@ extension CompanionManager {
             return await callConnectorTool(namespacedID, argumentsJSON: argumentsJSON)
         case .createMate(let name, let job):
             return createMateForJob(name: name, job: job)
+        case .driveOffer(let request):
+            return offerDrive(request)
+        case .driveStatus(let identifier):
+            return .ok(driveController.status(for: identifier))
+        case .driveCancel(let identifier):
+            driveController.cancel(driveIdentifier: identifier)
+            return .ok(driveController.status(for: identifier))
         @unknown default:
             return .error(400, "Unknown command")
         }

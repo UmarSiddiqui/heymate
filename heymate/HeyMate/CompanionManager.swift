@@ -618,6 +618,14 @@ final class CompanionManager: ObservableObject {
     /// it. Off until the user turns it on; destructive actions always ask.
     let computerUseCoordinator = ComputerUseCoordinator()
 
+    /// Multi-step takeover of one app window, asked for by Talk, an agent,
+    /// or the local bridge. Always behind its own consent card.
+    lazy var driveController: DriveTakeOverController = {
+        let controller = DriveTakeOverController()
+        controller.host = self
+        return controller
+    }()
+
     /// Same gate, for a connector tool call the Talk model asks to make.
     /// Each connector's own `ConnectorApprovalPolicy` decides whether a
     /// given call needs it; this coordinator only owns the suspend/resume.
@@ -629,8 +637,9 @@ final class CompanionManager: ObservableObject {
     @discardableResult
     func performComputerUseDirectives(in responseText: String) async -> String? {
         guard computerUseCoordinator.isEnabled else { return nil }
+        let driveOutcome = await performDriveDirectives(in: responseText)
         let parsedActions = ComputerUseTagParser.parseActions(in: responseText)
-        guard !parsedActions.isEmpty else { return nil }
+        guard !parsedActions.isEmpty else { return driveOutcome }
 
         computerUseCoordinator.beginDrive()
         defer { computerUseCoordinator.endDrive() }
@@ -645,7 +654,7 @@ final class CompanionManager: ObservableObject {
             outcomeLines.append(outcome)
             if computerUseCoordinator.takeBackReason != nil { break }
         }
-        return outcomeLines.joined(separator: "\n")
+        return ([driveOutcome].compactMap { $0 } + outcomeLines).joined(separator: "\n")
     }
 
     /// Which outside services HeyMate may reach, and how each one
@@ -1037,7 +1046,7 @@ final class CompanionManager: ObservableObject {
         apiKey: CompanionManager.nativeCredentialAccessAllowed ? CustomAPIConfiguration.apiKey() : nil
     )
 
-    var voiceSynthesisClient: any TTSClient = KokoroTTSClient()
+    var voiceSynthesisClient: any TTSClient = CompanionManager.localSpeakingClient()
 
     /// Speech-to-text backend for Talk / Dictate. Persisted independently of the brain.
     @Published var selectedListenProvider: VoiceListenProvider = VoiceListenProvider.fromUserDefaults()
@@ -1416,17 +1425,23 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Local voice is the default and the only fallback for ElevenLabs.
+    /// Kokoro where it runs safely; the Mac's own voice where Apple's BNNS
+    /// bug would take the whole app down mid-reply.
+    static func localSpeakingClient() -> any TTSClient {
+        KokoroEngine.unsupportedReason == nil ? KokoroTTSClient() : MacOSSpeechSynthesizerClient()
+    }
+
     static func makeSpeakingClient(
         for provider: VoiceSpeakProvider,
         workerBaseURL: String
     ) -> any TTSClient {
         switch provider {
         case .macOS, .onDevice:
-            return KokoroTTSClient()
+            return localSpeakingClient()
         case .elevenLabs:
             return FallbackTTSClient(
                 primary: ElevenLabsVoiceClient(workerURL: "\(workerBaseURL)/tts"),
-                fallback: KokoroTTSClient()
+                fallback: localSpeakingClient()
             )
         }
     }
@@ -4053,7 +4068,8 @@ final class CompanionManager: ObservableObject {
                 wantsScreen: wantsScreen,
                 typedInsideHeyMate: typedInsideHeyMate,
                 frontmostIsHeyMate: frontmostIsHeyMate,
-                hasSpatialSelection: activeSpatialSelection != nil
+                hasSpatialSelection: activeSpatialSelection != nil,
+                actsOnScreen: TalkContextPolicy.asksToActOnScreen(transcript)
             ),
             imageAttachments: imageAttachments
         )
@@ -4065,6 +4081,12 @@ final class CompanionManager: ObservableObject {
         Task { [weak self] in
             try? await self?.voiceSynthesisClient.speakText(utterance)
         }
+    }
+
+    /// Tells the model the screen is missing and why, so it says so instead
+    /// of guessing at what the user is looking at.
+    nonisolated static func screenCaptureUnavailableNote(_ error: Error) -> String {
+        "Screen capture failed: \(error.localizedDescription) No live screen image is attached. Do not claim to see the screen; if the request needs it, tell the user the screen could not be captured and why."
     }
 
     /// Captures a screenshot, sends it along with the transcript to the
@@ -4086,13 +4108,19 @@ final class CompanionManager: ObservableObject {
             let focusedWindow = talkUsesFocusedWindowContext
             Task { [weak self] in
                 var images: [(data: Data, label: String)] = []
+                var unavailableNote: String?
                 if capturesScreen {
                     CaptureAudit.shared.recordCaptureAttempt(context: CaptureAudit.Context.talkResponsePipeline)
-                    let captures = (try? await (focusedWindow ? ScreenCapture.focusedWindow() : ScreenCapture.allScreens())) ?? []
-                    images += captures.map { (data: $0.imageData, label: $0.label) }
+                    do {
+                        let captures = try await focusedWindow ? ScreenCapture.focusedWindow() : ScreenCapture.allScreens()
+                        images += captures.map { (data: $0.imageData, label: $0.label) }
+                    } catch {
+                        HeyMateLog.log("📸 Talk steer: screen capture failed — \(error.localizedDescription)")
+                        unavailableNote = Self.screenCaptureUnavailableNote(error)
+                    }
                 }
                 images += imageAttachments.map { (data: $0.data, label: $0.modelLabel) }
-                do { try await client.steer(transcript, images: images) }
+                do { try await client.steer([transcript, unavailableNote].compactMap { $0 }.joined(separator: "\n\n"), images: images) }
                 catch { self?.commandBarFeedback = "That message could not join the running turn. Send it again when the turn ends." }
             }
             return
@@ -4159,7 +4187,8 @@ final class CompanionManager: ObservableObject {
                         guard !Task.isCancelled else { throw error }
                         // A text/file task must not fail because optional
                         // screen context is unavailable to the wrapper.
-                        contextUnavailableNote = "Screen capture is unavailable. No live screen image is attached; answer from the user's words and explicit attachments only."
+                        HeyMateLog.log("📸 Talk: screen capture failed — \(error.localizedDescription)")
+                        contextUnavailableNote = Self.screenCaptureUnavailableNote(error)
                         screenCaptures = []
                     }
                 }
@@ -4285,6 +4314,9 @@ final class CompanionManager: ObservableObject {
                     // Screen turns need the tag contract the guided-reply parser reads.
                     // A 3D model does not need a screenshot, and it is never a file.
                     + (screenCaptures.isEmpty ? "" : "\n\n" + CompanionPrompts.screenTools)
+                    // Guided playback runs [ACT:] directives; the model only
+                    // writes them if it is told the grammar exists.
+                    + (computerUseCoordinator.isEnabled ? "\n\n" + BehaviorContract.computerControlSection : "")
                     + "\n\n" + CompanionPrompts.explainerContract
 
                 let fullResponseText: String

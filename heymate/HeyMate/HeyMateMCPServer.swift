@@ -36,7 +36,8 @@ nonisolated enum HeyMateMCPServer {
         "heymate_speak",
         "heymate_screenshot",
         "heymate_clear",
-        "heymate_create_mate"
+        "heymate_create_mate",
+        "heymate_drive"
     ]
 
     /// heymate_* tools still only point, speak, and screenshot. An agent that
@@ -267,7 +268,8 @@ nonisolated enum HeyMateMCPServer {
     //
     // The bridge deliberately refuses click, drag, and type. This server does
     // not add them back: an agent may show the user where something is and
-    // say why, but it may not press it.
+    // say why, but it may not press it. The one way to act is heymate_drive,
+    // which only runs after the user presses Take over on HeyMate's own card.
 
     import { createInterface } from "node:readline";
     import { readFileSync } from "node:fs";
@@ -334,7 +336,8 @@ nonisolated enum HeyMateMCPServer {
             focused: { type: "boolean", description: "Frontmost window only. Default false." }
           }
         },
-        path: "/screenshot"
+        path: "/screenshot",
+        returnsImages: true
       },
       {
         name: "heymate_clear",
@@ -356,6 +359,25 @@ nonisolated enum HeyMateMCPServer {
         },
         path: "/mate/create",
         returnsResult: true
+      },
+      {
+        name: "heymate_drive",
+        description:
+          "Hand a multi-step GUI task in ONE Mac app to HeyMate's drive engine. HeyMate shows the user a consent card; only if they press Take over does it read the app window's accessibility tree and click/type step by step until the goal is true, then returns a status (done, blocked, handed_back, max_steps, declined, ...) and the steps it took. The user can take back control at any moment by moving the mouse. It never presses Send, Pay, Delete and similar. Use this instead of asking the user to click for you.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            goal: { type: "string", description: "ONE literal sentence of what should be true when done, e.g. \"the Reduce motion switch is on\"." },
+            app: { type: "string", description: "The app's name, e.g. Notes. Opened if not running. Omit for the app in front." },
+            never_press: { type: "array", items: { type: "string" }, description: "Extra labels that must never be pressed." },
+            values: { type: "object", additionalProperties: { type: "string" }, description: "Text to type, keyed by field label." },
+            success_contains: { type: "array", items: { type: "string" }, description: "Done as soon as every string appears in the window." },
+            max_steps: { type: "number", description: "Step cap. Default 25." }
+          },
+          required: ["goal"]
+        },
+        path: "/drive/offer",
+        drives: true
       }
     ];
 
@@ -422,6 +444,41 @@ nonisolated enum HeyMateMCPServer {
       } catch { return []; }
     }
 
+    // A capture is only useful if the agent can see it. Return each saved
+    // screen as image content, with the geometry it needs to point at what
+    // it sees. A file that vanished still leaves its path in the text.
+    function screenshotContent(raw) {
+      const parsed = JSON.parse(raw);
+      const screens = Array.isArray(parsed.screens) ? parsed.screens : [];
+      const images = [];
+      for (const screen of screens) {
+        try {
+          images.push({ type: "image", data: readFileSync(screen.path).toString("base64"), mimeType: "image/jpeg" });
+        } catch {}
+      }
+      return [{ type: "text", text: JSON.stringify(parsed) }, ...images];
+    }
+
+    // A drive waits on the user's yes and then on the app, so the call
+    // offers it and follows /drive/status until it ends.
+    async function runDrive(args) {
+      const offered = JSON.parse(await callBridge("/drive/offer", { ...args, origin: "agent" }));
+      const driveIdentifier = offered.driveIdentifier;
+      const deadline = Date.now() + 8 * 60 * 1000;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const status = JSON.parse(await callBridge("/drive/status", { driveIdentifier }));
+        if (status.finished && status.phase === "ended") {
+          return JSON.stringify({
+            status: status.status, succeeded: status.succeeded, summary: status.summary,
+            steps: status.steps, actionLog: status.actionLog
+          });
+        }
+      }
+      await callBridge("/drive/cancel", { driveIdentifier }).catch(() => {});
+      return JSON.stringify({ status: "cancelled", summary: "The drive took too long and was cancelled." });
+    }
+
     let talkToolNames = new Set();
 
     async function handleToolCall(id, params) {
@@ -449,7 +506,15 @@ nonisolated enum HeyMateMCPServer {
         }
 
         const body = { ...(params.arguments || {}) };
+        if (tool.drives) {
+          respond(id, { content: [{ type: "text", text: await runDrive(body) }] });
+          return;
+        }
         const raw = await callBridge(tool.path, body);
+        if (tool.returnsImages) {
+          respond(id, { content: screenshotContent(raw) });
+          return;
+        }
         // Overlay tools have nothing worth reading back. A tool that changes
         // the roster does: the agent needs the name HeyMate actually chose.
         respond(id, {

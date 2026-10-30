@@ -40,6 +40,31 @@ struct TalkContextPolicyTests {
         }
     }
 
+    @Test func browserAndOnScreenActionsKeepScreenContext() {
+        for phrase in [
+            "use the browser to find flights to lisbon",
+            "can you open chrome and check my inbox",
+            "go to my github notifications",
+            "search for the release notes",
+            "close the other tabs",
+            "hey mate, please open the website",
+        ] {
+            #expect(TalkContextPolicy.shouldCaptureScreen(for: phrase, hasSpatialSelection: false), "\(phrase)")
+            #expect(TalkContextPolicy.asksToActOnScreen(phrase), "\(phrase)")
+        }
+        #expect(!TalkContextPolicy.asksToActOnScreen("tell me a short joke"))
+        #expect(!TalkContextPolicy.asksToActOnScreen("explain database connection pooling"))
+    }
+
+    @Test func typedOnScreenActionInsideHeyMateStillCaptures() {
+        #expect(TalkContextPolicy.allowCapture(
+            wantsScreen: true,
+            typedInsideHeyMate: true,
+            frontmostIsHeyMate: true,
+            actsOnScreen: true
+        ))
+    }
+
     @Test func typedChatInsideHeyMateDoesNotCaptureHeyMate() {
         #expect(!TalkContextPolicy.allowCapture(
             wantsScreen: true,
