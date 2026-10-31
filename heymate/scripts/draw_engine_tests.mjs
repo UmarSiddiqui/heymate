@@ -109,11 +109,11 @@ test('statements end where the program means them to', () => {
 });
 
 test("a runtime error names the program's own line", () => {
-  assert.equal(run('dot(1, 1, 1)\nconst q = 2\nnope(q)\ndot(2, 2, 2)').error, 'code stopped at line 3: nope is not defined (kept the 1 marks before it)');
+  assert.equal(run('dot(1, 1, 1)\nconst q = 2\nnope(q)\ndot(2, 2, 2)').error, 'the code failed at line 3: nope is not defined (the 1 marks made before that stay)');
   // thrown inside a helper the program defined: the helper's line
-  assert.match(run('function h() {\n  return null.x\n}\ndot(1, 1, 1)\nh()').error, /^code stopped at line 2: /);
+  assert.match(run('function h() {\n  return null.x\n}\ndot(1, 1, 1)\nh()').error, /^the code failed at line 2: /);
   // a thrown value that is not an Error still reads (it has no stack, so no line)
-  assert.match(run("dot(1, 1, 1)\nthrow 'no ink'").error, /^code stopped: no ink /);
+  assert.match(run("dot(1, 1, 1)\nthrow 'no ink'").error, /^the code failed: no ink /);
   // a syntax error keeps the statements before it
   assert.deepEqual(run('dot(1, 1, 1);\nrect(1, 1, 2, 2);\ndot(oops').kinds, ['dot', 'rect']);
 });
@@ -156,7 +156,7 @@ test('a graph draws the part of a line that crosses the frame, and does not brid
   `, 800, 600);
   const lines = marks.filter(m => m.do === 'line' && m.piece === 'graph' && m.size === 4);
   const xy = line => Array.from(line.pts, p => [Math.round(p[0]), Math.round(p[1])]);
-  assert.equal(marks.warnings.join('\n'), 'graph: a line lies completely outside the graph ranges');
+  assert.equal(marks.warnings.join('\n'), 'graph: a line falls entirely outside the x and y ranges, so nothing of it is drawn');
   assert.equal(lines.length, 3);
   // from the left edge of the frame to the right, at y = 5
   assert.deepEqual(xy(lines[0]), [[40, 115], [240, 115]]);
@@ -184,13 +184,13 @@ test('a sandboxed figure can name a colour, and a failed surface does not name t
   onMessage({ data: { type: 'run', id: 2, code: "scene3d(40,40,200,160,s=>s.sphere({r:1,color:'red'}))\n", done: true } });
   const part = posted.at(-1).marks.find(m => m.do === 'part3d');
   assert.equal(posted.at(-1).error, null);
-  assert.equal(part.material.color, '#E5484D');
+  assert.equal(part.material.color, '#D74745');
   const missed = M.runCode(`
     const f = figure(40, 40, 200, 160, { card: false });
     const surf = f.surface(() => { throw new Error('boom'); }, { segments: 4, rows: 2 });
     f.sphere({ r: 0.2 });
   `, 800, 600);
-  assert.match(missed.warnings.join('\n'), /surface\(\) function failed: boom/);
+  assert.match(missed.warnings.join('\n'), /surface\(\): its function threw \(boom\)/);
   assert.equal(missed.find(m => m.kind === 'sphere').name, undefined);
 });
 

@@ -218,7 +218,7 @@
   // The things the canvas leaves to the app to draw. Each keeps its own pattern or clip inside it, so they leave with it.
   // A little Mac window, as the pieces describe it: board in the paper tone, a title bar washed with Mate's ink,
   // red and green buttons, the title in grey, and a faint grid or dots on the board.
-  const WINDOW = { corner: 10, header: 28, paper: '#FAF5EA', bar: '#E3E2E4', tint: '#0F7FFF', tintAlpha: 0.08, buttons: ['#FF736A', '#19C332'], title: '#7E838D' };
+  const WINDOW = { corner: 10, header: 28, paper: '#FAF5EA', bar: '#E3E2E4', tint: '#0F7FFF', tintAlpha: 0.08, buttons: ['#FF736A', '#19C332'], title: '#7D8088' };
   function paintWindow(a, n) {
     const x = +a.x, y = +a.y, w = +a.width, h = +a.height, head = +a['data-header'] || WINDOW.header, r = WINDOW.corner;
     const g = el('g', { 'data-window': '' });

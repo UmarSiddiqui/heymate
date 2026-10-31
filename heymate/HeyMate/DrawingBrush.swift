@@ -117,27 +117,27 @@ enum DrawingColor: Equatable, Sendable {
 
     var color: Color {
         switch self {
-        // matches ReferenceRenderer mate-draw-engine.js / mate-draw-pieces.js parameter default ink #3380FF.
+        // the default ink of mate-draw-engine.js and the pieces; the other colours are its TONES.
         case .mateInk: return Color(hex: "#3380FF")
         case .ink: return AppTheme.color
         case .white: return Color.white
-        case .grey: return Color(hex: "#7E838D")
-        case .butter: return Color(hex: "#FFD84D")
-        case .sun: return Color(hex: "#FFB930")
-        case .orange: return Color(hex: "#FF9A3C")
-        case .peach: return Color(hex: "#FFB59A")
-        case .coral: return Color(hex: "#F2706B")
-        case .red: return Color(hex: "#E5484D")
-        case .pink: return Color(hex: "#F59AB5")
-        case .lilac: return Color(hex: "#A897F5")
-        case .violet: return Color(hex: "#6E5BD8")
-        case .sky: return Color(hex: "#5AA8F5")
-        case .blue: return Color(hex: "#1F5FCC")
-        case .mint: return Color(hex: "#7ED6A0")
-        case .leaf: return Color(hex: "#3E9E5C")
-        case .brown: return Color(hex: "#A0673D")
-        case .tan: return Color(hex: "#D9A877")
-        case .cream: return Color(hex: "#FFF3D6")
+        case .grey: return Color(hex: "#7D8088")
+        case .butter: return Color(hex: "#FDDC5B")
+        case .sun: return Color(hex: "#FEC254")
+        case .orange: return Color(hex: "#FDA75D")
+        case .peach: return Color(hex: "#FDBCA6")
+        case .coral: return Color(hex: "#DC655F")
+        case .red: return Color(hex: "#D74745")
+        case .pink: return Color(hex: "#FD9CBA")
+        case .lilac: return Color(hex: "#9E91E4")
+        case .violet: return Color(hex: "#6B5AD4")
+        case .sky: return Color(hex: "#4BA3F7")
+        case .blue: return Color(hex: "#195CC7")
+        case .mint: return Color(hex: "#7AD59C")
+        case .leaf: return Color(hex: "#439458")
+        case .brown: return Color(hex: "#9A633B")
+        case .tan: return Color(hex: "#D6A270")
+        case .cream: return Color(hex: "#F6EED8")
         }
     }
 

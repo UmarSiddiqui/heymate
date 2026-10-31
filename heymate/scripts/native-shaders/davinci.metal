@@ -8,35 +8,40 @@
 #include <metal_stdlib>
 using namespace metal;
 
-// The layouts DaVinciMetalRenderer.swift packs, float by float.
-struct VertexIn { packed_float3 position; packed_float3 normal; packed_float2 uv; packed_float4 color; };
-struct FrameUniforms { float4x4 viewProjection; float4 eye; float4 style; };   // style: illustrated?, key light direction
-struct ObjectUniforms {
-    float4x4 model; float4 normal0; float4 normal1; float4 normal2;
-    float4 baseColor; float4 emissive;
-    float4 surface;   // roughness, metalness, opacity, band count
-    float4 flags;     // vertex colours?, flat?, double sided?, -
-    float4 cut;       // plane normal and offset: what lies beyond it is cut away
-    float4 bands[16]; // colours of horizontal bands, top to bottom
+// The layouts DaVinciMetalRenderer.swift packs, float by float (it fills them in this order; the names are ours).
+// One corner of a mesh.
+struct MeshVertex { packed_float3 at; packed_float3 facing; packed_float2 texcoord; packed_float4 tint; };
+// The camera: world to clip space, where the eye is, and the look (x: 1 illustrated, 0 studio; yzw: toward the key light).
+struct View { float4x4 toClip; float4 eye; float4 look; };
+// One part: where it is (and its normals' turn, a 3x3 in three rows), its colours and finish, and what it does.
+struct Part {
+    float4x4 placement; float4 turnRow0; float4 turnRow1; float4 turnRow2;
+    float4 colour; float4 glow;
+    float4 finish;      // roughness, metalness, opacity, number of stripes
+    float4 options;     // uses vertex colours?, flat?, both sides?, unused
+    float4 cutPlane;    // the plane's normal and offset: what lies past it is cut away
+    float4 stripes[16]; // the colours of its horizontal stripes, top to bottom
 };
-struct VertexOut {
-    float4 position [[position]];
-    float3 worldPosition; float3 normal; float2 uv; float4 color;
+// A point on a part's surface, between the two stages.
+struct Surface {
+    float4 clip [[position]];
+    float3 world; float3 normal; float2 texcoord; float4 tint;
 };
 
-vertex VertexOut mate_vertex(uint vertexID [[vertex_id]],
-                             const device VertexIn *vertices [[buffer(0)]],
-                             constant FrameUniforms &frame [[buffer(1)]],
-                             constant ObjectUniforms &object [[buffer(2)]]) {
-    VertexIn v = vertices[vertexID];
-    float4 world = object.model * float4(float3(v.position), 1.0);
-    VertexOut out;
-    out.position = frame.viewProjection * world;
-    out.worldPosition = world.xyz;
-    out.normal = normalize(float3x3(object.normal0.xyz, object.normal1.xyz, object.normal2.xyz) * float3(v.normal));
-    out.uv = float2(v.uv);
-    out.color = float4(v.color);
-    return out;
+vertex Surface mate_vertex(uint index [[vertex_id]],
+                           const device MeshVertex *mesh [[buffer(0)]],
+                           constant View &view [[buffer(1)]],
+                           constant Part &part [[buffer(2)]]) {
+    MeshVertex corner = mesh[index];
+    float3x3 turn = float3x3(part.turnRow0.xyz, part.turnRow1.xyz, part.turnRow2.xyz);
+    Surface s;
+    float4 world = part.placement * float4(float3(corner.at), 1.0);
+    s.world = world.xyz;
+    s.clip = view.toClip * world;
+    s.normal = normalize(turn * float3(corner.facing));
+    s.texcoord = float2(corner.texcoord);
+    s.tint = float4(corner.tint);
+    return s;
 }
 
 // ---- shared with mate-stage3d.js ----
@@ -130,35 +135,31 @@ float4 shade_surface(float3 position, float3 normal, bool front, float3 eye, flo
 }
 // ---- end shared ----
 
-// The colour of the band a point is in (the parts' horizontal stripes), white without bands.
-float3 band_colour(float2 uv, constant ObjectUniforms &object) {
-    int count = int(object.surface.w);
+// The colour of the stripe a point is in (white for a part without stripes).
+float3 stripe_colour(float2 texcoord, constant Part &part) {
+    int count = int(part.finish.w);
     if (count <= 0) return float3(1.0);
-    int band = clamp(int(floor((1.0 - uv.y) * float(count))), 0, count - 1);
-    return object.bands[band].rgb;
+    return part.stripes[clamp(int(floor((1.0 - texcoord.y) * float(count))), 0, count - 1)].rgb;
 }
 
-float4 mate_shade(VertexOut in, bool front, constant FrameUniforms &frame, constant ObjectUniforms &object) {
-    float3 colour = object.baseColor.rgb * band_colour(in.uv, object);
-    if (object.flags.x > 0.5) colour *= in.color.rgb;
-    return shade_surface(in.worldPosition, in.normal, front, frame.eye.xyz, frame.style,
-                         colour, object.emissive.rgb, object.surface, object.flags) * float4(1.0, 1.0, 1.0, object.baseColor.a);
+float4 mate_shade(Surface in, bool front, constant View &view, constant Part &part) {
+    float3 colour = part.colour.rgb * stripe_colour(in.texcoord, part) * (part.options.x > 0.5 ? in.tint.rgb : float3(1.0));
+    float4 shaded = shade_surface(in.world, in.normal, front, view.eye.xyz, view.look, colour, part.glow.rgb, part.finish, part.options);
+    return float4(shaded.rgb, shaded.a * part.colour.a);
 }
 
 // Each part's id, for the ink. A cut part stops at its cut, and the inside seen through the opening gets an id of
 // its own (the high bit), so the pen also draws round the cut face.
-fragment uint mate_part_id_fragment(VertexOut in [[stage_in]], bool front [[front_facing]],
-                                    constant ObjectUniforms &object [[buffer(2)]], constant uint &identifier [[buffer(3)]]) {
-    if (dot(object.cut.xyz, object.cut.xyz) > 0.25) {
-        if (dot(in.worldPosition, object.cut.xyz) > object.cut.w) discard_fragment();
-        if (!front && object.flags.z < 0.5) return identifier | 0x80000000u;
-    }
-    return identifier;
+fragment uint mate_part_id_fragment(Surface in [[stage_in]], bool front [[front_facing]],
+                                    constant Part &part [[buffer(2)]], constant uint &identifier [[buffer(3)]]) {
+    bool cut = dot(part.cutPlane.xyz, part.cutPlane.xyz) > 0.25;
+    if (cut && dot(in.world, part.cutPlane.xyz) > part.cutPlane.w) discard_fragment();
+    return cut && !front && part.options.z < 0.5 ? (identifier | 0x80000000u) : identifier;
 }
 
 // The ink: one triangle over the whole target. A pixel near a change of part id is inked: near the figure's edge
 // (a part against nothing) in the ink colour, near a seam between parts as a shade of the parts' own colour.
-struct InkUniforms { float4 color; float halfWidth; float seamHalfWidth; float seamStrength; float seamShade; };
+struct Pen { float4 ink; float halfWidth; float seamHalfWidth; float seamStrength; float seamShade; };
 
 vertex float4 mate_ink_vertex(uint vid [[vertex_id]]) {
     return float4(vid == 1 ? 3.0 : -1.0, vid == 2 ? 3.0 : -1.0, 0.0, 1.0);
@@ -166,16 +167,16 @@ vertex float4 mate_ink_vertex(uint vid [[vertex_id]]) {
 
 // How far the nearest edge (x) and the nearest seam (y) are, in pixels. `offsets` lists the pixels round this one
 // (x, y, distance), nearest first, so the search stops once both are found or nothing further could be inked.
-float2 nearest_changes(int2 p, float reach, constant float4 *offsets, uint count, bool readsClear,
-                       texture2d<uint> opaqueIDs, texture2d<uint> clearIDs) {
-    int2 last = int2(opaqueIDs.get_width(), opaqueIDs.get_height()) - 1;
-    uint here = opaqueIDs.read(uint2(p)).r, hereClear = readsClear ? clearIDs.read(uint2(p)).r : 0u;
+float2 nearest_changes(int2 p, float reach, constant float4 *offsets, uint count, bool hasClearLayer,
+                       texture2d<uint> solidParts, texture2d<uint> clearParts) {
+    int2 last = int2(solidParts.get_width(), solidParts.get_height()) - 1;
+    uint here = solidParts.read(uint2(p)).r, hereClear = hasClearLayer ? clearParts.read(uint2(p)).r : 0u;
     float2 nearest = float2(1e9);
     for (uint i = 0; i < count; i++) {
         float4 o = offsets[i];
         if (o.z > reach || (nearest.x < 1e9 && nearest.y < 1e9)) break;
         uint2 q = uint2(clamp(p + int2(o.xy), int2(0), last));
-        uint there = opaqueIDs.read(q).r, thereClear = readsClear ? clearIDs.read(q).r : 0u;
+        uint there = solidParts.read(q).r, thereClear = hasClearLayer ? clearParts.read(q).r : 0u;
         if (there == here && thereClear == hereClear) continue;
         if ((there == 0u) != (here == 0u)) nearest.x = min(nearest.x, o.z);
         else nearest.y = min(nearest.y, o.z);
@@ -184,17 +185,18 @@ float2 nearest_changes(int2 p, float reach, constant float4 *offsets, uint count
 }
 
 // Ink over what is there, seams darkening it: blended as colour + destination * factor (dual-source).
-struct InkAndSeam { float4 color [[color(0), index(0)]]; float4 factor [[color(0), index(1)]]; };
-fragment InkAndSeam mate_ink_and_seam_fragment(float4 position [[position]], constant InkUniforms &u [[buffer(0)]],
+struct InkBlend { float4 add [[color(0), index(0)]]; float4 keep [[color(0), index(1)]]; };
+fragment InkBlend mate_ink_and_seam_fragment(float4 position [[position]], constant Pen &u [[buffer(0)]],
                                                constant float4 *offsets [[buffer(1)]], constant uint &count [[buffer(2)]],
-                                               constant uint &readsClear [[buffer(3)]],
-                                               texture2d<uint> opaqueIDs [[texture(0)]], texture2d<uint> clearIDs [[texture(1)]]) {
+                                               constant uint &hasClearLayer [[buffer(3)]],
+                                               texture2d<uint> solidParts [[texture(0)]], texture2d<uint> clearParts [[texture(1)]]) {
     float reach = max(u.halfWidth, u.seamStrength > 0.0 ? u.seamHalfWidth : 0.0) + 1.0;
-    float2 nearest = nearest_changes(int2(position.xy), reach, offsets, count, readsClear != 0u, opaqueIDs, clearIDs);
-    float4 ink = u.color * saturate(u.halfWidth + 1.0 - nearest.x);
-    float shade = 1.0 - u.seamStrength * (1.0 - u.seamShade) * saturate(u.seamHalfWidth + 1.0 - nearest.y);
-    InkAndSeam out;
-    out.color = float4(ink.rgb * shade, ink.a);
-    out.factor = float4(float3((1.0 - ink.a) * shade), 1.0 - ink.a);
-    return out;
+    float2 nearest = nearest_changes(int2(position.xy), reach, offsets, count, hasClearLayer != 0u, solidParts, clearParts);
+    float4 ink = u.ink * saturate(u.halfWidth + 1.0 - nearest.x);
+    float seam = 1.0 - u.seamStrength * (1.0 - u.seamShade) * saturate(u.seamHalfWidth + 1.0 - nearest.y);
+    float through = 1.0 - ink.a;
+    InkBlend blend;
+    blend.add = float4(ink.rgb * seam, ink.a);
+    blend.keep = float4(through * seam, through * seam, through * seam, through);
+    return blend;
 }

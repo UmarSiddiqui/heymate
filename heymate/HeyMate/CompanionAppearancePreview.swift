@@ -10,6 +10,29 @@ enum CompanionAppearancePreview {
         CGSize(width: 740, height: CommandLine.arguments.contains("--appearance-updates") ? 700 : 560)
     }
     static func render(to path: String) throws {
+        if let index = CommandLine.arguments.firstIndex(of: "--appearance-account"),
+           CommandLine.arguments.indices.contains(index + 1) {
+            let mode = CommandLine.arguments[index + 1]
+            let account = HeyMateAccount.designPreview(verification: mode == "verify")
+            let view = AccountGateView(account: account)
+                .frame(width: 520, height: 550)
+            let host = NSHostingView(rootView: view)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 550),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.appearance = NSAppearance(named: .darkAqua)
+            window.contentView = host
+            host.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            guard let png = bitmap.representation(using: .png, properties: [:]) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            try png.write(to: URL(fileURLWithPath: path))
+            return
+        }
         let content: AnyView
         if CommandLine.arguments.contains("--appearance-report") {
             let update = AppearanceFixture().resultUpdate

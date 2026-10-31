@@ -177,6 +177,7 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
   if (method === "Page.navigatedWithinDocument" && [undefined, params?.frameId].includes(mainFrames.get(source.tabId))) bridge.invalidate(source.tabId);
   if (method === "Page.javascriptDialogOpening") bridge.dialogOpened(source.tabId, params);
   if (method === "Page.javascriptDialogClosed") bridge.dialogClosed(source.tabId);
+  if (method === "Page.downloadWillBegin") bridge.downloadWillBegin(source.tabId, params);
   if (method === "Page.fileChooserOpened") bridge.fileChooserOpened(source.tabId, params);
   if (method.startsWith("Network.")) bridge.network(source.tabId, method, params);
 });
@@ -185,8 +186,11 @@ chrome.tabs.onUpdated.addListener((tabId, change) => { if (change.url || change.
 chrome.tabs.onRemoved.addListener((tabId) => bridge.removed(tabId));
 chrome.downloads?.onCreated.addListener(item => bridge.downloadStarted(item));
 chrome.downloads?.onDeterminingFilename.addListener((item, suggest) => {
-  const name = bridge.determineFilename(item);
-  if (name) suggest({ ...name, filename: name.filename.replace(/^ReferenceRenderer\//, "HeyMate/") }); else suggest();
+  const finish = name => {
+    if (name) suggest({ ...name, filename: name.filename.replace(/^ReferenceRenderer\//, "HeyMate/") }); else suggest();
+  };
+  bridge.filenameFor(item).then(finish, () => suggest());
+  return true;
 });
 
 chrome.runtime.onInstalled.addListener(connect);

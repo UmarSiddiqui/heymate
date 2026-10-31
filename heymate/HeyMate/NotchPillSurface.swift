@@ -318,7 +318,7 @@ struct NotchPillView: View {
     }
 }
 
-private struct NotchSpeakingWaveform: View {
+struct NotchSpeakingWaveform: View {
     let reduceMotion: Bool
 
     var body: some View {
@@ -367,7 +367,8 @@ struct NotchSpeakingRings: View {
 /// Five-bar mic meter. Heights come straight from the published power
 /// level with a per-bar weighting, so the bars move because audio moved —
 /// not because a 24fps clock ticked. Only instantiated while listening.
-private struct NotchLiveWaveform: View {
+struct NotchLiveWaveform: View {
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     let audioPowerLevel: CGFloat
     let themeColor: Color
 
@@ -387,7 +388,7 @@ private struct NotchLiveWaveform: View {
                     .cueMotion(.listenStart, part: .item(barIndex))
             }
         }
-        .animation(.easeOut(duration: 0.09), value: audioPowerLevel)
+        .animation(accessibilityReduceMotion ? nil : .easeOut(duration: 0.09), value: audioPowerLevel)
     }
 
     private func height(forWeight weight: CGFloat) -> CGFloat {

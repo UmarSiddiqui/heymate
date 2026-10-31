@@ -12,6 +12,7 @@ import AppKit
 import SwiftUI
 
 struct NotchCaptionCard: View {
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @ObservedObject var companionManager: CompanionManager
     var occludedTopInset: CGFloat = 0
     var layoutSize: CGSize = .zero
@@ -99,9 +100,25 @@ struct NotchCaptionCard: View {
 
     @ViewBuilder
     private var voiceGlyph: some View {
-        if companionManager.voiceState == .responding {
-            NotchSpeakingRings(themeColor: companionManager.themeColor)
-        } else {
+        // The caption replaces the compact panel, so it must carry the same
+        // voice feedback while the compact panel is hidden.
+        switch companionManager.voiceState {
+        case .listening:
+            NotchLiveWaveform(
+                audioPowerLevel: companionManager.currentAudioPowerLevel,
+                themeColor: companionManager.themeColor
+            )
+        case .responding:
+            if companionManager.isSilentModeEnabled {
+                Image(systemName: "text.bubble")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(companionManager.themeColor)
+            } else {
+                NotchSpeakingWaveform(reduceMotion: accessibilityReduceMotion)
+            }
+        case .processing:
+            NotchBrandMark()
+        case .idle:
             Circle()
                 .fill(companionManager.themeColor)
                 .frame(width: 6, height: 6)

@@ -334,7 +334,7 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
       spin: cameraSpec.spin ?? 0.7, yaw: 0,
       parts: new Map(), partOf: new Set(), pending: [], motions: [], labelList: [], ticks: [],
       born: performance.now(), look, radius: 1, centre: new THREE.Vector3(),
-      ink: element.getAttribute('data-ink') || '#30333A', key, floor,
+      ink: element.getAttribute('data-ink') || '#2B2E34', key, floor,
     };
     if (nativeMetal) {
       renderer.stage = stage;

@@ -26,6 +26,9 @@ struct SettingsPrivacyPane: View {
 
     var body: some View {
         SettingsPage(tab: .privacy, navigation: navigation) {
+            SettingsSection("HeyMate account") {
+                AccountPreferencesView(account: HeyMateAccount.shared)
+            }
             screenCaptureSection
             chatsAndMemorySection
             analyticsSection

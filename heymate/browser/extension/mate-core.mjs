@@ -173,6 +173,8 @@ export class BrowserBridge {
       save: value => api.storage.session.set({ [storageKey]: value }),
     } : null);
     this.colors = new Map(); this.dialogWaits = new Map();
+    this.deadlines = new Map(); this.cleanups = new Map();
+    this.downloadHints = new Map(); this.unmatchedDownloads = new Map();
   }
   owner(task) { return this.owners.get(task) ?? task; }
   assert(task) {
@@ -224,17 +226,54 @@ export class BrowserBridge {
     await this.persist();
     return { closed };
   }
-  async release(id, task) {
+  // Racing a promise does not cancel Chrome's work. Expired turns are stopped
+  // before cleanup, so late replies cannot run subsequent steps or be replayed.
+  bounded(work, deadline, message = 'Browser action timed out. Outcome may be unknown; inspect the page before retrying.') {
+    return new Promise((resolve, reject) => {
+      const expire = () => { const error = Error(message); error.code = 'HEYMATE_BROWSER_TIMEOUT'; reject(error); };
+      const remaining = deadline - this.now();
+      if (remaining <= 0) { expire(); return; }
+      const timer = setTimeout(expire, remaining);
+      Promise.resolve().then(work).then(resolve, reject).finally(() => clearTimeout(timer));
+    });
+  }
+  async release(id, task, expired = false) {
     if (this.claims.get(id) !== task) return;
     this.claims.delete(id);
     const state = this.tabs.get(id);
+    this.tabs.delete(id); this.view.forget(id); this.dialogWaits.delete(id);
     if (!state) return;
-    this.tabs.delete(id); this.view.forget(id);
-    if (state.attached) {
-      if (state.world != null) await this.api.debugger.sendCommand({ tabId: id }, 'Runtime.evaluate', { contextId: state.world, expression: `(${pageMonitor})('remove')`, returnByValue: true }).catch(() => {});
-      await this.api.debugger.sendCommand({ tabId: id }, 'Runtime.evaluate', { expression: "for (const n of document.querySelectorAll('heymate-cursor')) n.remove()", returnByValue: true }).catch(() => {});
-      await this.api.debugger.detach({ tabId: id }).catch(() => {});
-    }
+    // Keep the tab unavailable until detach actually finishes. A late attach or
+    // detach must not interfere with a new task's debugger session.
+    const entry = { state };
+    const cleanup = Promise.resolve().then(async () => {
+      if (state.attaching) {
+        try { await state.attachment; } catch { return; }
+      }
+      if (!state.attached) return;
+      if (!expired && !this.dialogs.has(id)) {
+        const expressions = [
+          ...(state.world == null ? [] : [{ contextId: state.world, expression: `(${pageMonitor})('remove')` }]),
+          { expression: "for (const n of document.querySelectorAll('heymate-cursor')) n.remove()" },
+        ];
+        for (const params of expressions) {
+          if (!state.attached) return;
+          await this.bounded(
+            () => this.api.debugger.sendCommand({ tabId: id }, 'Runtime.evaluate', { ...params, returnByValue: true }),
+            this.now() + 200).catch(() => {});
+        }
+      }
+      if (state.attached) {
+        try { await this.api.debugger.detach({ tabId: id }); }
+        catch (error) { if (state.attached) throw error; }
+      }
+    });
+    entry.promise = cleanup;
+    this.cleanups.set(id, entry);
+    cleanup.then(() => {
+      if (this.cleanups.get(id) === entry) this.cleanups.delete(id);
+    }, () => { /* Keep quarantined on detach failure; do not attach another task. */ });
+    await this.bounded(() => cleanup, this.now() + 800).catch(() => {});
   }
   invalidate(id) {
     const state = this.tabs.get(id);
@@ -243,8 +282,9 @@ export class BrowserBridge {
   }
   removed(id) { this.ownedTabs.delete(id); this.kept.delete(id); this.claims.delete(id); this.tabs.delete(id); this.dialogs.delete(id); void this.persist(); }
   detached(id, reason) {
-    const state = this.tabs.get(id);
-    if (state) { state.attached = false; this.invalidate(id); this.stopped.add(state.task); this.stopReasons.set(state.task, `Chrome debugger detached (${reason}).`); }
+    const active = this.tabs.get(id), state = active ?? this.cleanups.get(id)?.state;
+    if (state) state.attached = false;
+    if (active) { this.invalidate(id); this.stopped.add(active.task); this.stopReasons.set(active.task, `Chrome debugger detached (${reason}).`); }
   }
   // A page dialog stops the page's scripts, and Chrome answers the input that opened it only once it closes: input
   // waits for its reply or for a dialog, whichever comes first (dialogShown).
@@ -286,9 +326,11 @@ export class BrowserBridge {
   }
   async claim(task, id) {
     this.assert(task);
+    if (this.cleanups.has(id)) throw Error('Tab debugger cleanup is pending. Use another tab or reconnect after cleanup.');
     const owner = this.owner(task), other = this.claims.get(id), owned = this.ownedTabs.get(id);
     if ((other && other !== task && this.tasks.has(other)) || (owned && owned !== owner && [...this.tasks].some(t => this.owner(t) === owned))) throw Error('Tab belongs to another running browser task.');
     if (other && other !== task) await this.release(id, other);
+    if (this.cleanups.has(id)) throw Error('Tab debugger cleanup is pending. Use another tab or reconnect after cleanup.');
     this.assert(task); this.claims.set(id, task);
   }
   async tab(task, id) {
@@ -300,7 +342,11 @@ export class BrowserBridge {
     let state = this.tabs.get(id);
     if (!state) { state = { task, attached: false, epoch: 0, refs: new Map(), refIds: new Map(), world: null, human: null }; this.tabs.set(id, state); }
     if (!state.attached) {
-      await this.api.debugger.attach({ tabId: id }, '1.3'); state.attached = true;
+      state.attaching = true;
+      state.attachment = Promise.resolve().then(() => this.api.debugger.attach({ tabId: id }, '1.3'));
+      try { await state.attachment; state.attached = true; }
+      finally { state.attaching = false; }
+      this.assert(task);
       try {
         for (const method of ['Page.enable', 'DOM.enable', 'Runtime.enable', 'Accessibility.enable', 'Network.enable']) await this.command(task, id, method);
       } catch (error) { await this.release(id, task); throw error; }
@@ -310,7 +356,9 @@ export class BrowserBridge {
   async command(task, id, method, params = {}) {
     this.assert(task);
     if (this.claims.get(id) !== task) throw Error('Tab claim changed. Read the page again.');
-    const result = await this.api.debugger.sendCommand({ tabId: id }, method, params);
+    const result = await this.bounded(
+      () => { this.assert(task); return this.api.debugger.sendCommand({ tabId: id }, method, params); },
+      this.deadlines.get(id) ?? this.now() + this.limits.single);
     this.assert(task); return result;
   }
   async world(task, id, state) {
@@ -456,7 +504,16 @@ export class BrowserBridge {
     this.assert(task);
     if (request.owner != null && (typeof request.owner !== 'string' || !request.owner)) throw Error('Invalid browser owner.');
     if (this.owners.has(task) && request.owner != null && this.owner(task) !== request.owner) throw Error('Task owner cannot change.');
-    this.owners.set(task, request.owner ?? this.owner(task)); this.tasks.add(task);
+    const owner = request.owner ?? this.owner(task);
+    const newTurn = !this.tasks.has(task) && ![...this.tasks].some(other => this.owner(other) === owner);
+    this.owners.set(task, owner); this.tasks.add(task);
+    // A keep belongs to the turn that requested it. Persisted marks survive a
+    // worker restart, but must be renewed when this owner begins another turn.
+    if (newTurn) {
+      let changed = false;
+      for (const id of this.kept.keys()) if (this.ownedTabs.get(id) === owner) { this.kept.delete(id); changed = true; }
+      if (changed) { await this.persist(); this.assert(task); }
+    }
     if (typeof request.cursorColor === 'string') this.colors.set(task, request.cursorColor);
     if (request.operation === 'tabs') {
       const current = await this.current(), tabs = await this.api.tabs.query({}); this.assert(task);
@@ -477,29 +534,49 @@ export class BrowserBridge {
       await this.api.tabs.remove(id); this.removed(id); return { closed: id };
     }
     return this.queued(id, async () => {
-      const state = await this.tab(task, id), deadline = this.now() + (request.operation === 'batch' ? this.limits.batch : this.limits.single);
-      if (request.operation === 'snapshot') return this.snapshot(task, id, state, deadline);
-      if (request.operation === 'extract') return this.evaluate(task, id, state, readPage);
-      const steps = request.operation === 'batch' ? request.steps : [request];
-      if (!Array.isArray(steps) || !steps.length || steps.length > this.limits.batchSteps) throw Error('Batch needs 1–20 steps.');
-      const results = []; let error;
-      for (const step of steps) {
-        try {
-          this.assert(task);
-          if (this.now() >= deadline) throw Error('Browser action time limit reached. Verify page before retrying.');
-          if (step.operation !== 'dialog' && this.dialogs.has(id)) throw Error('A page dialog is open. Answer it explicitly first.');
-          const value = await this.act({ ...step, task, tabId: id, opened }, state, deadline);
-          results.push({ operation: step.operation, ...value });
-          if (!this.dialogs.has(id)) await this.settle(task, id, state, deadline);
-        } catch (failure) { error = failure.message; results.push({ operation: step.operation, error }); break; }
-      }
-      const out = { tabId: id, steps: results, ...(error ? { error } : {}) };
-      if (!this.stopped.has(task) && !this.dialogs.has(id)) {
-        try { out.snapshot = await this.snapshot(task, id, state, deadline); }
-        catch (failure) { out.snapshotError = failure.message; }
-      }
-      return out;
+      const deadline = this.now() + (request.operation === 'batch' ? this.limits.batch : this.limits.single);
+      this.deadlines.set(id, deadline);
+      try {
+        return await this.bounded(() => this.runTab(request, id, opened, deadline), deadline);
+      } catch (error) {
+        if (error.code === 'HEYMATE_BROWSER_TIMEOUT') {
+          this.stopped.add(task); this.stopReasons.set(task, error.message);
+          this.invalidate(id);
+          await this.release(id, task, true);
+        }
+        throw error;
+      } finally { this.deadlines.delete(id); }
     });
+  }
+  async runTab(request, id, opened, deadline) {
+    const task = request.task, state = await this.tab(task, id);
+    if (request.operation === 'snapshot') return this.snapshot(task, id, state, deadline);
+    if (request.operation === 'extract') return this.evaluate(task, id, state, readPage);
+    const steps = request.operation === 'batch' ? request.steps : [request];
+    if (!Array.isArray(steps) || !steps.length || steps.length > this.limits.batchSteps) throw Error('Batch needs 1–20 steps.');
+    const results = []; let error;
+    for (const step of steps) {
+      try {
+        this.assert(task);
+        if (this.now() >= deadline) throw Error('Browser action time limit reached. Verify page before retrying.');
+        if (step.operation !== 'dialog' && this.dialogs.has(id)) throw Error('A page dialog is open. Answer it explicitly first.');
+        const value = await this.act({ ...step, task, tabId: id, opened }, state, deadline);
+        results.push({ operation: step.operation, ...value });
+        if (!this.dialogs.has(id)) await this.settle(task, id, state, deadline);
+      } catch (failure) {
+        if (failure.code === 'HEYMATE_BROWSER_TIMEOUT') throw failure;
+        error = failure.message; results.push({ operation: step.operation, error }); break;
+      }
+    }
+    const out = { tabId: id, steps: results, ...(error ? { error } : {}) };
+    if (!this.stopped.has(task) && !this.dialogs.has(id)) {
+      try { out.snapshot = await this.snapshot(task, id, state, deadline); }
+      catch (failure) {
+        if (failure.code === 'HEYMATE_BROWSER_TIMEOUT') throw failure;
+        out.snapshotError = failure.message;
+      }
+    }
+    return out;
   }
   async act(request, state, deadline) {
     const { task, tabId: id, operation } = request;
@@ -571,12 +648,46 @@ export class BrowserBridge {
     }
     throw Error(`Unsupported browser operation: ${operation}`);
   }
+  // Page.downloadWillBegin identifies the debugger's tab; DownloadItem does
+  // not. Match its URL only while that tab has recent input from a live task.
+  // No referrer-only guessing: identical URLs across tabs remain ambiguous.
+  downloadWillBegin(id, event) {
+    const state = this.tabs.get(id), task = this.claims.get(id), now = this.now();
+    if (!state || !task || !this.tasks.has(task) || this.stopped.has(task)
+        || !Number.isFinite(state.inputAt) || now - state.inputAt < 0 || now - state.inputAt > 1500
+        || typeof event?.guid !== 'string' || typeof event.url !== 'string') return;
+    this.downloadHints.set(event.guid, { task, url: event.url, at: now });
+  }
   downloadStarted(item) {
-    const pending = this.pendingDownloads.get(item.finalUrl || item.url) ?? this.pendingDownloads.get(item.url);
-    if (pending) this.downloads.set(item.id, { task: pending.task, item });
-    else if (Number.isInteger(item.tabId)) {
-      const task = this.claims.get(item.tabId);
-      if (task && this.tasks.has(task) && this.now() - (this.tabs.get(item.tabId)?.inputAt ?? 0) < 1500) this.downloads.set(item.id, { task, item });
+    if (this.downloads.has(item.id)) return;
+    const now = this.now();
+    for (const [guid, hint] of this.downloadHints) if (now - hint.at > 1500) this.downloadHints.delete(guid);
+    for (const [id, record] of this.unmatchedDownloads) if (now - record.at > 1500) this.unmatchedDownloads.delete(id);
+    const active = task => this.tasks.has(task) && !this.stopped.has(task);
+    const urls = new Set([item.url, item.finalUrl].filter(Boolean));
+    const pending = [...urls].map(url => this.pendingDownloads.get(url)).filter(value => value && active(value.task));
+    if (pending.length) {
+      if (new Set(pending.map(value => value.task)).size === 1) this.downloads.set(item.id, { task: pending[0].task, item });
+      return;
+    }
+    const hints = [...this.downloadHints.entries()].filter(([, hint]) => active(hint.task) && urls.has(hint.url));
+    // Also refuse when two Chrome downloads could consume the same page event.
+    if (!this.unmatchedDownloads.has(item.id)) this.unmatchedDownloads.set(item.id, { item, at: now });
+    const candidates = [...this.unmatchedDownloads.values()].filter(record =>
+      [record.item.url, record.item.finalUrl].some(url => urls.has(url)));
+    if (hints.length !== 1 || candidates.length !== 1) return;
+    const [guid, hint] = hints[0];
+    this.downloads.set(item.id, { task: hint.task, item });
+    this.downloadHints.delete(guid); this.unmatchedDownloads.delete(item.id);
+  }
+  async filenameFor(item) {
+    // Chrome's onCreated and the debugger's event can arrive in either order.
+    // onDeterminingFilename allows an asynchronous suggestion via return true.
+    for (let attempt = 0; attempt <= 10; attempt++) {
+      this.downloadStarted(item);
+      const suggestion = this.determineFilename(item);
+      if (suggestion || attempt === 10) return suggestion;
+      await pause(25);
     }
   }
   determineFilename(item) {

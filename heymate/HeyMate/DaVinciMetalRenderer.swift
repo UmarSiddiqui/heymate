@@ -26,13 +26,13 @@ final class DaVinciMetalContext {
         samples = device.supportsTextureSampleCount(4) ? 4 : 1
         // Color and ID passes must clip the same surfaces: the colour pass adds cut-away coverage and a hatched interior.
         let adapter = """
-        fragment float4 heymate_surface(VertexOut in [[stage_in]], bool front [[front_facing]],
-             constant FrameUniforms &frame [[buffer(1)]], constant ObjectUniforms &object [[buffer(2)]]) {
-            bool cut = dot(object.cut.xyz, object.cut.xyz) > 0.25;
-            if (cut && dot(in.worldPosition, object.cut.xyz) > object.cut.w) discard_fragment();
-            float4 color = mate_shade(in, front, frame, object);
-            if (cut && !front && object.flags.z < 0.5) {
-                float hatch = smoothstep(0.35, 0.65, fract((in.position.x + in.position.y) / 7.0));
+        fragment float4 heymate_surface(Surface in [[stage_in]], bool front [[front_facing]],
+             constant View &view [[buffer(1)]], constant Part &part [[buffer(2)]]) {
+            bool cut = dot(part.cutPlane.xyz, part.cutPlane.xyz) > 0.25;
+            if (cut && dot(in.world, part.cutPlane.xyz) > part.cutPlane.w) discard_fragment();
+            float4 color = mate_shade(in, front, view, part);
+            if (cut && !front && part.options.z < 0.5) {
+                float hatch = smoothstep(0.35, 0.65, fract((in.clip.x + in.clip.y) / 7.0));
                 color.rgb *= mix(0.52, 0.78, hatch);
             }
             return color;

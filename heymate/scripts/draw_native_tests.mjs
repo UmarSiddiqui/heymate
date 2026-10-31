@@ -90,7 +90,7 @@ test('marks are painted as their lines are heard, and the button waits for its b
 test("errors point at the program's own lines, not the pieces before it", () => {
   const c = canvas();
   c.call('beginStream', { w: 1280, h: 800, width: 1280 });
-  assert.match(JSON.parse(c.call('feed', { code: 'step(1);say("x");ring(10, 10, 50, 20, "ok");\nring(oops', done: true })).error, /^syntax error after line 1:/);
+  assert.match(JSON.parse(c.call('feed', { code: 'step(1);say("x");ring(10, 10, 50, 20, "ok");\nring(oops', done: true })).error, /^the code does not parse after line 1:/);
   // (a runtime error's line comes from the JavaScript engine's stack text, which differs between runtimes)
 });
 

@@ -1,0 +1,21 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /accountPreferences/{uid} {
+      function owner() {
+        return request.auth != null
+          && request.auth.uid == uid
+          && request.auth.token.email_verified == true;
+      }
+      allow get: if owner();
+      allow create, update: if owner()
+        && request.resource.data.keys().hasAll(['releaseEmails', 'consentVersion', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['releaseEmails', 'consentVersion', 'updatedAt'])
+        && request.resource.data.releaseEmails is bool
+        && request.resource.data.consentVersion == 1
+        && request.resource.data.updatedAt == request.time;
+      // No client list, deletion, account administration, or cross-user access.
+      allow list, delete: if false;
+    }
+  }
+}

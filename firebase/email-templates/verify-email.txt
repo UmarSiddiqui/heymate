@@ -1,0 +1,13 @@
+Subject: Verify your email for HeyMate
+
+Almost there, mate.
+
+Verify your email to finish setting up HeyMate on your Mac:
+{{VERIFICATION_URL}}
+
+Then return to HeyMate and choose "I've verified my email."
+
+If you didn't create a HeyMate account, you can safely ignore this email.
+
+HeyMate · Account verification
+Release emails and usage sharing stay your choice.

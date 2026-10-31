@@ -35,6 +35,7 @@ const PAGES = {
     <button disabled>Locked</button>
     <div style="position:relative;display:inline-block"><button id="under" onclick="out.textContent='under clicked'">Under</button>
       <div style="position:absolute;inset:-4px;background:rgba(0,0,0,.2)"></div></div>
+    <a href="/report.csv" download>Download report</a>
     <a href="/next">Next page</a> <p id="out"></p>
     <table><tr><th>Item</th><th>Price</th></tr><tr><td>Tea</td><td>3</td></tr></table>
     <div style="height:3000px"></div><p>Bottom of form</p>`,
@@ -44,6 +45,10 @@ const PAGES = {
   '/upload': `<title>Upload</title><label>File <input type="file" id="f" onchange="u.textContent='Got '+this.files[0].name"></label><p id="u"></p>`,
 };
 const server = http.createServer((req, res) => {
+  if (new URL(req.url, 'http://x').pathname === '/report.csv') {
+    res.writeHead(200, { 'content-type': 'text/csv', 'content-disposition': 'attachment; filename="report.csv"' });
+    res.end('item,count\nTea,3\n'); return;
+  }
   const body = PAGES[new URL(req.url, 'http://x').pathname];
   res.writeHead(body ? 200 : 404, { 'content-type': 'text/html; charset=utf-8' });
   res.end(body ? `<!doctype html><meta charset="utf-8">${body}` : 'missing');
@@ -92,6 +97,7 @@ async function tabInfo(id) {
   return { id, windowId: 1, url: targetInfo.url === 'about:blank' ? '' : targetInfo.url, pendingUrl: targetInfo.url, title: targetInfo.title, groupId: groupOf.get(id) ?? -1, incognito: false, active: false };
 }
 const chrome = {
+  downloads: { onCreated: event(), onDeterminingFilename: event() },
   runtime: { getManifest: () => ({ version: 'live-check' }), lastError: undefined, onInstalled: event(), onStartup: event(),
     connectNative() { const p = { onMessage: event(), onDisconnect: event(), sent: [], postMessage(m) { this.sent.push(m); } }; native.push(p); return p; } },
   storage: { session: { data: {}, async get(k) { return { [k]: this.data[k] }; }, async set(v) { Object.assign(this.data, v); } } },
@@ -120,6 +126,22 @@ const chrome = {
 };
 eventListeners.push(m => {
   for (const [tabId, s] of sessions) if (s === m.sessionId && typeof tabId === 'number') for (const fn of chrome.debugger.onEvent.listeners) fn({ tabId }, m.method, m.params);
+});
+
+// Real Chromium page/download events, with Chrome-shaped extension events.
+// Filename suggestions are observed here; the real extension download API is
+// still a stand-in. The downloaded bytes are checked in the disposable profile.
+const downloadEvidence = [];
+const downloadPath = path.join(profile, 'downloads'); fs.mkdirSync(downloadPath);
+await cdp('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath, eventsEnabled: true });
+eventListeners.push(m => {
+  if (m.method !== 'Page.downloadWillBegin') return;
+  if (![...sessions].some(([id, session]) => typeof id === 'number' && session === m.sessionId)) return;
+  const item = { id: 1000 + downloadEvidence.length, url: m.params.url, finalUrl: m.params.url,
+    filename: path.join(downloadPath, m.params.suggestedFilename), state: 'in_progress', danger: 'safe' };
+  const evidence = { item, guid: m.params.guid }; downloadEvidence.push(evidence);
+  for (const listener of chrome.downloads.onCreated.listeners) listener(item);
+  for (const listener of chrome.downloads.onDeterminingFilename.listeners) listener(item, suggestion => { evidence.suggestion = suggestion; });
 });
 
 // ---------------------------------------------------------------- the extension, as Chrome would run it
@@ -152,7 +174,7 @@ async function check(name, fn) {
   console.log(`${status === 'ok' ? '✔' : '✖'} ${name}${why ? `\n    ${why}` : ''}`);
 }
 try {
-  let tab, form;
+  let tab, form, keptTab;
   await check('open a new tab: settled page with numbered controls, in the HeyMate group', async () => {
     form = await ok('open', { url: `${site}/form` });
     tab = form.tabId;
@@ -228,10 +250,20 @@ try {
     const again = await ok('open', { url: `${site}/next` });
     assert.equal(again.title, 'Next');
   });
+  await check('a real page download is attributed without DownloadItem.tabId and saves the expected bytes', async () => {
+    const page = await ok('open', { url: `${site}/form` });
+    await ok('click', { tabId: page.tabId, ref: ref(page, 'link', 'Download report') });
+    for (let attempt = 0; attempt < 100 && (!downloadEvidence[0]?.suggestion || !fs.existsSync(path.join(downloadPath, 'report.csv'))); attempt++) await new Promise(r => setTimeout(r, 25));
+    assert.equal(downloadEvidence.length, 1, 'expected actual Page.downloadWillBegin from Chromium');
+    const { item, suggestion } = downloadEvidence[0];
+    assert.equal('tabId' in item, false);
+    assert.equal(suggestion.filename, 'HeyMate/heymate/report.csv');
+    assert.equal(fs.readFileSync(path.join(downloadPath, 'report.csv'), 'utf8'), 'item,count\nTea,3\n');
+  });
   await check('end tidies the turn: its background tab closes, a kept tab stays without the pointer', async () => {
     const second = await ok('open', { url: `${site}/form` });
     assert.equal(await inPage(second.tabId, "document.querySelectorAll('heymate-cursor').length"), 1);
-    const kept = await ok('open', { url: `${site}/form` });
+    const kept = await ok('open', { url: `${site}/form` }); keptTab = kept.tabId;
     await ok('click', { tabId: kept.tabId, ref: ref(kept, 'button', 'Save') });
     await ok('keep', { tabId: kept.tabId, why: 'result' });
     const ended = await ok('end');
@@ -240,6 +272,13 @@ try {
     const { targetInfos } = await cdp('Target.getTargets');
     assert.equal(targetInfos.some(t => t.targetId === targets.get(second.tabId)), false);
     assert.equal(await inPage(kept.tabId, "document.querySelectorAll('heymate-cursor').length"), 0);
+  });
+  await check('an unrenewed keep expires in the next real browser turn', async () => {
+    await ok('tabs');
+    const ended = await ok('end');
+    assert.ok(ended.closed.includes(keptTab));
+    const { targetInfos } = await cdp('Target.getTargets');
+    assert.equal(targetInfos.some(t => t.targetId === targets.get(keptTab)), false);
   });
 } finally {
   ws.close(); server.close();

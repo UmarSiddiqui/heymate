@@ -56,7 +56,7 @@
       "path": "HeyMate/mate-draw-engine.js",
       "status": "rewritten-section-by-section-awaiting-source-and-behavior-review",
       "replaces": "HeyMate/mate-draw-engine.js (recovered 2026-10-29 snapshot)",
-      "note": "Every section rewritten 2026-10-31 (docs/publication-source-review.md). 48% of substantive lines still match the original: mostly design values, the text formats a model reads, and host-facing method and export names."
+      "note": "Every section rewritten 2026-10-31, then two more passes the same day (docs/publication-source-review.md). 80 substantive lines (2.7%) still match the original, by the per-section measure: exported names and signatures hosts and tests call, the window element's data-* attributes, the material and role names hosts and pieces read, section headings and the file's closing line. The drawing palette is HeyMate's own (scripts/drawing-palette.py)."
     },
     {
       "path": "HeyMate/mate-host.js",
@@ -68,7 +68,7 @@
       "path": "scripts/native-shaders/davinci.metal",
       "status": "independently-reimplemented-awaiting-source-and-behavior-review",
       "replaces": "scripts/native-shaders/davinci.metal (recovered Metal literal)",
-      "note": "Rewritten 2026-10-31 with HeyMate/DaVinciShaders.txt kept byte-identical. Historical digests stay in scripts/native-shaders/provenance.json. The shared shading is copied into HeyMate/mate-stage3d.js as GLSL."
+      "note": "Rewritten 2026-10-31 with HeyMate/DaVinciShaders.txt kept byte-identical. Historical digests stay in scripts/native-shaders/provenance.json. The shared shading is copied into HeyMate/mate-stage3d.js as GLSL. Struct and field names are HeyMate's own since the second pass; the byte layout DaVinciMetalRenderer.swift packs is unchanged."
     },
     {
       "path": "HeyMate/DaVinciShaders.txt",
@@ -92,7 +92,22 @@
       "path": "browser/extension/mate-core.mjs",
       "status": "independently-reimplemented-awaiting-source-and-behavior-review",
       "replaces": "browser/extension/mate-core.mjs (recovered browser engine shipped through cb15e6e3)",
-      "note": "Rewritten 2026-10-31 to the background.js request contract; unit tests in scripts/browser_core_tests.mjs and scripts/browser_port_tests.mjs, live check in an isolated Chromium in scripts/browser_live_check.mjs. Operations the app never sends were not carried over."
+      "note": "Rewritten 2026-10-31 to the background.js request contract; unit tests in scripts/browser_core_tests.mjs and scripts/browser_port_tests.mjs, live check in an isolated Chromium in scripts/browser_live_check.mjs. Operations the app never sends were not carried over. Release review on 2026-10-31 fixed Chrome download provenance, bounded debugger operations/cleanup and per-turn keep renewal; 31 browser tests and 15 isolated live checks pass. Overall source clearance remains unresolved."
     }
-  ]
+  ],
+  "engineeringReview": {
+    "date": "2026-10-31",
+    "status": "checks-passed",
+    "scope": "Replacement integration, regression behavior, dependency notice presence, installed signing preflight, compile-only validation and the existing-account Google consent/native callback; publication provenance approval remains advisory and unresolved.",
+    "knownUnreplacedCount": 0,
+    "checks": {
+      "scriptTests": 107,
+      "agentRuntimeTests": 80,
+      "accountClientOAuthTests": 22,
+      "isolatedChromiumChecks": 15,
+      "universalReleaseCompile": "passed-unsigned-scratch",
+      "liveGoogleConsentAndCallback": "passed-canonical-installed-app-existing-account"
+    },
+    "remainingRuntimeValidation": []
+  }
 }

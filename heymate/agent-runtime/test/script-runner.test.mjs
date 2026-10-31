@@ -112,5 +112,5 @@ test('exec catalogue keeps the run_script arguments and lists each tool', () => 
   assert.equal(definition.name, 'exec');
   assert.equal(definition.parameters.required[0], 'code');
   assert.match(definition.description, /tools\.fixture_read\(\{value: number, note\?: string\}\): Read a value/);
-  assert.match(definition.description, /20,000 characters at most/);
+  assert.match(definition.description, /up to 20,000 characters/);
 });

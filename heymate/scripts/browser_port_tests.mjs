@@ -16,6 +16,8 @@ function adapter(execute) {
     async execute(request) { requests.push(request); return execute(request); }
     async stop() {}
     downloadStarted(item) { this.lastDownload = item; }
+    downloadWillBegin(tabId, event) { this.lastPageDownload = { tabId, event }; }
+    async filenameFor() { return this.determineFilename(); }
     determineFilename() { return { filename: "ReferenceRenderer/qa/file.txt", conflictAction: "uniquify" }; }
   }
   const chrome = { runtime: { getManifest: () => ({ version: 'fixture' }), connectNative() {
@@ -129,13 +131,14 @@ test('kept result survives tidy; unkept owned tab is removed', async () => {
   assert.deepEqual(removed, [8]); assert.equal(engine.ownedTabs.has(7), true);
 });
 
-test('download events retain engine attribution and adapt only the destination folder', () => {
+test('download events retain engine attribution and adapt only the destination folder', async () => {
   const h = adapter(async () => ({}));
   const chrome = h.context.chrome;
   chrome.downloads.onCreated.listeners[0]({ id: 5 });
   assert.equal(vm.runInContext('bridge.lastDownload.id', h.context), 5);
   let suggestion;
-  chrome.downloads.onDeterminingFilename.listeners[0]({}, value => { suggestion = value; });
+  assert.equal(chrome.downloads.onDeterminingFilename.listeners[0]({}, value => { suggestion = value; }), true);
+  await new Promise(setImmediate);
   assert.equal(suggestion.filename, 'HeyMate/qa/file.txt');
   assert.equal(suggestion.conflictAction, 'uniquify');
 });
@@ -147,4 +150,12 @@ test('recovered download reports complete, held and interrupted distinctly', asy
     if (state === 'interrupted') await assert.rejects(result, /download failed/);
     else { const value = await result; assert.equal(value.downloaded, state === 'complete'); if (state !== 'complete') assert.match(value.note, /Only the user/); }
   }
+});
+
+
+test('debugger page-download events supply tab provenance to the engine', () => {
+  const h = adapter(async () => ({}));
+  h.context.chrome.debugger.onEvent.listeners[0]({ tabId: 7 }, 'Page.downloadWillBegin', { guid: 'fixture', url: 'https://fixture.test/file' });
+  assert.equal(vm.runInContext('bridge.lastPageDownload.tabId', h.context), 7);
+  assert.equal(vm.runInContext('bridge.lastPageDownload.event.guid', h.context), 'fixture');
 });
