@@ -1,41 +1,29 @@
-// Mate draws: lab engine 1.6.
-// The model sends a drawing as data (marks) or as a tiny program that makes marks.
-// This file turns marks into hand-drawn SVG: smooth tapered pen strokes, wobbly shapes,
-// watercolour washes, handwriting, highlighter and a pen-reveal animation in drawing order.
+// Mate's drawing engine. The model sends a drawing as data (marks) or as a small program that makes marks; this file
+// runs the program, checks the layout, paces the pen to Mate's voice, and paints hand-drawn SVG: tapered pen strokes,
+// wobbly shapes, watercolour fills, handwriting and highlighter, each revealed in drawing order.
 //
-// 1.5 adds (all backwards compatible with 1.4's render / live / runCode / statementEnds):
-//   - pieces with anchors: graph() (axes, curves, shifts, crossings, marked points) and timeline()
-//   - dashed lines (o.dash)
-//   - a layout check for boxes: labelled boxes that pile on each other are warned about and nudged when safe
-//   - incremental execution in live(): each new statement runs once instead of re-running the prefix
-//   - an optional Web Worker sandbox with a time limit (live(spec, host, {sandbox: 'worker'}))
-//   - drawing paced to speech (live(spec, host, {pace: 'speech'})): the strokes after a say() line are
-//     released while that line is spoken and spread across it; line times can come from the host.
-//   - additive, for voice hosts: L.finishNow() draws everything still waiting right away (the voice carries on),
-//     L.placed gives each drawn mark's [start, end] in seconds, and L.timeline.marks[].line is known while drawing.
+//   render(spec, host, opts)   draws a whole program or list of marks at once
+//   live(spec, host, opts)     draws a program as it streams in, each statement the moment it is whole; the drawing
+//                              can be paced to speech, paused, continued in a new turn and edited in place
+//   runCode, Session, statementEnds, attribute, exec    the program runner (also inside a Web Worker sandbox)
+//   describe, stateText        the card as named parts and as short lines for a model (p1, p2 ... and m0, m1 ...)
 //
-// 1.6 adds live editing (all additive; programs draw exactly as in 1.5, which is kept as engine.v15.js):
-//   - parts: every piece of a drawing has an id (p1, p2, ... in program order, named by the program's own comments;
-//     every mark is m0, m1, ...), a short description and a box. L.state() is that list as short lines for a model.
-//   - edits on the card that is already there, each animated in the engine's style: L.edit({op: 'recolor' | 'restyle' |
-//     'move' | 'moveTo' | 'scale' | 'erase' | 'redraw' | 'add' | 'highlight' | 'undo', ...}). A new edit can cut into a
-//     running one (L.settle() jumps it to its end). Erasing runs the pen backwards; redraw and add run a code fragment
-//     after the program, so its helpers are in scope (in the sandbox when the drawing uses one).
-//   - L.pause() / L.resume(): hold the pen after the current stroke (a barge-in) and carry on; nothing is wiped.
+// Mate's pieces (mate-draw-pieces.js) are written in this drawing language; mate-draw-native.js hosts the engine in
+// the app, without a browser.
 (function (global) {
   'use strict';
-  const VERSION = '1.6';
-  // ReferenceRenderer (2026-10-08): ink is a soft near-black (#1C1E24 read as solid black on the cards); grey is the secondary
-  // text colour (subtitles, labels, small numbers, sources)
+  const VERSION = '1.6';                                 // the drawing language's version, as hosts and reports name it
+  // Mate's ink tones. Ink is a soft near-black (pure black read too hard on the cards); grey is the quieter text
+  // colour (subtitles, labels, small numbers, sources).
   const TONES = {
     ink: '#30333A', white: '#FFFFFF', grey: '#7E838D', butter: '#FFD84D', sun: '#FFB930', orange: '#FF9A3C',
     peach: '#FFB59A', coral: '#F2706B', red: '#E5484D', pink: '#F59AB5', lilac: '#A897F5', violet: '#6E5BD8',
     sky: '#5AA8F5', blue: '#1F5FCC', mint: '#7ED6A0', leaf: '#3E9E5C', brown: '#A0673D', tan: '#D9A877', cream: '#FFF3D6'
   };
   const tone = (t, fallback) => TONES[t] || t || fallback || TONES.ink;
-  // three-metal (2026-10-13): a figure() model's colour names are the colours real things of that name have, as a photo
-  // shows them (painted steel, brick, foliage, water), not Mate's candy ink: the same names read as a toy in 3D. A
-  // hex the program gives is used as it is. 2D marks and scene3d() keep TONES.
+  // A figure()'s colour names mean the colours real things of that name have, as a photo shows them (painted steel,
+  // brick, foliage, water): Mate's candy ink made a 3D model look like a toy. A hex the program gives is used as it is;
+  // 2D marks and scene3d() keep TONES.
   const REAL_TONES = {
     ink: '#2C2E33', white: '#E8E6E1', grey: '#8B8E93', butter: '#E0C477', sun: '#D6A83C', orange: '#C9692E',
     peach: '#D8A287', coral: '#C1604F', red: '#A8352D', pink: '#C7848F', lilac: '#9E92C0', violet: '#5D4D90',
@@ -49,28 +37,26 @@
   // a hex colour mixed toward black by k (0..1); anything else passes through
   const shade = (hex, k) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(hex)); if (!m) return hex; const n = parseInt(m[1], 16);
     const c = v => Math.round(v * (1 - k)).toString(16).padStart(2, '0'); return '#' + c(n >> 16) + c((n >> 8) & 255) + c(n & 255); };
-  // ReferenceRenderer (2026-10-09): how hand-drawn Mate's pen is, 0 (ruler-straight) to 1 (the original sketchy wobble).
-  // The clean look (0.35) read like a chart tool; back to the original wobble, with the original taper and swell.
+  // how hand-drawn the pen is, 0 (ruler-straight) to 1 (full wobble); a cleaner 0.35 read like a chart tool
   const HAND = 1;
-  // ReferenceRenderer (2026-10-19): how long a frame takes to drag open like a selection (the app's spring settles a little after)
+  // how long a frame takes to drag open like a selection (the app's spring settles a little after)
   const MARQUEE_DUR = 0.55;
   // one line of written text to the next, as a multiple of the font size (Patrick Hand's tall ascenders need the air)
   const LINE_HEIGHT = 1.3;
   const BRUSH = { pen: { size: 2.8, alpha: 1 }, marker: { size: 8, alpha: 0.9 }, pencil: { size: 1.8, alpha: 0.85 }, brush: { size: 6, alpha: 0.95 } };
   const FONT = {
     // One handwriting for everything Mate draws (Patrick Hand), so headings, card text and notes read as one hand.
-    // Titles stay 600 (drawn bold by the renderer, since Patrick Hand has one weight). Barlow (the 2026-10-08 clean
-    // look) read too clean and stays bundled only for drawings that name it.
+    // Titles are weight 600, drawn bold by the renderer (the face has one weight).
     hand: "'Patrick Hand', cursive", title: "'Patrick Hand', cursive", body: "'Patrick Hand', cursive", mono: "'Patrick Hand', cursive",
     // a small all-caps name for a region of a picture ("THE HILL"), widely spaced
     caps: "'Patrick Hand', cursive",
-    // ReferenceRenderer: the Mac's own system font, for the name pills and badges that mark the real screen
+    // the Mac's own system font, for the name pills and badges that mark the real screen
     ui: 'system-ui, sans-serif',
-    // ReferenceRenderer (2026-10-20): the morning paper's type (headlines, decks, the date line), a classic newspaper serif
+    // the morning paper's type (headlines, decks, the date line): a newspaper serif
     serif: "Georgia, 'Times New Roman', serif"
   };
-  // ReferenceRenderer (2026-10-11): Library cards (generative widgets) are set in Barlow, not the handwriting. A card's program
-  // sets global.__mateCardType = true before it draws; screen drawings never set it, so they keep Patrick Hand.
+  // Library cards (generative widgets) are set in Barlow, not the handwriting: a card's program sets
+  // global.__mateCardType = true before it draws, and screen drawings never do.
   const CARD_FACE = "'Barlow', sans-serif";
   const usesCardType = () => global.__mateCardType === true;
   const faceFor = style => usesCardType() && style !== 'ui' ? CARD_FACE : (FONT[style] || FONT.hand);
@@ -1232,7 +1218,7 @@
         const head = src.slice(i, i + 160);
         out += src.slice(copied, i);
         copied = i;
-        // three-metal: a figure part kept in a variable (const piston = f.cyl(...)) is named after it
+        // a figure part kept in a variable (const piston = f.cyl(...)) is named after it
         const part = '__name3d' in api && FIGURE_PART.exec(head);
         if (part) out += '__name3d(' + JSON.stringify(part[1]) + ');';
         let m;
@@ -1286,7 +1272,7 @@
       }
       if (error) error += ` (kept the ${marks.length} marks before it)`;
       marks.error = error; marks.says = sink.says; marks.warnings = sink.warnings;
-      // three-metal: figure() tick functions and the poses they set, for a run that keeps going (Session, full mode)
+      // figure() tick functions and the poses they set, for a run that keeps going (Session, full mode)
       Object.defineProperty(marks, 'live3d', { value: { ticks: sink.ticks, anim: sink.anim }, enumerable: false });
       return marks;
     }
@@ -1339,7 +1325,7 @@
         return out;
       }
       // code: the program run so far (a continued turn appends to exactly this)
-      // live3d: this run's figure() tick functions and the poses they set (three-metal; mateCanvas.tick3d runs them)
+      // live3d: this run's figure() tick functions and the poses they set (mateCanvas.tick3d runs them)
       return { update, get mode() { return mode; }, get fellBack() { return fellBack; }, get code() { return ran; }, get live3d() { return { ticks: sink.ticks, anim: sink.anim }; } };
     }
     // Which top-level statement made which marks, run the way live() runs them. [{s, e, n0, n1}]: each statement's
@@ -2930,12 +2916,11 @@
     return { draw, finish, report, svg, placed, edit, hooks, startsIn };
   }
 
-  // ================================================================ 1.6: parts, the things on a card a model can name (DOM-free)
+  // ================================================================ the card in words: parts, boxes and the model's view (DOM-free)
   // A part is what the program's own comments call a piece of the drawing ("// Big bushy tail"), or one text, or a run
   // of statements with no blank line between them. Parts are numbered in program order (p1, p2, ...), so a part keeps
   // its id while the program streams in. Every mark also has an id (m0, m1, ...); marks made by edits start at m2000.
-  const EDIT_BASE = 2000;                                // marks an edit adds are numbered from here, apart from the program's
-  // ================================================================ the card in words: parts, boxes and the model's view
+  const EDIT_BASE = 2000;
   // The program's lines: where each starts, whether it is blank, a whole-line comment (full) or a comment after code
   // (tail). A line starting with * is a comment only inside a block comment: elsewhere it continues an expression
   // ("  * 2"), and used to become the heading of the next part.
@@ -3837,46 +3822,26 @@
     };
   }
 
-  // run a program exactly the way live() does, statement by statement, so a rendered card is what the product draws
+  // ================================================================ render and live
+  // A program run the way live() runs it, statement by statement, so a rendered card is what the product draws.
   function runLive(code, W, H) {
-    const S = RUNNER.Session(W, H), marks = [], says = [], warnings = []; let error = null;
+    const S = RUNNER.Session(W, H), marks = [], says = [], warnings = [];
+    let error = null;
     const take = r => { marks.push(...r.marks); says.push(...r.says); warnings.push(...r.warnings); if (r.error) error = r.error; };
     for (const e of statementEnds(code)) take(S.update(code.slice(0, e), false));
     take(S.update(code, true));
-    marks.error = error; marks.says = says; marks.warnings = warnings;
-    return marks;
+    return Object.assign(marks, { error, says, warnings });
   }
-
-  // ReferenceRenderer: a program drawn whole keeps what its live drawing did at each __turn(n, keep): an earlier turn's marks from
-  // `keep` on were never drawn (the user interrupted that turn), so they are not drawn here either
-  const isTurn = m => !!m && m.do === 'edit' && !!m.op && m.op.op === 'turn';
+  // A program drawn whole keeps what its live drawing did at each __turn(n, keep): an earlier turn's marks from `keep`
+  // on were never drawn (the user interrupted that turn), so they are not drawn here either.
   function dropUndrawn(marks) {
     marks.forEach((m, i) => {
-      if (!isTurn(m) || m.op.keep == null) return;
-      for (let k = Math.max(0, m.op.keep); k < i; k++) { const x = marks[k]; if (x && !isTurn(x)) x.__skip = x.__erased = x.__dropped = true; }
+      if (!isTurnMark(m) || m.op.keep == null) return;
+      for (let k = Math.max(0, m.op.keep); k < i; k++) { const x = marks[k]; if (x && !isTurnMark(x)) x.__skip = x.__erased = x.__dropped = true; }
     });
   }
-  // spec.schedule (optional): [[startSeconds, pace], ...] per mark, e.g. from a paced replay, to render or freeze frames exactly
-  // opts.handle (ReferenceRenderer, optional): filled with {state(o), parts(o), visibleCount()} for the card this draws
-  function render(spec, host, opts = {}) {
-    const W = spec.w || 400, H = spec.h || 300;
-    const marks = spec.code ? (opts.whole ? runCode(spec.code, W, H) : runLive(spec.code, W, H)) : (spec.marks || []);
-    dropUndrawn(marks);
-    const s = surfaceFor(spec, host, opts);
-    // a program's edits (erase, recolor, move, ... startOver) run through an editor on this card, each at its point of the drawing
-    const st = { marks, code: spec.code || '', log: { lines: (marks.says || []).map((x, k) => Object.assign({ k }, x)) }, finished: true, done: true, paused: false };
-    const ed = Editor(s, st, spec, opts);
-    s.hooks.edit = (m, i, at, pace) => ed.runMark(m, i, at, pace);
-    const lay = spec.layout === false || opts.layout === false ? null : layoutMarks(marks, W, H, (m, i) => ed.planMark(m, i));
-    if (marks.error) s.report.errors.push(marks.error);
-    for (const w of marks.warnings || []) s.report.warnings.push(w);
-    if (lay) { for (const w of lay.warnings) s.report.warnings.push(w); s.report.shapeOverlaps = lay.overlaps; s.report.nudged = lay.moved; s.report.covered = lay.covered; }
-    if (Array.isArray(spec.schedule)) marks.forEach((m, i) => { const sc = spec.schedule[i]; if (sc) { m._t = sc[0]; m._pace = sc[1]; } });
-    if (opts.handle) Object.assign(opts.handle, { state: o => ed.stateNow(o), parts: o => ed.partsNow(o), visibleCount: () => ed.visibleCount(), keepNotesOnly: () => ed.keepNotesOnly(), dropPointing: () => ed.dropPointing() });
-    s.draw(marks);
-    return s.finish();
-  }
-  // ReferenceRenderer: the longest run of complete statements of `code` that runs without an error, and how many marks it makes
+  // The longest run of complete statements of `code` that runs without an error, and how many marks it makes (a
+  // binary search: a statement that fails makes every longer run fail too).
   function runnablePrefix(code, W, H) {
     const whole = runCode(code, W, H);
     if (!whole.error) return { code, marks: whole.length };
@@ -3888,44 +3853,72 @@
     }
     return best;
   }
+  // Draws a whole drawing at once and returns its report. A program's edits (erase, recolor, move, ... startOver) run
+  // through an editor on the card, each at its point of the drawing.
+  //   spec: {w, h, code | marks, surface, layout, stepBudget, schedule}; schedule: [[startSeconds, pace], ...] per mark
+  //         (from a paced replay), to render or freeze frames exactly
+  //   opts: {width, whole (run the program at once instead of statement by statement), layout, handle (filled with
+  //         state(o), parts(o), visibleCount(), keepNotesOnly(), dropPointing() for this card), sandbox, codeStart}
+  function render(spec, host, opts = {}) {
+    const W = spec.w || 400, H = spec.h || 300;
+    const marks = spec.code ? (opts.whole ? runCode(spec.code, W, H) : runLive(spec.code, W, H)) : (spec.marks || []);
+    dropUndrawn(marks);
+    const s = surfaceFor(spec, host, opts);
+    const st = { marks, code: spec.code || '', log: { lines: (marks.says || []).map((x, k) => Object.assign({ k }, x)) }, finished: true, done: true, paused: false };
+    const ed = Editor(s, st, spec, opts);
+    s.hooks.edit = (m, i, at, pace) => ed.runMark(m, i, at, pace);
+    const lay = spec.layout === false || opts.layout === false ? null : layoutMarks(marks, W, H, (m, i) => ed.planMark(m, i));
+    if (marks.error) s.report.errors.push(marks.error);
+    s.report.warnings.push(...(marks.warnings || []));
+    if (lay) { s.report.warnings.push(...lay.warnings); Object.assign(s.report, { shapeOverlaps: lay.overlaps, nudged: lay.moved, covered: lay.covered }); }
+    if (Array.isArray(spec.schedule)) marks.forEach((m, i) => { const sc = spec.schedule[i]; if (sc) { m._t = sc[0]; m._pace = sc[1]; } });
+    if (opts.handle) Object.assign(opts.handle, { state: o => ed.stateNow(o), parts: o => ed.partsNow(o), visibleCount: () => ed.visibleCount(), keepNotesOnly: () => ed.keepNotesOnly(), dropPointing: () => ed.dropPointing() });
+    s.draw(marks);
+    return s.finish();
+  }
 
-  // ---------------------------------------------------------------- live: draw each statement the moment it has fully arrived
-  // opts (all optional, 1.4 behaviour without them):
-  //   sandbox: 'worker'   run the program in a Web Worker (no DOM, no network, opts.timeLimit ms per chunk, default 1500);
+  // Draws a program as it streams in, each statement the moment it has fully arrived. opts (all optional):
+  //   sandbox: 'worker'   run the program in a Web Worker (no DOM, no network, opts.timeLimit ms per run, default 1500);
   //                       update() then returns [] and new say() lines arrive through opts.onSay(lines)
   //   pace: 'speech'      release each say() line's strokes while it is spoken, spread across the line
-  //   speech: 'estimate' (default: lines back to back at opts.wps words/s, opts.gap s apart) | 'external' (the host calls lineStart/lineEnd or spoken)
-  //   continuous: true    phrases form one utterance (gap 0)
-  //   onSay(lines), onDone(report)
-  //   codeStart (ReferenceRenderer): the program's own code starts at this offset (Mate's pieces come first); state() leaves out
+  //   speech: 'estimate'  lines back to back at opts.wps words/s, opts.gap s apart (the default), or 'external': the
+  //                       host calls lineStart / lineEnd or spoken
+  //   continuous: true    the phrases are one utterance (no gap)
+  //   onSay(lines), onDraw(marks, how), onDone(report, timeline)
+  //   codeStart           the program's own code starts at this offset (Mate's pieces come first); state() leaves out
   //                       the helpers defined before it
   function live(spec, host, opts = {}) {
     const s = surfaceFor(spec, host, opts);
-    let ed = null;
+    let ed = null, errorsTaken = 0;
     const st = Stream(spec, Object.assign({}, opts, {
       onDraw: (ms, d) => { s.draw(ms, true, d || {}); if (opts.onDraw) opts.onDraw(ms, d || {}); },
       onDone: (rep, log) => {
-        for (const e of rep.errors) s.report.errors.push(e);
-        for (const w of rep.warnings) s.report.warnings.push(w);
-        ['shapeOverlaps', 'nudged', 'covered'].forEach(k => { if (rep[k] != null) s.report[k] = rep[k]; });
+        // the stream's report grows over a continued drawing: only what is new since the last finish (an earlier
+        // turn's errors used to be reported again each time a later turn finished)
+        s.report.errors.push(...rep.errors.slice(errorsTaken));
+        errorsTaken = rep.errors.length;
+        s.report.warnings.push(...rep.warnings);           // (finish() drops repeated warnings)
+        for (const k of ['shapeOverlaps', 'nudged', 'covered']) if (rep[k] != null) s.report[k] = rep[k];
         s.report.sandboxed = st.sandboxed; s.report.mode = log.mode;
-        s.finish(); if (opts.onDone) opts.onDone(s.report, log);
+        s.finish();
+        if (opts.onDone) opts.onDone(s.report, log);
       },
       planEdit: (m, i) => ed ? ed.planMark(m, i) : null
     }));
     ed = Editor(s, st, spec, opts);
     s.hooks.edit = (m, i, at, pace) => ed.runMark(m, i, at, pace);
-    // ReferenceRenderer: the drawing stays on the card and a new turn starts on it. Marks still waiting for their line are dropped
-    // for good; the program is cut back to what ran (complete statements; before a statement that failed) and reopened.
-    // The host then appends `__turn(turn, keep);` and the new turn's code to `kept` (a whole-program replay of that combined
-    // program drops the same marks). Returns {kept, keep, turn, firstLine (says so far), visible (marks on the card), start
-    // (index of the next mark)}.
+    // The drawing stays on the card and a new turn starts on it. Marks still waiting for their line are dropped for
+    // good; the program is cut back to what ran (complete statements, before a statement that failed) and reopened.
+    // The host then appends `__turn(turn, keep);` and the new turn's code to `kept` (a whole replay of that combined
+    // program drops the same marks). Returns {kept, keep, turn, firstLine (says so far), visible (marks on the card),
+    // start (index of the next mark)}.
     function continueTurn() {
       let keep = st.dropPending(), kept = st.ran, count = st.count;
-      if (st.runMode === 'full' && !st.sandboxed) {           // the old program stopped with an error: keep the part that runs
+      if (st.runMode === 'full' && !st.sandboxed) {         // the old program stopped with an error: keep the part that runs
         const good = runnablePrefix(kept, spec.w || 400, spec.h || 300);
         if (good.code.length < kept.length || good.marks < count) {
-          const gone = []; for (let i = good.marks; i < count; i++) if (st.marks[i] && !isTurn(st.marks[i])) gone.push(i);
+          const gone = [];
+          for (let i = good.marks; i < count; i++) if (st.marks[i] && !isTurnMark(st.marks[i])) gone.push(i);
           ed.dropNow(gone); st.rebase(good.code, good.marks);
           kept = good.code; count = good.marks; keep = Math.min(keep, count);
         }
@@ -3935,27 +3928,34 @@
       return { kept, keep: Math.min(keep, count), turn, firstLine: st.lines.length, visible: ed.visibleCount(), start: count };
     }
     return {
+      // the stream: code in, voice timing, stopping and rushing
       update: (code, done = false) => st.update(code, done),
       lineStart: (k, t) => st.lineStart(k, t), lineEnd: (k, t) => st.lineEnd(k, t), spoken: (n, t) => st.spoken(n, t),
       stop: () => st.stop(), now: () => st.now(), finishNow: () => st.finishNow(), get rushed() { return st.rushed; },
-      live3d: () => st.live3d,
-      report: s.report, get timeline() { return st.log; }, get lines() { return st.lines; }, get sandboxed() { return st.sandboxed; }, get placed() { return s.placed; }, startsIn: i => s.startsIn(i),
-      // 1.6, all additive: pause the pen at the current stroke and carry on later; edit what is on the card
       pause: () => st.pause(), resume: () => st.resume(), get paused() { return st.paused; }, get finished() { return st.finished; },
+      live3d: () => st.live3d, get code() { return st.code; },
+      report: s.report, get timeline() { return st.log; }, get lines() { return st.lines; }, get sandboxed() { return st.sandboxed; }, get placed() { return s.placed; }, startsIn: i => s.startsIn(i),
+      // the card: edits, its parts and state, and a new turn on it
       edit: op => ed.edit(op), undo: () => ed.edit({ op: 'undo' }), settle: () => ed.settle(),
-      state: o => ed.state(o), parts: () => ed.parts(), hit: (x, y, el) => ed.hit(x, y, el), get edits() { return ed.log; }, get lastEdit() { return ed.last; }, get code() { return st.code; },
-      // ReferenceRenderer: the card right now (synchronous), and a new turn on the same card
+      state: o => ed.state(o), parts: () => ed.parts(), hit: (x, y, el) => ed.hit(x, y, el), get edits() { return ed.log; }, get lastEdit() { return ed.last; },
       stateNow: o => ed.stateNow(o), partsNow: o => ed.partsNow(o), visibleCount: () => ed.visibleCount(), inkCount: () => ed.inkCount(), continueTurn,
+      // the screen changed, and the cards the user handles
       keepNotesOnly: () => ed.keepNotesOnly(), dropPointing: () => ed.dropPointing(),
       cardsNow: () => ed.cardsNow(), moveMarks: (ms, dx, dy) => ed.moveMarks(ms, dx, dy),
       dropMarks: ms => ed.dropMarks(ms), zoomMarks: (ms, to) => ed.zoomMarks(ms, to),
-      // ReferenceRenderer: where a drawn mark really is now ([x0, y0, x1, y1]), or null
+      // where a drawn mark really is now ([x0, y0, x1, y1]), or null
       drawnBox: i => (s.edit && s.edit.domBox ? s.edit.domBox(i) : null)
     };
   }
-  global.MateDraw = { workerSource, version: VERSION, render, live, TONES, runCode, statementEnds, statementScanner: RUNNER.statementScanner, Stream, Pacer, Layout, layoutMarks, natural, setPen, Session: RUNNER.Session,
-    attribute: RUNNER.attribute, exec: RUNNER.exec, describe, stateText, markBox, recolorMark, restyleMark, EDIT_BASE,
-    pointsAtScreen, isCardMark, onCardTest,
+  global.MateDraw = {
+    version: VERSION, render, live, TONES, setPen, natural, EDIT_BASE,
+    // the program runner and its sandbox
+    runCode, statementEnds, statementScanner: RUNNER.statementScanner, Session: RUNNER.Session, attribute: RUNNER.attribute, exec: RUNNER.exec, workerSource,
+    // the stream's parts, for hosts and tests
+    Stream, Pacer, Layout, layoutMarks,
+    // the card in words, and what a mark is
+    describe, stateText, markBox, recolorMark, restyleMark, pointsAtScreen, isCardMark, onCardTest,
     // the pen's geometry, for tests and tools
-    geometry: { rng, catmull, densify, dashes, handSegments, ellipsePts, outline, evenOutline } };
+    geometry: { rng, catmull, densify, dashes, handSegments, ellipsePts, outline, evenOutline }
+  };
 })(typeof window !== 'undefined' ? window : globalThis);

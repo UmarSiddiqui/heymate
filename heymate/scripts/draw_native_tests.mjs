@@ -194,3 +194,13 @@ test('a run of marks stops at the last mark there is', () => {
   assert.ok(Date.now() - started < 3000, 'did not count to the end of the range');
   assert.match(c.call('state'), /last changed: m0,m1 \(erase\)/);
 });
+
+test('a continued drawing reports an earlier turn\'s error once', () => {
+  const c = canvas(), D = c.context.MateDraw;
+  const L = D.live({ w: 400, h: 300 }, c.context.document.createElement('div'), {});
+  L.update('dot(10, 10, 3)\nnope()\n', true); c.advance(2);
+  const t = L.continueTurn();
+  L.update(t.kept + '__turn(' + t.turn + ', ' + t.keep + ');\ndot(30, 30, 3)\n', true); c.advance(2);
+  assert.equal(L.report.errors.length, 1);
+  assert.match(L.report.errors[0], /nope is not defined/);
+});
