@@ -86,7 +86,7 @@
       "path": "HeyMate/mate-stage3d.js",
       "status": "independently-reimplemented-awaiting-source-and-behavior-review",
       "replaces": "HeyMate/mate-stage3d.js (recovered 3D stage adapter)",
-      "note": "Rewritten 2026-10-31. Same beats, camera, visits, labels, motions and picking. Illustrated stages no longer build the studio reflection map. The shared GLSL still matches scripts/native-shaders/davinci.metal. Regression tests in scripts/stage3d_tests.mjs."
+      "note": "Rewritten 2026-10-31. Same beats, camera, visits, labels, motions and picking. Illustrated stages no longer build the studio reflection map. The shared GLSL still matches scripts/native-shaders/davinci.metal. Regression tests in scripts/stage3d_tests.mjs. Material preset values replaced 2026-10-31; the preset names stay as the model's vocabulary."
     },
     {
       "path": "browser/extension/mate-core.mjs",

@@ -18,32 +18,36 @@
   };
   const easeOut = t => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
 
+  // What a part's `mat` name looks like. Metals take the colour of their measured reflectance (sRGB, toned down a
+  // little so a bright metal still reads on a light screen) and are fully metallic; everything else is a plain
+  // colour with no metal. Roughness: how blurred the highlight is, from polished (0) to chalk (1).
+  const metal = (color, roughness) => ({ color, metalness: 1, roughness });
+  const plain = (color, roughness, extra = {}) => ({ color, metalness: 0, roughness, ...extra });
   const MATERIALS = {
-    steel: { color: 0xb8bcc4, metalness: 0.9, roughness: 0.32 },
-    alu: { color: 0xd4d7dc, metalness: 0.85, roughness: 0.38 },
-    aluminum: { color: 0xd4d7dc, metalness: 0.85, roughness: 0.38 },
-    aluminium: { color: 0xd4d7dc, metalness: 0.85, roughness: 0.38 },
-    titanium: { color: 0x9a9c9f, metalness: 0.85, roughness: 0.4 },
-    chrome: { color: 0xeeeeee, metalness: 1, roughness: 0.08 },
-    brass: { color: 0xc9a14a, metalness: 0.9, roughness: 0.3 },
-    copper: { color: 0xc77a4a, metalness: 0.9, roughness: 0.3 },
-    gold: { color: 0xe6c25a, metalness: 1, roughness: 0.22 },
-    iron: { color: 0x5c5f63, metalness: 0.7, roughness: 0.6 },
-    metal: { color: 0xa8acb2, metalness: 0.85, roughness: 0.35 },
-    black: { color: 0x222326, metalness: 0.2, roughness: 0.5 },
-    rubber: { color: 0x2a2a2c, metalness: 0, roughness: 0.9 },
-    glass: { color: 0xcfe8ff, metalness: 0, roughness: 0.05, opacity: 0.35 },
-    water: { color: 0x5aa8f5, metalness: 0, roughness: 0.1, opacity: 0.55 },
-    wood: { color: 0xa0673d, metalness: 0, roughness: 0.75 },
-    ceramic: { color: 0xf3efe6, metalness: 0, roughness: 0.35 },
-    paper: { color: 0xfaf5ea, metalness: 0, roughness: 0.95 },
-    gloss: { color: 0xdddddd, metalness: 0.1, roughness: 0.25 },
-    paint: { color: 0xdddddd, metalness: 0.3, roughness: 0.35 },
-    plastic: { color: 0xdddddd, metalness: 0, roughness: 0.45 },
-    soft: { color: 0xdddddd, metalness: 0, roughness: 0.8 },
-    matte: { color: 0xdddddd, metalness: 0, roughness: 0.9 },
-    glow: { color: 0xffb930, metalness: 0, roughness: 0.5, glow: 1 },
+    steel: metal(0xc2c5ca, 0.34),
+    aluminium: metal(0xdfe1e4, 0.4),
+    titanium: metal(0xb9b4ac, 0.42),
+    chrome: metal(0xd2d4d6, 0.06),
+    brass: metal(0xd4b064, 0.3),
+    copper: metal(0xd28c66, 0.32),
+    gold: metal(0xeec56a, 0.24),
+    iron: { color: 0x6b6e72, metalness: 0.8, roughness: 0.62 },
+    metal: metal(0xb3b7bd, 0.36),
+    black: plain(0x1e1f23, 0.48),
+    rubber: plain(0x2c2c2e, 0.92),
+    glass: plain(0xd6ebff, 0.04, { opacity: 0.32 }),
+    water: plain(0x4f9de6, 0.08, { opacity: 0.52 }),
+    wood: plain(0x9a6943, 0.72),
+    ceramic: plain(0xf4f0e7, 0.3),
+    paper: plain(0xfaf5ea, 0.95),               // HeyMate's paper tone
+    gloss: plain(0xdedede, 0.22),
+    paint: { color: 0xdedede, metalness: 0.2, roughness: 0.34 },
+    plastic: plain(0xdedede, 0.46),
+    soft: plain(0xdedede, 0.76),
+    matte: plain(0xdedede, 0.92),
+    glow: plain(0xffb534, 0.5, { glow: 1 }),
   };
+  MATERIALS.alu = MATERIALS.aluminum = MATERIALS.aluminium;
 
   function materialFor(spec) {
     spec = spec || {};
