@@ -1813,91 +1813,125 @@
   }
 
   // ================================================================ pacing to speech (DOM-free)
-  // Each say() line owns the strokes that follow it (up to the next say()). Strokes in a step that come
-  // before the step's first say() belong to that say(); a step with no say() joins the line before it.
-  // A line's strokes wait until the line starts being spoken, then spread across its spoken duration.
-  // Line times are estimated (words / wps, lines back to back) or given by the host (lineStart/lineEnd/spoken).
+  // Each say() line owns the strokes after it, up to the next say(). Strokes of a step that come before the step's
+  // first say() belong to that say(); a step with no say() joins the line before it. A line's strokes wait until the
+  // line is heard, then spread over its spoken time. Line times are estimated (words / wps, lines back to back) or told
+  // by the host (lineStart, lineEnd, spoken).
   function Pacer(o) {
     o = o || {};
-    const wps = o.wps || 2.6, gap = o.gap != null ? o.gap : 0.25, est = o.speech !== 'external', lead = o.lead != null ? o.lead : 0.08, tail = o.tail != null ? o.tail : 0.12;
-    // ReferenceRenderer screen canvas: how much a line may speed its strokes up (FAST) or slow them down (SLOW) to fit it
-    const FAST = o.minPace != null ? o.minPace : 0.35, SLOW = o.maxSlow != null ? o.maxSlow : 2;
-    // ReferenceRenderer screen canvas: how far a line too full for its time (or one starting late) may hurry its strokes,
-    // so its marks still end with its words. Without it, a crowded line stays at FAST and runs over.
+    const opt = (k, fallback) => o[k] != null ? o[k] : fallback;
+    const wps = o.wps || 2.6, gap = opt('gap', 0.25), estimated = o.speech !== 'external', lead = opt('lead', 0.08), tail = opt('tail', 0.12);
+    // how far a line may speed its strokes up (FAST) or slow them down (SLOW) to fit its words
+    const FAST = opt('minPace', 0.35), SLOW = opt('maxSlow', 2);
+    // how far a line with too much to draw for its time (or one that starts late) may hurry, so its marks still end
+    // with its words; without it a crowded line stays at FAST and runs on into the next
     const RUSH = o.rushPace != null ? Math.min(o.rushPace, FAST) : FAST;
-    // ReferenceRenderer screen canvas: how far gaps between strokes may stretch to fill a line. Capped, an object's
-    // parts (a sticky's paper and words, a badge's ring and number) stay together and spare time is a rest
-    // at the end of the line instead of pauses inside the drawing.
-    const MAXSPREAD = o.maxSpread != null ? o.maxSpread : Infinity;
+    // how far the gaps between strokes may stretch to fill a line. Capped, an object's parts (a sticky's paper and
+    // words, a badge's ring and number) stay together, and spare time is a rest at the end of the line instead
+    const MAXSPREAD = opt('maxSpread', Infinity);
+    const OPEN_MAX = 1.3;                                 // a line still open may get more strokes: it spreads no further
+    const RUSHED = { pace: 0.35, gap: 0.12 };             // finishNow: everything left, quickly and in order
     const lines = [], items = [];
-    let closed = -1, all = false, rel = 0, rush = false;
-    const count = s => String(s).trim().split(/\s+/).filter(Boolean).length;
-    function addLine(text, t) { const p = lines[lines.length - 1]; lines.push({ k: lines.length, text, words: count(text), arrive: t, start: null, end: null, cum: p ? p.cum + p.words : 0 }); return lines.length - 1; }
-    function add(m, i, t, nat) { const it = { m, i, arrive: t, line: undefined, dur: nat.dur, adv: nat.adv, t: null, p: 1, rt: null }; items.push(it); return it; }
-    function times(k, memo) {
-      if (k in memo) return memo[k];
-      const L = lines[k]; let r = null;
-      if (L) {
-        let s = L.start;
-        if (s == null && est) { const pe = k ? times(k - 1, memo) : null; if (!k || pe) s = Math.max(L.arrive, pe ? pe[1] + gap : L.arrive); }
-        if (s != null) { const e = L.end != null ? L.end : s + L.words / wps; r = [s, Math.max(e, s + 0.2)]; }
-      }
-      return (memo[k] = r);
+    let closedUpTo = -1, allClosed = false, released = 0, rushing = false;
+    const wordCount = s => String(s).trim().split(/\s+/).filter(Boolean).length;
+    function addLine(text, t) {
+      const prev = lines[lines.length - 1];
+      lines.push({ k: lines.length, text, words: wordCount(text), arrive: t, start: null, end: null, cum: prev ? prev.cum + prev.words : 0 });
+      return lines.length - 1;
     }
+    // it.t: when it is planned to start; p: its pace; rt: when it was released; line: the line it belongs to (-1: before any)
+    function add(m, i, t, nat) { const it = { m, i, arrive: t, line: undefined, dur: nat.dur, adv: nat.adv, t: null, p: 1, rt: null }; items.push(it); return it; }
+    // A line's [start, end] in seconds, or null while it is not known. A start the host told wins; otherwise (when
+    // estimating) a line starts when the one before ends plus the gap, but not before it arrived, and lasts its words.
+    // known: the lines before it, worked out in order (once per plan, so a long talk needs no deep recursion).
+    function timesOf(k, known) {
+      for (let j = known.length; j <= k; j++) {
+        const L = lines[j];
+        let span = null;
+        if (L) {
+          let s = L.start;
+          if (s == null && estimated && (!j || known[j - 1])) s = j ? Math.max(L.arrive, known[j - 1][1] + gap) : L.arrive;
+          if (s != null) span = [s, Math.max(L.end != null ? L.end : s + L.words / wps, s + 0.2)];
+        }
+        known.push(span);
+      }
+      return known[k];
+    }
+    // When each stroke not released yet starts, and at what pace. Strokes go in order; a line's strokes start once it
+    // is heard (and after the strokes before them) and spread so the last one ends as the line does.
     function plan(now) {
-      if (rush) { let t = now; for (let i = rel; i < items.length; i++) { const it = items[i]; it.t = t; it.p = 0.35; it.gap = it.adv * 0.12; t += it.gap; } return; }  // finishNow: everything, quickly, in order
-      const memo = {}, last = rel ? items[rel - 1] : null;
-      let cursor = last ? Math.max(now, last.rt + last.gap) : now, i = rel;
-      while (i < items.length) {
-        const k = items[i].line;
-        if (k === undefined) break;                             // still waiting for its say(): hold it and everything after it
-        let j = i; while (j < items.length && items[j].line === k) j++;
-        const grp = items.slice(i, j);
-        if (k < 0) { for (const it of grp) { it.t = cursor; it.p = 1; it.gap = it.adv; cursor += it.adv; } i = j; continue; }
-        const T = times(k, memo); if (!T) break;
-        const ws = Math.max(cursor, T[0] + lead), avail = T[1] - tail - ws, isClosed = all || k <= closed;
-        const A = grp.reduce((a, it, q) => a + (q < grp.length - 1 ? it.adv : 0), 0), dl = grp[grp.length - 1].dur;
-        // spread so the last stroke ends as the line ends: gaps grow by `spread`, strokes slow down by at most SLOW
-        let f = avail <= 0.05 ? 0 : avail / (A + dl || 0.1);
-        if (!isClosed) f = Math.min(f, 1.3);                  // an open line may still get more strokes
-        let p, spread;
-        if (f < FAST) {
-          // Too much for its time, or the line before ran over: strokes and gaps shrink together (down to RUSH) so
-          // this line's marks end with its words and never push the next line's marks back.
-          p = spread = Math.max(RUSH, f);
-        } else {
-          p = Math.min(f, SLOW); spread = f;
-          if (isClosed && f > SLOW && A > 0) spread = Math.max(SLOW, (avail - SLOW * dl) / A);
+      if (rushing) {
+        let t = now;
+        for (let q = released; q < items.length; q++) { const it = items[q]; it.t = t; it.p = RUSHED.pace; it.gap = it.adv * RUSHED.gap; t += it.gap; }
+        return;
+      }
+      const known = [], last = released ? items[released - 1] : null;
+      let cursor = last ? Math.max(now, last.rt + last.gap) : now, q = released;
+      while (q < items.length) {
+        const k = items[q].line;
+        if (k === undefined) break;                       // still waiting for its say(): it and everything after it wait
+        let end = q;
+        while (end < items.length && items[end].line === k) end++;
+        const group = items.slice(q, end);
+        q = end;
+        if (k < 0) { for (const it of group) { it.t = cursor; it.p = 1; it.gap = it.adv; cursor += it.adv; } continue; }   // before any line: their own pace
+        const T = timesOf(k, known);
+        if (!T) { q -= group.length; break; }
+        const from = Math.max(cursor, T[0] + lead), room = T[1] - tail - from, closed = allClosed || k <= closedUpTo;
+        let gaps = 0;
+        for (let g = 0; g < group.length - 1; g++) gaps += group[g].adv;
+        const lastDur = group[group.length - 1].dur;
+        // f: how much the line's time is to its strokes' own; gaps grow by `spread`, strokes slow by at most SLOW
+        let f = room <= 0.05 ? 0 : room / (gaps + lastDur || 0.1);
+        if (!closed) f = Math.min(f, OPEN_MAX);
+        let pace, spread;
+        // too much for its time, or the line before ran over: strokes and gaps shrink together (down to RUSH), so this
+        // line's marks end with its words and never push the next line's back
+        if (f < FAST) pace = spread = Math.max(RUSH, f);
+        else {
+          pace = Math.min(f, SLOW); spread = f;
+          if (closed && f > SLOW && gaps > 0) spread = Math.max(SLOW, (room - SLOW * lastDur) / gaps);
         }
         spread = Math.min(spread, MAXSPREAD);
-        let t = ws; for (const it of grp) { it.t = t; it.p = p; it.gap = it.adv * spread; t += it.gap; }
-        cursor = t; i = j;
+        let t = from;
+        for (const it of group) { it.t = t; it.p = pace; it.gap = it.adv * spread; t += it.gap; }
+        cursor = t;
       }
-      for (; i < items.length; i++) items[i].t = null;
+      for (; q < items.length; q++) items[q].t = null;
     }
+    // The strokes due by `now`, released in order. Each release replans what follows: a stroke released late moves
+    // the rest along with it.
     function due(now) {
       const out = [];
-      for (;;) { plan(now); const it = items[rel]; if (!it || it.t == null || it.t > now + 0.004) break; it.rt = now; rel++; out.push(it); }
-      return out;
+      for (;;) {
+        plan(now);
+        const it = items[released];
+        if (!it || it.t == null || it.t > now + 0.004) return out;
+        it.rt = now; released++; out.push(it);
+      }
     }
+    const told = k => lines[k];
     return {
-      lines, items, addLine, add,
-      assign: (it, k) => { it.line = k; }, close: k => { closed = Math.max(closed, k); }, closeAll: () => { all = true; }, rush: () => { rush = true; }, get rushed() { return rush; },
-      start: (k, t) => { if (lines[k] && lines[k].start == null) lines[k].start = t; },
-      end: (k, t) => { if (lines[k]) { if (lines[k].start == null) lines[k].start = t; lines[k].end = t; } },
-      due, nextAt: now => { plan(now); const it = items[rel]; return it && it.t != null ? it.t : null; },
-      empty: () => rel >= items.length, times: k => times(k, {}),
-      // ReferenceRenderer (a new turn on the same card): items not released yet whose mark matches `gone(i)` are dropped;
-      // reopen() takes more lines and strokes after the program was done
-      drop: gone => { const out = []; for (let q = items.length - 1; q >= rel; q--) if (gone(items[q].i)) out.push(items.splice(q, 1)[0]); return out; },
-      reopen: () => { all = false; rush = false; }
+      lines, items, addLine, add, due,
+      assign: (it, k) => { it.line = k; },
+      close: k => { closedUpTo = Math.max(closedUpTo, k); }, closeAll: () => { allClosed = true; },
+      rush: () => { rushing = true; }, get rushed() { return rushing; },
+      start: (k, t) => { const L = told(k); if (L && L.start == null) L.start = t; },
+      end: (k, t) => { const L = told(k); if (L) { if (L.start == null) L.start = t; L.end = t; } },
+      nextAt: now => { plan(now); const it = items[released]; return it && it.t != null ? it.t : null; },
+      empty: () => released >= items.length, times: k => timesOf(k, []),
+      // a new turn on the same card: strokes not released yet whose mark gone(i) picks are dropped (returned)
+      drop: gone => { const out = []; for (let q = items.length - 1; q >= released; q--) if (gone(items[q].i)) out.push(items.splice(q, 1)[0]); return out; },
+      // more lines and strokes after the program was done
+      reopen: () => { allClosed = false; rushing = false; }
     };
   }
 
   // ================================================================ stream: runner + layout + pacer; calls onDraw when marks should be drawn (DOM-free)
+  const isTurnMark = m => !!m && m.do === 'edit' && !!m.op && m.op.op === 'turn';
   function Stream(spec, o) {
-    const scanStatements = RUNNER.statementScanner();
     o = o || {};
+    const scanStatements = RUNNER.statementScanner();
     const W = spec.w || 400, H = spec.h || 300;
     const clk = o.clock || { now: () => performance.now() / 1000, set: (f, s) => setTimeout(f, s * 1000), clear: id => clearTimeout(id) };
     const t0 = clk.now(), now = () => clk.now() - t0;
@@ -1905,73 +1939,80 @@
     const P = paced ? Pacer({ wps: o.wps, gap: o.gap != null ? o.gap : (o.continuous ? 0 : 0.25), speech: o.speech || 'estimate', lead: o.lead, tail: o.tail, minPace: o.minPace, maxSlow: o.maxSlow, maxSpread: o.maxSpread, rushPace: o.rushPace }) : null;
     const lay = o.layout === false ? null : Layout(W, H);
     const report = { errors: [], warnings: [] }, lines = [], log = { marks: [], lines: [], paced, mode: null };
-    let nMarks = 0, curStep = null, curLine = null, waiting = [], lastLine = -1, doneSeen = false, finished = false, timer = null, sent = -1, fresh = [];
-    // 1.6: every mark that has arrived (drawn or still waiting for its line), the code run so far, and pausing
-    const all = [];
-    let src = '', paused = false, held = [];
-    // ReferenceRenderer: the marks handed to the painter so far (the rest are still waiting for their line)
-    const released = new Set();
+    // all: every mark that has arrived (drawn, or waiting for its line); released: those handed to the painter
+    const all = [], released = new Set();
+    let nMarks = 0, src = '', sent = -1, doneSeen = false, finished = false, paused = false, timer = null;
+    let held = [], fresh = [], layoutReported = 0;      // held: draws made while paused; fresh: say() lines not handed out yet
     const drawNow = (ms, d) => { if (paused && !(d && d.paced)) { held.push([ms, d]); return; } if (o.onDraw) o.onDraw(ms, d); };
-    // which say() line owns each mark, recorded in the log as it streams (same rule as the pacer; also when unpaced)
-    // (ReferenceRenderer: steps are keyed by turn and step, stepKey)
-    let oStep = null, oLine = null, oLast = -1, oWait = [];
-    const ownClose = () => { for (const e of oWait) e.line = oLast; oWait = []; };
-    const ownSay = (s, k) => { if (stepKey(s) !== oStep) { ownClose(); oStep = stepKey(s); } for (const e of oWait) e.line = k; oWait = []; oLine = k; oLast = k; };
-    const ownMark = (e, m) => { if (stepKey(m) !== oStep) { ownClose(); oStep = stepKey(m); oLine = null; } if (oLine != null) e.line = oLine; else oWait.push(e); };
-    function closeStep() { if (waiting.length) { for (const it of waiting) P.assign(it, lastLine); waiting = []; } }
+
+    // Which say() line owns each mark, by the pacer's rule, for the log (paced or not). own: the step being read, its
+    // line so far, the last line of all, and the marks of the step still waiting for its first say().
+    const own = { step: null, line: null, last: -1, waiting: [] };
+    const ownClose = () => { for (const e of own.waiting) e.line = own.last; own.waiting = []; };
+    const ownStep = m => { if (stepKey(m) !== own.step) { ownClose(); own.step = stepKey(m); own.line = null; } };
+    const ownSay = (s, k) => { if (stepKey(s) !== own.step) { ownClose(); own.step = stepKey(s); } for (const e of own.waiting) e.line = k; own.waiting = []; own.line = own.last = k; };
+    const ownMark = (e, m) => { ownStep(m); if (own.line != null) e.line = own.line; else own.waiting.push(e); };
+    // the same for the pacer's own items: the step's line, the last line, and items of the step waiting for a say()
+    const pace = { step: null, line: null, last: -1, waiting: [] };
+    function closeStep() { for (const it of pace.waiting) P.assign(it, pace.last); pace.waiting = []; }
+    const paceStep = m => { if (stepKey(m) !== pace.step) { closeStep(); pace.step = stepKey(m); pace.line = null; } };
+
     function handleSay(s, t) {
       lines.push(s.text); fresh.push(s.text);
       const k = lines.length - 1;
       log.lines.push(s.turn ? { k, text: s.text, arrive: t, step: s.step, turn: s.turn } : { k, text: s.text, arrive: t, step: s.step });
       ownSay(s, k);
       if (!paced) return;
-      if (stepKey(s) !== curStep) { closeStep(); curStep = stepKey(s); }
+      if (stepKey(s) !== pace.step) { closeStep(); pace.step = stepKey(s); }
       P.addLine(s.text, t); P.close(k - 1);
-      for (const it of waiting) P.assign(it, k); waiting = [];
-      curLine = k; lastLine = k;
+      for (const it of pace.waiting) P.assign(it, k);
+      pace.waiting = [];
+      pace.line = pace.last = k;
     }
-    // ReferenceRenderer: marks of earlier turns in [keep, upto) that were never drawn leave for good (never drawn later, not on the card)
+    // Marks in [keep, upto) never drawn leave for good: never drawn later, and gone from the layout and the pacer.
     function dropRange(keep, upto) {
       const gone = [];
       for (let i = Math.max(0, keep); i < upto; i++) {
         const m = all[i];
-        if (!m || released.has(i) || (m.do === 'edit' && m.op && m.op.op === 'turn')) continue;
+        if (!m || released.has(i) || isTurnMark(m)) continue;
         m.__skip = m.__erased = m.__dropped = true; gone.push(i);
       }
-      if (!gone.length) return gone;
-      const set = new Set(gone);
-      if (P) P.drop(i => set.has(i));
-      waiting = waiting.filter(it => !set.has(it.i));
-      if (lay) lay.forget(set);
-      for (const e of log.marks) if (set.has(e.i)) e.dropped = true;
+      if (gone.length) forgetMarks(new Set(gone), true);
       return gone;
+    }
+    function forgetMarks(set, dropped) {
+      if (P) P.drop(i => set.has(i));
+      pace.waiting = pace.waiting.filter(it => !set.has(it.i));
+      if (lay) lay.forget(set);
+      if (dropped) for (const e of log.marks) if (set.has(e.i)) e.dropped = true;
     }
     // __turn(n, keep): a new turn on the same card starts here
     function handleTurn(m, gi, t, batch) {
       if (m.op.keep != null) dropRange(m.op.keep, gi);
-      ownClose(); oStep = stepKey(m); oLine = null;
-      if (paced) { closeStep(); curStep = stepKey(m); curLine = null; }
+      ownClose(); own.step = stepKey(m); own.line = null;
+      if (paced) { closeStep(); pace.step = stepKey(m); pace.line = null; }
       released.add(gi); all[gi] = m;
       log.marks.push({ i: gi, arrive: t, do: 'edit', op: 'turn', step: m.step, dur: 0, adv: 0, rt: t });
       if (!paced) batch.push(m);                          // painted as nothing, so unpaced batches keep their indices
     }
     function handleMark(m, gi, t, batch) {
+      if (isTurnMark(m)) { handleTurn(m, gi, t, batch); return; }
       if (m.do === 'edit') {
-        if (m.op && m.op.op === 'turn') { handleTurn(m, gi, t, batch); return; }
         // an edit has no geometry; what it erases leaves the layout (startOver: everything)
         const plan = o.planEdit ? o.planEdit(m, gi) : null;
         if (plan && lay) { if (plan.reset) lay.reset(); else if (plan.forget) lay.forget(plan.forget); }
       } else if (lay) m = lay.add(m, gi);
       let nat = natural(m);
-      // ReferenceRenderer screen canvas: one ink stroke at a time (fills and dots still land together)
+      // one ink stroke at a time (fills and dots still land together)
       if (o.sequential && m.outline !== false && m.do !== 'dot') nat = { dur: nat.dur, adv: Math.max(nat.adv, nat.dur + 0.03) };
       const entry = { i: gi, arrive: t, do: m.do, step: m.step, dur: nat.dur, adv: nat.adv, rt: paced ? null : t };
       log.marks.push(entry); ownMark(entry, m); all[gi] = m;
       if (!paced) { released.add(gi); batch.push(m); return; }
-      if (stepKey(m) !== curStep) { closeStep(); curStep = stepKey(m); curLine = null; }
+      paceStep(m);
       const it = P.add(m, gi, t, nat);
-      if (curLine != null) P.assign(it, curLine); else waiting.push(it);
+      if (pace.line != null) P.assign(it, pace.line); else pace.waiting.push(it);
     }
+    // a run's new marks and says, in the order the program made them
     function ingest(r, done) {
       const t = now(), batch = [], ms = r.marks || [], ss = r.says || [];
       if (r.mode) log.mode = r.mode;
@@ -1992,30 +2033,37 @@
       return out;
     }
     function finishUp() {
-      if (finished) return; finished = true;
-      if (lay) { for (const w of lay.warnings) report.warnings.push(w); report.shapeOverlaps = lay.overlaps; report.nudged = lay.moved; report.covered = lay.covered; }
+      if (finished) return;
+      finished = true;
+      if (lay) {
+        // only the layout's new warnings: a continued turn finishes again, and used to report the earlier ones twice
+        for (const w of lay.warnings.slice(layoutReported)) report.warnings.push(w);
+        layoutReported = lay.warnings.length;
+        report.shapeOverlaps = lay.overlaps; report.nudged = lay.moved; report.covered = lay.covered;
+      }
       if (paced) {
-        log.lines.forEach(L => { const T = P.times(L.k); if (T) { L.start = T[0]; L.end = T[1]; } });
-        const byI = new Map(log.marks.map(x => [x.i, x]));
-        for (const it of P.items) { const L = byI.get(it.i); if (L) { L.rt = it.rt; L.p = it.p; L.line = it.line; } }
+        for (const L of log.lines) { const T = P.times(L.k); if (T) { L.start = T[0]; L.end = T[1]; } }
+        const entries = new Map(log.marks.map(e => [e.i, e]));
+        for (const it of P.items) { const e = entries.get(it.i); if (e) { e.rt = it.rt; e.p = it.p; e.line = it.line; } }
       }
       if (runner && runner.stop && o.sandbox === 'worker') runner.stop();
       if (o.onDone) o.onDone(report, log);
     }
     function tick() {
-      timer = null; if (finished || paused) return;
+      timer = null;
+      if (finished || paused) return;
       const t = now();
       for (const it of P.due(t)) { released.add(it.i); drawNow([it.m], { paced: true, pace: it.p, i: it.i }); }
-      const nx = P.nextAt(t);
-      if (nx != null) timer = clk.set(tick, Math.max(0.001, nx - t));
+      const next = P.nextAt(t);
+      if (next != null) timer = clk.set(tick, Math.max(0.001, next - t));
       else if (doneSeen && P.empty()) finishUp();
     }
     function kick() { if (timer != null) clk.clear(timer); timer = null; tick(); }
-    let runner = null;
-    if (o.sandbox === 'worker' && typeof Worker !== 'undefined') runner = WorkerRunner(W, H, o, (r, done) => ingest(r, !!done));
+    let runner = o.sandbox === 'worker' && typeof Worker !== 'undefined' ? WorkerRunner(W, H, o, (r, done) => ingest(r, !!done)) : null;
     const sandboxed = !!runner;
     const syncRunner = S => ({ run: (code, done, knownEnds) => ingest(S.update(code, done, knownEnds), done), sync: true, get code() { return S.code; }, get mode() { return S.mode; }, get live3d() { return S.live3d; } });
     if (!runner) runner = syncRunner(RUNNER.Session(W, H, { incremental: o.incremental }));
+    const stopTimer = () => { if (timer != null) clk.clear(timer); timer = null; };
     return {
       // code: everything received so far. Returns the new say() lines (sandboxed runs deliver them through onSay instead).
       update(code, done = false) {
@@ -2023,8 +2071,7 @@
         const ends = scanStatements(code), upto = done ? code.length : (ends.length ? ends[ends.length - 1] : 0);
         if (upto <= sent && !done) return [];
         sent = upto; src = code.slice(0, upto);
-        // The stream already found these boundaries; execution only needs the ones in its new tail.
-        const r = runner.run(src, done, ends);
+        const r = runner.run(src, done, ends);           // the boundaries are found once, here, and handed on
         return runner.sync ? r : [];
       },
       // the host tells the engine when a line is actually heard (seconds since live() started; default: now)
@@ -2032,46 +2079,55 @@
       lineEnd(k, t) { if (P) { P.end(k, t != null ? t : now()); kick(); } },
       // continuous speech: n words of the joined narration have been heard so far
       spoken(n, t) {
-        if (!P) return; const tt = t != null ? t : now();
-        for (const L of P.lines) { if (L.start == null && n > L.cum) P.start(L.k, tt); if (L.end == null && n >= L.cum + L.words) P.end(L.k, tt); }
+        if (!P) return;
+        const at = t != null ? t : now();
+        for (const L of P.lines) { if (L.start == null && n > L.cum) P.start(L.k, at); if (L.end == null && n >= L.cum + L.words) P.end(L.k, at); }
         kick();
       },
-      stop() { if (timer != null) clk.clear(timer); timer = null; finished = true; if (runner.stop) runner.stop(); },
-      // draw every stroke still waiting for its line now, quickly and in order; strokes that stream in later are drawn on arrival.
-      // The host's voice carries on; lineStart/lineEnd are still recorded. No effect when unpaced or finished.
+      stop() { stopTimer(); finished = true; if (runner.stop) runner.stop(); },
+      // draw every stroke still waiting for its line now, quickly and in order; strokes that stream in later are drawn on
+      // arrival. The host's voice carries on; lineStart/lineEnd are still recorded. No effect when unpaced or finished.
       finishNow() { if (!P || finished) return; P.rush(); kick(); },
       get rushed() { return !!(P && P.rushed); },
-      // 1.6: hold the pen after the stroke it is drawing (code keeps arriving and waits); resume() carries on
-      pause() { if (paused || finished) return; paused = true; if (timer != null) clk.clear(timer); timer = null; },
+      // hold the pen after the stroke it is drawing (code keeps arriving and waits); resume() carries on
+      pause() { if (paused || finished) return; paused = true; stopTimer(); },
       resume() {
-        if (!paused) return; paused = false;
-        const q = held; held = []; for (const [ms, d] of q) if (o.onDraw) o.onDraw(ms, d);
+        if (!paused) return;
+        paused = false;
+        const q = held; held = [];
+        for (const [ms, d] of q) if (o.onDraw) o.onDraw(ms, d);
         if (paced) kick(); else if (doneSeen) finishUp();
       },
       get paused() { return paused; }, get finished() { return finished; }, get done() { return doneSeen; },
       marks: all, get code() { return src; },
       report, log, lines, sandboxed, now,
-      // ReferenceRenderer, for a continued turn on the same card:
+      // for a continued turn on the same card:
       // the program the runner has actually run (complete statements; src can be ahead of it while a statement waits to parse)
       get ran() { return runner.code != null ? runner.code : src; }, get runMode() { return runner.mode || null; },
-      // three-metal: the live run's figure() tick functions and poses (null in the worker sandbox)
+      // the live run's figure() tick functions and poses (null in the worker sandbox)
       get live3d() { return runner.live3d || null; },
       get count() { return nMarks; }, isReleased: i => released.has(i),
       // drop every mark not drawn yet (the user interrupted); returns the first dropped index (nMarks when none)
       dropPending() {
         let keep = nMarks;
-        for (let i = 0; i < nMarks; i++) { const m = all[i]; if (m && !released.has(i) && !(m.do === 'edit' && m.op && m.op.op === 'turn')) { keep = i; break; } }
+        for (let i = 0; i < nMarks; i++) if (all[i] && !released.has(i) && !isTurnMark(all[i])) { keep = i; break; }
         dropRange(keep, nMarks); held = [];
         return keep;
       },
       // take more code after the program was done
       reopen(code) { if (code != null && !sandboxed) { src = code; sent = code.length; } doneSeen = false; finished = false; if (P) P.reopen(); },
-      // start the runner again on `code` (its first `count` marks are the ones already here), after the old run failed
+      // start the runner again on `code` (its first `count` marks are the ones already here), after the old run failed.
+      // The marks after them leave everything: the layout (later boxes used to steer around shapes no longer on the
+      // card), the pacer and the log (their indices are about to be reused).
       rebase(code, count) {
         if (sandboxed) return false;
-        const S = RUNNER.Session(W, H, { incremental: o.incremental }); S.update(code, false);
+        const S = RUNNER.Session(W, H, { incremental: o.incremental });
+        S.update(code, false);
         runner = syncRunner(S); src = code; sent = code.length;
-        for (let i = count; i < all.length; i++) released.delete(i);
+        const cut = new Set();
+        for (let i = count; i < all.length; i++) { released.delete(i); cut.add(i); }
+        if (cut.size) forgetMarks(cut, false);
+        for (let k = log.marks.length - 1; k >= 0; k--) if (cut.has(log.marks[k].i)) log.marks.splice(k, 1);
         all.length = Math.min(all.length, count); nMarks = count;
         return true;
       }

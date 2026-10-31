@@ -261,3 +261,41 @@ test('the pen refuses settings that would stop it', () => {
     assert.equal(after.min, before.min);
   } finally { M.setPen(before); }
 });
+
+// a stream on a hand-wound clock: tick(s) runs its timers up to s seconds later
+function woundStream(opts) {
+  const clock = { t: 0, timers: new Map(), id: 0 }, done = [];
+  const clk = { now: () => clock.t, set: (f, s) => { clock.timers.set(++clock.id, [clock.t + s, f]); return clock.id; }, clear: id => clock.timers.delete(id) };
+  const tick = s => {
+    const end = clock.t + s;
+    for (let next; (next = [...clock.timers].filter(([, [at]]) => at <= end).sort((a, b) => a[1][0] - b[1][0])[0]);) { clock.timers.delete(next[0]); clock.t = Math.max(clock.t, next[1][0]); next[1][1](); }
+    clock.t = end;
+  };
+  const stream = M.Stream({ w: 800, h: 600 }, Object.assign({ clock: clk, onDone: rep => done.push([...rep.warnings]) }, opts));
+  return { stream, tick, done };
+}
+
+test('a continued turn reports only its own layout warnings', () => {
+  const { stream, tick, done } = woundStream({});
+  const first = 'rect(100, 100, 200, 120)\ntext(130, 150, "Cache")\nrect(160, 140, 200, 120)\n';
+  stream.update(first, true); tick(1);
+  assert.equal(done.length, 1);
+  assert.equal(done[0].filter(w => /Cache/.test(w)).length, 1);
+  stream.dropPending(); stream.reopen(stream.ran);
+  stream.update(stream.ran + '__turn(2, ' + stream.count + ');\ndot(700, 500, 3)\n', true); tick(1);
+  assert.equal(done.length, 2);
+  // the first turn's warning is not reported again
+  assert.equal(done[1].filter(w => /Cache/.test(w)).length, 1);
+});
+
+test('rebasing a stream takes the cut marks out of the layout', () => {
+  const { stream, tick } = woundStream({});
+  // a labelled box, then a box below it that the rebase cuts away
+  stream.update('rect(100, 100, 200, 120)\ntext(130, 150, "Cache")\nrect(150, 240, 260, 120)\ndot(790, 590, 1)', false); tick(1);
+  assert.equal(stream.count, 3);
+  stream.rebase('rect(100, 100, 200, 120)\ntext(130, 150, "Cache")\n', 2);
+  // a box half over "Cache" moves to the nearest free spot, just below it, where the cut box no longer is
+  stream.update('rect(100, 100, 200, 120)\ntext(130, 150, "Cache")\nrect(180, 110, 200, 120)\n', true); tick(1);
+  assert.deepEqual([...stream.marks[2].at], [180, 206]);
+  assert.equal(stream.log.marks.filter(e => e.i === 2).length, 1);
+});
