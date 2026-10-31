@@ -1,5 +1,6 @@
-// Host adapter around the unchanged recovered H1 script runner. QuickJS gives
-// the original AsyncFunction its own heap and globals, without Node or fetch.
+// Host adapter around the tool-program runner. QuickJS gives that runner its own
+// heap and globals, without Node or fetch. The guest source is recovered-h1-script.mjs
+// with the export line removed.
 import { readFileSync } from 'node:fs';
 import { getQuickJS } from 'quickjs-emscripten';
 import { validateToolArguments } from '@earendil-works/pi-ai';

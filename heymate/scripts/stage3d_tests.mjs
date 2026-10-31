@@ -30,7 +30,8 @@ function stageHarness(width = 300, height = 500, look = null, nativeMetal = fals
       setPixelRatio() {} setSize() {} dispose() {}
       render(scene, camera) { scene.updateMatrixWorld(true); camera.updateMatrixWorld(true); }
     };
-    THREE.PMREMGenerator = class { fromScene() { return { texture: null }; } };
+    globalThis.__envMaps = 0;
+    THREE.PMREMGenerator = class { fromScene() { globalThis.__envMaps++; return { texture: null }; } };
     globalThis.mateThreeBuild = () => ({ positions: new Float32Array([-1,-1,-1, 1,-1,-1, 0,1,1]) });
   `, context);
   vm.runInContext(fs.readFileSync(new URL('mate-metal-bridge.js', sources), 'utf8'), context);
@@ -94,6 +95,8 @@ test('illustrated stages execute translated native fragment; studio keeps separa
   assert.equal(material.uniforms.emissive.value.r, 0.3);
   const studio = stageHarness(300, 500, 'studio'); studio.tick(1800);
   assert.ok(studio.stage.parts.get('blade').material.isMeshStandardMaterial);
+  assert.equal(illustrated.context.__envMaps, 0, 'illustrated shading does not need a reflection map');
+  assert.equal(studio.context.__envMaps, 1);
 });
 
 test('browser fragment keeps the shared shading from davinci.metal', () => {

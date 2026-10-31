@@ -36,7 +36,10 @@ original = source.read_bytes() if source.exists() else None
 if original is not None:
     assert hashlib.sha256(original).hexdigest() == orchestration['sourceSHA256'], 'Original H1 bundle changed'
 for entry in orchestration['modules']:
-    if entry['module'] == 'agent-runtime/src/recovered-h1-early-reads.mjs':
+    if entry['module'] in {
+        'agent-runtime/src/recovered-h1-early-reads.mjs',
+        'agent-runtime/src/recovered-h1-script.mjs',
+    }:
         continue  # Historical manifest entry; independently replaced.
     data = (root / entry['module']).read_bytes()
     assert hashlib.sha256(data).hexdigest() == entry['moduleSHA256'], 'Recovered H1 orchestration module changed'

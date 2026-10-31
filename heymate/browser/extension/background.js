@@ -1,8 +1,8 @@
-// HeyMate's Chrome side. The app talks through the native host; ReferenceRenderer's browser engine (mate-core.mjs, copied
-// verbatim from ReferenceRenderer 1.1.1) does the work through Chrome's debugger: pages read as accessibility snapshots,
-// clicks and keys sent as real input, tabs kept in a "HeyMate" group. This file only adapts HeyMate's requests to
-// it and its results back. The model never sends JavaScript (the engine's `javascript` op is not reachable from
-// here), and covering banners are never accepted for the user (no `dismiss`).
+// HeyMate's Chrome side. The app talks through the native host; mate-core.mjs does the work through Chrome's
+// debugger: pages read as accessibility snapshots, clicks and keys sent as real input, tabs kept in a "HeyMate"
+// group. This file only adapts HeyMate's requests to it and its results back. The model never sends JavaScript
+// (the engine has no operation that runs JavaScript), and covering banners are never accepted for the user
+// (no `dismiss`).
 
 import { BrowserBridge, snapshotLines } from "./mate-core.mjs";
 

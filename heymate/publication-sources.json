@@ -1,21 +1,8 @@
 {
   "schema": 1,
   "reviewStatus": "unresolved",
-  "reason": "Known recovered implementations remain. Naming cleanup does not establish independent authorship or distribution rights.",
-  "unresolved": [
-    {
-      "path": "browser/extension/mate-core.mjs",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
-      "path": "agent-runtime/src/recovered-h1-script.mjs",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
-      "path": "HeyMate/mate-stage3d.js",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    }
-  ],
+  "reason": "Every inventoried recovered implementation has been replaced; the replacements await source and behavior review (replacementReview). Naming cleanup and rewrites do not by themselves establish independent authorship or distribution rights.",
+  "unresolved": [],
   "licensedDependencies": [
     "Three.js (MIT): retain upstream notices",
     "Patrick Hand (SIL Open Font License): retain bundled license"
@@ -81,13 +68,31 @@
       "path": "scripts/native-shaders/davinci.metal",
       "status": "independently-reimplemented-awaiting-source-and-behavior-review",
       "replaces": "scripts/native-shaders/davinci.metal (recovered Metal literal)",
-      "note": "Rewritten 2026-10-31 with HeyMate/DaVinciShaders.txt kept byte-identical. Historical digests stay in scripts/native-shaders/provenance.json. The shared shading is copied into HeyMate/mate-stage3d.js as GLSL; the rest of that file is still recovered."
+      "note": "Rewritten 2026-10-31 with HeyMate/DaVinciShaders.txt kept byte-identical. Historical digests stay in scripts/native-shaders/provenance.json. The shared shading is copied into HeyMate/mate-stage3d.js as GLSL."
     },
     {
       "path": "HeyMate/DaVinciShaders.txt",
       "status": "independently-reimplemented-awaiting-source-and-behavior-review",
       "replaces": "HeyMate/DaVinciShaders.txt (bundled copy of the recovered Metal literal)",
       "note": "Same bytes as scripts/native-shaders/davinci.metal."
+    },
+    {
+      "path": "agent-runtime/src/recovered-h1-script.mjs",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "agent-runtime/src/recovered-h1-script.mjs (recovered H1 script runner)",
+      "note": "Rewritten 2026-10-31. Same program contract, still evaluated inside QuickJS. Historical hash stays in scripts/recovered-h1-orchestration-hashes.json."
+    },
+    {
+      "path": "HeyMate/mate-stage3d.js",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "HeyMate/mate-stage3d.js (recovered 3D stage adapter)",
+      "note": "Rewritten 2026-10-31. Same beats, camera, visits, labels, motions and picking. Illustrated stages no longer build the studio reflection map. The shared GLSL still matches scripts/native-shaders/davinci.metal. Regression tests in scripts/stage3d_tests.mjs."
+    },
+    {
+      "path": "browser/extension/mate-core.mjs",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "browser/extension/mate-core.mjs (recovered browser engine shipped through cb15e6e3)",
+      "note": "Rewritten 2026-10-31 to the background.js request contract; unit tests in scripts/browser_core_tests.mjs and scripts/browser_port_tests.mjs, live check in an isolated Chromium in scripts/browser_live_check.mjs. Operations the app never sends were not carried over."
     }
   ]
 }
