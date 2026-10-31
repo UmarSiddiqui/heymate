@@ -26,5 +26,11 @@
     "HeyMate/mate-three.js": "974d06ab1280d047af15f6b12f4bbc98b080355712f6ba825b5911bb67fc31c2",
     "HeyMate/mate-three-parts.js": "a18523fae34db1ca3a632b485dfe11ba32f50b37359df11a74d94f70e1d53a7b",
     "browser/extension/mate-core.mjs": "8ea253b28545539307f8cb8b32f59bfea12f512f188cbf0455f67fd800f62151"
+  },
+  "replaced": {
+    "HeyMate/mate-three-parts.js": "Independently rewritten 2026-10-31 from its recipe contract and regression tests (scripts/three_parts_tests.mjs); pins above are the historical recovered bytes. Awaits source and behavior review.",
+    "HeyMate/mate-three.js": "Rebuilt 2026-10-31 from upstream three.js 0.186.1 (MIT) by scripts/three-kernel/build.mjs; pins above are the historical recovered bundle.",
+    "HeyMate/mate-draw-pieces.js": "Independently rewritten 2026-10-31 with the same public pieces and design values; regression tests in scripts/draw_pieces_tests.mjs. Pins above are the historical recovered bytes. Awaits source and behavior review.",
+    "HeyMate/mate-draw-native.js": "Independently rewritten 2026-10-31 with the same host contract (globals, __host calls, __drainRender ops, mateCanvas API); regression tests in scripts/draw_native_tests.mjs. Pins above are the historical recovered bytes. Awaits source and behavior review."
   }
 }

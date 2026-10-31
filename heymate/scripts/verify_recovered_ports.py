@@ -15,6 +15,8 @@ pins = json.loads((root / 'scripts/recovered-port-hashes.json').read_text())
 resources = (args.bundle or Path('/Applications/HeyMate.app')) / 'Contents/Resources'
 inspect_bundle = args.installed or args.bundle is not None
 for name, expected in pins['files'].items():
+    if name in pins.get('replaced', {}):
+        continue  # Historical pin; independently rewritten (see the manifest's replaced entry).
     local = root / name
     assert hashlib.sha256(local.read_bytes()).hexdigest() == expected, f'Engine changed: {name}'
     if inspect_bundle:

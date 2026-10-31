@@ -32,6 +32,7 @@ heymate/design/
 # Generated runtime payloads and build scratch files
 /build/
 heymate/agent-runtime/node_modules/
+heymate/scripts/three-kernel/node_modules/
 
 # Local reference material and work outputs
 /references/

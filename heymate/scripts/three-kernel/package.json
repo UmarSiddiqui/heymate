@@ -1,0 +1,14 @@
+{
+  "name": "heymate-three-kernel",
+  "private": true,
+  "type": "module",
+  "description": "Builds HeyMate/mate-three.js: the slice of three.js the 3D part builder uses.",
+  "scripts": {
+    "build": "node build.mjs",
+    "check": "node build.mjs --check"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.1",
+    "three": "0.186.1"
+  }
+}

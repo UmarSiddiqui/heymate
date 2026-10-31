@@ -8,18 +8,6 @@
       "status": "requires-reviewed-replacement-or-documented-permission"
     },
     {
-      "path": "HeyMate/mate-draw-native.js",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
-      "path": "HeyMate/mate-draw-pieces.js",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
-      "path": "HeyMate/mate-three-parts.js",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
       "path": "HeyMate/DaVinciShaders.txt",
       "status": "requires-reviewed-replacement-or-documented-permission"
     },
@@ -66,5 +54,28 @@
   ],
   "clearance": "Engineering inventory only; not legal clearance. Replacements require behavioral and visual parity review.",
   "enforcement": "advisory",
-  "releaseAuthorization": "User requested release on 2026-10-29 with source review unresolved."
+  "releaseAuthorization": "User requested release on 2026-10-29 with source review unresolved.",
+  "replacementReview": [
+    {
+      "path": "HeyMate/mate-three-parts.js",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "HeyMate/mate-three-parts.js (recovered 2026-10-29 snapshot)"
+    },
+    {
+      "path": "HeyMate/mate-three.js",
+      "status": "rebuilt-from-upstream-mit-source",
+      "replaces": "HeyMate/mate-three.js (recovered bundle, not previously inventoried)",
+      "build": "scripts/three-kernel"
+    },
+    {
+      "path": "HeyMate/mate-draw-pieces.js",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "HeyMate/mate-draw-pieces.js (recovered 2026-10-29 snapshot)"
+    },
+    {
+      "path": "HeyMate/mate-draw-native.js",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "HeyMate/mate-draw-native.js (recovered 2026-10-29 snapshot)"
+    }
+  ]
 }
