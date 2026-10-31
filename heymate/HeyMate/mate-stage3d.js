@@ -65,176 +65,173 @@
   }
 
 
-  // Direct port of the shipped DaVinci Metal fragment functions, retained in
-  // scripts/native-shaders/davinci.metal (SHA-256 in its provenance.json).
-  // The function bodies below change only MSL/GLSL syntax and resource ABI.
-  // Swift renderer/outline passes and native material presets are not recovered here.
-  const DAVINCI_VERTEX = `
-    varying vec3 nativeWorldPosition;
-    varying vec3 nativeNormal;
-    varying vec2 nativeUV;
-    uniform mat3 nativeNormalMatrix;
+  // The browser's copy of HeyMate's 3D shading (scripts/native-shaders/davinci.metal, which the app runs natively):
+  // the shading between the "shared" markers is that file's, written in GLSL (scripts/stage3d_tests.mjs checks they
+  // match); only the inputs around it are WebGL's. Used for illustrated stages when the app's Metal renderer is not
+  // drawing them (browser pages and fixtures).
+  const SHADER_VERTEX = `
+    varying vec3 mateWorldPosition;
+    varying vec3 mateNormal;
+    varying vec2 mateUV;
+    uniform mat3 mateNormalMatrix;
     void main() {
       vec4 world = modelMatrix * vec4(position, 1.0);
-      nativeWorldPosition = world.xyz;
-      nativeNormal = normalize(nativeNormalMatrix * normal);
-      nativeUV = uv;
+      mateWorldPosition = world.xyz;
+      mateNormal = normalize(mateNormalMatrix * normal);
+      mateUV = uv;
       gl_Position = projectionMatrix * viewMatrix * world;
     }
   `;
-  const DAVINCI_FRAGMENT = `
-    #define saturate(value) clamp(value, 0.0, 1.0)
-    struct VertexOut { vec3 worldPosition; vec3 normal; vec2 uv; vec4 color; };
-    struct FrameUniforms { vec4 eye; vec4 style; };
-    struct ObjectUniforms { vec4 baseColor; vec4 emissive; vec4 surface; vec4 flags; vec4 bands[16]; };
-    varying vec3 nativeWorldPosition;
-    varying vec3 nativeNormal;
-    varying vec2 nativeUV;
-    uniform FrameUniforms frame;
-    uniform ObjectUniforms object;
-const float RECIPROCAL_PI = 0.3183098861837907;
-float D_GGX(float alpha, float dotNH) {
-    float a2 = alpha * alpha;
-    float denominator = dotNH * dotNH * (a2 - 1.0) + 1.0;
-    return RECIPROCAL_PI * a2 / (denominator * denominator);
-}
-float V_GGX_SmithCorrelated(float alpha, float dotNL, float dotNV) {
-    float a2 = alpha * alpha;
-    float gv = dotNL * sqrt(a2 + (1.0 - a2) * dotNV * dotNV);
-    float gl = dotNV * sqrt(a2 + (1.0 - a2) * dotNL * dotNL);
-    return 0.5 / max(gv + gl, 1e-6);
-}
-vec3 F_Schlick(vec3 f0, float f90, float dotVH) {
-    float fresnel = exp2((-5.55473 * dotVH - 6.98316) * dotVH);
-    return f0 * (1.0 - fresnel) + f90 * fresnel;
-}
-vec3 BRDF_GGX(vec3 lightDirection, vec3 viewDirection, vec3 normal, vec3 specularColor, float roughness) {
-    float alpha = roughness * roughness;
-    vec3 halfDirection = normalize(lightDirection + viewDirection);
-    float dotNL = saturate(dot(normal, lightDirection));
-    float dotNV = saturate(dot(normal, viewDirection));
-    float dotNH = saturate(dot(normal, halfDirection));
-    float dotVH = saturate(dot(viewDirection, halfDirection));
-    return F_Schlick(specularColor, 1.0, dotVH) * (V_GGX_SmithCorrelated(alpha, dotNL, dotNV) * D_GGX(alpha, dotNH));
-}
-vec3 sRGBFromLinear(vec3 value) {
-    return mix(pow(max(value, 0.0), vec3(0.41666)) * 1.055 - 0.055, value * 12.92, vec3(lessThanEqual(value, vec3(0.0031308))));
-}
-vec4 davinci_fragment(VertexOut vertexData, bool isFrontFacing, FrameUniforms frame, ObjectUniforms object) {
-    vec3 normal = normalize(vertexData.normal);
-    if (object.flags.y > 0.5) {
-        normal = normalize(cross(dFdx(vertexData.worldPosition), dFdy(vertexData.worldPosition)));
-        if (dot(normal, frame.eye.xyz - vertexData.worldPosition) < 0.0) normal = -normal;
-    } else if (object.flags.z > 0.5 && !isFrontFacing) {
-        normal = -normal;
-    }
-    vec4 base = object.baseColor;
-    if (object.flags.x > 0.5) base.rgb *= vertexData.color.rgb;
-    int bandCount = int(object.surface.w);
-    if (bandCount > 0) {
-        int band = clamp(int(floor((1.0 - vertexData.uv.y) * float(bandCount))), 0, bandCount - 1);
-        base.rgb *= object.bands[band].rgb;
-    }
-    float metalness = object.surface.y;
-    vec3 diffuseColor = base.rgb * (1.0 - metalness);
-    vec3 specularColor = mix(vec3(0.04), base.rgb, metalness);
-    vec3 geometryNormal = normalize(vertexData.normal);
-    vec3 variation = max(abs(dFdx(geometryNormal)), abs(dFdy(geometryNormal)));
-    float roughness = min(max(object.surface.x, 0.0525) + max(max(variation.x, variation.y), variation.z), 1.0);
+  const SHADER_FRAGMENT = `
+    varying vec3 mateWorldPosition;
+    varying vec3 mateNormal;
+    varying vec2 mateUV;
+    uniform vec3 eye;
+    uniform vec4 style;
+    uniform vec3 baseColor;
+    uniform vec3 emissive;
+    uniform vec4 surface;
+    uniform vec4 flags;
+    uniform vec3 bands[16];
+// ---- shared with mate-stage3d.js ----
+// Colours are linear until the end. Two looks: illustrated, the way Mate draws with markers (the colour flat where
+// the light falls, a cooler darker tone where it does not, a small hard highlight), and studio (soft physically
+// based light: a sky above, a dark floor below, a key light and a cool rim light from behind).
 
-    vec3 viewDirection = normalize(frame.eye.xyz - vertexData.worldPosition);
-    if (frame.style.x > 0.5) {
-        // Mate's illustrated look, like its marker drawings: the colour flat where the light
-        // falls, one cool darker tone where it does not (a soft edge between), a small white
-        // highlight on glossy parts, metal with a deeper shade and a brighter shine.
-        vec3 light = normalize(frame.style.yzw);
-        float facing = dot(normal, light);
-        float lit = smoothstep(-0.08, 0.14, facing);
-        vec3 colour = base.rgb;
-        vec3 shade = colour * mix(vec3(0.50, 0.53, 0.66), vec3(0.30, 0.32, 0.42), metalness);
-        vec3 tone = mix(shade, colour, lit);
-        // Turned right away from the light: a touch deeper still, so round things stay round.
-        tone *= mix(0.86, 1.0, smoothstep(-0.75, -0.35, facing));
-        vec3 halfway = normalize(light + viewDirection);
-        float shininess = saturate(1.0 - object.surface.x);
-        float highlight = smoothstep(0.985 - 0.06 * metalness - 0.03 * (1.0 - shininess), 0.995 - 0.06 * metalness, dot(normal, halfway));
-        tone = mix(tone, vec3(1.0), highlight * (0.35 + 0.55 * shininess));
-        tone += object.emissive.rgb;
-        return vec4(sRGBFromLinear(tone), base.a * object.surface.z);
-    }
-    // Hemisphere light: sky white, ground #3a4658, intensity 1.2 (indirect diffuse).
-    vec3 sky = vec3(1.0) * 1.2;
-    vec3 ground = vec3(0.04231, 0.06124, 0.09758) * 1.2;
-    vec3 irradiance = mix(ground, sky, 0.5 * normal.y + 0.5);
-    vec3 outgoing = irradiance * diffuseColor * RECIPROCAL_PI;
-    // Key light: white × 2.2 from (3, 5, 4). Rim light: #9fc4ff × 0.9 from (-4, 2, -4).
-    vec3 directions[2]; directions[0] = normalize(vec3(3.0, 5.0, 4.0)); directions[1] = normalize(vec3(-4.0, 2.0, -4.0));
-    vec3 colors[2]; colors[0] = vec3(2.2); colors[1] = vec3(0.34670, 0.55201, 1.0) * 0.9;
-    for (int index = 0; index < 2; index++) {
-        float dotNL = saturate(dot(normal, directions[index]));
-        vec3 lightIrradiance = dotNL * colors[index];
-        outgoing += lightIrradiance * diffuseColor * RECIPROCAL_PI;
-        outgoing += lightIrradiance * BRDF_GGX(directions[index], viewDirection, normal, specularColor, roughness);
-    }
-    outgoing += object.emissive.rgb;
-    return vec4(sRGBFromLinear(outgoing), base.a * object.surface.z);
+float to_srgb_channel(float x) {
+    return x <= 0.0031308 ? 12.92 * x : 1.055 * pow(x, 1.0 / 2.4) - 0.055;
 }
+vec3 to_srgb(vec3 c) {
+    c = max(c, vec3(0.0));
+    return vec3(to_srgb_channel(c.x), to_srgb_channel(c.y), to_srgb_channel(c.z));
+}
+
+// The normal to light with: the face's own normal for flat-shaded parts (turned to the eye), the far side's
+// normal turned round for double-sided parts seen from behind.
+vec3 lit_normal(vec3 normal, vec3 position, vec3 eye, bool flat, bool doubleSided, bool front) {
+    if (flat) {
+        vec3 n = normalize(cross(dFdx(position), dFdy(position)));
+        return dot(n, eye - position) < 0.0 ? -n : n;
+    }
+    vec3 n = normalize(normal);
+    return (doubleSided && !front) ? -n : n;
+}
+
+vec3 illustrated_tone(vec3 colour, vec3 n, vec3 v, vec3 light, float roughness, float metalness) {
+    float facing = dot(n, light);
+    // where the light falls, with a soft edge just past the terminator
+    float lit = smoothstep(-0.1, 0.12, facing);
+    vec3 shadow = colour * mix(vec3(0.54, 0.57, 0.70), vec3(0.33, 0.35, 0.46), metalness);
+    vec3 tone = mix(shadow, colour, lit);
+    // the side turned right away from the light a little deeper, so round things read as round
+    tone *= mix(0.84, 1.0, smoothstep(-0.8, -0.3, facing));
+    // a faint lift along the edges facing away from the eye, on the lit side
+    float edge = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 3.0);
+    tone = mix(tone, vec3(1.0), 0.10 * edge * lit);
+    // one small highlight: smaller and sharper the smoother the part, a little wider on metal
+    vec3 h = normalize(light + v);
+    float gloss = clamp(1.0 - roughness, 0.0, 1.0);
+    float size = 0.012 + 0.03 * roughness + 0.05 * metalness;
+    float spot = smoothstep(1.0 - size, 1.0 - size * 0.35, dot(n, h));
+    return mix(tone, vec3(1.0), spot * (0.3 + 0.6 * gloss));
+}
+
+// GGX microfacets: distribution, height-correlated Smith visibility and Schlick's Fresnel.
+float ggx_distribution(float a2, float nh) {
+    float d = nh * nh * (a2 - 1.0) + 1.0;
+    return a2 / (3.14159265 * d * d);
+}
+float smith_visibility(float a2, float nl, float nv) {
+    float l = nv * sqrt(nl * nl * (1.0 - a2) + a2);
+    float w = nl * sqrt(nv * nv * (1.0 - a2) + a2);
+    return 0.5 / max(l + w, 1e-5);
+}
+vec3 schlick_fresnel(vec3 f0, float vh) {
+    float k = pow(1.0 - vh, 5.0);
+    return f0 + (vec3(1.0) - f0) * k;
+}
+vec3 studio_light(vec3 n, vec3 v, vec3 l, vec3 radiance, vec3 diffuse, vec3 f0, float a2) {
+    float nl = clamp(dot(n, l), 0.0, 1.0);
+    if (nl <= 0.0) return vec3(0.0);
+    vec3 h = normalize(l + v);
+    float nv = max(dot(n, v), 1e-4), nh = clamp(dot(n, h), 0.0, 1.0), vh = clamp(dot(v, h), 0.0, 1.0);
+    vec3 specular = schlick_fresnel(f0, vh) * (ggx_distribution(a2, nh) * smith_visibility(a2, nl, nv));
+    return radiance * nl * (diffuse / 3.14159265 + specular);
+}
+vec3 studio_tone(vec3 colour, vec3 n, vec3 geometryNormal, vec3 v, vec3 key, float roughness, float metalness) {
+    vec3 diffuse = colour * (1.0 - metalness);
+    vec3 f0 = mix(vec3(0.04), colour, metalness);
+    // rougher where the surface curves fast across a pixel, so highlights don't sparkle on small curved parts
+    vec3 bend = fwidth(geometryNormal);
+    float r = clamp(roughness + max(bend.x, max(bend.y, bend.z)), 0.06, 1.0);
+    float a2 = r * r * r * r;
+    vec3 sky = vec3(1.15), ground = vec3(0.048, 0.064, 0.096);
+    vec3 c = mix(ground, sky, 0.5 + 0.5 * n.y) * diffuse / 3.14159265;
+    c += studio_light(n, v, normalize(key), vec3(2.1), diffuse, f0, a2);
+    c += studio_light(n, v, normalize(vec3(-4.0, 2.0, -4.0)), vec3(0.33, 0.48, 0.86), diffuse, f0, a2);
+    return c;
+}
+
+// A part's colour on screen (sRGB) and its opacity.
+vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
+                     vec3 colour, vec3 emissive, vec4 surface, vec4 flags) {
+    vec3 n = lit_normal(normal, position, eye, flags.y > 0.5, flags.z > 0.5, front);
+    vec3 v = normalize(eye - position);
+    vec3 c = style.x > 0.5
+        ? illustrated_tone(colour, n, v, normalize(style.yzw), surface.x, surface.y)
+        : studio_tone(colour, n, normalize(normal), v, style.yzw, surface.x, surface.y);
+    return vec4(to_srgb(c + emissive), surface.z);
+}
+// ---- end shared ----
+    vec3 band_colour(vec2 uv) {
+      int count = int(surface.w);
+      if (count <= 0) return vec3(1.0);
+      return bands[clamp(int(floor((1.0 - uv.y) * float(count))), 0, count - 1)];
+    }
     void main() {
-      VertexOut vertexData;
-      vertexData.worldPosition = nativeWorldPosition;
-      vertexData.normal = nativeNormal;
-      vertexData.uv = nativeUV;
-      vertexData.color = vec4(1.0);
-      gl_FragColor = davinci_fragment(vertexData, gl_FrontFacing, frame, object);
+      gl_FragColor = shade_surface(mateWorldPosition, mateNormal, gl_FrontFacing, eye, style,
+                                   baseColor * band_colour(mateUV), emissive, surface, flags);
     }
   `;
+  // The key light comes from up, right and forward: the same direction the app's renderer gives its shader.
+  const KEY_LIGHT = [3, 5, 4];
 
+  // An illustrated part's material: the standard material's settings (colour, glow, roughness, metal, opacity,
+  // sides) drawn with HeyMate's shading. Ticks and edits keep changing color, emissive and the rest as on any material;
+  // each draw hands the current values to the shader.
   function illustratedMaterial(spec, standard) {
     const bands = (Array.isArray(spec.bands) ? spec.bands : Array.isArray(spec.colors) ? spec.colors : []).slice(0, 16);
     const uniforms = {
-      nativeNormalMatrix: { value: new THREE.Matrix3() },
-      frame: { value: {
-        eye: new THREE.Vector4(),
-        // Native style uniform is host-owned. This adapter uses the exact
-        // physical shader key direction; native illustrated host defaults are unproved.
-        style: new THREE.Vector4(1, 3, 5, 4),
-      } },
-      object: { value: {
-        baseColor: new THREE.Vector4(), emissive: new THREE.Vector4(),
-        surface: new THREE.Vector4(standard.roughness, standard.metalness, standard.opacity, bands.length),
-        flags: new THREE.Vector4(0, spec.flat ? 1 : 0, spec.double ? 1 : 0, 0),
-        bands: Array.from({ length: 16 }, (_, i) => {
-          const color = new THREE.Color(bands[i] || '#FFFFFF');
-          return new THREE.Vector4(color.r, color.g, color.b, 1);
-        }),
-      } },
+      mateNormalMatrix: { value: new THREE.Matrix3() },
+      eye: { value: new THREE.Vector3() },
+      style: { value: new THREE.Vector4(1, ...KEY_LIGHT) },
+      baseColor: { value: new THREE.Color() },
+      emissive: { value: new THREE.Color() },
+      surface: { value: new THREE.Vector4(standard.roughness, standard.metalness, standard.opacity, bands.length) },
+      flags: { value: new THREE.Vector4(0, spec.flat ? 1 : 0, spec.double ? 1 : 0, 0) },
+      bands: { value: Array.from({ length: 16 }, (_, i) => new THREE.Color(bands[i] || '#FFFFFF')) },
     };
     const material = new THREE.ShaderMaterial({
-      vertexShader: DAVINCI_VERTEX, fragmentShader: DAVINCI_FRAGMENT, uniforms,
+      vertexShader: SHADER_VERTEX, fragmentShader: SHADER_FRAGMENT, uniforms,
       side: standard.side, transparent: standard.transparent, depthWrite: standard.depthWrite,
       opacity: standard.opacity, toneMapped: false, extensions: { derivatives: true },
     });
-    // Keep the existing part/tick color and glow ABI. Every draw synchronizes
-    // those values; animations do not write stale copies of uniforms.
-    material.color = standard.color.clone(); material.emissive = standard.emissive.clone();
-    material.emissiveIntensity = standard.emissiveIntensity;
-    material.roughness = standard.roughness; material.metalness = standard.metalness;
-    material.userData.nativeDaVinci = true;
+    Object.assign(material, { color: standard.color.clone(), emissive: standard.emissive.clone(), emissiveIntensity: standard.emissiveIntensity,
+      roughness: standard.roughness, metalness: standard.metalness });
+    material.userData.mateShader = true;
     standard.dispose();
     return material;
   }
-
-  function updateNativeMaterial(mesh, camera) {
+  const eyeAt = new THREE.Vector3();
+  function syncShader(mesh, camera) {
     const material = mesh.material;
-    if (!material?.userData.nativeDaVinci) return;
-    const uniforms = material.uniforms, color = material.color, emissive = material.emissive;
-    uniforms.nativeNormalMatrix.value.getNormalMatrix(mesh.matrixWorld);
-    const eye = new THREE.Vector3(); camera.getWorldPosition(eye);
-    uniforms.frame.value.eye.set(eye.x, eye.y, eye.z, 1);
-    uniforms.object.value.baseColor.set(color.r, color.g, color.b, 1);
-    const strength = material.emissiveIntensity;
-    uniforms.object.value.emissive.set(emissive.r * strength, emissive.g * strength, emissive.b * strength, 0);
-    uniforms.object.value.surface.set(material.roughness, material.metalness, material.opacity, uniforms.object.value.surface.w);
+    if (!material?.userData.mateShader) return;
+    const u = material.uniforms, strength = material.emissiveIntensity;
+    u.mateNormalMatrix.value.getNormalMatrix(mesh.matrixWorld);
+    camera.getWorldPosition(eyeAt); u.eye.value.copy(eyeAt);
+    u.baseColor.value.copy(material.color);
+    u.emissive.value.copy(material.emissive).multiplyScalar(strength);
+    u.surface.value.set(material.roughness, material.metalness, material.opacity, u.surface.value.w);
   }
 
   function geometryFor(kind, recipe) {
@@ -336,7 +333,7 @@ vec4 davinci_fragment(VertexOut vertexData, bool isFrontFacing, FrameUniforms fr
         const standard = materialFor(data.material);
         const material = st.look === 'illustrated' && !globalThis.__heymateNativeMetal ? illustratedMaterial(data.material || {}, standard) : standard;
         obj = new THREE.Mesh(geometryFor(data.kind, data.recipe || JSON.stringify(data.params || {})), material);
-        if (material.userData.nativeDaVinci) obj.onBeforeRender = (_renderer, _scene, camera) => updateNativeMaterial(obj, camera);
+        if (material.userData.mateShader) obj.onBeforeRender = (_renderer, _scene, camera) => syncShader(obj, camera);
       }
       catch (err) { console.warn('[stage3d] part', data.id, err && err.message); obj = new THREE.Group(); }
     }

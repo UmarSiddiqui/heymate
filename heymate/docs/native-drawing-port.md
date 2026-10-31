@@ -18,13 +18,13 @@ Validation: eight Node tests cover channel weights, bright/dark backgrounds, his
 
 ## Illustrated 3D: recovered shader source, GLSL ABI port
 
-The complete 12,203-byte Metal source literal was recovered at arm64 slice offset `0x2eb4350`, ending immediately before its NUL terminator. `../scripts/native-shaders/davinci.metal` preserves those exact bytes; SHA-256 is `1162dd2d8f94e1e929a68c7bde0f521917121e1d928a406c29503c36b9d938ba`.
+The complete 12,203-byte Metal source literal was recovered at arm64 slice offset `0x2eb4350`, ending immediately before its NUL terminator. Its pre-branding SHA-256 is `1162dd2d8f94e1e929a68c7bde0f521917121e1d928a406c29503c36b9d938ba`, kept in `../scripts/native-shaders/provenance.json`.
+
+As of 2026-10-31 that literal is no longer the file on disk. `../scripts/native-shaders/davinci.metal` and `HeyMate/DaVinciShaders.txt` are a rewrite and match each other. The shading between the shared markers is what `mate-stage3d.js` runs as GLSL. Shader output is still sRGB, so Three.js tone mapping stays off for this material. Dynamic part color and glow still update uniforms before each draw. Unit tests check the shared block, changing uniforms, and that studio figures keep a separate material path.
 
 The retained source compiled through the local Metal device with all seven original shader entrypoints present. This validates the extracted source literal, not native host/render parity.
 
-`mate-stage3d.js` ports `D_GGX`, `V_GGX_SmithCorrelated`, `F_Schlick`, `BRDF_GGX`, `sRGBFromLinear` and `davinci_fragment` through mechanical type/intrinsic/resource-signature substitutions. The original lighting, cool shadow, glossy highlight, roughness and sRGB function bodies are retained. The new vertex/uniform adapter supplies world coordinates, inverse-transpose normals, camera position, color, opacity, glow, flat/double flags and color bands. Shader output is already sRGB, so Three.js tone mapping is disabled for this material. Dynamic part color/glow changes update uniforms before each draw.
-
-Recovered drawing source distinguishes `scene3d()` (absent look, illustrated) from `figure()` (`look: studio`). The host now preserves that distinction. Legacy `scene3d` shape parameters are serialized into the existing recovered mesh kernel; figure recipe strings remain intact. Unit tests compare every translated fragment body to the preserved original, exercise changing uniforms, and verify that studio figures retain their separate material path.
+Recovered drawing source distinguishes `scene3d()` (absent look, illustrated) from `figure()` (`look: studio`). The host now preserves that distinction. Legacy `scene3d` shape parameters are serialized into the existing recovered mesh kernel; figure recipe strings remain intact.
 
 The real-browser regression in `render_port_check.js` additionally compiles the illustrated fragment, renders recovered sphere geometry, checks framebuffer alpha/color variation and GL errors, and saves `output/playwright/3d-illustrated-port.png`. Its execution results must be reported separately; the presence of the script is not a passing GPU test.
 

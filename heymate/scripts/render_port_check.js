@@ -88,7 +88,7 @@ scene3d(200,100,760,560,s=>{s.sphere({r:1,color:'#E04B3F',roughness:0.65,metalne
  await page.waitForTimeout(1000);
  const illustrated=await page.evaluate(()=>{
   const s=[...MateStage3D.stages.values()][0],mesh=[...s.parts.values()][0];
-  if(!mesh.isMesh||!mesh.material.isShaderMaterial||!mesh.material.userData.nativeDaVinci)throw Error('scene3d bypassed native fragment');
+  if(!mesh.isMesh||!mesh.material.isShaderMaterial||!mesh.material.userData.mateShader)throw Error('scene3d bypassed native fragment');
   const gl=s.renderer.getContext(),size=s.renderer.getDrawingBufferSize(new THREE.Vector2());
   s.renderer.render(s.scene,s.camera);
   const pixels=new Uint8Array(size.x*size.y*4);gl.readPixels(0,0,size.x,size.y,gl.RGBA,gl.UNSIGNED_BYTE,pixels);

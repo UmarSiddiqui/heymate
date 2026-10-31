@@ -7,7 +7,7 @@
 //  `ComputerUseCoordinator` already enforces for computer control, applied
 //  to connector calls instead. `ConnectorApprovalPolicy.requiresApproval`
 //  is the actual policy; this coordinator only owns the suspend/resume
-//  plumbing and the one-pending-request-at-a-time rule.
+//  plumbing and the approval queue.
 //
 
 import AppKit
@@ -85,28 +85,23 @@ final class ConnectorToolCoordinator: ObservableObject {
     /// The call waiting on the user. nil when nothing is pending.
     @Published private(set) var pendingRequest: ConnectorToolApprovalRequest?
 
-    /// Continuation for the in-flight approval, resumed by approve/deny.
-    private var pendingApprovalContinuation: CheckedContinuation<Bool, Never>?
+    private struct WaitingApproval {
+        let request: ConnectorToolApprovalRequest
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+    private var approvals: [WaitingApproval] = []
 
-    /// Suspends until the user answers. If another request replaces this
-    /// one before then, the earlier one resolves as denied — silently
-    /// dropping a suspended approval would hang its caller forever.
+    /// Each request waits its turn; cancelling one does not deny another.
     func requestApproval(for request: ConnectorToolApprovalRequest) async -> Bool {
         guard !Task.isCancelled else { return false }
-        pendingApprovalContinuation?.resume(returning: false)
-        pendingApprovalContinuation = nil
-
-        pendingRequest = request
-        NSSound.beep()
-
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                pendingApprovalContinuation = continuation
+                approvals.append(WaitingApproval(request: request, continuation: continuation))
+                if pendingRequest == nil { showNextApproval() }
             }
         } onCancel: {
             Task { @MainActor [weak self] in
-                guard self?.pendingRequest?.id == request.id else { return }
-                self?.denyPendingRequest()
+                self?.cancelApproval(id: request.id)
             }
         }
     }
@@ -120,9 +115,27 @@ final class ConnectorToolCoordinator: ObservableObject {
     }
 
     private func resolvePendingRequest(approved: Bool) {
-        guard pendingRequest != nil else { return }
+        guard !approvals.isEmpty else { return }
+        let approval = approvals.removeFirst()
         pendingRequest = nil
-        pendingApprovalContinuation?.resume(returning: approved)
-        pendingApprovalContinuation = nil
+        approval.continuation.resume(returning: approved)
+        showNextApproval()
+    }
+
+    private func cancelApproval(id: UUID) {
+        guard let index = approvals.firstIndex(where: { $0.request.id == id }) else { return }
+        let wasVisible = index == 0
+        let approval = approvals.remove(at: index)
+        approval.continuation.resume(returning: false)
+        if wasVisible {
+            pendingRequest = nil
+            showNextApproval()
+        }
+    }
+
+    private func showNextApproval() {
+        guard let next = approvals.first else { return }
+        pendingRequest = next.request
+        NSSound.beep()
     }
 }

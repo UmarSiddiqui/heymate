@@ -183,16 +183,26 @@ struct DriveTakeBackJudgeTests {
         #expect(judge.userPointerMoveStart == nil)
     }
 
-    @Test func movesCountOnlyPastTheThresholdAndOutsideActuation() {
+    @Test func onlyAShakeOutsideActuationTakesBack() {
         var judge = DriveTakeBackJudge()
         let now = Date()
-        _ = judge.observe(DrivePointerInput(kind: .move, isSynthesized: false, location: CGPoint(x: 100, y: 100)), at: now)
-        #expect(judge.evaluate(currentLocation: CGPoint(x: 103, y: 102), now: now, actuatingUntil: .distantPast) == nil)
-        #expect(judge.evaluate(currentLocation: CGPoint(x: 140, y: 100), now: now, actuatingUntil: .distantPast) == .pointer)
+        func move(_ judge: inout DriveTakeBackJudge, to x: CGFloat, after seconds: TimeInterval, actuatingUntil: Date = .distantPast) -> ComputerUseTakeBackReason? {
+            judge.observe(DrivePointerInput(kind: .move, isSynthesized: false, location: CGPoint(x: x, y: 100)), at: now.addingTimeInterval(seconds), actuatingUntil: actuatingUntil)
+        }
+        // A long plain move is not a take-back.
+        #expect(move(&judge, to: 100, after: 0) == nil)
+        #expect(move(&judge, to: 600, after: 0.1) == nil)
+        #expect(judge.userPointerMoveStart == CGPoint(x: 100, y: 100))
+        // A quick left-right shake is.
+        #expect(move(&judge, to: 500, after: 0.2) == nil)
+        #expect(move(&judge, to: 600, after: 0.3) == nil)
+        #expect(move(&judge, to: 500, after: 0.4) == .pointer)
 
         var acting = DriveTakeBackJudge()
-        _ = acting.observe(DrivePointerInput(kind: .move, isSynthesized: false, location: .zero), at: now)
-        #expect(acting.evaluate(currentLocation: CGPoint(x: 400, y: 0), now: now, actuatingUntil: now.addingTimeInterval(1)) == nil)
+        let busy = now.addingTimeInterval(10)
+        for (index, x) in [100.0, 200, 100, 200, 100, 200].enumerated() {
+            #expect(move(&acting, to: x, after: Double(index) * 0.05, actuatingUntil: busy) == nil)
+        }
         #expect(acting.userPointerMoveStart == nil)
     }
 }

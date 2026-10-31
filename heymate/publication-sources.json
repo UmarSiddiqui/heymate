@@ -4,14 +4,6 @@
   "reason": "Known recovered implementations remain. Naming cleanup does not establish independent authorship or distribution rights.",
   "unresolved": [
     {
-      "path": "HeyMate/DaVinciShaders.txt",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
-      "path": "scripts/native-shaders/davinci.metal",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
       "path": "browser/extension/mate-core.mjs",
       "status": "requires-reviewed-replacement-or-documented-permission"
     },
@@ -84,6 +76,18 @@
       "status": "independently-reimplemented-awaiting-source-and-behavior-review",
       "replaces": "HeyMate/mate-host.js (2026-10-29, with a direct port of the original app's screen sampler)",
       "note": "Screen sampling, host hooks, painter, gestures and buttons rewritten 2026-10-31; the ported sampler is gone."
+    },
+    {
+      "path": "scripts/native-shaders/davinci.metal",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "scripts/native-shaders/davinci.metal (recovered Metal literal)",
+      "note": "Rewritten 2026-10-31 with HeyMate/DaVinciShaders.txt kept byte-identical. Historical digests stay in scripts/native-shaders/provenance.json. The shared shading is copied into HeyMate/mate-stage3d.js as GLSL; the rest of that file is still recovered."
+    },
+    {
+      "path": "HeyMate/DaVinciShaders.txt",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "HeyMate/DaVinciShaders.txt (bundled copy of the recovered Metal literal)",
+      "note": "Same bytes as scripts/native-shaders/davinci.metal."
     }
   ]
 }

@@ -39,23 +39,28 @@ final class DriveTakeOverOverlay {
     /// first, which resolves as "not now".
     func requestConsent(goal: String, applicationName: String, origin: String) async -> Bool {
         dismissConsent(answer: false)
+        // The ask grows out of the notch: flush with the top of the screen
+        // that has the camera housing, its black top merging into it.
+        let screen = NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main ?? NSScreen.screens.first
         let card = DriveTakeOverConsentCard(
             goal: goal,
             applicationName: applicationName,
             origin: origin,
+            topInset: max(screen?.safeAreaInsets.top ?? 0, NSStatusBar.system.thickness),
             onDecline: { [weak self] in self?.dismissConsent(answer: false) },
             onAccept: { [weak self] in self?.dismissConsent(answer: true) }
         )
         let panel = Self.makePanel(interactive: true)
+        panel.hasShadow = false
         let hosting = NSHostingView(rootView: card)
         hosting.frame.size = hosting.fittingSize
         panel.contentView = hosting
         panel.setContentSize(hosting.fittingSize)
-        if let screen = NSScreen.main ?? NSScreen.screens.first {
+        if let screen {
             let size = hosting.fittingSize
             panel.setFrameOrigin(CGPoint(
                 x: screen.frame.midX - size.width / 2,
-                y: screen.visibleFrame.maxY - size.height - 24
+                y: screen.frame.maxY - size.height
             ))
         }
         consentPanel = panel
@@ -134,66 +139,93 @@ final class DriveTakeOverOverlay {
     }
 }
 
-/// "Can I take over?" Asked before every drive. Never the Return key's
-/// default for "Take over": a stray keypress must not hand over the Mac.
+/// "Can I take over?" Asked before every drive, as a shelf hanging from the
+/// notch: the app, a one-line ask, and the two answers. The take-back rule
+/// is a caption, with the rest on hover. Never the Return key's default
+/// for "Take over": a stray keypress must not hand over the Mac.
 struct DriveTakeOverConsentCard: View {
     let goal: String
     let applicationName: String
     let origin: String
+    /// Height hidden behind the camera housing and menu bar.
+    var topInset: CGFloat = 0
     let onDecline: () -> Void
     let onAccept: () -> Void
 
+    @State private var isHovered = false
+
+    /// The goal is written as the end state ("998633 is entered"), so the
+    /// ask reads "Use Calculator until 998633 is entered?".
+    private var ask: String { Self.ask(goal: goal) }
+
+    static func ask(goal: String) -> String {
+        let trimmed = goal.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        guard !trimmed.isEmpty else { return "Take over?" }
+        // Only plain lead words drop their capital; names ("Safari") and
+        // acronyms ("PDF") stay as written.
+        let firstWord = trimmed.prefix { $0.isLetter }
+        let plain: Set<Substring> = ["The", "A", "An", "This", "That", "These", "Those", "It", "Its", "Your", "My", "There", "Each", "Every", "All"]
+        let sentence = plain.contains(firstWord) ? firstWord.lowercased() + trimmed.dropFirst(firstWord.count) : trimmed
+        return "until \(sentence)?"
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: DS.Spacing.md) {
-            HStack(spacing: DS.Spacing.sm) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: DS.Spacing.sm) {
                 Image(systemName: "cursorarrow.motionlines")
                     .font(DS.Glyph.regular)
                     .foregroundColor(DS.Colors.textPrimary)
-                Text("Let HeyMate take over?")
-                    .font(DS.Fonts.headline)
+                    .accessibilityHidden(true)
+                Text("Use")
+                    .font(DS.Fonts.bodyLarge)
+                    .foregroundColor(DS.Colors.textSecondary)
+                Text(applicationName.isEmpty ? "this app" : applicationName)
+                    .font(DS.Fonts.statusWord)
                     .foregroundColor(DS.Colors.textPrimary)
-                Spacer(minLength: 0)
-                if !applicationName.isEmpty {
-                    Text(applicationName)
-                        .font(DS.Fonts.statusWord)
-                        .foregroundColor(DS.Colors.textSecondary)
-                        .padding(.horizontal, DS.Spacing.sm)
-                        .padding(.vertical, 3)
-                        .background(Capsule(style: .continuous).fill(DS.Colors.surface3))
-                }
-            }
-            Text(goal)
-                .font(DS.Fonts.title)
-                .foregroundColor(DS.Colors.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-            Text("I'll click and type in \(applicationName.isEmpty ? "that app" : applicationName) until it's done. Move the mouse, click, type, or press Esc to take it back at any time. I won't send, pay, or delete anything.")
-                .font(DS.Fonts.body)
-                .foregroundColor(DS.Colors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if origin == "agent" || origin == "bridge" {
-                Text("Asked by an agent working for you.")
-                    .font(DS.Fonts.caption)
-                    .foregroundColor(DS.Colors.textTertiary)
-            }
-            HStack(spacing: DS.Spacing.sm) {
-                Spacer(minLength: 0)
+                    .padding(.horizontal, DS.Spacing.sm)
+                    .padding(.vertical, 3)
+                    .background(Capsule(style: .continuous).fill(DS.Colors.surface3))
+                Text(ask)
+                    .font(DS.Fonts.bodyLarge)
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 Button("Not now", action: onDecline)
-                    .buttonStyle(DSSecondaryButtonStyle())
+                    .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.regular)
                     .keyboardShortcut(.cancelAction)
                 Button("Take over", action: onAccept)
-                    .buttonStyle(DSPrimaryButtonStyle())
+                    .dsCapsuleButtonStyle(.primary, height: DS.ControlSize.regular)
             }
+            Text(caption)
+                .font(DS.Fonts.caption)
+                .foregroundColor(DS.Colors.textTertiary)
+                .lineLimit(1)
+                .padding(.leading, 26)
         }
-        .padding(DS.Spacing.lg)
-        .frame(width: 380)
+        .padding(.top, topInset + 8)
+        .padding(.horizontal, DS.Spacing.lg)
+        .padding(.bottom, 12)
+        .frame(width: 600)
         .background(
-            RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous)
-                .fill(DS.Colors.surface1)
+            UnevenRoundedRectangle(
+                bottomLeadingRadius: DS.CornerRadius.extraLarge,
+                bottomTrailingRadius: DS.CornerRadius.extraLarge,
+                style: .continuous
+            )
+            .fill(Color.black)
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous)
-                .stroke(DS.Colors.borderStrong, lineWidth: 1)
-        )
+        .onHover { isHovered = $0 }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Let HeyMate use \(applicationName.isEmpty ? "this app" : applicationName) \(ask)")
+    }
+
+    private var caption: String {
+        var parts = ["Move the mouse or press Esc to take it back"]
+        if isHovered { parts.append("Never sends, pays, or deletes") }
+        if origin == "agent" || origin == "bridge" { parts.append("Asked by an agent working for you") }
+        return parts.joined(separator: " · ")
     }
 }
 

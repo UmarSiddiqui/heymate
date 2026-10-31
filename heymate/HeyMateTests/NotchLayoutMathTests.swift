@@ -121,6 +121,30 @@ struct NotchLayoutMathTests {
         #expect(active.height == idle.height)
     }
 
+    @Test func compactIdleMatchesHardwareAndStatusNeverCoversCameraOrMovesScreenAnchor() {
+        let hardware = CGRect(x: 665, y: 950, width: 185, height: 32)
+        let idle = NotchLayoutMath.compactSurfaceFrame(hardware: hardware, showsStatus: false, usageProviderCount: 0)
+        let work = NotchLayoutMath.compactSurfaceFrame(hardware: hardware, showsStatus: true, usageProviderCount: 0)
+        #expect(idle.midX == hardware.midX && work.midX == hardware.midX)
+        #expect(idle.maxY == hardware.maxY && work.maxY == hardware.maxY)
+        #expect(idle.height == hardware.height && work.height == hardware.height)
+        #expect(idle == hardware) // idle adds no icon wings
+        #expect((work.maxX - hardware.maxX) == 56) // bounded two-line action outside cutout
+        let voice = NotchLayoutMath.compactSurfaceFrame(hardware: hardware, showsStatus: true, usageProviderCount: 3, voiceOnly: true)
+        #expect(voice.width == hardware.width + 64) // voice never inherits task/usage width
+        #expect(voice.midX == hardware.midX && voice.height == hardware.height)
+        let speaking = NotchLayoutMath.compactSurfaceFrame(hardware: hardware, showsStatus: true, usageProviderCount: 0, voiceOnly: true, speaking: true)
+        #expect(speaking.width == hardware.width + 160)
+        #expect(speaking.midX == hardware.midX)
+        for count in [1, 3, 8] {
+            let usage = NotchLayoutMath.compactSurfaceFrame(hardware: hardware, showsStatus: false, usageProviderCount: count)
+            #expect((usage.width - hardware.width) / 2 >= NotchLayoutMath.compactUsageWidth(providerCount: count) + 14)
+        }
+        let external = CGRect(x: -2100, y: 1400, width: 148, height: 22)
+        let fallback = NotchLayoutMath.compactSurfaceFrame(hardware: external, showsStatus: true, usageProviderCount: 0)
+        #expect(fallback.midX == external.midX && fallback.maxY == external.maxY)
+    }
+
     @Test func threeUsageRingsFitWithoutChangingNotchHeightOrCenter() throws {
         let frame = try #require(NotchLayoutMath.pillFrame(
             screenFrame: Self.macBookScreen,
@@ -391,6 +415,34 @@ struct NotchLayoutMathTests {
         #expect(frame.maxY == external.maxY - NotchLayoutMath.fallbackMenuBarHeight)
     }
 
+    @Test func captionGrowsWithTextBetweenOneLineAndItsCap() {
+        let oneLine = NotchLayoutMath.captionHeight(textHeight: 18, hasProgress: false)
+        let threeLines = NotchLayoutMath.captionHeight(textHeight: 58, hasProgress: false)
+        let essay = NotchLayoutMath.captionHeight(textHeight: 900, hasProgress: false)
+
+        #expect(oneLine == NotchLayoutMath.captionMinimumHeight)
+        #expect(threeLines > oneLine)
+        #expect(essay == NotchLayoutMath.captionMaximumHeight)
+        #expect(NotchLayoutMath.captionHeight(textHeight: 58, hasProgress: true)
+            == threeLines + NotchLayoutMath.captionProgressHeight)
+    }
+
+    @Test func captionHangsFromTheNotchAtItsOwnWidth() throws {
+        let height = NotchLayoutMath.captionHeight(textHeight: 40, hasProgress: false)
+        let frame = try #require(NotchLayoutMath.compactChatFrame(
+            screenFrame: Self.macBookScreen,
+            topSafeAreaInset: Self.notchInset,
+            auxiliaryTopLeftMaxX: Self.auxLeftMaxX,
+            auxiliaryTopRightMinX: Self.auxRightMinX,
+            contentWidth: NotchLayoutMath.captionWidth,
+            contentHeight: height
+        ))
+
+        #expect(frame.maxY == Self.macBookScreen.maxY)
+        #expect(frame.width == NotchLayoutMath.captionWidth + NotchLayoutMath.cardShoulderRadius * 2)
+        #expect(frame.height == Self.notchInset + height)
+    }
+
     // MARK: - Pixel snap + corners
 
     @Test func backingAlignmentSnapsFractionalRectToNearestPixel() {
@@ -483,11 +535,11 @@ struct NotchLayoutMathTests {
         #expect(NotchLayoutMath.morphCardness(linearProgress: 1, isExpanding: false) == 0)
     }
 
-    @Test func morphCornersFollowTheSamePhysicalSpringAsWindow() {
+    @Test func morphCornersFollowTheSameBoundedResponseAsWindow() {
         for expanding in [true, false] {
             for step in 0...20 {
                 let time = CGFloat(step) / 20
-                let progress = min(max(CNNotchMotion.progress(time, expanding: expanding), 0), 1)
+                let progress = min(expanding ? NotchLayoutMath.surfaceOpenProgress(time) : NotchLayoutMath.surfaceMotionProgress(time), 1)
                 #expect(NotchLayoutMath.morphCardness(linearProgress: time, isExpanding: expanding) == (expanding ? progress : 1 - progress))
             }
         }
@@ -510,9 +562,63 @@ struct NotchLayoutMathTests {
         #expect(NotchLayoutMath.pillYieldBlur == 0)
     }
 
-    @Test func openAndCloseUseUpstreamSprings() {
-        #expect(NotchLayoutMath.expandDuration == CNNotchMotion.unfoldSpring.settlingDuration)
+    @Test func openingUsesSlowerTimingWithoutSerialYieldDelay() {
+        #expect(NotchLayoutMath.expandDuration == 0.56)
         #expect(NotchLayoutMath.collapseDuration < NotchLayoutMath.expandDuration)
+        #expect(NotchLayoutMath.workspaceExpandDuration == 0.64)
+        #expect(NotchLayoutMath.workspaceCollapseDuration <= 0.22)
+        #expect(NotchLayoutMath.pillYieldDuration == 0)
+    }
+
+    @Test func surfaceResponseIsPromptMonotonicAndNeverOvershoots() {
+        #expect(NotchLayoutMath.surfaceMotionProgress(-1) == 0)
+        #expect(NotchLayoutMath.surfaceMotionProgress(2) == 1)
+        #expect(NotchLayoutMath.surfaceMotionProgress(0.5) > 0.90)
+        // Gentle initial velocity instead of a frame-sized first jump.
+        #expect(NotchLayoutMath.surfaceMotionProgress(0.001) < 0.0001)
+        for rate in [60, 120] {
+            let frames = Int(ceil(NotchLayoutMath.expandDuration * Double(rate)))
+            var previous: CGFloat = 0
+            for frame in 0...frames {
+                let progress = NotchLayoutMath.surfaceMotionProgress(CGFloat(frame) / CGFloat(frames))
+                #expect(progress >= previous)
+                #expect((0...1).contains(progress))
+                previous = progress
+            }
+            #expect(previous == 1)
+        }
+    }
+
+    @Test func surfaceFramesKeepCompactEndpointsAndScreenAnchorBothDirections() {
+        let idle = CGRect(x: 640, y: 950, width: 233, height: 32)
+        let open = CGRect(x: 450, y: 786, width: 613, height: 196)
+        for (source, target) in [(idle, open), (open, idle)] {
+            for frame in 0...40 {
+                let rect = NotchLayoutMath.animatedSurfaceFrame(from: source, to: target,
+                    progress: CGFloat(frame) / 40, opening: source == idle)
+                #expect(abs(rect.maxY - idle.maxY) < 0.001)
+                #expect(abs(rect.midX - idle.midX) < 0.001)
+                #expect(rect.width >= idle.width && rect.width <= open.width)
+                #expect(rect.height >= idle.height && rect.height <= open.height + (source == idle ? 2 : 0))
+            }
+            #expect(NotchLayoutMath.animatedSurfaceFrame(from: source, to: target, progress: 1, opening: source == idle) == target)
+        }
+    }
+
+    @Test func springSettlesVerticallyWithoutWideningOrLargePanelBounce() {
+        let idle = CGRect(x: 640, y: 950, width: 233, height: 32)
+        let large = CGRect(x: 256.5, y: 82, width: 1000, height: 900)
+        var peakHeight = large.height
+        for frame in 0...120 {
+            let rect = NotchLayoutMath.animatedSurfaceFrame(from: idle, to: large,
+                progress: CGFloat(frame) / 120, opening: true)
+            #expect(rect.width <= large.width)
+            #expect(rect.height <= large.height + 2.001)
+            #expect(abs(rect.maxY - idle.maxY) < 0.001)
+            peakHeight = max(peakHeight, rect.height)
+        }
+        #expect(peakHeight > large.height)
+        #expect(NotchLayoutMath.surfaceOpenProgress(0.5) > 0.95)
     }
 
     @Test func liquidOpenLandsExactlyWithoutOvershoot() {

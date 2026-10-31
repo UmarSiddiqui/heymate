@@ -1,214 +1,200 @@
+// HeyMate's 3D shading, compiled at run time by DaVinciMetalRenderer.swift. The surface shading between the
+// "shared" markers is plain math that mate-stage3d.js runs as GLSL for browser stages (scripts/stage3d_tests.mjs
+// checks the two stay the same); the entry points around it are Metal's.
+//
+// Passes: mate_vertex places a part; mate_shade colours it (DaVinciMetalRenderer.swift's heymate_surface calls it
+// and adds the cut-away); mate_part_id_fragment writes each part's id for the ink; mate_ink_vertex and
+// mate_ink_and_seam_fragment then ink the outline round the figure and shade the seams between its parts.
 #include <metal_stdlib>
 using namespace metal;
 
+// The layouts DaVinciMetalRenderer.swift packs, float by float.
 struct VertexIn { packed_float3 position; packed_float3 normal; packed_float2 uv; packed_float4 color; };
-struct FrameUniforms { float4x4 viewProjection; float4 eye; float4 style; };
+struct FrameUniforms { float4x4 viewProjection; float4 eye; float4 style; };   // style: illustrated?, key light direction
 struct ObjectUniforms {
     float4x4 model; float4 normal0; float4 normal1; float4 normal2;
-    float4 baseColor; float4 emissive; float4 surface; float4 flags; float4 cut; float4 bands[16];
+    float4 baseColor; float4 emissive;
+    float4 surface;   // roughness, metalness, opacity, band count
+    float4 flags;     // vertex colours?, flat?, double sided?, -
+    float4 cut;       // plane normal and offset: what lies beyond it is cut away
+    float4 bands[16]; // colours of horizontal bands, top to bottom
 };
 struct VertexOut {
     float4 position [[position]];
     float3 worldPosition; float3 normal; float2 uv; float4 color;
 };
 
-vertex VertexOut davinci_vertex(uint vertexID [[vertex_id]],
-                                const device VertexIn *vertices [[buffer(0)]],
-                                constant FrameUniforms &frame [[buffer(1)]],
-                                constant ObjectUniforms &object [[buffer(2)]]) {
-    VertexIn in = vertices[vertexID];
-    float4 world = object.model * float4(float3(in.position), 1.0);
-    float3x3 normalMatrix = float3x3(object.normal0.xyz, object.normal1.xyz, object.normal2.xyz);
+vertex VertexOut mate_vertex(uint vertexID [[vertex_id]],
+                             const device VertexIn *vertices [[buffer(0)]],
+                             constant FrameUniforms &frame [[buffer(1)]],
+                             constant ObjectUniforms &object [[buffer(2)]]) {
+    VertexIn v = vertices[vertexID];
+    float4 world = object.model * float4(float3(v.position), 1.0);
     VertexOut out;
     out.position = frame.viewProjection * world;
     out.worldPosition = world.xyz;
-    out.normal = normalize(normalMatrix * float3(in.normal));
-    out.uv = float2(in.uv);
-    out.color = float4(in.color);
+    out.normal = normalize(float3x3(object.normal0.xyz, object.normal1.xyz, object.normal2.xyz) * float3(v.normal));
+    out.uv = float2(v.uv);
+    out.color = float4(v.color);
     return out;
 }
 
-constant float RECIPROCAL_PI = 0.3183098861837907;
+// ---- shared with mate-stage3d.js ----
+// Colours are linear until the end. Two looks: illustrated, the way Mate draws with markers (the colour flat where
+// the light falls, a cooler darker tone where it does not, a small hard highlight), and studio (soft physically
+// based light: a sky above, a dark floor below, a key light and a cool rim light from behind).
 
-// three.js lighting (r15x physical lights): GGX specular, Lambert diffuse.
-float D_GGX(float alpha, float dotNH) {
-    float a2 = alpha * alpha;
-    float denominator = dotNH * dotNH * (a2 - 1.0) + 1.0;
-    return RECIPROCAL_PI * a2 / (denominator * denominator);
+float to_srgb_channel(float x) {
+    return x <= 0.0031308 ? 12.92 * x : 1.055 * pow(x, 1.0 / 2.4) - 0.055;
 }
-float V_GGX_SmithCorrelated(float alpha, float dotNL, float dotNV) {
-    float a2 = alpha * alpha;
-    float gv = dotNL * sqrt(a2 + (1.0 - a2) * dotNV * dotNV);
-    float gl = dotNV * sqrt(a2 + (1.0 - a2) * dotNL * dotNL);
-    return 0.5 / max(gv + gl, 1e-6);
-}
-float3 F_Schlick(float3 f0, float f90, float dotVH) {
-    float fresnel = exp2((-5.55473 * dotVH - 6.98316) * dotVH);
-    return f0 * (1.0 - fresnel) + f90 * fresnel;
-}
-float3 BRDF_GGX(float3 lightDirection, float3 viewDirection, float3 normal, float3 specularColor, float roughness) {
-    float alpha = roughness * roughness;
-    float3 halfDirection = normalize(lightDirection + viewDirection);
-    float dotNL = saturate(dot(normal, lightDirection));
-    float dotNV = saturate(dot(normal, viewDirection));
-    float dotNH = saturate(dot(normal, halfDirection));
-    float dotVH = saturate(dot(viewDirection, halfDirection));
-    return F_Schlick(specularColor, 1.0, dotVH) * (V_GGX_SmithCorrelated(alpha, dotNL, dotNV) * D_GGX(alpha, dotNH));
-}
-float3 sRGBFromLinear(float3 value) {
-    return mix(pow(max(value, 0.0), float3(0.41666)) * 1.055 - 0.055, value * 12.92, float3(value <= 0.0031308));
+float3 to_srgb(float3 c) {
+    c = max(c, float3(0.0));
+    return float3(to_srgb_channel(c.x), to_srgb_channel(c.y), to_srgb_channel(c.z));
 }
 
-fragment float4 davinci_fragment(VertexOut in [[stage_in]], bool isFrontFacing [[front_facing]],
-                                 constant FrameUniforms &frame [[buffer(1)]],
-                                 constant ObjectUniforms &object [[buffer(2)]]) {
-    float3 normal = normalize(in.normal);
-    if (object.flags.y > 0.5) {
-        normal = normalize(cross(dfdx(in.worldPosition), dfdy(in.worldPosition)));
-        if (dot(normal, frame.eye.xyz - in.worldPosition) < 0.0) normal = -normal;
-    } else if (object.flags.z > 0.5 && !isFrontFacing) {
-        normal = -normal;
+// The normal to light with: the face's own normal for flat-shaded parts (turned to the eye), the far side's
+// normal turned round for double-sided parts seen from behind.
+float3 lit_normal(float3 normal, float3 position, float3 eye, bool flat, bool doubleSided, bool front) {
+    if (flat) {
+        float3 n = normalize(cross(dfdx(position), dfdy(position)));
+        return dot(n, eye - position) < 0.0 ? -n : n;
     }
-    float4 base = object.baseColor;
-    if (object.flags.x > 0.5) base.rgb *= in.color.rgb;
-    int bandCount = int(object.surface.w);
-    if (bandCount > 0) {
-        int band = clamp(int(floor((1.0 - in.uv.y) * float(bandCount))), 0, bandCount - 1);
-        base.rgb *= object.bands[band].rgb;
-    }
-    float metalness = object.surface.y;
-    float3 diffuseColor = base.rgb * (1.0 - metalness);
-    float3 specularColor = mix(float3(0.04), base.rgb, metalness);
-    float3 geometryNormal = normalize(in.normal);
-    float3 variation = max(abs(dfdx(geometryNormal)), abs(dfdy(geometryNormal)));
-    float roughness = min(max(object.surface.x, 0.0525) + max(max(variation.x, variation.y), variation.z), 1.0);
-
-    float3 viewDirection = normalize(frame.eye.xyz - in.worldPosition);
-    if (frame.style.x > 0.5) {
-        // Mate's illustrated look, like its marker drawings: the colour flat where the light
-        // falls, one cool darker tone where it does not (a soft edge between), a small white
-        // highlight on glossy parts, metal with a deeper shade and a brighter shine.
-        float3 light = normalize(frame.style.yzw);
-        float facing = dot(normal, light);
-        float lit = smoothstep(-0.08, 0.14, facing);
-        float3 colour = base.rgb;
-        float3 shade = colour * mix(float3(0.50, 0.53, 0.66), float3(0.30, 0.32, 0.42), metalness);
-        float3 tone = mix(shade, colour, lit);
-        // Turned right away from the light: a touch deeper still, so round things stay round.
-        tone *= mix(0.86, 1.0, smoothstep(-0.75, -0.35, facing));
-        float3 halfway = normalize(light + viewDirection);
-        float shininess = saturate(1.0 - object.surface.x);
-        float highlight = smoothstep(0.985 - 0.06 * metalness - 0.03 * (1.0 - shininess), 0.995 - 0.06 * metalness, dot(normal, halfway));
-        tone = mix(tone, float3(1.0), highlight * (0.35 + 0.55 * shininess));
-        tone += object.emissive.rgb;
-        return float4(sRGBFromLinear(tone), base.a * object.surface.z);
-    }
-    // Hemisphere light: sky white, ground #3a4658, intensity 1.2 (indirect diffuse).
-    float3 sky = float3(1.0) * 1.2;
-    float3 ground = float3(0.04231, 0.06124, 0.09758) * 1.2;
-    float3 irradiance = mix(ground, sky, 0.5 * normal.y + 0.5);
-    float3 outgoing = irradiance * diffuseColor * RECIPROCAL_PI;
-    // Key light: white × 2.2 from (3, 5, 4). Rim light: #9fc4ff × 0.9 from (-4, 2, -4).
-    float3 directions[2] = { normalize(float3(3.0, 5.0, 4.0)), normalize(float3(-4.0, 2.0, -4.0)) };
-    float3 colors[2] = { float3(2.2), float3(0.34670, 0.55201, 1.0) * 0.9 };
-    for (int index = 0; index < 2; index++) {
-        float dotNL = saturate(dot(normal, directions[index]));
-        float3 lightIrradiance = dotNL * colors[index];
-        outgoing += lightIrradiance * diffuseColor * RECIPROCAL_PI;
-        outgoing += lightIrradiance * BRDF_GGX(directions[index], viewDirection, normal, specularColor, roughness);
-    }
-    outgoing += object.emissive.rgb;
-    return float4(sRGBFromLinear(outgoing), base.a * object.surface.z);
+    float3 n = normalize(normal);
+    return (doubleSided && !front) ? -n : n;
 }
 
-// The ink outline: a full-screen triangle; every pixel within half a pen
-// width of a change of part id (in either grid) is inked, edges antialiased.
-// The outline round the object (a part against nothing) and the seams
-// between parts can take different pens (InkOutline.seamWidth/seamStrength);
-// with the same pen it is the one outline it always was.
-struct OutlineUniforms { float4 color; float halfWidth; float seamHalfWidth; float seamStrength; float seamShade; };
-
-vertex float4 davinci_outline_vertex(uint vid [[vertex_id]]) {
-    float2 corner = float2((vid == 1) ? 3.0 : -1.0, (vid == 2) ? 3.0 : -1.0);
-    return float4(corner, 0.0, 1.0);
+float3 illustrated_tone(float3 colour, float3 n, float3 v, float3 light, float roughness, float metalness) {
+    float facing = dot(n, light);
+    // where the light falls, with a soft edge just past the terminator
+    float lit = smoothstep(-0.1, 0.12, facing);
+    float3 shadow = colour * mix(float3(0.54, 0.57, 0.70), float3(0.33, 0.35, 0.46), metalness);
+    float3 tone = mix(shadow, colour, lit);
+    // the side turned right away from the light a little deeper, so round things read as round
+    tone *= mix(0.84, 1.0, smoothstep(-0.8, -0.3, facing));
+    // a faint lift along the edges facing away from the eye, on the lit side
+    float edge = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 3.0);
+    tone = mix(tone, float3(1.0), 0.10 * edge * lit);
+    // one small highlight: smaller and sharper the smoother the part, a little wider on metal
+    float3 h = normalize(light + v);
+    float gloss = clamp(1.0 - roughness, 0.0, 1.0);
+    float size = 0.012 + 0.03 * roughness + 0.05 * metalness;
+    float spot = smoothstep(1.0 - size, 1.0 - size * 0.35, dot(n, h));
+    return mix(tone, float3(1.0), spot * (0.3 + 0.6 * gloss));
 }
 
-/// How far (pixels) the nearest change of part id is, against nothing (x) and between parts (y): the pixels round it
-/// nearest first, each once (DaVinci3DRenderer.edgeNeighbours: x, y, how far it counts).
-float2 nearestEdges(int2 p, constant float4 *neighbours, uint neighbourCount, bool readsClear, texture2d<uint> opaqueIDs, texture2d<uint> clearIDs) {
-    int2 size = int2(opaqueIDs.get_width(), opaqueIDs.get_height());
-    uint a = opaqueIDs.read(uint2(p)).r, b = readsClear ? clearIDs.read(uint2(p)).r : 0u;
+// GGX microfacets: distribution, height-correlated Smith visibility and Schlick's Fresnel.
+float ggx_distribution(float a2, float nh) {
+    float d = nh * nh * (a2 - 1.0) + 1.0;
+    return a2 / (3.14159265 * d * d);
+}
+float smith_visibility(float a2, float nl, float nv) {
+    float l = nv * sqrt(nl * nl * (1.0 - a2) + a2);
+    float w = nl * sqrt(nv * nv * (1.0 - a2) + a2);
+    return 0.5 / max(l + w, 1e-5);
+}
+float3 schlick_fresnel(float3 f0, float vh) {
+    float k = pow(1.0 - vh, 5.0);
+    return f0 + (float3(1.0) - f0) * k;
+}
+float3 studio_light(float3 n, float3 v, float3 l, float3 radiance, float3 diffuse, float3 f0, float a2) {
+    float nl = clamp(dot(n, l), 0.0, 1.0);
+    if (nl <= 0.0) return float3(0.0);
+    float3 h = normalize(l + v);
+    float nv = max(dot(n, v), 1e-4), nh = clamp(dot(n, h), 0.0, 1.0), vh = clamp(dot(v, h), 0.0, 1.0);
+    float3 specular = schlick_fresnel(f0, vh) * (ggx_distribution(a2, nh) * smith_visibility(a2, nl, nv));
+    return radiance * nl * (diffuse / 3.14159265 + specular);
+}
+float3 studio_tone(float3 colour, float3 n, float3 geometryNormal, float3 v, float3 key, float roughness, float metalness) {
+    float3 diffuse = colour * (1.0 - metalness);
+    float3 f0 = mix(float3(0.04), colour, metalness);
+    // rougher where the surface curves fast across a pixel, so highlights don't sparkle on small curved parts
+    float3 bend = fwidth(geometryNormal);
+    float r = clamp(roughness + max(bend.x, max(bend.y, bend.z)), 0.06, 1.0);
+    float a2 = r * r * r * r;
+    float3 sky = float3(1.15), ground = float3(0.048, 0.064, 0.096);
+    float3 c = mix(ground, sky, 0.5 + 0.5 * n.y) * diffuse / 3.14159265;
+    c += studio_light(n, v, normalize(key), float3(2.1), diffuse, f0, a2);
+    c += studio_light(n, v, normalize(float3(-4.0, 2.0, -4.0)), float3(0.33, 0.48, 0.86), diffuse, f0, a2);
+    return c;
+}
+
+// A part's colour on screen (sRGB) and its opacity.
+float4 shade_surface(float3 position, float3 normal, bool front, float3 eye, float4 style,
+                     float3 colour, float3 emissive, float4 surface, float4 flags) {
+    float3 n = lit_normal(normal, position, eye, flags.y > 0.5, flags.z > 0.5, front);
+    float3 v = normalize(eye - position);
+    float3 c = style.x > 0.5
+        ? illustrated_tone(colour, n, v, normalize(style.yzw), surface.x, surface.y)
+        : studio_tone(colour, n, normalize(normal), v, style.yzw, surface.x, surface.y);
+    return float4(to_srgb(c + emissive), surface.z);
+}
+// ---- end shared ----
+
+// The colour of the band a point is in (the parts' horizontal stripes), white without bands.
+float3 band_colour(float2 uv, constant ObjectUniforms &object) {
+    int count = int(object.surface.w);
+    if (count <= 0) return float3(1.0);
+    int band = clamp(int(floor((1.0 - uv.y) * float(count))), 0, count - 1);
+    return object.bands[band].rgb;
+}
+
+float4 mate_shade(VertexOut in, bool front, constant FrameUniforms &frame, constant ObjectUniforms &object) {
+    float3 colour = object.baseColor.rgb * band_colour(in.uv, object);
+    if (object.flags.x > 0.5) colour *= in.color.rgb;
+    return shade_surface(in.worldPosition, in.normal, front, frame.eye.xyz, frame.style,
+                         colour, object.emissive.rgb, object.surface, object.flags) * float4(1.0, 1.0, 1.0, object.baseColor.a);
+}
+
+// Each part's id, for the ink. A cut part stops at its cut, and the inside seen through the opening gets an id of
+// its own (the high bit), so the pen also draws round the cut face.
+fragment uint mate_part_id_fragment(VertexOut in [[stage_in]], bool front [[front_facing]],
+                                    constant ObjectUniforms &object [[buffer(2)]], constant uint &identifier [[buffer(3)]]) {
+    if (dot(object.cut.xyz, object.cut.xyz) > 0.25) {
+        if (dot(in.worldPosition, object.cut.xyz) > object.cut.w) discard_fragment();
+        if (!front && object.flags.z < 0.5) return identifier | 0x80000000u;
+    }
+    return identifier;
+}
+
+// The ink: one triangle over the whole target. A pixel near a change of part id is inked: near the figure's edge
+// (a part against nothing) in the ink colour, near a seam between parts as a shade of the parts' own colour.
+struct InkUniforms { float4 color; float halfWidth; float seamHalfWidth; float seamStrength; float seamShade; };
+
+vertex float4 mate_ink_vertex(uint vid [[vertex_id]]) {
+    return float4(vid == 1 ? 3.0 : -1.0, vid == 2 ? 3.0 : -1.0, 0.0, 1.0);
+}
+
+// How far the nearest edge (x) and the nearest seam (y) are, in pixels. `offsets` lists the pixels round this one
+// (x, y, distance), nearest first, so the search stops once both are found or nothing further could be inked.
+float2 nearest_changes(int2 p, float reach, constant float4 *offsets, uint count, bool readsClear,
+                       texture2d<uint> opaqueIDs, texture2d<uint> clearIDs) {
+    int2 last = int2(opaqueIDs.get_width(), opaqueIDs.get_height()) - 1;
+    uint here = opaqueIDs.read(uint2(p)).r, hereClear = readsClear ? clearIDs.read(uint2(p)).r : 0u;
     float2 nearest = float2(1e9);
-    // Independent reads let the texture unit work ahead of the distance reduction. The table is sorted by ring
-    // distance, so scanning it all gives the same minima as stopping once both edges have been found.
-    uint index = 0;
-    for (; index + 4 <= neighbourCount; index += 4) {
-        uint4 opaque, clear = uint4(b);
-        float4 distances;
-        #pragma unroll
-        for (uint lane = 0; lane < 4; lane++) {
-            float4 neighbour = neighbours[index + lane];
-            int2 q = clamp(p + int2(neighbour.xy), int2(0), size - 1);
-            opaque[lane] = opaqueIDs.read(uint2(q)).r;
-            if (readsClear) clear[lane] = clearIDs.read(uint2(q)).r;
-            distances[lane] = neighbour.z;
-        }
-        bool4 changed = (opaque != a) || (clear != b);
-        bool4 silhouette = (opaque == 0u) != (a == 0u);
-        float4 outside = select(float4(1e9), distances, changed && silhouette);
-        float4 inside = select(float4(1e9), distances, changed && !silhouette);
-        nearest = min(nearest, float2(min(min(outside.x, outside.y), min(outside.z, outside.w)),
-                                      min(min(inside.x, inside.y), min(inside.z, inside.w))));
-    }
-    for (; index < neighbourCount; index++) {
-        float4 neighbour = neighbours[index];
-        int2 q = clamp(p + int2(neighbour.xy), int2(0), size - 1);
-        uint qa = opaqueIDs.read(uint2(q)).r, qb = readsClear ? clearIDs.read(uint2(q)).r : 0u;
-        if (qa != a || qb != b) {
-            if ((qa == 0u) != (a == 0u)) nearest.x = min(nearest.x, neighbour.z);
-            else nearest.y = min(nearest.y, neighbour.z);
-        }
+    for (uint i = 0; i < count; i++) {
+        float4 o = offsets[i];
+        if (o.z > reach || (nearest.x < 1e9 && nearest.y < 1e9)) break;
+        uint2 q = uint2(clamp(p + int2(o.xy), int2(0), last));
+        uint there = opaqueIDs.read(q).r, thereClear = readsClear ? clearIDs.read(q).r : 0u;
+        if (there == here && thereClear == hereClear) continue;
+        if ((there == 0u) != (here == 0u)) nearest.x = min(nearest.x, o.z);
+        else nearest.y = min(nearest.y, o.z);
     }
     return nearest;
 }
 
-fragment float4 davinci_outline_fragment(float4 position [[position]], constant OutlineUniforms& u [[buffer(0)]],
-                                         constant float4 *neighbours [[buffer(1)]], constant uint &neighbourCount [[buffer(2)]],
-                                         constant uint &readsClear [[buffer(3)]],
-                                         texture2d<uint> opaqueIDs [[texture(0)]], texture2d<uint> clearIDs [[texture(1)]]) {
-    float2 nearest = nearestEdges(int2(position.xy), neighbours, neighbourCount, readsClear != 0u, opaqueIDs, clearIDs);
-    float coverage = max(saturate(u.halfWidth - nearest.x + 1.0), u.seamStrength * saturate(u.seamHalfWidth - nearest.y + 1.0));
-    return u.color * coverage;
-}
-
-// The outline in ink (over what is there) and the seams in a shade of each part's own colour, in one pass: the blend
-// multiplies what is there by the second output, so colour = ink * shade + what is there * (1 - ink's alpha) * shade
-// (what the two passes this replaced gave, but for rounding between them).
+// Ink over what is there, seams darkening it: blended as colour + destination * factor (dual-source).
 struct InkAndSeam { float4 color [[color(0), index(0)]]; float4 factor [[color(0), index(1)]]; };
-fragment InkAndSeam davinci_ink_and_seam_fragment(float4 position [[position]], constant OutlineUniforms& u [[buffer(0)]],
-                                                  constant float4 *neighbours [[buffer(1)]], constant uint &neighbourCount [[buffer(2)]],
-                                                  constant uint &readsClear [[buffer(3)]],
-                                                  texture2d<uint> opaqueIDs [[texture(0)]], texture2d<uint> clearIDs [[texture(1)]]) {
-    float2 nearest = nearestEdges(int2(position.xy), neighbours, neighbourCount, readsClear != 0u, opaqueIDs, clearIDs);
-    float4 ink = u.color * saturate(u.halfWidth - nearest.x + 1.0);
-    float shade = 1.0 - u.seamStrength * saturate(u.seamHalfWidth - nearest.y + 1.0) * (1.0 - u.seamShade);
+fragment InkAndSeam mate_ink_and_seam_fragment(float4 position [[position]], constant InkUniforms &u [[buffer(0)]],
+                                               constant float4 *offsets [[buffer(1)]], constant uint &count [[buffer(2)]],
+                                               constant uint &readsClear [[buffer(3)]],
+                                               texture2d<uint> opaqueIDs [[texture(0)]], texture2d<uint> clearIDs [[texture(1)]]) {
+    float reach = max(u.halfWidth, u.seamStrength > 0.0 ? u.seamHalfWidth : 0.0) + 1.0;
+    float2 nearest = nearest_changes(int2(position.xy), reach, offsets, count, readsClear != 0u, opaqueIDs, clearIDs);
+    float4 ink = u.color * saturate(u.halfWidth + 1.0 - nearest.x);
+    float shade = 1.0 - u.seamStrength * (1.0 - u.seamShade) * saturate(u.seamHalfWidth + 1.0 - nearest.y);
     InkAndSeam out;
     out.color = float4(ink.rgb * shade, ink.a);
     out.factor = float4(float3((1.0 - ink.a) * shade), 1.0 - ink.a);
     return out;
-}
-
-fragment uint davinci_uncut_id_fragment(constant uint &identifier [[buffer(3)]]) {
-    return identifier;
-}
-
-// A part's id; a cut part's ids stop at its cut (the side taken away isn't there), and what shows through the
-// opening (its inside) gets an id of its own, so the pen draws round the cut face too.
-fragment uint davinci_picking_fragment(VertexOut in [[stage_in]], bool isFrontFacing [[front_facing]],
-                                       constant ObjectUniforms &object [[buffer(2)]], constant uint &identifier [[buffer(3)]]) {
-    if (dot(object.cut.xyz, object.cut.xyz) > 0.25) {
-        if (dot(in.worldPosition, object.cut.xyz) > object.cut.w) discard_fragment();
-        if (!isFrontFacing && object.flags.z < 0.5) return identifier | 0x80000000u;
-    }
-    return identifier;
 }

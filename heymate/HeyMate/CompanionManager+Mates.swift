@@ -59,15 +59,19 @@ extension CompanionManager: MateRoutineRunning {
         activeMateID = id
         mateDirectory.markRead(id: id)
         applyStoredPreferences(of: mate)
-        if let newest = chatHistoryStore.loadAll().first(where: {
+        let saved = rememberConversationsEnabled ? chatHistoryStore.loadAll().first(where: {
             ($0.mateID ?? mateDirectory.defaultMateID) == id && !$0.messages.isEmpty
-        }) {
+        }) : nil
+        let active = independentSession(forMateID: id)
+        let newest = [saved, active].compactMap { $0 }.max { $0.updatedAt < $1.updatedAt }
+        if let newest {
             currentChat = newest
         } else {
             var session = ChatSession.empty()
             session.mateID = id
             currentChat = session
         }
+        restoreIndependentChatTurn()
         streamingAssistantText = ""
         savedChats = rememberConversationsEnabled ? chatHistoryStore.loadAll() : []
         syncMatePublications()
@@ -315,6 +319,7 @@ extension CompanionManager: MateRoutineRunning {
     func deleteMate(id: UUID) -> Bool {
         guard mateDirectory.mates.contains(where: { $0.id == id }) else { return false }
         guard id != mateDirectory.defaultMateID else { return false }
+        cancelIndependentChatTurns(forMateID: id)
         let openChatBelongs = (currentChat.mateID ?? mateDirectory.defaultMateID) == id
         let viewingDeletedMate = openChatBelongs || activeMateID == id
         let routineBelongs = activeRoutineTurn?.mateID == id
@@ -398,6 +403,14 @@ extension CompanionManager: MateRoutineRunning {
         syncMatePublications()
     }
 
+    /// Saves an agent's own integration choices. Empty inherits HeyMate's.
+    func setMateConnectorOverrides(id: UUID, overrides: [String: Bool]) {
+        guard var mate = mateDirectory.mates.first(where: { $0.id == id }) else { return }
+        mate.connectorOverrides = overrides.isEmpty ? nil : overrides
+        _ = mateDirectory.upsertMate(mate)
+        syncMatePublications()
+    }
+
     /// Nil means the profile was saved. A string is the reason it was not.
     func updateMateProfile(
         id: UUID,
@@ -451,6 +464,36 @@ extension CompanionManager: MateRoutineRunning {
     func addRoutine(_ routine: MateRoutine) {
         mateDirectory.addRoutine(routine)
         syncMatePublications()
+    }
+
+    /// create_mate from a Talk or Pi turn: the same roster write as the
+    /// bridge's /mate/create, plus an optional first routine. The routine is
+    /// parsed first so a schedule it cannot read creates nothing.
+    func createMateFromTalkTool(arguments: [String: Any]) -> (text: String, isError: Bool) {
+        func text(_ key: String) -> String {
+            ((arguments[key] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let job = text("job")
+        guard !job.isEmpty else { return ("Missing job: say what this agent does in one sentence.", true) }
+        let takenNames = mateDirectory.mates.filter { !$0.archived }.map(\.name)
+        let name = text("name").isEmpty ? MateNameGenerator.name(for: job, existingNames: takenNames) : text("name")
+        guard !mateDirectory.mateStore.isNameTaken(name) else {
+            return ("An agent named \(name) already exists. Nothing was created; use send_to_mate or pick another name.", true)
+        }
+        var routine: MateRoutine?
+        if !text("routine").isEmpty {
+            guard let parsed = RoutinePhraseParser.parse(text("routine"), mateID: UUID(), now: Date(), calendar: .current) else {
+                return ("Couldn't read the routine schedule. \(RoutinePhraseParser.invalidScheduleMessage) Nothing was created.", true)
+            }
+            routine = parsed
+        }
+        guard let mate = createMate(name: name, job: job, soul: text("soul"), opensChat: false) else {
+            return ("Could not save the agent \(name).", true)
+        }
+        guard var routine else { return ("Created agent \(mate.name) (\(mate.job)).", false) }
+        routine.mateID = mate.id
+        addRoutine(routine)
+        return ("Created agent \(mate.name) (\(mate.job)). Routine saved: \(routine.task). \(routine.schedule.summary).", false)
     }
 
     func pauseRoutine(id: UUID) {
@@ -540,7 +583,7 @@ extension CompanionManager: MateRoutineRunning {
             clearRoutineDelivery()
             return .busy
         }
-        let accepted = sendTypedMessage(routine.task)
+        let accepted = sendTypedMessage(routine.task, internalMateTurn: true)
         if !accepted {
             clearRoutineDelivery()
             if openCodeTrainingNotice != nil { return .busy }
@@ -635,7 +678,7 @@ extension CompanionManager: MateRoutineRunning {
         activeHandoffMessageStart = session.messages.count
         activeHandoffRunIDs = []
         if session.id != currentChat.id { backgroundRoutineSession = session }
-        let accepted = sendTypedMessage(handoff.deliveredInstruction, imageAttachments: handoff.imageAttachments)
+        let accepted = sendTypedMessage(handoff.deliveredInstruction, imageAttachments: handoff.imageAttachments, internalMateTurn: true)
         let startedModelTurn = accepted && isResponseInFlight
         if !startedModelTurn {
             completeActiveHandoff(succeeded: accepted, failureMessage: accepted ? nil : commandBarFeedback)

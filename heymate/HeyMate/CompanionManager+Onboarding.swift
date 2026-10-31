@@ -91,7 +91,16 @@ extension CompanionManager {
         }
         do {
             CaptureAudit.shared.recordCaptureAttempt(context: CaptureAudit.Context.onboardingDemoInteraction)
-            guard let screen = try await ScreenCapture.allScreens().first(where: \.isCursorScreen) else { return nil }
+            let captures = try await ScreenCapture.allScreens()
+            let screen: ScreenSnapshot
+            if aboutSelection {
+                guard let frame = spatialSelectionScreenFrame,
+                      let selected = captures.first(where: { $0.displayFrame == frame }) else { return nil }
+                screen = selected
+            } else {
+                guard let cursorScreen = captures.first(where: \.isCursorScreen) else { return nil }
+                screen = cursorScreen
+            }
             let label = screen.label
                 + " (image dimensions: \(screen.screenshotWidthInPixels)x\(screen.screenshotHeightInPixels) pixels)"
             var prompt = request

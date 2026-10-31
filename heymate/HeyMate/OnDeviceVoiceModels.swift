@@ -274,8 +274,10 @@ actor KokoroEngine {
         #endif
     }
 
-    /// Keep the known macOS 26.4–26.5 BNNS exclusion. FluidAudio's 27
-    /// warning concerns iOS; macOS 27 uses the serialized engine below.
+    /// Keep the known macOS 26.4–26.5 BNNS exclusion. macOS 27.0.1 crashed
+    /// in libBNNS under E5RT on FluidAudio 0.17.7 (Oct 2026); 0.18.0 pads
+    /// Kokoro inputs against the OS 27 BNNS overread (FluidAudio #1038), so
+    /// 27 runs Kokoro again on trial. Re-gate 27 if that crash returns.
     nonisolated static func unsupportedReason(for version: OperatingSystemVersion) -> String? {
         if version.majorVersion == 26, (4...5).contains(version.minorVersion) {
             return "On-device speaking needs macOS 26.6 or later."

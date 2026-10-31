@@ -36,7 +36,7 @@ struct SettingsVoicePane: View {
                 .settingsAnchor(.onDeviceVoice)
             SettingsToggleRow(
                 SettingsItem.captions.title,
-                subtitle: "Show HeyMate's words at the bottom of the screen instead of beside the cursor.",
+                subtitle: "HeyMate's words appear in the notch. With the notch off, show them at the bottom of the screen instead of beside the cursor.",
                 item: .captions,
                 isOn: $showsBottomCaptions
             )

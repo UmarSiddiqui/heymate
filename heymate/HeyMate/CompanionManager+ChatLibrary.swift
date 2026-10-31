@@ -26,6 +26,7 @@ extension CompanionManager {
     /// matches only, because it does not know the default mate id.
     func clearChats(forMateID id: UUID) {
         cancelPendingOpenCodeTrainingSend(mateID: id)
+        cancelIndependentChatTurns(forMateID: id)
         let defaultID = mateDirectory.defaultMateID
         if let background = backgroundRoutineSession, (background.mateID ?? defaultID) == id {
             cancelInFlightChatTurn()

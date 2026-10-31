@@ -18,7 +18,7 @@ final class MateReactionDriver: ObservableObject {
 
     /// Call when visibility or the motion policy changes.
     func deliver(isVisible: Bool, allowed: Bool) {
-        guard allowed else { inbox.clear(); return }
+        guard allowed else { return }
         if let reaction = inbox.take(isVisible: isVisible, at: Date()) { play(reaction) }
     }
 

@@ -96,6 +96,18 @@ struct MateHomeLayoutTests {
         #expect(jobs.map(\.id) == [owned.id, inFolder.id])
     }
 
+    @Test func composerStripSkipsJobsAlreadyInThisChat() {
+        let here = sampleRun(status: .running, path: "/tmp/a", createdAt: Date(timeIntervalSince1970: 300))
+        let elsewhere = sampleRun(status: .running, path: "/tmp/b", createdAt: Date(timeIntervalSince1970: 200))
+        let needsYou = sampleRun(status: .waitingForApproval, path: "/tmp/c", createdAt: Date(timeIntervalSince1970: 100))
+        let done = sampleRun(status: .succeeded, path: "/tmp/d", createdAt: Date(timeIntervalSince1970: 400))
+        let strip = MateJobs.composerStrip(
+            jobs: [done, here, elsewhere, needsYou],
+            shownInTranscript: [here.id]
+        )
+        #expect(strip.map(\.id) == [needsYou.id, elsewhere.id])
+    }
+
     @Test func jobsBadgeCountsUnfinishedWorkAndNeedsYouCountsApprovals() {
         let runs = [
             sampleRun(status: .running, path: "/tmp/a", createdAt: Date()),

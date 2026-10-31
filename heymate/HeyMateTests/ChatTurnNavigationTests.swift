@@ -5,6 +5,102 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct ChatTurnNavigationTests {
+    @Test func switchingMatesKeepsBothTurnsAndRoutesResultsToTheirChats() async throws {
+        let client = ConcurrentConversationClient()
+        let fixture = try Fixture(conversationClient: client)
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        manager.testIndependentChatTurns = true
+        let firstChat = manager.currentChat.id
+        let other = fixture.addMate(name: "Pixel", brain: .onDevice)
+        manager.sendTranscriptToClaudeWithScreenshot(transcript: "First work", shouldCaptureScreen: false)
+        let firstTask = try #require(manager.currentResponseTask)
+        try await client.waitFor("First work")
+        manager.openMate(id: other.id)
+        let secondChat = manager.currentChat.id
+        manager.sendTranscriptToClaudeWithScreenshot(transcript: "Second work", shouldCaptureScreen: false)
+        let secondTask = try #require(manager.currentResponseTask)
+        try await client.waitFor("Second work")
+        client.finish("Second work", with: "Second result")
+        await secondTask.value
+        client.finish("First work", with: "First result")
+        await firstTask.value
+        #expect(manager.currentChat.id == secondChat)
+        #expect(manager.currentChat.messages.last?.text == "Second result")
+        #expect(manager.chatHistoryStore.session(id: firstChat)?.messages.last?.text == "First result")
+        #expect(manager.chatHistoryStore.session(id: secondChat)?.messages.last?.text == "Second result")
+    }
+
+    @Test func deletingBackgroundChatPreventsLateResultFromRecreatingIt() async throws {
+        let client = ConcurrentConversationClient()
+        let fixture = try Fixture(conversationClient: client)
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        manager.testIndependentChatTurns = true
+        let firstChat = manager.currentChat.id
+        let other = fixture.addMate(name: "Pixel", brain: .onDevice)
+        manager.sendTranscriptToClaudeWithScreenshot(transcript: "First work", shouldCaptureScreen: false)
+        let task = try #require(manager.currentResponseTask)
+        try await client.waitFor("First work")
+        manager.openMate(id: other.id)
+        manager.deleteChat(id: firstChat)
+        client.finish("First work", with: "Late result")
+        await task.value
+        #expect(manager.chatHistoryStore.session(id: firstChat) == nil)
+        #expect(manager.currentChat.messages.allSatisfy { $0.text != "Late result" })
+    }
+
+    @Test func connectorAccessUsesOwningMateAfterNavigation() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        let selection = CompanionManager.chatConnectorSelectionID(forConnectorID: "apple-mail")
+        let allowed = fixture.addMate(name: "Allowed", brain: .onDevice)
+        let denied = fixture.addMate(name: "Denied", brain: .onDevice)
+        var allowedMate = allowed
+        allowedMate.connectorOverrides = [selection: true]
+        var deniedMate = denied
+        deniedMate.connectorOverrides = [selection: false]
+        _ = manager.mateDirectory.upsertMate(allowedMate)
+        _ = manager.mateDirectory.upsertMate(deniedMate)
+        let owner = AgentChatOwner(mateID: allowed.id, chatID: UUID())
+        manager.openMate(id: denied.id)
+        #expect(manager.isConnectorEnabledForChat("apple-mail", owner: owner))
+        #expect(!manager.isConnectorEnabledForChat("apple-mail", owner: AgentChatOwner(mateID: denied.id, chatID: UUID())))
+        #expect(!manager.isConnectorEnabledForChat("apple-mail", owner: AgentChatOwner(mateID: UUID(), chatID: UUID())))
+    }
+
+    @Test func concurrentConnectorApprovalsAreQueued() async {
+        let coordinator = ConnectorToolCoordinator()
+        let first = ConnectorToolApprovalRequest(connectorDisplayName: "First", toolName: "write", argumentsSummary: "First action", risk: .externalSideEffect)
+        let second = ConnectorToolApprovalRequest(connectorDisplayName: "Second", toolName: "write", argumentsSummary: "Second action", risk: .externalSideEffect)
+        let firstTask = Task { await coordinator.requestApproval(for: first) }
+        while coordinator.pendingRequest == nil { await Task.yield() }
+        let secondTask = Task { await coordinator.requestApproval(for: second) }
+        await Task.yield()
+        #expect(coordinator.pendingRequest?.id == first.id)
+        coordinator.approvePendingRequest()
+        #expect(await firstTask.value)
+        #expect(coordinator.pendingRequest?.id == second.id)
+        coordinator.denyPendingRequest()
+        #expect(!(await secondTask.value))
+    }
+
+    @Test func cancellingQueuedApprovalLeavesVisibleApprovalIntact() async {
+        let coordinator = ConnectorToolCoordinator()
+        let first = ConnectorToolApprovalRequest(connectorDisplayName: "First", toolName: "write", argumentsSummary: "First action", risk: .externalSideEffect)
+        let second = ConnectorToolApprovalRequest(connectorDisplayName: "Second", toolName: "write", argumentsSummary: "Second action", risk: .externalSideEffect)
+        let firstTask = Task { await coordinator.requestApproval(for: first) }
+        while coordinator.pendingRequest == nil { await Task.yield() }
+        let secondTask = Task { await coordinator.requestApproval(for: second) }
+        await Task.yield()
+        secondTask.cancel()
+        #expect(!(await secondTask.value))
+        #expect(coordinator.pendingRequest?.id == first.id)
+        coordinator.approvePendingRequest()
+        #expect(await firstTask.value)
+    }
+
     @Test func nativeSubscriptionToolScopeRejectsOtherChatsAndExpiresOnNavigation() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
@@ -280,6 +376,31 @@ struct ChatTurnNavigationTests {
         // Integrations are global, so an agent's old saved choices are ignored.
         #expect(fixture.manager.chatConnectorExclusions == globalExclusions)
         #expect(!fixture.manager.chatConnectorExclusions.contains("example-connector"))
+    }
+
+    @Test func agentIntegrationsInheritHeyMateDefaultsUnlessOverridden() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        let mail = CompanionManager.chatConnectorSelectionID(forConnectorID: "apple-mail")
+        let slack = CompanionManager.chatConnectorSelectionID(forComposioSlug: "slack")
+        var mate = fixture.addMate(name: "Pixel", brain: .onDevice)
+        // Fixture turns Mail off by default; Slack stays on.
+        #expect(!manager.isConnectorSelectionEnabled(mail, for: mate))
+        #expect(manager.isConnectorSelectionEnabled(slack, for: mate))
+
+        manager.setMateConnectorOverrides(id: mate.id, overrides: [mail: true, slack: false])
+        mate = try #require(manager.mates.first { $0.id == mate.id })
+        #expect(manager.isConnectorSelectionEnabled(mail, for: mate))
+        #expect(!manager.isConnectorSelectionEnabled(slack, for: mate))
+        // The defaults themselves are untouched.
+        #expect(!manager.isChatConnectorEnabled(mail))
+        #expect(manager.isChatConnectorEnabled(slack))
+
+        manager.setMateConnectorOverrides(id: mate.id, overrides: [:])
+        mate = try #require(manager.mates.first { $0.id == mate.id })
+        #expect(mate.connectorOverrides == nil)
+        #expect(!manager.isConnectorSelectionEnabled(mail, for: mate))
     }
 
     @Test func talkAnswersAsHeyMateEvenWithAMateChatOpen() async throws {
@@ -637,7 +758,7 @@ struct ChatTurnNavigationTests {
                                       "selectedOpenCodeProviderID", "selectedOpenCodeModelID", "openCodeTrainingAcknowledgedModelKeys",
                                       "selectedVoiceSpeakProvider", "selectedVoiceListenProvider"]
 
-        init() throws {
+        init(conversationClient: (any VisionConversationClient)? = nil) throws {
             preferences = Dictionary(uniqueKeysWithValues: preferenceKeys.compactMap { key in
                 UserDefaults.standard.object(forKey: key).map { (key, $0) }
             })
@@ -653,7 +774,7 @@ struct ChatTurnNavigationTests {
                 agentUndoLedger: FileAgentUndoLedger(rootDirectoryURL: root.appendingPathComponent("undo"), recoverPreparedEntriesOnInit: false),
                 mateStore: FileMateStore(fileURL: root.appendingPathComponent("mates.json")),
                 routineStore: FileMateRoutineStore(fileURL: root.appendingPathComponent("routines.json")),
-                conversationClient: client
+                conversationClient: conversationClient ?? client
             )
             manager.rememberConversationsEnabled = true
             manager.selectedBrain = .onDevice
@@ -706,6 +827,29 @@ struct ChatTurnNavigationTests {
             try? FileManager.default.removeItem(at: root)
         }
     }
+}
+
+@MainActor
+private final class ConcurrentConversationClient: VisionConversationClient {
+    var model = "concurrency-test"
+    private var continuations: [String: CheckedContinuation<String, Never>] = [:]
+
+    func analyzeImageStreaming(images: [(data: Data, label: String)], systemPrompt: String,
+                               conversationHistory: [(userPlaceholder: String, assistantResponse: String)],
+                               userPrompt: String, onTextChunk: @MainActor @Sendable (String) -> Void) async throws -> (text: String, duration: TimeInterval) {
+        let key = userPrompt.contains("First work") ? "First work" : "Second work"
+        let response = await withCheckedContinuation { continuations[key] = $0 }
+        return (response, 0)
+    }
+
+    func waitFor(_ key: String) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while continuations[key] == nil && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        try #require(continuations[key] != nil)
+    }
+
+    func finish(_ key: String, with text: String) { continuations.removeValue(forKey: key)?.resume(returning: text) }
+
 }
 
 private final class FailingSpeech: TTSClient {

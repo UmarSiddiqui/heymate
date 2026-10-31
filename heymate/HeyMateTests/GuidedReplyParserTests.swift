@@ -8,6 +8,15 @@ import Testing
 @testable import HeyMate
 
 struct GuidedReplyParserTests {
+    @Test func chatTextDropsActionDirectives() {
+        let reply = "I'll calculate 5 × 9 in Calculator. [ACT:drive:Calculator|Calculate 5 times 9 and verify the result is displayed.]"
+        #expect(GuidedReplyParser.chatText(reply) == "I'll calculate 5 × 9 in Calculator.")
+        let saved = ChatMessage(id: UUID(), role: .assistant, text: reply, createdAt: Date())
+        #expect(saved.visibleText == "I'll calculate 5 × 9 in Calculator.")
+        let typed = ChatMessage(id: UUID(), role: .user, text: "say [ACT:click:Send]", createdAt: Date())
+        #expect(typed.visibleText == "say [ACT:click:Send]")
+    }
+
     @Test func singleTrailingPointStaysOneStep() {
         let reply = GuidedReplyParser.parse("click the color inspector up top. [POINT:1100,42:color inspector]")
         #expect(reply.steps.count == 1)

@@ -93,7 +93,7 @@ final class MateAgentServeBackend {
             return identity
         }
         if let startTask {
-            let result = try await startTask.value
+            let result = try await Self.awaitLeavingOnCancel(startTask)
             try Task.checkCancellation()
             if let expectedVersion, expectedVersion != result.version { throw Failure.versionMismatch }
             if let expectedCommit, expectedCommit != result.commit { throw Failure.versionMismatch }
@@ -103,22 +103,38 @@ final class MateAgentServeBackend {
         self.configuration = launch
         generation = UUID()
         stopped = false
-        let task = Task { try await self.launchAndVerify(launch, expectedVersion: expectedVersion, expectedCommit: expectedCommit, timeout: timeout) }
-        startTask = task
-        do {
-            let result = try await withTaskCancellationHandler {
-                let result = try await task.value
-                try Task.checkCancellation()
-                return result
-            } onCancel: {
-                Task { @MainActor [weak self] in self?.stop() }
+        // Startup belongs to the shared backend, not the first chat that
+        // happened to request it, so the task cleans up after itself.
+        // Cancelling that chat must not stop other chats waiting for the
+        // same process.
+        let task = Task {
+            do {
+                let identity = try await self.launchAndVerify(launch, expectedVersion: expectedVersion, expectedCommit: expectedCommit, timeout: timeout)
+                self.startTask = nil
+                return identity
+            } catch {
+                self.startTask = nil
+                self.stop()
+                throw error
             }
-            startTask = nil
-            return result
-        } catch {
-            startTask = nil
-            stop()
-            throw error
+        }
+        startTask = task
+        let result = try await Self.awaitLeavingOnCancel(task)
+        try Task.checkCancellation()
+        return result
+    }
+
+    /// Waits for shared startup, but a cancelled caller stops waiting at
+    /// once with `CancellationError`. Startup keeps going for the others.
+    private static func awaitLeavingOnCancel(_ task: Task<Identity, Error>) async throws -> Identity {
+        let gate = StartupWaitGate<Identity>()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                gate.install(continuation)
+                Task { gate.resume(with: await task.result) }
+            }
+        } onCancel: {
+            gate.resume(with: .failure(CancellationError()))
         }
     }
 
@@ -414,5 +430,39 @@ private nonisolated final class MateAgentServeNoRedirectDelegate: NSObject, URLS
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         completionHandler(nil)
+    }
+}
+
+/// Resumes one waiter exactly once, with whichever comes first: the shared
+/// startup's result or the waiter's own cancellation.
+nonisolated final class StartupWaitGate<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Value, Error>?
+    private var early: Result<Value, Error>?
+    private var finished = false
+
+    func install(_ continuation: CheckedContinuation<Value, Error>) {
+        lock.lock()
+        if let early {
+            lock.unlock()
+            continuation.resume(with: early)
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func resume(with result: Result<Value, Error>) {
+        lock.lock()
+        guard !finished else { lock.unlock(); return }
+        finished = true
+        guard let continuation else {
+            early = result
+            lock.unlock()
+            return
+        }
+        self.continuation = nil
+        lock.unlock()
+        continuation.resume(with: result)
     }
 }

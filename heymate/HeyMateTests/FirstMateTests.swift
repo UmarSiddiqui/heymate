@@ -413,7 +413,7 @@ struct MateAgentBriefTests {
 struct PiDelegationToolTests {
     @Test func delegationToolsAreRealLocalToolsWithoutStartMateWork() {
         let local = Set(TalkToolCatalog.localTools.map(\.toolDefinition.name))
-        #expect(TalkToolCatalog.piDelegationToolNames == ["send_to_mate", "get_mate_status", "answer_request"])
+        #expect(TalkToolCatalog.piDelegationToolNames == ["send_to_mate", "get_mate_status", "answer_request", "create_mate"])
         #expect(TalkToolCatalog.piDelegationToolNames.isSubset(of: local))
         #expect(!TalkToolCatalog.piDelegationToolNames.contains(TalkToolCatalog.startMateWorkToolName))
     }
@@ -423,6 +423,7 @@ struct PiDelegationToolTests {
         #expect(prompt.contains("send_to_mate"))
         #expect(prompt.contains("get_mate_status"))
         #expect(prompt.contains("answer_request"))
+        #expect(prompt.contains("create_mate"))
         #expect(prompt.contains("tool calls as text"))
     }
 }

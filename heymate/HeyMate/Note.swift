@@ -57,6 +57,10 @@ nonisolated struct Note: Equatable, Codable, Identifiable {
     /// A note the agent keeps (ReferenceRenderer's note tools) is markdown instead of blocks, and read-only here.
     var markdown: String?
     var isPreview: Bool?
+    /// 2 once the note is a canvas document. Older files carry no version and only `blocks`.
+    var version: Int?
+    /// Pages of rich blocks / cards. `blocks` is kept as written so an older build still opens the file.
+    var document: NoteDocument?
     var createdAt: Date
     var updatedAt: Date
 

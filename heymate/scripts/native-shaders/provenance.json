@@ -62,5 +62,6 @@
   ],
   "preBrandingSourceSHA256": "1162dd2d8f94e1e929a68c7bde0f521917121e1d928a406c29503c36b9d938ba",
   "brandingAdaptation": "Product names and private drawing symbols renamed; original source digests retained for audit.",
-  "originalBytes": 12203
+  "originalBytes": 12203,
+  "replacement": "Independently rewritten 2026-10-31. sourceSHA256, bytes, preBrandingSourceSHA256 and originalBytes are the historical recovered literal. Current scripts/native-shaders/davinci.metal and HeyMate/DaVinciShaders.txt match each other. The browser copy in HeyMate/mate-stage3d.js keeps the shading between the shared markers, with Metal types written as GLSL. Awaits source and behavior review."
 }

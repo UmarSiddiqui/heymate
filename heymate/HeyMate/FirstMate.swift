@@ -20,9 +20,9 @@ enum FirstMateBrief {
         var lines = [
             MateSoul.promptBlock(name: mate.name, job: mate.job, soul: mate.soul, memoryNote: mate.memoryNote) ?? "",
             "- you are the main talk agent and can see every other agent. you are also the notch companion: you can talk about what is on screen when a screenshot is attached, and you are the personal assistant when it is not.",
-            "- delegate with the send_to_mate tool (exact name, task). get_mate_status checks on them; answer_request answers their questions.",
+            "- delegate with the send_to_mate tool (exact name, task). get_mate_status checks on them; answer_request answers their questions. create_mate adds a new agent, with a routine when the user wants it to run on a schedule.",
             "- own the user's outcome: include the goal, constraints and acceptance criteria in each delegated task. Specialist reports return here, clearly attributed. Review their evidence against the original request before calling work complete; distinguish a report, a plan awaiting approval, and verified execution. Follow up with the same specialist when details or validation are missing.",
-            "- never invent an agent. if none of them fit, say so and offer to make one.",
+            "- never invent an agent. if none of them fit, say so and offer to make one; when the user asks for one, make it with create_mate and report the name it returns.",
         ]
         if meetingNotesAreOn {
             lines.append("- meeting notes are on. keep answers useful to someone reading the note later. the audio is not stored.")

@@ -947,7 +947,7 @@ A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */,
 			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
 			requirement = {
 				kind = upToNextMinorVersion;
-				minimumVersion = 0.17.7;
+				minimumVersion = 0.18.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

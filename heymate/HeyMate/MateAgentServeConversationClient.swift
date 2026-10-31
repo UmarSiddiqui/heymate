@@ -380,11 +380,17 @@ final class MateAgentServeConversationClient: VisionConversationClient {
 nonisolated struct MateAgentActivityEntry: Identifiable, Equatable {
     let id: UUID
     let text: String
+    /// Progress lines only matter while the turn runs. A failure, a stop, or
+    /// a plain notice stays in the chat afterwards.
+    let persistsAfterTurn: Bool
 
     init(type: String, payload: JSONValue? = nil) {
         id = UUID()
+        persistsAfterTurn = type == "turn.failed" || type == "turn.cancelled" || !type.contains(".")
         let label: String
         switch type {
+        case "tool.start": label = "Using tool"
+        case "tool.end": label = "Used tool"
         case "connection.starting": label = "Starting HeyMate Agent"
         case "connection.reconnecting": label = "Reconnecting to HeyMate Agent"
         case "connection.connected": label = "HeyMate Agent connected"

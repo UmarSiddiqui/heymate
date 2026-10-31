@@ -448,17 +448,6 @@ final class DriveTakeOverController: ObservableObject {
                 self.takeBack(reason)
             }
         }
-        pointerDriver.evaluation = { [weak self] in
-            guard let self else { return }
-            let start = self.judge.userPointerMoveStart
-            let location = NSEvent.mouseLocation
-            if let reason = self.judge.evaluate(currentLocation: location, now: Date(), actuatingUntil: self.actuatingUntil) {
-                if let start {
-                    HeyMateLog.log("🖐️ Drive: pointer moved \(Int(hypot(location.x - start.x, location.y - start.y)))pt")
-                }
-                self.takeBack(reason)
-            }
-        }
         pointerDriver.onDeadline = { [weak self] in
             guard let self else { return }
             HeyMateLog.log("⏱️ Drive: deadline")

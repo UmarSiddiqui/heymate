@@ -5,12 +5,10 @@
 //  Notices the person taking the wheel during a drive, and ends a drive
 //  that runs past its deadline.
 //
-//  Raw pointer events arrive far faster than they need judging, so they are
-//  recorded as they come and judged at most `maximumPointerRateHz` times a
-//  second. Clicks, scrolls and keys need no judging and stop the drive at
-//  once. A slow timer also compares where the pointer is with where it was,
-//  which catches a move the event tap missed (macOS disables a tap that
-//  falls behind). HeyMate's own synthesized input carries
+//  Clicks, scrolls and keys stop the drive at once. Pointer moves stop it
+//  only when they add up to a deliberate shake (see `PointerShakeDetector`),
+//  so the person can move the mouse while HeyMate works without ending the
+//  drive. HeyMate's own synthesized input carries
 //  `ComputerUseExecutor.synthesizedEventTag` and never counts.
 //
 
@@ -28,18 +26,22 @@ nonisolated struct DrivePointerInput: Equatable, Sendable {
 
 /// Decides when input is the person's, not HeyMate's or a bumped desk.
 nonisolated struct DriveTakeBackJudge: Equatable, Sendable {
-    var pointerTravelThreshold: CGFloat = 10
+    var shake = PointerShakeDetector()
     /// Where and when the person's pointer started moving, if it has.
     var userPointerMoveStart: CGPoint?
     var userPointerMoveStartedAt: Date?
+    private var lastMoveLocation: CGPoint?
 
-    /// Clicks and keys end the drive immediately. Moves only start a watch.
-    /// While HeyMate is acting, only Escape counts: a driver that moves the
-    /// real pointer (Cua's drag) posts events without HeyMate's tag.
+    /// Clicks and keys end the drive immediately. Moves end it only when
+    /// they add up to a deliberate shake. While HeyMate is acting, only
+    /// Escape counts: a driver that moves the real pointer (Cua's drag)
+    /// posts events without HeyMate's tag, and an app may warp the pointer,
+    /// so moves then are forgotten, not counted.
     mutating func observe(_ input: DrivePointerInput, at now: Date, actuatingUntil: Date = .distantPast) -> ComputerUseTakeBackReason? {
         guard !input.isSynthesized else { return nil }
         if now < actuatingUntil {
             if case .key(let keyCode) = input.kind, keyCode == ComputerUseTakeBack.escapeKeyCode { return .escape }
+            forgetMoves()
             return nil
         }
         switch input.kind {
@@ -52,20 +54,18 @@ nonisolated struct DriveTakeBackJudge: Equatable, Sendable {
                 userPointerMoveStart = input.location
                 userPointerMoveStartedAt = now
             }
-            return nil
+            defer { lastMoveLocation = input.location }
+            guard let last = lastMoveLocation else { return nil }
+            let delta = CGVector(dx: input.location.x - last.x, dy: input.location.y - last.y)
+            return shake.observe(delta, at: now.timeIntervalSinceReferenceDate) ? .pointer : nil
         }
     }
 
-    /// Judges a move against where it started. While HeyMate is actuating,
-    /// an app may warp the pointer, so moves then are forgotten, not counted.
-    mutating func evaluate(currentLocation: CGPoint, now: Date, actuatingUntil: Date) -> ComputerUseTakeBackReason? {
-        guard let start = userPointerMoveStart else { return nil }
-        if now < actuatingUntil {
-            userPointerMoveStart = nil
-            userPointerMoveStartedAt = nil
-            return nil
-        }
-        return hypot(currentLocation.x - start.x, currentLocation.y - start.y) >= pointerTravelThreshold ? .pointer : nil
+    private mutating func forgetMoves() {
+        userPointerMoveStart = nil
+        userPointerMoveStartedAt = nil
+        lastMoveLocation = nil
+        shake.reset()
     }
 }
 

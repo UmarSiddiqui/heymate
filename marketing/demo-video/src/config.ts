@@ -3,7 +3,7 @@
 //
 // Colors mirror `heymate/HeyMate/DesignSystem.swift` (dark mode) and
 // `AppTheme.swift`. The only UI accent is Signal blue, the app's default
-// buddy color. Violet (`iconGlow`) is reserved for the logo reveal.
+// buddy color. Baby blue (`iconGlow`) matches the approved Mischief logo.
 
 export const COLORS = {
   // Matte neutrals, deepest to most elevated (DS.Colors.background … surface4)
@@ -35,7 +35,7 @@ export const COLORS = {
   codeText: '#9DC2FF',
 
   // Brand identity only — the app icon's halo. Never UI.
-  iconGlow: '#5E54FF',
+  iconGlow: '#A8CBFA',
 } as const;
 
 export const FONTS = {

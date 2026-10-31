@@ -115,6 +115,15 @@ enum MateJobs {
             .sorted { $0.createdAt > $1.createdAt }
     }
 
+    /// Unfinished jobs from this mate's other chats. This chat's own jobs
+    /// are already cards in the transcript, and finished work reports back
+    /// as a message. Jobs waiting on the user stay first.
+    static func composerStrip(jobs: [AgentRun], shownInTranscript: Set<UUID>) -> [AgentRun] {
+        jobs
+            .filter { !$0.status.isTerminal && !shownInTranscript.contains($0.id) }
+            .sorted { $0.status.needsUser && !$1.status.needsUser }
+    }
+
     /// Short status words for a job row in chat. Plain language, no
     /// "agent", "executor", or "sandbox".
     static func statusLabel(for status: AgentRunStatus) -> String {

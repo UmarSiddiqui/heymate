@@ -162,11 +162,11 @@ struct CompanionCursorView: View {
                     .animation(.easeOut(duration: 0.4), value: companionManager.onboardingPromptOpacity)
             }
 
-            if isVisibleOnThisScreen && !companionManager.cursorCaptionText.isEmpty {
+            if isVisibleOnThisScreen && showsCaptionBesideCursor {
                 caption
             }
 
-            if mode == .pointing && !pointingLabel.isEmpty && companionManager.cursorCaptionText.isEmpty {
+            if mode == .pointing && !pointingLabel.isEmpty && !showsCaptionBesideCursor {
                 // Pops in from half size with a bright glow that settles.
                 CursorPillLabel(text: pointingLabel, glow: 1 - pointingLabelScale)
                     .scaleEffect(pointingLabelScale)
@@ -332,6 +332,12 @@ struct CompanionCursorView: View {
                 headingDegrees = CompanionCursorShape.restingHeadingDegrees
             }
         }
+    }
+
+    /// The notch speaks the reply while it is on; the cursor only carries
+    /// it when there is no notch companion to hang it from.
+    private var showsCaptionBesideCursor: Bool {
+        !companionManager.showNotchCompanion && !companionManager.cursorCaptionText.isEmpty
     }
 
     /// The streamed reply beside the cursor, kept fully on screen. As

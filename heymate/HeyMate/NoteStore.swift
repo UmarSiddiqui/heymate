@@ -110,7 +110,22 @@ final class NoteStore: ObservableObject {
 
     private func loadNote(from url: URL) throws -> Note {
         let data = try Data(contentsOf: url)
-        return try decoder.decode(Note.self, from: data)
+        var note = try decoder.decode(Note.self, from: data)
+        if let migrated = Self.migrated(note) {
+            // Rewrite in place: the legacy `blocks` stay in the file, so nothing is lost.
+            note = migrated
+            try? save(note)
+        }
+        return note
+    }
+
+    /// A pre-canvas note carried forward onto one page. Nil when already current or the agent's markdown.
+    nonisolated static func migrated(_ note: Note) -> Note? {
+        guard note.markdown == nil, note.document == nil || (note.version ?? 0) < NoteDocument.currentVersion else { return nil }
+        var note = note
+        if note.document == nil { note.document = NoteDocument.migrating(title: note.title, legacy: note.blocks) }
+        note.version = NoteDocument.currentVersion
+        return note
     }
 
     /// The agent's note: <id>.md, titled by its first # heading.
@@ -136,7 +151,9 @@ final class NoteStore: ObservableObject {
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw NoteStoreError.invalidTitle
         }
-        let note = Note(title: title)
+        var note = Note(title: title)
+        note.version = NoteDocument.currentVersion
+        note.document = NoteDocument(title: title)
         try save(note)
         notes.insert(note, at: 0)
         return note
@@ -159,6 +176,31 @@ final class NoteStore: ObservableObject {
         try save(updated)
         notes.removeAll { $0.id == note.id }
         notes.insert(updated, at: 0)
+    }
+
+    /// Creates a note whose first page is a card board.
+    func createBoard(title: String = "Untitled Board") throws -> Note {
+        var note = try create(title: title)
+        note.document = NoteDocument(title: title, pages: [Page(name: "Board", isBoard: true)])
+        try save(note)
+        replace(note)
+        return note
+    }
+
+    /// Replaces a note's document (title follows it). The one write path the editors use.
+    func updateDocument(_ document: NoteDocument, for noteID: UUID) throws {
+        var note = try note(noteID)
+        note.document = document
+        note.version = NoteDocument.currentVersion
+        if let title = document.title, !title.trimmingCharacters(in: .whitespaces).isEmpty { note.title = title }
+        note.updatedAt = Date()
+        try save(note)
+        replace(note)
+    }
+
+    private func replace(_ note: Note) {
+        notes.removeAll { $0.id == note.id }
+        notes.insert(note, at: 0)
     }
 
     /// Appends a block to a note.

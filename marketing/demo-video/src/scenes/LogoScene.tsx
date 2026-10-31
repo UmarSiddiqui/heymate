@@ -1,4 +1,4 @@
-// Scene 2 — logo reveal. The only place the icon's violet glow appears.
+// Scene 2 — logo reveal using the approved baby-blue Mischief identity.
 import React from 'react';
 import {Img, staticFile} from 'remotion';
 import {COLORS, COPY} from '../config';
@@ -36,7 +36,7 @@ export const LogoScene: React.FC = () => {
               width: iconSize * 3.2,
               height: iconSize * 3.2,
               transform: `translate(-50%, -50%) scale(${0.7 + 0.3 * bloom})`,
-              background: `radial-gradient(circle, ${COLORS.iconGlow}66 0%, ${COLORS.iconGlow}22 30%, rgba(94,84,255,0) 62%)`,
+              background: `radial-gradient(circle, ${COLORS.iconGlow}66 0%, ${COLORS.iconGlow}22 30%, rgba(168,203,250,0) 62%)`,
               opacity: bloom,
             }}
           />

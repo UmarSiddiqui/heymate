@@ -259,14 +259,14 @@ final class OnboardingTour: ObservableObject {
                 .sink { [weak self] selection in
                     guard let self, selection != nil, !self.isStepDone else { return }
                     self.hasMarkedRegion = true
-                    self.status = "Now hold \(PushToTalkShortcut.talk.displayText) and ask about it."
+                    self.status = "Keep holding the talk keys and ask about it."
                 }
                 .store(in: &watchers)
             listen { [weak self] transcript in
                 guard let self else { return }
-                self.answer(transcript, aboutSelection: self.hasMarkedRegion)
+                self.answer(transcript, aboutSelection: self.hasMarkedRegion || self.companionManager.activeSpatialSelection != nil)
             }
-            await say("You can also circle something first. Hold the circle keys, draw around anything, then ask me about it.")
+            await say("Hold the talk keys, circle anything while you ask about it, then let go.")
 
         case .type:
             guard isTypeShortcutOn else {

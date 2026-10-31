@@ -125,9 +125,11 @@ nonisolated enum GuidedReplyParser {
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// The reply as kept in the chat: its silent tags ([POINT:none], [STEP:2] …) removed, its lines kept.
+    /// The reply as kept in the chat: its silent tags ([POINT:none], [STEP:2] …)
+    /// and action directives ([ACT:drive:Calculator|…]) removed, its lines kept.
+    /// Directives run from the full reply, never from this text.
     static func chatText(_ text: String) -> String {
-        text.replacingOccurrences(of: #"[ \t]*\[(?:POINT|STEP|PLAN|CIRCLE|ARROW|RECT|CARD):[^\]\n]*\]"#, with: "", options: .regularExpression)
+        text.replacingOccurrences(of: #"[ \t]*\[(?:POINT|STEP|PLAN|CIRCLE|ARROW|RECT|CARD|ACT):[^\]\n]*\]"#, with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
