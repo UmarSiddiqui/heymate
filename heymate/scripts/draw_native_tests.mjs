@@ -177,3 +177,20 @@ test('caps keep an emoji whole when they space out the letters', () => {
   assert.ok(drained.includes('🚀'));
   assert.doesNotMatch(drained, /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
 });
+
+test('an edit can name a mark by the id the program gave it', () => {
+  const c = canvas();
+  c.call('renderWhole', { w: 800, h: 600, width: 800, code: "rect(100, 100, 200, 120, {id: 'box'})\nrecolor('box', 'red')" });
+  c.advance(3);
+  const state = c.call('state');
+  assert.match(state, /rect red \(m0\)/);
+  assert.match(state, /last changed: m0 \(recolor\)/);
+});
+
+test('a run of marks stops at the last mark there is', () => {
+  const c = canvas(), started = Date.now();
+  c.call('renderWhole', { w: 800, h: 600, width: 800, code: "dot(10, 10, 3)\ndot(20, 20, 3)\nerase('m0-m40000000')\ndot(30, 30, 3)" });
+  c.advance(2);
+  assert.ok(Date.now() - started < 3000, 'did not count to the end of the range');
+  assert.match(c.call('state'), /last changed: m0,m1 \(erase\)/);
+});

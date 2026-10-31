@@ -3328,227 +3328,321 @@
     if (!cardBoxes.length) return null;
     return b => { const cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2; return cardBoxes.some(n => cx >= n[0] - 12 && cx <= n[2] + 12 && cy >= n[1] - 12 && cy <= n[3] + 12); };
   }
+  // ================================================================ the editor behind live() and render(): ops, undo and the model's view
+  // Ops (one JSON object each): recolor, restyle, move, moveTo, scale, erase, redraw, add, highlight, startOver, undo.
+  // say / new / none are for the host (the voice, or starting a new drawing); the editor just reports them.
+  // A target (id) is a part ("p3", "x1"), a mark ("m4"), a run of marks ("m4-m9"), or a mark's own id ({id: 'cache'} in
+  // the program, a 3D part's id): several go in a list or one string with commas.
+  const NOT_REPAINTED = new Set(['stage3d', 'motion3d', 'camera3d']);
+  const is3D = m => m.do === 'part3d' || m.do === 'label3d' || m.do === 'stage3d' || m.stage != null;
+  // marks whose boxes touch (with a little slack, or pad when given) belong together
+  function clusters(items, boxOf, pad, apart) {
+    const bs = items.map(boxOf), up = items.map((_, j) => j);
+    const find = j => up[j] === j ? j : (up[j] = find(up[j]));
+    for (let a = 0; a < items.length; a++) for (let b = a + 1; b < items.length; b++) {
+      const A = bs[a], B = bs[b];
+      if (!A || !B || (apart && apart(items[a], items[b]))) continue;
+      if (A[0] - pad <= B[2] && B[0] - pad <= A[2] && A[1] - pad <= B[3] && B[1] - pad <= A[3]) up[find(a)] = find(b);
+    }
+    const groups = {};
+    items.forEach((x, j) => (groups[find(j)] = groups[find(j)] || []).push(x));
+    return Object.values(groups);
+  }
   function Editor(s, st, spec, opts) {
     const W = spec.w || 400, H = spec.h || 300, E = s.edit;
     const sandboxed = opts.sandbox === 'worker' && typeof Worker !== 'undefined';
     let attr = { code: null, stmts: [] }, nextMark = EDIT_BASE, nextPart = 0, last = null, chain = Promise.resolve();
+    // added: parts edits drew (x1, ...); over: a program part an edit redrew; hist: undo steps; key: an edit mark's depth
     const added = [], over = {}, hist = [], key = {}, log = [];
-    // ReferenceRenderer: the mark sets the user dragged as one card: each stays one card, apart from whatever it was dropped on
-    const userCards = [];
+    const userCards = [];                                // the mark sets the user dragged as one card: each stays one card
     const mark = i => i >= EDIT_BASE ? E.MK[i] : (st.marks[i] || E.MK[i]);
     const drawn = i => !!(E.NODES[i] && E.NODES[i].length) && !(mark(i) && mark(i).__erased);
     const pending = i => i < EDIT_BASE && !!st.marks[i] && !E.NODES[i] && !st.marks[i].__skip;
     const keyOf = i => key[i] != null ? key[i] : i;
     const box = i => (drawn(i) && E.domBox(i)) || markBox(mark(i));
-    // ReferenceRenderer: the marks on the card now, edits' own marks included; and the on-a-card test for them
-    const visibleMarkIndexes = () => {
-      const all = [];
-      for (let i = 0; i < st.marks.length; i++) all.push(i);
-      for (const k of Object.keys(E.MK)) if (+k >= EDIT_BASE) all.push(+k);
-      return all.filter(i => { const m = mark(i); return m && m.do !== 'edit' && drawn(i); });
-    };
+    const editMarks = () => Object.keys(E.MK).map(Number).filter(i => i >= EDIT_BASE);
+    // the marks on the card now, edits' own marks included, and the on-a-card test for them
+    const visibleMarkIndexes = () => st.marks.map((_, i) => i).concat(editMarks()).filter(i => { const m = mark(i); return m && m.do !== 'edit' && drawn(i); });
     const cardTest = visible => onCardTest(visible.filter(i => isCardMark(mark(i))).map(box).filter(Boolean));
+
+    // ---------------------------------------------------------------- the card as parts
     const describeWith = (stmts, o) => describe({ code: st.code, stmts, mark, box, pending, over, added, W, H, from: opts.codeStart || 0, drawnOnly: !!(o && o.drawnOnly) });
+    // Which statement made which marks. A sandboxed drawing asks its worker (running the model's code in the page is
+    // what the sandbox is there to avoid), so the synchronous version answers with the last attribution it gave.
     async function attribution() {
-      const code = st.code;
-      if (attr.code === code) return attr.stmts;
-      const stmts = sandboxed ? ((await sandboxJob({ type: 'attrib', code, w: W, h: H })).stmts || []) : RUNNER.attribute(code, W, H);
-      attr = { code, stmts }; return stmts;
+      if (attr.code !== st.code) {
+        const code = st.code, stmts = sandboxed ? ((await sandboxJob({ type: 'attrib', code, w: W, h: H })).stmts || []) : RUNNER.attribute(code, W, H);
+        attr = { code, stmts };
+      }
+      return attr.stmts;
     }
-    // ReferenceRenderer: the same right now, for program edits and a synchronous state() (a sandboxed drawing answers with the last
-    // attribution its worker gave: running the model's code in the page is what the sandbox is there to avoid)
     function attributionNow() {
-      const code = st.code;
-      if (attr.code === code || sandboxed) return attr.stmts;
-      attr = { code, stmts: RUNNER.attribute(code, W, H) }; return attr.stmts;
+      if (attr.code !== st.code && !sandboxed) attr = { code: st.code, stmts: RUNNER.attribute(st.code, W, H) };
+      return attr.stmts;
     }
-    async function parts() { return describeWith(await attribution()); }
+    const parts = async () => describeWith(await attribution());
     const partsNow = o => describeWith(attributionNow(), o);
     const statusOf = () => st.finished || (st.done && !st.paused) ? 'The drawing is finished.' : st.paused ? 'The drawing is paused mid-way (more may still come).' : 'The drawing is still being drawn.';
-    async function state(o = {}) {
-      return stateText(await parts(), { W, H, mark, says: st.log.lines, request: o.request, status: statusOf(), last, pointed: o.pointed, over });
-    }
-    function stateNow(o = {}) {
-      return stateText(partsNow(o), { W, H, mark, says: st.log.lines, request: o.request, status: o.status != null ? o.status : statusOf(), last, pointed: o.pointed, over, maxChars: o.maxChars });
-    }
+    const stateOptions = o => ({ W, H, mark, says: st.log.lines, request: o.request, last, pointed: o.pointed, over });
+    const state = async (o = {}) => stateText(await parts(), Object.assign(stateOptions(o), { status: statusOf() }));
+    const stateNow = (o = {}) => stateText(partsNow(o), Object.assign(stateOptions(o), { status: o.status != null ? o.status : statusOf(), maxChars: o.maxChars }));
+    // The marks a target names, live ones only. A run of marks stops at the last mark there is (a model's "m0-m999999"
+    // used to count to a million).
     function resolve(id, P) {
       const list = Array.isArray(id) ? id : String(id == null ? '' : id).split(/[\s,]+/).filter(Boolean), out = [], bad = [], ps = [];
+      const top = Math.max(st.marks.length, nextMark) - 1;
+      let own = null;                                     // marks by their own id, looked up once
       for (const raw of list) {
-        const t = String(raw).trim(); let r;
-        const p = P.find(q => q.id === t);
+        const t = String(raw).trim(), p = P.find(q => q.id === t);
+        let r;
         if (p) { out.push(...p.vis); ps.push(p); }
-        else if ((r = /^m(\d+)\s*[-–]\s*m?(\d+)$/.exec(t))) { for (let k = +r[1]; k <= +r[2]; k++) out.push(k); }
+        else if ((r = /^m(\d+)\s*[-–]\s*m?(\d+)$/.exec(t))) { for (let k = +r[1], end = Math.min(+r[2], top); k <= end; k++) out.push(k); }
         else if ((r = /^m(\d+)$/.exec(t))) out.push(+r[1]);
-        else bad.push(t);
+        else {
+          if (!own) { own = new Map(); for (const i of st.marks.map((_, k) => k).concat(editMarks())) { const m = mark(i); if (m && m.id != null && m.do !== 'edit') own.set(String(m.id), (own.get(String(m.id)) || []).concat(i)); } }
+          if (own.has(t)) out.push(...own.get(t)); else bad.push(t);
+        }
       }
       const marks = [...new Set(out)].filter(i => mark(i) && !mark(i).__erased && mark(i).do !== 'edit');
       return { marks, bad, parts: ps };
     }
-    // draw the marks again over themselves, then lift the old strokes off; returns when the last one is done (s from now)
-    function repaint(ms, p, at0) {
-      let at = at0 || 0, end = at;
+
+    // ---------------------------------------------------------------- drawing, erasing and repainting marks
+    // draws the marks again over themselves, then lifts the old strokes off; returns when the last one is done (s from now)
+    function repaint(ms, p, from) {
+      let at = from || 0, end = at;
       for (const i of ms) {
-        const m = mark(i);
         if (!drawn(i)) continue;
-        const oldN = E.NODES[i], oldM = E.MASKS[i], oldText = oldN.find(n => n.tagName === 'text');
+        const m = mark(i), oldNodes = E.NODES[i], oldMasks = E.MASKS[i], oldText = oldNodes.find(n => n.tagName === 'text');
         const r = E.paintAt(m, i, keyOf(i), at, p, true);
-        const nt = r.nodes.find(n => n.tagName === 'text');
-        if (oldText && nt && oldText.__nudge) { nt.__nudge = oldText.__nudge; nt.setAttribute('transform', `translate(${oldText.__nudge[0].toFixed(1)} ${oldText.__nudge[1].toFixed(1)}) ` + (nt.getAttribute('transform') || '')); }
+        // repainted words stay where label placement moved them
+        const text = r.nodes.find(n => n.tagName === 'text');
+        if (oldText && text && oldText.__nudge) { text.__nudge = oldText.__nudge; text.setAttribute('transform', `translate(${oldText.__nudge[0].toFixed(1)} ${oldText.__nudge[1].toFixed(1)}) ` + (text.getAttribute('transform') || '')); }
+        // words, dots and the like cross-fade; a stroke is lifted off once its new pen has gone over it
         const cross = m.do === 'text' || m.do === 'dot' || m.do === 'molecule' || m.do === 'highlight';
         const liftAt = cross ? at : at + r.dur, lift = cross ? Math.max(0.2, r.dur) : 0.08;
-        E.unpaint(oldN, oldM, liftAt, lift);
+        E.unpaint(oldNodes, oldMasks, liftAt, lift);
         end = Math.max(end, at + r.dur, liftAt + lift);
         at += r.adv;
       }
       return end;
     }
-    function paintNew(ms, at, p) { let end = at; for (const i of ms) { if (mark(i).__skip) continue; const r = E.paintAt(mark(i), i, keyOf(i), at, p); end = Math.max(end, at + r.dur); at += r.adv; } return end; }
+    function paintNew(ms, at, p) {
+      let end = at;
+      for (const i of ms) {
+        if (mark(i).__skip) continue;
+        const r = E.paintAt(mark(i), i, keyOf(i), at, p);
+        end = Math.max(end, at + r.dur);
+        at += r.adv;
+      }
+      return end;
+    }
     // the pen runs backwards over each mark, last drawn first (o.brisk: startOver's quicker sweep); returns when it is done
     function erase(ms, at, o) {
       o = o || {};
-      const order = [...ms].reverse(), n = order.filter(drawn).length, stagger = eraseStagger(n, o.brisk), d = ERASE_DUR * (o.pace || 1);
+      const order = [...ms].reverse(), stagger = eraseStagger(order.filter(drawn).length, o.brisk), d = ERASE_DUR * (o.pace || 1);
       let t = at || 0, end = t;
-      for (const i of order) { const m = mark(i); if (drawn(i)) { E.unpaint(E.NODES[i], E.MASKS[i], t, d); end = t + d; t += stagger; } m.__erased = true; m.__skip = true; }
+      for (const i of order) {
+        if (drawn(i)) { E.unpaint(E.NODES[i], E.MASKS[i], t, d); end = t + d; t += stagger; }
+        mark(i).__erased = mark(i).__skip = true;
+      }
       return end;
     }
-    function unerase(ms, at) { const toPaint = []; for (const i of ms) { const m = mark(i); m.__erased = false; m.__skip = false; if (i >= EDIT_BASE || E.NODES[i] || m.__passed) toPaint.push(i); } return paintNew(toPaint, at, 0.8); }
+    function unerase(ms, at) {
+      const back = [];
+      for (const i of ms) { const m = mark(i); m.__erased = m.__skip = false; if (i >= EDIT_BASE || E.NODES[i] || m.__passed) back.push(i); }
+      return paintNew(back, at, 0.8);
+    }
+    // an add or redraw's code, run after the program so its helpers are in scope; its marks join the card as edit marks
     async function run(frag) {
       const base = st.code, code = String(frag || '').replace(/^\s*```(?:js|javascript)?\s*\n?/, '').replace(/```\s*$/, '');
       const r = sandboxed ? await sandboxJob({ type: 'exec', base, code, w: W, h: H }) : RUNNER.exec(base, code, W, H, 1200);
-      // forgiving with an edit's own marks (only these): color / stroke mean tone, width means size
-      const ids = (r.marks || []).map(m => { if (m.tone == null && (m.color || m.stroke || typeof m.line === 'string')) m.tone = m.color || m.stroke || m.line; if (m.size == null && +m.width > 0 && m.do !== 'text') m.size = +m.width; const i = nextMark++; E.MK[i] = m; return i; });
+      const ids = (r.marks || []).map(m => {
+        // forgiving with an edit's own marks (only these): color or stroke mean tone, width means size
+        if (m.tone == null && (m.color || m.stroke || typeof m.line === 'string')) m.tone = m.color || m.stroke || m.line;
+        if (m.size == null && +m.width > 0 && m.do !== 'text') m.size = +m.width;
+        const i = nextMark++;
+        E.MK[i] = m;
+        return i;
+      });
       return { ids, error: r.error, says: r.says || [] };
     }
     const clampK = k => Math.max(0.25, Math.min(4, isFinite(k) && k > 0 ? k : 1));
-    function clusters(ms, box) {                        // marks whose boxes touch (with a little slack) belong together
-      const bs = ms.map(box), all = unionBox(bs); if (!all) return [ms];
-      const pad = Math.max(10, 0.06 * Math.hypot(all[2] - all[0], all[3] - all[1])), up = ms.map((_, j) => j);
-      const find = j => up[j] === j ? j : (up[j] = find(up[j]));
-      for (let a = 0; a < ms.length; a++) for (let b = a + 1; b < ms.length; b++) {
-        const A = bs[a], B = bs[b]; if (!A || !B) continue;
-        if (A[0] - pad <= B[2] && B[0] - pad <= A[2] && A[1] - pad <= B[3] && B[1] - pad <= A[3]) up[find(a)] = find(b);
-      }
-      const g = {}; ms.forEach((i, j) => (g[find(j)] = g[find(j)] || []).push(i)); return Object.values(g);
-    }
-    // ReferenceRenderer: everything on the card before mark `before` (every mark when null): what startOver un-draws
+    const touchGroups = ms => { const all = unionBox(ms.map(box)); return all ? clusters(ms, box, Math.max(10, 0.06 * Math.hypot(all[2] - all[0], all[3] - all[1]))) : [ms]; };
+    // everything on the card before mark `before` (every mark when null): what startOver un-draws
     function everything(before) {
       const out = [], n = before == null ? st.marks.length : Math.min(before, st.marks.length);
       for (let i = 0; i < n; i++) { const m = st.marks[i]; if (m && m.do !== 'edit' && !m.__erased) out.push(i); }
-      for (const k of Object.keys(E.MK)) { const i = +k; if (i >= EDIT_BASE && E.MK[i] && !E.MK[i].__erased && drawn(i)) out.push(i); }
+      for (const i of editMarks()) if (E.MK[i] && !E.MK[i].__erased && drawn(i)) out.push(i);
       return out;
     }
-    // one op. P: the parts; frag: what an add or redraw's code drew; T: {at: s from now, pace, index: the program's edit mark};
-    // fills res and returns when its animation ends (s from now)
+    const newPart = (desc, marks) => { const p = { id: 'x' + (++nextPart), desc, marks, step: null }; added.push(p); return p; };
+    const dropPart = p => added.splice(added.indexOf(p), 1);
+
+    // ---------------------------------------------------------------- the ops
+    // Each op: c = {op, ms (the marks it names), R (resolve's answer), label, frag (what an add or redraw's code drew),
+    // at (s from now), pace, res}. Fills res, pushes its undo, and returns when its animation ends (s from now).
+    const OPS = {
+      // A 3D figure's own mark has no colour or style (its parts do), and painting it again builds an empty figure in its
+      // place (asked to spin faster, models restyle it and the whole figure vanished); painting a motion again runs it twice.
+      recolor: c => restyleOp(c, recolorMark),
+      restyle: c => restyleOp(c, restyleMark),
+      move: moveOp, moveTo: moveOp,
+      // 3D parts grow or shrink in place in their figure (a 2D transform can't reach them)
+      scale: c => c.ms.every(i => (mark(i) || {}).do === 'part3d') ? scale3dOp(c) : moveOp(c),
+      erase(c) {
+        const was = c.ms.filter(i => !mark(i).__skip || drawn(i));
+        c.seen();
+        const end = erase(c.ms, c.at, { pace: c.pace });
+        hist.push(() => unerase(was, 0));
+        return end;
+      },
+      redraw: redrawOp, highlight: highlightOp,
+    };
+    function restyleOp(c, change) {
+      const painted = c.ms.filter(i => !NOT_REPAINTED.has((mark(i) || {}).do));
+      if (!painted.length) throw new Error('a 3D figure changes through its parts (recolor their m-numbers) or its camera');
+      const before = painted.map(i => [i, snapOf(mark(i))]);
+      for (const i of painted) change(mark(i), c.op);
+      c.seen();
+      hist.push(() => { before.forEach(([i, f]) => restoreOf(mark(i), f)); repaint(painted, REPAINT_PACE); });
+      return repaint(painted, REPAINT_PACE * c.pace, c.at);
+    }
+    function scale3dOp(c) {
+      const k = clampK(+(c.op.k != null ? c.op.k : c.op.factor)), before = c.ms.map(i => [i, mark(i).scale3]);
+      for (const i of c.ms) mark(i).scale3 = (+mark(i).scale3 || 1) * k;
+      c.seen();
+      hist.push(() => { before.forEach(([i, was]) => { mark(i).scale3 = was; }); repaint(c.ms, REPAINT_PACE); });
+      return repaint(c.ms, REPAINT_PACE * c.pace, c.at);
+    }
+    // Move, moveTo and scale glide marks to a new transform. A scale grows each separate thing in place (scattered leaves
+    // each get bigger; a fox made of touching parts grows as one), never past the card, and nothing leaves the card.
+    function moveOp(c) {
+      const { op, ms, at } = c, kind = op.op;
+      if (!unionBox(ms.map(box))) throw new Error('cannot tell where ' + c.label + ' is');
+      const kIn = kind === 'scale' ? clampK(+(op.k != null ? op.k : op.factor)) : 1, glide = GLIDE_DUR * c.pace;
+      const groups = kind === 'scale' && op.each !== false ? touchGroups(ms) : [ms];
+      const before = ms.map(i => [i, mark(i).__xf ? mark(i).__xf.slice() : null]);
+      let end = at;
+      c.seen();
+      for (const g of groups) {
+        const b = unionBox(g.map(box));
+        if (!b) continue;
+        const cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
+        const kFit = Math.min((W - 8) / Math.max(1, b[2] - b[0]), (H - 8) / Math.max(1, b[3] - b[1]));
+        const k = kIn > 1 ? Math.max(1, Math.min(kIn, kFit)) : kIn;
+        if (k < kIn) c.res.note = `scale limited to ${k.toFixed(2)} so it stays on the card`;
+        let dx = +op.dx || 0, dy = +op.dy || 0;
+        if (kind === 'moveTo') { dx = (isFinite(+op.x) ? +op.x : cx) - cx; dy = (isFinite(+op.y) ? +op.y : cy) - cy; }
+        // kept on the card, when it fits
+        const nb = [cx + (b[0] - cx) * k + dx, cy + (b[1] - cy) * k + dy, cx + (b[2] - cx) * k + dx, cy + (b[3] - cy) * k + dy];
+        if (nb[2] - nb[0] <= W - 8) { if (nb[0] < 4) dx += 4 - nb[0]; else if (nb[2] > W - 4) dx -= nb[2] - (W - 4); }
+        if (nb[3] - nb[1] <= H - 8) { if (nb[1] < 4) dy += 4 - nb[1]; else if (nb[3] > H - 4) dy -= nb[3] - (H - 4); }
+        for (const i of g) {
+          const m = mark(i), a = m.__xf || [1, 0, 0];
+          m.__xf = [a[0] * k, k * a[1] + cx * (1 - k) + dx, k * a[2] + cy * (1 - k) + dy];
+          if (drawn(i)) { E.moveNodes(E.NODES[i], m.__xf, at, glide); end = at + glide; }
+        }
+      }
+      hist.push(() => {
+        for (const [i, xf] of before) {
+          const m = mark(i);
+          if (xf) m.__xf = xf; else delete m.__xf;
+          if (drawn(i)) E.moveNodes(E.NODES[i], xf || [1, 0, 0], 0, GLIDE_DUR);
+        }
+      });
+      return end;
+    }
+    // A redraw erases what it names and draws the code's marks at its depth. They take over the program part's name
+    // (p3 stays p3), an added part's marks, or become a new part.
+    function redrawOp(c) {
+      const { op, ms, R, frag } = c;
+      if (frag.error) c.res.warning = frag.error;
+      if (!frag.ids.length) throw new Error('the code drew nothing' + (frag.error ? ': ' + frag.error : ''));
+      const k0 = Math.min(...ms.map(keyOf));
+      frag.ids.forEach((i, j) => { key[i] = k0 + 0.5 * (j + 1) / (frag.ids.length + 1); });
+      const p = R.parts.length === 1 ? R.parts[0] : null, fromProgram = p && !String(p.id).startsWith('x'), prev = fromProgram ? over[p.id] : null;
+      c.seen();
+      const end = Math.max(erase(ms, c.at), paintNew(frag.ids, c.at + Math.min(0.3, 0.05 * ms.length), 1));
+      let xp = null;
+      if (fromProgram) over[p.id] = { marks: frag.ids, desc: op.desc || p.desc };
+      else if (p) { xp = p; xp.prevMarks = xp.marks; xp.marks = frag.ids; if (op.desc) xp.desc = op.desc; }
+      else xp = newPart(op.desc || 'redrawn part', frag.ids);
+      hist.push(() => {
+        erase(frag.ids, 0); unerase(ms, 0.2);
+        if (fromProgram) { if (prev) over[p.id] = prev; else delete over[p.id]; }
+        else if (p) xp.marks = xp.prevMarks;
+        else dropPart(xp);
+      });
+      if (p) c.res.touched = [p.id];
+      return end;
+    }
+    // Mate's coral marker: behind words, traced along a thin stroke (an axis, an arrow), or a loose ring around a thing;
+    // one per separate target, so two far-apart things do not get one huge loop around both.
+    function highlightOp(c) {
+      const { ms, label } = c;
+      if (!unionBox(ms.map(box))) throw new Error('cannot tell where ' + label + ' is');
+      const colour = normColor(c.op.color) || 'coral', idx = [];
+      for (const g of touchGroups(ms)) {
+        const b = unionBox(g.map(box));
+        if (!b) continue;
+        const w = b[2] - b[0], h = b[3] - b[1], gm = g.map(mark);
+        const thin = gm.every(m => (m.do === 'line' || m.do === 'arrow') && Array.isArray(m.pts)) && (g.length <= 3 || Math.min(w, h) < 0.25 * Math.max(w, h));
+        const marks = gm.every(m => m.do === 'text') ? [{ do: 'highlight', at: [b[0] - 6, b[1] - 2], w: w + 12, h: h + 4, tone: colour }]
+          : thin ? gm.map(m => { const xf = m.__xf || [1, 0, 0]; return { do: 'line', pts: m.pts.filter(Array.isArray).map(p => [p[0] * xf[0] + xf[1], p[1] * xf[0] + xf[2]]), smooth: m.smooth, brush: 'marker', size: 13, alpha: 0.5, tone: colour, taper: 0.4 }; })
+          : [{ do: 'ellipse', at: [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2], rx: Math.min(W / 2, w / 2 * 1.12 + 12), ry: Math.min(H / 2, h / 2 * 1.12 + 12), tone: colour, size: 4.5, wobble: 1.6 }];
+        for (const hm of marks) { const i = nextMark++; E.MK[i] = hm; key[i] = 1e6 + i; idx.push(i); }
+      }
+      const p = newPart('coral mark on ' + label, idx);
+      c.seen();
+      const end = paintNew(idx, c.at, 0.8 * c.pace);
+      hist.push(() => { erase(idx, 0); dropPart(p); });
+      c.res.touched = [p.id]; c.res.target = label;
+      return end;
+    }
+    // One op. P: the parts; frag: what an add or redraw's code drew; T: {at: s from now, pace, index: the program's own
+    // edit mark}. Fills res and returns when its animation ends (s from now).
     function core(op, P, frag, T, res) {
       const kind = op.op, pace = T.pace || 1, at = T.at || 0;
       const seen = () => { if (res.visibleAt == null) res.visibleAt = performance.now(); };
       if (kind === 'add') {
-        const r = frag; if (r.error) res.warning = r.error;
-        if (!r.ids.length) throw new Error('the code drew nothing' + (r.error ? ': ' + r.error : ''));
-        const id = 'x' + (++nextPart), p = { id, desc: op.desc || 'added', marks: r.ids, step: null };
-        r.ids.forEach(i => { key[i] = 1e6 + i; });
-        added.push(p); seen(); const end = paintNew(r.ids, at, pace);
-        hist.push(() => { erase(r.ids, 0); added.splice(added.indexOf(p), 1); });
-        last = id; res.touched = [id]; return end;
+        if (frag.error) res.warning = frag.error;
+        if (!frag.ids.length) throw new Error('the code drew nothing' + (frag.error ? ': ' + frag.error : ''));
+        frag.ids.forEach(i => { key[i] = 1e6 + i; });
+        const p = newPart(op.desc || 'added', frag.ids);
+        seen();
+        const end = paintNew(frag.ids, at, pace);
+        hist.push(() => { erase(frag.ids, 0); dropPart(p); });
+        last = p.id; res.touched = [p.id];
+        return end;
       }
       if (kind === 'startOver') {
         const ms = everything(T.index);
-        if (!ms.length) { res.touched = []; return at; }          // an empty card (a fresh drawing that starts over): nothing to do
-        seen(); const end = erase(ms, at, { brisk: true, pace });
+        if (!ms.length) { res.touched = []; return at; }   // an empty card (a fresh drawing that starts over): nothing to do
+        seen();
+        const end = erase(ms, at, { brisk: true, pace });
         hist.push(() => unerase(ms, 0));
-        res.touched = ms.map(i => 'm' + i); last = 'everything (startOver)'; return end;
+        res.touched = ms.map(i => 'm' + i); last = 'everything (startOver)';
+        return end;
       }
+      const doOp = OPS[kind];
+      if (!doOp) throw new Error('unknown op "' + kind + '"');
       const R = resolve(op.id != null ? op.id : op.ids != null ? op.ids : op.target, P);
-      // ReferenceRenderer: a program's edit (T.index: its own mark) changes what was on the card before it, never what the
-      // program draws after it. A part is found by place, so when a follow-up erased the old card ("p1") and drew its
-      // new card in the same spot, the new card counted as p1 too and was erased (skipped) before it was ever drawn:
-      // the voice told the answer over an empty screen. planMark already counts only the marks before the edit.
+      // A program's edit (T.index: its own mark) changes what was on the card before it, never what the program draws
+      // after it. A part is found by place, so when a follow-up erased the old card ("p1") and drew its new card in the
+      // same spot, the new card counted as p1 too and was erased before it was ever drawn: the voice told the answer
+      // over an empty screen.
       if (T.index != null) R.marks = R.marks.filter(k => k < T.index || k >= EDIT_BASE);
       if (R.bad.length && !R.marks.length) throw new Error('unknown id ' + R.bad.join(', '));
       if (!R.marks.length) throw new Error('nothing left to change in ' + JSON.stringify(op.id));
       if (R.bad.length) res.warning = 'unknown id ' + R.bad.join(', ');
       const ms = R.marks, label = R.parts.length ? R.parts.map(p => p.id).join(',') : ms.map(i => 'm' + i).join(',');
       res.touched = R.parts.length ? R.parts.map(p => p.id) : ms.map(i => 'm' + i);
-      let end = at;
-      if (kind === 'recolor' || kind === 'restyle') {
-        // A 3D figure's own mark has no colour or style of its own (its parts do), and painting it again builds an
-        // empty figure in its place (asked to spin faster, models restyle it and the whole figure vanished); painting
-        // a motion again runs it twice.
-        const painted = ms.filter(i => !['stage3d', 'motion3d', 'camera3d'].includes((mark(i) || {}).do));
-        if (!painted.length) throw new Error('a 3D figure changes through its parts (recolor their m-numbers) or its camera');
-        const snap = painted.map(i => [i, snapOf(mark(i))]);
-        for (const i of painted) (kind === 'recolor' ? recolorMark : restyleMark)(mark(i), op);
-        seen(); end = repaint(painted, REPAINT_PACE * pace, at);
-        hist.push(() => { snap.forEach(([i, f]) => restoreOf(mark(i), f)); repaint(painted, REPAINT_PACE); });
-      } else if (kind === 'scale' && ms.every(i => (mark(i) || {}).do === 'part3d')) {
-        // ReferenceRenderer: 3D parts grow or shrink in place, in the figure (a 2D transform can't reach them).
-        const k3 = clampK(+(op.k != null ? op.k : op.factor));
-        const snap3 = ms.map(i => [i, mark(i).scale3]);
-        for (const i of ms) mark(i).scale3 = (+mark(i).scale3 || 1) * k3;
-        seen(); end = repaint(ms, REPAINT_PACE * pace, at);
-        hist.push(() => { snap3.forEach(([i, k]) => { mark(i).scale3 = k; }); repaint(ms, REPAINT_PACE); });
-      } else if (kind === 'move' || kind === 'moveTo' || kind === 'scale') {
-        if (!unionBox(ms.map(box))) throw new Error('cannot tell where ' + label + ' is');
-        const kIn = kind === 'scale' ? clampK(+(op.k != null ? op.k : op.factor)) : 1, glide = GLIDE_DUR * pace;
-        // a scale grows each separate thing in place (scattered leaves each get bigger; a fox made of touching parts grows as one)
-        const groups = kind === 'scale' && op.each !== false ? clusters(ms, box) : [ms];
-        const snap = ms.map(i => [i, mark(i).__xf ? mark(i).__xf.slice() : null]);
-        seen();
-        for (const g of groups) {
-          const b = unionBox(g.map(box)); if (!b) continue;
-          const cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
-          let dx = +op.dx || 0, dy = +op.dy || 0;
-          // never grow a thing past the card (it would be clipped): limit the scale to what fits
-          const kFit = Math.min((W - 8) / Math.max(1, b[2] - b[0]), (H - 8) / Math.max(1, b[3] - b[1]));
-          const k = kIn > 1 ? Math.max(1, Math.min(kIn, kFit)) : kIn;
-          if (k < kIn) res.note = `scale limited to ${k.toFixed(2)} so it stays on the card`;
-          if (kind === 'moveTo') { dx = (isFinite(+op.x) ? +op.x : cx) - cx; dy = (isFinite(+op.y) ? +op.y : cy) - cy; }
-          // keep it on the card
-          const nb = [cx + (b[0] - cx) * k + dx, cy + (b[1] - cy) * k + dy, cx + (b[2] - cx) * k + dx, cy + (b[3] - cy) * k + dy];
-          if (nb[2] - nb[0] <= W - 8) { if (nb[0] < 4) dx += 4 - nb[0]; else if (nb[2] > W - 4) dx -= nb[2] - (W - 4); }
-          if (nb[3] - nb[1] <= H - 8) { if (nb[1] < 4) dy += 4 - nb[1]; else if (nb[3] > H - 4) dy -= nb[3] - (H - 4); }
-          for (const i of g) { const m = mark(i), a = m.__xf || [1, 0, 0]; m.__xf = [a[0] * k, k * a[1] + cx * (1 - k) + dx, k * a[2] + cy * (1 - k) + dy]; if (drawn(i)) { E.moveNodes(E.NODES[i], m.__xf, at, glide); end = at + glide; } }
-        }
-        hist.push(() => { for (const [i, xf] of snap) { const m = mark(i); if (xf) m.__xf = xf; else delete m.__xf; if (drawn(i)) E.moveNodes(E.NODES[i], xf || [1, 0, 0], 0, GLIDE_DUR); } });
-      } else if (kind === 'erase') {
-        const was = ms.filter(i => !mark(i).__skip || drawn(i));
-        seen(); end = erase(ms, at, { pace });
-        hist.push(() => unerase(was, 0));
-      } else if (kind === 'redraw') {
-        const r = frag; if (r.error) res.warning = r.error;
-        if (!r.ids.length) throw new Error('the code drew nothing' + (r.error ? ': ' + r.error : ''));
-        const k0 = Math.min(...ms.map(keyOf)); r.ids.forEach((i, j) => { key[i] = k0 + 0.5 * (j + 1) / (r.ids.length + 1); });
-        const p = R.parts.length === 1 ? R.parts[0] : null, prev = p ? over[p.id] : null;
-        seen(); const t = erase(ms, at); end = Math.max(t, paintNew(r.ids, at + Math.min(0.3, 0.05 * ms.length), 1));
-        let xp = null;
-        if (p && !String(p.id).startsWith('x')) over[p.id] = { marks: r.ids, desc: op.desc || p.desc };
-        else if (p) { xp = p; xp.prevMarks = xp.marks; xp.marks = r.ids; if (op.desc) xp.desc = op.desc; }
-        else { xp = { id: 'x' + (++nextPart), desc: op.desc || 'redrawn part', marks: r.ids, step: null }; added.push(xp); }
-        hist.push(() => { erase(r.ids, 0); unerase(ms, 0.2); if (p && !String(p.id).startsWith('x')) { if (prev) over[p.id] = prev; else delete over[p.id]; } else if (p) xp.marks = xp.prevMarks; else added.splice(added.indexOf(xp), 1); });
-        if (p) res.touched = [p.id];
-      } else if (kind === 'highlight') {
-        // Mate's coral marker: behind words, traced along a thin stroke (an axis, an arrow), or a loose ring around a
-        // thing; one per separate target, so two far-apart things do not get one huge loop around both
-        if (!unionBox(ms.map(box))) throw new Error('cannot tell where ' + label + ' is');
-        const tone = normColor(op.color) || 'coral', idx = [];
-        for (const g of clusters(ms, box)) {
-          const b = unionBox(g.map(box)); if (!b) continue;
-          const w = b[2] - b[0], h = b[3] - b[1], gm = g.map(mark);
-          const thin = gm.every(m => (m.do === 'line' || m.do === 'arrow') && Array.isArray(m.pts)) && (g.length <= 3 || Math.min(w, h) < 0.25 * Math.max(w, h));
-          let hms;
-          if (gm.every(m => m.do === 'text')) hms = [{ do: 'highlight', at: [b[0] - 6, b[1] - 2], w: w + 12, h: h + 4, tone }];
-          else if (thin) hms = gm.map(m => { const xf = m.__xf || [1, 0, 0]; return { do: 'line', pts: m.pts.filter(Array.isArray).map(p => [p[0] * xf[0] + xf[1], p[1] * xf[0] + xf[2]]), smooth: m.smooth, brush: 'marker', size: 13, alpha: 0.5, tone, taper: 0.4 }; });
-          else hms = [{ do: 'ellipse', at: [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2], rx: Math.min(W / 2, w / 2 * 1.12 + 12), ry: Math.min(H / 2, h / 2 * 1.12 + 12), tone, size: 4.5, wobble: 1.6 }];
-          for (const hm of hms) { const i = nextMark++; E.MK[i] = hm; key[i] = 1e6 + i; idx.push(i); }
-        }
-        const p = { id: 'x' + (++nextPart), desc: 'coral mark on ' + label, marks: idx, step: null };
-        added.push(p); seen(); end = paintNew(idx, at, 0.8 * pace);
-        hist.push(() => { erase(idx, 0); added.splice(added.indexOf(p), 1); });
-        res.touched = [p.id]; res.target = label;
-      } else throw new Error('unknown op "' + kind + '"');
-      last = `${res.target || res.touched.join(',')} (${kind})`;         // "that one" after a highlight means what was highlighted
+      const end = doOp({ op, ms, R, label, frag, at, pace, res, seen });
+      last = `${res.target || res.touched.join(',')} (${kind})`;   // "that one" after a highlight means what was highlighted
       return end;
     }
+    // an op from the host (the model's edit tool, the user): run after the ones before it finish
     async function apply(op) {
       const t0 = performance.now(), res = { op: op && op.op, ok: true, visibleAt: null };
       try {
@@ -3563,7 +3657,7 @@
       } catch (e) { res.ok = false; res.error = String(e && e.message || e); return res; }
       finally { res.ms = +(performance.now() - t0).toFixed(1); log.push(Object.assign({ at: performance.now() }, res)); }
     }
-    // ReferenceRenderer: an op right now (the program's edits). res.dur: how long its animation runs
+    // a program's own edit, right now; res.dur: how long its animation runs
     const PROGRAM_OPS = { erase: 1, recolor: 1, restyle: 1, move: 1, moveTo: 1, scale: 1, highlight: 1, startOver: 1 };
     function applyNow(op, T) {
       const t0 = performance.now(), res = { op: op && op.op, ok: true, visibleAt: null, dur: 0 };
@@ -3586,8 +3680,8 @@
       m.__result = { ok: res.ok, error: res.error || null, touched: res.touched || [], dur: +res.dur.toFixed(3) };
       return res.dur;
     }
-    // a program's edit mark as it arrives, before it is drawn: how long it will take (m.__est, for the pacer) and what it
-    // takes off the paper for the layout ({reset} for startOver, {forget: [mark indices]} for erase)
+    // A program's edit mark as it arrives, before it is drawn: how long it will take (m.__est, for the pacer) and what
+    // it takes off the paper for the layout check ({reset} for startOver, {forget: [mark indices]} for erase).
     function planMark(m, i) {
       const op = m.op || {};
       if (op.op === 'turn') return null;
@@ -3600,143 +3694,119 @@
       return op.op === 'startOver' ? { reset: true } : op.op === 'erase' ? { forget: touched } : null;
     }
     // marks drawn on the card now (not erased), edits' own marks included
-    function visibleCount() {
-      let n = 0;
-      for (let i = 0; i < st.marks.length; i++) { const m = st.marks[i]; if (m && m.do !== 'edit' && drawn(i)) n++; }
-      for (const k of Object.keys(E.MK)) if (+k >= EDIT_BASE && drawn(+k)) n++;
-      return n;
+    const visibleCount = () => visibleMarkIndexes().length;
+    // How many marks still show ink. Mate's pieces leave invisible dots where the app acts (a button's spot, a hand-off,
+    // a sound, typed text, a page to open): drawn but showing nothing, they kept a drawing whose cards were all closed
+    // looking unfinished, with its Clear pill.
+    const inkCount = () => visibleMarkIndexes().filter(i => { const m = mark(i); return !(m.do === 'dot' && m.fillAlpha === 0 && m.outline === false); }).length;
+    const partInfo = p => ({ id: p.id, desc: p.desc, kind: p.kind, box: p.box, marks: p.vis.slice(), pending: p.pending, step: p.step });
+
+    // ---------------------------------------------------------------- the cards the user can handle
+    // The cards the user can drag somewhere else on the screen (paper, stickies, receipts, clippings, photos). Card marks
+    // that touch are one card, unless the user moved one of them apart; every other mark whose middle sits on a card,
+    // or most of whose box does, rides with it (the smallest card when two are close; what points at the screen only by
+    // its middle, so a ring beside a card stays with the screen). A card the user already moved keeps exactly what it
+    // carried. 3D figures turn by their own handle (a figure rides only on a window, as one) and tie() arrows join two
+    // things, so neither moves. Each card: {box [x0, y0, x1, y1], marks, nodes (drawn), window}.
+    function cardsNow() {
+      const visible = visibleMarkIndexes(), userCardOf = new Map();
+      userCards.forEach((set, g) => set.forEach(i => userCardOf.set(i, g)));
+      const cardMarks = visible.filter(i => { const m = mark(i); return isCardMark(m) && !is3D(m) && m.role !== 'source'; }).map(i => ({ i, b: box(i) })).filter(c => c.b);
+      if (!cardMarks.length) return [];
+      const cards = clusters(cardMarks, c => c.b, 2, (a, b) => userCardOf.get(a.i) !== userCardOf.get(b.i))
+        .map(g => ({ box: unionBox(g.map(c => c.b)), marks: g.map(c => c.i), userCard: userCardOf.get(g[0].i) }));
+      const taken = new Set(cardMarks.map(c => c.i));
+      for (const i of visible) {
+        const m = mark(i);
+        if (taken.has(i) || (is3D(m) && m.do !== 'stage3d') || m.role === 'tie') continue;
+        const carriedBy = userCardOf.has(i) ? cards.find(c => c.userCard === userCardOf.get(i)) : null;
+        if (carriedBy) { carriedBy.marks.push(i); continue; }
+        const b = box(i);
+        if (!b) continue;
+        const cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
+        const mostlyOn = c => {
+          if (pointsAtScreen(m)) return false;
+          const ow = Math.min(b[2], c.box[2]) - Math.max(b[0], c.box[0]), oh = Math.min(b[3], c.box[3]) - Math.max(b[1], c.box[1]);
+          return ow > 0 && oh > 0 && ow * oh >= 0.4 * Math.max(1, boxArea(b));
+        };
+        let on = cards.filter(c => c.userCard == null && ((cx >= c.box[0] - 12 && cx <= c.box[2] + 12 && cy >= c.box[1] - 12 && cy <= c.box[3] + 12) || mostlyOn(c)));
+        if (m.do === 'stage3d') on = on.filter(c => c.marks.some(k => mark(k).do === 'window'));
+        if (!on.length) continue;
+        on.sort((p, q) => boxArea(p.box) - boxArea(q.box));
+        on[0].marks.push(i);
+      }
+      // the card's window (paper, receipt, clipping): where its title bar and buttons are now, for the app's buttons;
+      // has3D: a 3D figure stands on it (its window gets no full-screen button)
+      const windowOf = c => {
+        const ws = c.marks.filter(i => mark(i).do === 'window').map(i => ({ i, b: box(i) })).filter(w => w.b);
+        if (!ws.length) return null;
+        ws.sort((p, q) => boxArea(q.b) - boxArea(p.b));
+        const m = mark(ws[0].i), k = (m.__xf || [1])[0] || 1;
+        return { mark: ws[0].i, box: ws[0].b, header: (+m.header || 0) * k, scale: k, zoomed: !!m.__xfBeforeZoom, title: m.title || '', has3D: c.marks.some(i => mark(i).do === 'stage3d') };
+      };
+      return cards.map(c => ({ box: c.box, marks: c.marks, nodes: c.marks.flatMap(i => (E.NODES[i] || []).filter(n => !n.__gone)), window: windowOf(c) }));
     }
-    // ReferenceRenderer: how many marks still show ink. Mate's pieces leave invisible dots where the app acts (a button's
-    // spot, a hand-off, a sound, typed or copied text, a page to open); they count as drawn but show nothing, so a
-    // drawing whose cards were all closed still looked unfinished and kept its Clear pill.
-    function inkCount() {
-      return visibleMarkIndexes().filter(i => { const m = mark(i); return !(m.do === 'dot' && m.fillAlpha === 0 && m.outline === false); }).length;
-    }
+    // the drawn, live marks among ms, by index
+    const liveMarks = ms => (ms || []).map(Number).filter(i => { const m = mark(i); return m && !m.__erased && drawn(i); });
+
     return {
       // ops run in order; each returns {ok, error, visibleAt, touched}
       edit(op) { const p = chain.then(() => apply(op)); chain = p.catch(() => {}); return p; },
       undo() { return this.edit({ op: 'undo' }); },
       settle() { E.settle(); },
-      state, parts: async () => (await parts()).parts.map(p => ({ id: p.id, desc: p.desc, kind: p.kind, box: p.box, marks: p.vis.slice(), pending: p.pending, step: p.step })),
-      // ReferenceRenderer, synchronous: the card's state and parts now, a program's edit marks, and how much is on the card
-      stateNow, partsNow: o => partsNow(o).parts.map(p => ({ id: p.id, desc: p.desc, kind: p.kind, box: p.box, marks: p.vis.slice(), pending: p.pending, step: p.step, turn: p.turn })),
+      state, parts: async () => (await parts()).parts.map(partInfo),
+      // synchronous: the card's state and parts now, a program's edit marks, and how much is on the card
+      stateNow, partsNow: o => partsNow(o).parts.map(p => Object.assign(partInfo(p), { turn: p.turn })),
       runMark, planMark, visibleCount, inkCount,
       // marks a new turn takes off the card for good (they came from a statement that failed): the pen runs back over them
       dropNow(ms) { erase(ms, 0, { brisk: true }); for (const i of ms) { const m = mark(i); if (m) m.__dropped = true; } },
-      // ReferenceRenderer: the screen under a finished drawing changed. Marks that point at the screen (rings, frames, pills,
-      // arrows, underlines, ink drawn over the page) no longer line up with anything and are erased; paper cards,
-      // photos and 3D figures, and everything drawn on them, stay. Returns {kept, dropped}; nothing is erased when no
-      // card is on the card (kept 0: the host clears the whole drawing as before).
+      // The screen under a finished drawing changed. Marks that point at the screen (rings, frames, pills, arrows,
+      // underlines, ink drawn over the page) no longer line up with anything and are erased; paper cards, photos and 3D
+      // figures, and everything drawn on them, stay. Returns {kept, dropped}; nothing is erased when there is no card
+      // (kept 0: the host clears the whole drawing).
       keepNotesOnly() {
-        const visible = visibleMarkIndexes();
-        const onACard = cardTest(visible);
+        const visible = visibleMarkIndexes(), onACard = cardTest(visible);
         if (!onACard) return { kept: 0, dropped: 0 };
         const drop = visible.filter(i => { const m = mark(i); if (isCardMark(m) || m.role === 'tie') return false; const b = box(i); return !(b && onACard(b)); });
         if (drop.length) this.dropNow(drop);
         return { kept: visible.length - drop.length, dropped: drop.length };
       },
-      // ReferenceRenderer: the screen changed while an answer was still being told. Only what points at the screen goes (rings,
-      // frames, pills, badges, ticks, arrows between things on screen); cards and free sketches stay, and the answer
-      // goes on. Returns {dropped, left} (left: marks still on the card).
+      // The screen changed while an answer was still being told. Only what points at the screen goes (rings, frames,
+      // pills, badges, ticks, arrows between things on screen); cards and free sketches stay, and the answer goes on.
+      // Returns {dropped, left} (left: marks still on the card).
       dropPointing() {
-        const visible = visibleMarkIndexes();
-        const onACard = cardTest(visible) || (() => false);
-        const drop = visible.filter(i => { const m = mark(i); const b = box(i); return pointsAtScreen(m) && !(b && onACard(b)); });
+        const visible = visibleMarkIndexes(), onACard = cardTest(visible) || (() => false);
+        const drop = visible.filter(i => { const m = mark(i), b = box(i); return pointsAtScreen(m) && !(b && onACard(b)); });
         if (drop.length) this.dropNow(drop);
         return { dropped: drop.length, left: visible.length - drop.length };
       },
-      // ReferenceRenderer: the cards the user can drag somewhere else on the screen (paper, stickies, receipts, clippings,
-      // photos). Card marks that touch are one card; every other mark whose middle sits on a card rides with it (the
-      // same test keepNotesOnly keeps by), on the smallest card when two are close. A card the user already moved keeps
-      // exactly what it carried and never joins a card it was dropped on. 3D figures turn by their own handle and tie()
-      // arrows join two things, so neither moves. Each card: {box [x0, y0, x1, y1], marks, nodes (drawn)}.
-      cardsNow() {
-        const visible = visibleMarkIndexes();
-        const userCardOf = new Map();
-        userCards.forEach((set, g) => set.forEach(i => userCardOf.set(i, g)));
-        const is3D = m => m.do === 'scene3d' || m.do === 'part3d' || m.do === 'label3d' || m.do === 'stage3d' || m.stage != null;
-        const cardMarks = visible.filter(i => { const m = mark(i); return isCardMark(m) && !is3D(m) && m.role !== 'source'; })
-          .map(i => ({ i, b: box(i) })).filter(c => c.b);
-        if (!cardMarks.length) return [];
-        const up = cardMarks.map((_, j) => j), find = j => up[j] === j ? j : (up[j] = find(up[j]));
-        for (let a = 0; a < cardMarks.length; a++) for (let b = a + 1; b < cardMarks.length; b++) {
-          const A = cardMarks[a].b, B = cardMarks[b].b;
-          if (userCardOf.get(cardMarks[a].i) !== userCardOf.get(cardMarks[b].i)) continue;
-          if (A[0] - 2 <= B[2] && B[0] - 2 <= A[2] && A[1] - 2 <= B[3] && B[1] - 2 <= A[3]) up[find(a)] = find(b);
-        }
-        const byRoot = {};
-        cardMarks.forEach((c, j) => { const g = byRoot[find(j)] = byRoot[find(j)] || { marks: [], boxes: [] }; g.marks.push(c.i); g.boxes.push(c.b); });
-        const cards = Object.values(byRoot).map(g => ({ box: unionBox(g.boxes), marks: g.marks, userCard: userCardOf.get(g.marks[0]) }));
-        const area = b => (b[2] - b[0]) * (b[3] - b[1]), taken = new Set(cardMarks.map(c => c.i));
-        for (const i of visible) {
-          const m = mark(i);
-          // a 3D figure rides only on a window (the card it stands on), as one: its parts and labels live in its stage
-          if (taken.has(i) || (is3D(m) && m.do !== 'stage3d') || m.role === 'tie') continue;
-          const carriedBy = userCardOf.has(i) ? cards.find(c => c.userCard === userCardOf.get(i)) : null;
-          if (carriedBy) { carriedBy.marks.push(i); continue; }
-          const b = box(i); if (!b) continue;
-          const cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
-          // ReferenceRenderer (2026-10-08): words or a sketch hanging over a card's edge (a long line, a caption under it) ride
-          // with it when most of them is on it, not only when their middle is; what points at the screen keeps the
-          // middle test, so a ring beside a card stays with the screen
-          const mostlyOn = c => {
-            if (pointsAtScreen(m)) return false;
-            const ow = Math.min(b[2], c.box[2]) - Math.max(b[0], c.box[0]), oh = Math.min(b[3], c.box[3]) - Math.max(b[1], c.box[1]);
-            return ow > 0 && oh > 0 && ow * oh >= 0.4 * Math.max(1, (b[2] - b[0]) * (b[3] - b[1]));
-          };
-          let on = cards.filter(c => c.userCard == null && ((cx >= c.box[0] - 12 && cx <= c.box[2] + 12 && cy >= c.box[1] - 12 && cy <= c.box[3] + 12) || mostlyOn(c)));
-          if (m.do === 'stage3d') on = on.filter(c => c.marks.some(k => mark(k).do === 'window'));
-          if (!on.length) continue;
-          on.sort((p, q) => area(p.box) - area(q.box));
-          on[0].marks.push(i);
-        }
-        // the card's window (paper, receipt, clipping): where its title bar and buttons are now, for the app's buttons
-        const windowOf = c => {
-          const ws = c.marks.filter(i => mark(i).do === 'window').map(i => ({ i, b: box(i) })).filter(w => w.b);
-          if (!ws.length) return null;
-          ws.sort((p, q) => area(q.b) - area(p.b));
-          const m = mark(ws[0].i), k = (m.__xf || [1])[0] || 1;
-          // has3D: a 3D figure stands on it (its window gets no full-screen button)
-          return { mark: ws[0].i, box: ws[0].b, header: (+m.header || 0) * k, scale: k, zoomed: !!m.__xfBeforeZoom, title: m.title || '',
-            has3D: c.marks.some(i => mark(i).do === 'stage3d') };
-        };
-        return cards.map(c => ({ box: c.box, marks: c.marks, nodes: c.marks.flatMap(i => (E.NODES[i] || []).filter(n => !n.__gone)), window: windowOf(c) }));
-      },
-      // ReferenceRenderer: the user dropped a card (cardsNow) somewhere else: its marks move by dx, dy on the card at once (the
-      // app already showed them following the pointer). Later boxes, state() and keepNotesOnly see them where they are
-      // now. Returns how many marks moved.
+      cardsNow,
+      // The user dropped a card somewhere else: its marks move by dx, dy at once (the app already showed them following
+      // the pointer), and stay one card from now on. Returns how many marks moved.
       moveMarks(ms, dx, dy) {
         dx = +dx || 0; dy = +dy || 0;
         if (!dx && !dy) return 0;
-        const moved = [];
-        for (const raw of ms || []) {
-          const i = +raw, m = mark(i);
-          if (!m || m.__erased || !drawn(i)) continue;
-          const a = m.__xf || [1, 0, 0];
-          m.__xf = [a[0], a[1] + dx, a[2] + dy];
-          E.moveNodes(E.NODES[i], m.__xf, 0, 0.001);
-          moved.push(i);
-        }
+        const moved = liveMarks(ms);
+        for (const i of moved) { const m = mark(i), a = m.__xf || [1, 0, 0]; m.__xf = [a[0], a[1] + dx, a[2] + dy]; E.moveNodes(E.NODES[i], m.__xf, 0, 0.001); }
         if (moved.length) userCards.push(new Set(moved));
         return moved.length;
       },
-      // ReferenceRenderer: the user closed a card (its window's red button): its marks go, the pen running back over them.
-      // Returns how many marks went.
+      // The user closed a card (its window's red button): its marks go, the pen running back over them, and a 3D figure
+      // goes with everything built into it. Returns how many marks went.
       dropMarks(ms) {
         const gone = (ms || []).map(Number).filter(i => { const m = mark(i); return m && !m.__erased; });
-        // a 3D figure goes with everything built into it
-        const stages = new Set(gone.map(i => mark(i)).filter(m => m.do === 'stage3d').map(m => m.id));
-        if (stages.size) for (const i of visibleMarkIndexes()) { const m = mark(i); if (m && stages.has(m.stage) && !gone.includes(i)) gone.push(i); }
+        const stages = new Set(gone.map(mark).filter(m => m.do === 'stage3d').map(m => m.id));
+        if (stages.size) for (const i of visibleMarkIndexes()) if (stages.has(mark(i).stage) && !gone.includes(i)) gone.push(i);
         if (gone.length) this.dropNow(gone);
         return gone.length;
       },
-      // ReferenceRenderer: the user made a card full screen (its window's green button): its marks glide by `to` ([scale, dx,
-      // dy], applied on top of where they are). zoomMarks(ms, null) glides them back. Returns how many marks moved.
+      // The user made a card full screen (its window's green button): its marks glide by `to` ([scale, dx, dy], on top
+      // of where they were); zoomMarks(ms, null) glides them back. Grown over the cards around it, it stays its own
+      // card. Returns how many marks moved.
       zoomMarks(ms, to) {
         const moved = [];
-        for (const raw of ms || []) {
-          const i = +raw, m = mark(i);
-          if (!m || m.__erased || !drawn(i)) continue;
+        for (const i of liveMarks(ms)) {
+          const m = mark(i);
           if (to) {
             if (!m.__xfBeforeZoom) m.__xfBeforeZoom = (m.__xf || [1, 0, 0]).slice();
             const a = m.__xfBeforeZoom, k = +to[0] || 1;
@@ -3750,16 +3820,17 @@
           E.moveNodes(E.NODES[i], m.__xf || [1, 0, 0], 0, GLIDE_DUR * 0.8);
           moved.push(i);
         }
-        // grown over the cards around it, it stays its own card (cardsNow would join cards that touch)
         if (to && moved.length) userCards.push(new Set(moved));
         return moved.length;
       },
       // which part is at card point (x, y): the part that drew the tapped node when the host passes it, else the smallest box
       async hit(x, y, el) {
         const P = (await parts()).parts.filter(p => p.vis.length && p.box);
-        for (let n = el; n && n.tagName !== 'svg'; n = n.parentNode) for (const k in E.NODES) if (E.NODES[k].includes(n)) { const p = P.find(q => q.vis.includes(+k)); if (p) return p.id; }
+        const owner = new Map();
+        for (const k in E.NODES) for (const n of E.NODES[k]) owner.set(n, +k);
+        for (let n = el; n && n.tagName !== 'svg'; n = n.parentNode) if (owner.has(n)) { const p = P.find(q => q.vis.includes(owner.get(n))); if (p) return p.id; }
         const inside = P.filter(p => x >= p.box[0] - 6 && x <= p.box[2] + 6 && y >= p.box[1] - 6 && y <= p.box[3] + 6);
-        inside.sort((a, b) => (a.box[2] - a.box[0]) * (a.box[3] - a.box[1]) - (b.box[2] - b.box[0]) * (b.box[3] - b.box[1]));
+        inside.sort((a, b) => boxArea(a.box) - boxArea(b.box));
         return inside[0] ? inside[0].id : null;
       },
       log, get last() { return last; }, get busy() { return E.busy; }
