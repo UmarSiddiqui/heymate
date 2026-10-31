@@ -2934,39 +2934,74 @@
   // A part is what the program's own comments call a piece of the drawing ("// Big bushy tail"), or one text, or a run
   // of statements with no blank line between them. Parts are numbered in program order (p1, p2, ...), so a part keeps
   // its id while the program streams in. Every mark also has an id (m0, m1, ...); marks made by edits start at m2000.
-  const EDIT_BASE = 2000;
+  const EDIT_BASE = 2000;                                // marks an edit adds are numbered from here, apart from the program's
+  // ================================================================ the card in words: parts, boxes and the model's view
+  // The program's lines: where each starts, whether it is blank, a whole-line comment (full) or a comment after code
+  // (tail). A line starting with * is a comment only inside a block comment: elsewhere it continues an expression
+  // ("  * 2"), and used to become the heading of the next part.
   function lineIndex(code) {
-    const out = []; let pos = 0;
+    const out = [];
+    let pos = 0, inBlock = false;
     for (const line of code.split('\n')) {
       const t = line.trim(), rec = { s: pos, blank: !t, full: null, tail: null };
-      if (t.startsWith('//')) rec.full = t.replace(/^\/\/+\s*/, '').trim();
-      else if (t.startsWith('/*') || t.startsWith('*')) rec.full = t.replace(/^\/?\*+\/?\s*/, '').replace(/\*\/\s*$/, '').trim();
+      if (inBlock || t.startsWith('/*')) {
+        rec.full = t.replace(/^\/?\*+\/?\s*/, '').replace(/\*\/\s*$/, '').trim();
+        inBlock = t.indexOf('*/', inBlock ? 0 : 2) < 0;   // still open after this line
+      } else if (t.startsWith('//')) rec.full = t.replace(/^\/\/+\s*/, '').trim();
       else if (t) { const k = commentAt(line); if (k >= 0) rec.tail = line.slice(k).replace(/^\/\/+\s*/, '').trim() || null; }
-      out.push(rec); pos += line.length + 1;
+      out.push(rec);
+      pos += line.length + 1;
     }
     return out;
   }
-  function commentAt(line) { let q = null; for (let i = 0; i < line.length; i++) { const c = line[i]; if (q) { if (c === '\\') i++; else if (c === q) q = null; } else if (c === '"' || c === "'" || c === '`') q = c; else if (c === '/' && line[i + 1] === '/') return i; } return -1; }
-  function lineOf(L, off) { let lo = 0, hi = L.length - 1; while (lo < hi) { const md = (lo + hi + 1) >> 1; if (L[md].s <= off) lo = md; else hi = md - 1; } return lo; }
+  // where a // comment starts on a line of code (outside its strings), or -1
+  function commentAt(line) {
+    let quote = null;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (quote) { if (c === '\\') i++; else if (c === quote) quote = null; }
+      else if (c === '"' || c === "'" || c === '`') quote = c;
+      else if (c === '/' && line[i + 1] === '/') return i;
+    }
+    return -1;
+  }
+  // the line holding character offset `off` (L from lineIndex)
+  function lineOf(L, off) {
+    let lo = 0, hi = L.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (L[mid].s <= off) lo = mid; else hi = mid - 1; }
+    return lo;
+  }
   const textSize = m => m.size || (m.style === 'title' ? 24 : m.style === 'body' ? 17 : 20);
-  // a mark's box [x0, y0, x1, y1] from its data (and the move or scale an edit gave it)
+  const growBox = (b, pad) => b && [b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad];
+  const finitePoints = P => (P || []).filter(p => Array.isArray(p) && isFinite(p[0]) && isFinite(p[1]));
+  // A mark's box [x0, y0, x1, y1] from its data, with the move or scale an edit gave it. Text is sized with the same
+  // letter widths as ink boxes (East Asian characters and emoji an em wide), and a path by the points its pen draws,
+  // relative commands too (before, a relative path had no box and never rode with its card).
   function markBox(m) {
     if (!m || typeof m !== 'object') return null;
-    let b = null; const pad = (m.size || 3) / 2;
-    const ptsBox = P => { P = (P || []).filter(p => Array.isArray(p) && isFinite(p[0]) && isFinite(p[1])); if (!P.length) return null; const xs = P.map(p => p[0]), ys = P.map(p => p[1]); return [Math.min(...xs) - pad, Math.min(...ys) - pad, Math.max(...xs) + pad, Math.max(...ys) + pad]; };
-    const at = Array.isArray(m.at) ? m.at : null;
+    const pad = (m.size || 3) / 2, at = Array.isArray(m.at) ? m.at : null;
+    const pointsBox = P => { P = finitePoints(P); return P.length ? growBox(boxOf(P), pad) : null; };
+    let b = null;
     switch (m.do) {
-      case 'line': case 'arrow': case 'poly': b = ptsBox(m.pts); break;
-      case 'circle': case 'ellipse': if (at) { let rx = +(m.r || m.rx) || 0, ry = +(m.r || m.ry) || 0; if (m.rot) rx = ry = Math.max(rx, ry); b = [at[0] - rx - pad, at[1] - ry - pad, at[0] + rx + pad, at[1] + ry + pad]; } break;
+      case 'line': case 'arrow': case 'poly': b = pointsBox(m.pts); break;
+      case 'circle': case 'ellipse': if (at) {
+        let rx = +(m.r || m.rx) || 0, ry = +(m.r || m.ry) || 0;
+        if (m.rot) rx = ry = Math.max(rx, ry);
+        b = [at[0] - rx - pad, at[1] - ry - pad, at[0] + rx + pad, at[1] + ry + pad];
+      } break;
       case 'dot': if (at) { const r = +m.r || 3; b = [at[0] - r, at[1] - r, at[0] + r, at[1] + r]; } break;
-      case 'rect': case 'highlight': case 'molecule': case 'stage3d': case 'image': case 'window': if (at) { const w = +m.w || 0, h = +m.h || 0; b = [Math.min(at[0], at[0] + w), Math.min(at[1], at[1] + h), Math.max(at[0], at[0] + w), Math.max(at[1], at[1] + h)]; } break;
+      case 'rect': case 'highlight': case 'molecule': case 'stage3d': case 'image': case 'window': if (at) {
+        const w = +m.w || 0, h = +m.h || 0;
+        b = [Math.min(at[0], at[0] + w), Math.min(at[1], at[1] + h), Math.max(at[0], at[0] + w), Math.max(at[1], at[1] + h)];
+      } break;
       case 'text': if (at) {
-        const size = textSize(m), ls = String(m.text).split('\n'), lw = Math.max(...ls.map(s => s.length)) * size * (m.style === 'title' ? 0.56 : 0.47);
-        const w = m.fit ? Math.min(m.fit[0], lw) : m.wrap ? Math.min(m.wrap, lw) : lw, n = m.fit || m.wrap ? Math.max(ls.length, Math.ceil(lw / (w || 1))) : ls.length;
-        const x = at[0] - (m.anchor === 'middle' ? w / 2 : m.anchor === 'end' ? w : 0), y = at[1] - size * 0.8 - (n > 1 && (m.fit || m.wrap) ? (n - 1) * size * LINE_HEIGHT / 2 : 0);
+        const size = textSize(m), lines = String(m.text).split('\n'), widest = Math.max(...lines.map(s => textW(s, size, m.style)));
+        const boxed = m.fit || m.wrap, w = m.fit ? Math.min(m.fit[0], widest) : m.wrap ? Math.min(m.wrap, widest) : widest;
+        const n = boxed ? Math.max(lines.length, Math.ceil(widest / (w || 1))) : lines.length;
+        const x = at[0] - (m.anchor === 'middle' ? w / 2 : m.anchor === 'end' ? w : 0), y = at[1] - size * 0.8 - (n > 1 && boxed ? (n - 1) * size * LINE_HEIGHT / 2 : 0);
         b = [x, y, x + w, y + size * 1.05 + (n - 1) * size * LINE_HEIGHT];
       } break;
-      case 'path': { const nums = String(m.d || '').match(/-?\d*\.?\d+/g) || [], P = []; if (!/[a-z]/.test(String(m.d).replace(/e-/g, ''))) for (let i = 0; i + 1 < nums.length; i += 2) P.push([+nums[i] + (m.shift ? m.shift[0] : 0), +nums[i + 1] + (m.shift ? m.shift[1] : 0)]); b = ptsBox(P); break; }
+      case 'path': { const [sx, sy] = m.shift || [0, 0]; b = pointsBox([].concat(...pathRuns(m.d)).map(p => [p[0] + sx, p[1] + sy])); break; }
     }
     const xf = m.__xf;
     return b && xf ? [b[0] * xf[0] + xf[1], b[1] * xf[0] + xf[2], b[2] * xf[0] + xf[1], b[3] * xf[0] + xf[2]] : b;
@@ -2976,89 +3011,125 @@
   const clip = (s, n) => { s = String(s).replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
   // A 3D part in the card's words: its id (what part() and motions take), kind, size, place and colour.
   const fmt3 = v => Array.isArray(v) ? '[' + v.map(n => +(+n).toFixed(2)).join(',') + ']' : '';
+  const SIZES_3D = ['r', 'h', 'size', 'inner', 'outer', 'tube', 'depth'];
   function describe3dPart(m, withoutPlace) {
     const p = m.params || {}, bits = [m.kind], ends = Array.isArray(p.from) && Array.isArray(p.to);
-    for (const k of ['r', 'h', 'size', 'inner', 'outer', 'tube', 'depth']) if (p[k] != null && !(ends && k === 'h')) bits.push(k + '=' + (Array.isArray(p[k]) ? fmt3(p[k]) : +(+p[k]).toFixed(2)));
+    for (const k of SIZES_3D) if (p[k] != null && !(ends && k === 'h')) bits.push(k + '=' + (Array.isArray(p[k]) ? fmt3(p[k]) : +(+p[k]).toFixed(2)));
     if (ends && !withoutPlace) bits.push('from ' + fmt3(p.from) + ' to ' + fmt3(p.to));
     if (Array.isArray(p.points)) bits.push(p.points.length + ' points');
     if (Array.isArray(p.profile)) bits.push('profile of ' + p.profile.length + ' points');
     if (!withoutPlace && ((m.kind !== 'group' && !ends) || (m.pos && m.pos.some(n => +n)))) bits.push('at ' + fmt3(m.pos));
     if (!withoutPlace && m.rotate3 && m.rotate3.some(n => +n)) bits.push('rotate ' + fmt3(m.rotate3));
-    const c = m.material && m.material.color; if (c) bits.push(String(c));
-    // three-metal: a figure() part's material in the words its program used ('paint coral', 'glass'), and its name (the
-    // variable it was assigned to), so a follow-up finds "the piston" without guessing from sizes.
+    const c = m.material && m.material.color;
+    if (c) bits.push(String(c));
+    // a figure() part's material in the words its program used ('paint coral', 'glass'), and its name (the variable it
+    // was assigned to), so a follow-up finds "the piston" without guessing from sizes
     if (m.three && m.material && (m.material.mat || m.material.tint)) bits.push([m.material.mat, m.material.tint ? toneName(m.material.tint) : null].filter(Boolean).join(' '));
     if (m.parent) bits.push('in ' + m.parent);
     return (m.three && m.name ? m.name + ': ' : '') + bits.join(' ');
   }
   const toneName = c => Object.keys(TONES).find(k => TONES[k].toLowerCase() === String(c).toLowerCase()) || String(c);
+  // one mark in a few words: its kind, colours and dashes (3D figures and their parts by name, so a follow-up can build on them)
   function markLabel(m) {
     if (!m) return '?';
-    // ReferenceRenderer: 3D figures and their parts by name, so a follow-up can build on them.
-    if (m.do === 'stage3d') return `3D figure ${m.id}`;
-    if (m.do === 'part3d') return `${m.id} ${describe3dPart(m)}`;
-    if (m.do === 'label3d') return `3D label "${String(m.text).slice(0, 30)}"`;
-    if (m.do === 'motion3d') return `3D motion ${(m.op && m.op.kind) || ''} on ${(m.op && m.op.target) || ''}`;
-    if (m.do === 'camera3d') return '3D camera';
-    if (m.do === 'tick3d') return '3D tick (runs the mechanism every frame)';
-    if (m.do === 'text') return `text ${m.style || 'hand'} ${Math.round(textSize(m))} ${m.tone || 'ink'}${m.weight ? ' weight ' + m.weight : ''}`;
-    const kind = m.do === 'line' && m.smooth ? 'curve' : m.do, c = [];
-    if (m.do === 'highlight') return `highlight ${m.tone || 'butter'}`;
-    if (m.do === 'window') return `window${m.title ? ' "' + String(m.title).slice(0, 30) + '"' : ''} ${m.board || 'plain'} board`;
-    if (m.do === 'dot') return `dot ${m.tone || 'ink'}`;
-    if (m.fill && m.fill !== 'none') c.push('fill ' + m.fill);
-    if (m.outline !== false || !m.fill) c.push((c.length ? 'line ' : '') + (m.tone || 'ink'));
-    if (((m.do === 'line' || m.do === 'arrow') && m.dash) || m.__dash) c.push('dashed');   // what is drawn: 1.5 ignores dash on closed shapes
-    return kind + (c.length ? ' ' + c.join(' ') : '');
+    switch (m.do) {
+      case 'stage3d': return `3D figure ${m.id}`;
+      case 'part3d': return `${m.id} ${describe3dPart(m)}`;
+      case 'label3d': return `3D label "${String(m.text).slice(0, 30)}"`;
+      case 'motion3d': return `3D motion ${(m.op && m.op.kind) || ''} on ${(m.op && m.op.target) || ''}`;
+      case 'camera3d': return '3D camera';
+      case 'tick3d': return '3D tick (runs the mechanism every frame)';
+      case 'text': return `text ${m.style || 'hand'} ${Math.round(textSize(m))} ${m.tone || 'ink'}${m.weight ? ' weight ' + m.weight : ''}`;
+      case 'highlight': return `highlight ${m.tone || 'butter'}`;
+      case 'window': return `window${m.title ? ' "' + String(m.title).slice(0, 30) + '"' : ''} ${m.board || 'plain'} board`;
+      case 'dot': return `dot ${m.tone || 'ink'}`;
+    }
+    const colours = [];
+    if (m.fill && m.fill !== 'none') colours.push('fill ' + m.fill);
+    if (m.outline !== false || !m.fill) colours.push((colours.length ? 'line ' : '') + (m.tone || 'ink'));
+    // what is drawn: a program's dash only dashes lines and arrows; an edit can dash a closed shape
+    if (((m.do === 'line' || m.do === 'arrow') && m.dash) || m.__dash) colours.push('dashed');
+    return (m.do === 'line' && m.smooth ? 'curve' : m.do) + (colours.length ? ' ' + colours.join(' ') : '');
   }
+  // where a box sits on the card, in a word: top-left ... centre ... bottom-right
   function zoneOf(b, W, H) {
     if (!b) return '';
     const cx = (b[0] + b[2]) / 2 / W, cy = (b[1] + b[3]) / 2 / H;
     const v = cy < 0.34 ? 'top' : cy > 0.66 ? 'bottom' : '', h = cx < 0.34 ? 'left' : cx > 0.66 ? 'right' : '';
     return v && h ? v + '-' + h : v || h || 'centre';
   }
-  // o: {code, stmts (from attribute), mark(i), box(i), visible(i), pending(i), says [{k, text, step, turn}], over, added, W, H,
-  //     from (ReferenceRenderer: helpers defined before this offset, Mate's own pieces, are not listed), drawnOnly (parts list only
-  //     what is drawn: marks still waiting for their line are left out)}
-  // ReferenceRenderer: an edit mark ({do: 'edit'}) is never part of a part, and a statement that edits starts a new part. A call of
-  // a piece (Mate's paper, sticky, receipt, ...; a helper the program defined; graph, timeline) is a part of its own.
+  // the first string argument at the top level of a call (its words, not an option like {tone: 'coral'})
+  function firstWords(call) {
+    let args = '';
+    for (let k = 0, depth = 0, q = null; k < call.length; k++) {
+      const ch = call[k];
+      if (q) { if (depth === 0) args += ch; if (ch === '\\') { k++; if (depth === 0) args += call[k] || ''; } else if (ch === q) q = null; continue; }
+      if (ch === '"' || ch === "'" || ch === '`') { q = ch; if (depth === 0) args += ch; continue; }
+      if (ch === '{') depth++; else if (ch === '}') depth = Math.max(0, depth - 1); else if (depth === 0) args += ch;
+    }
+    const words = /"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|`([^`]*)`/.exec(args);
+    return words ? words[1] || words[2] || words[3] || '' : '';
+  }
+  // past blanks and comments to a statement's code, from b up to e
+  function codeStart(code, b, e) {
+    for (;;) {
+      while (b < e && /\s/.test(code[b])) b++;
+      if (code.startsWith('//', b)) { const j = code.indexOf('\n', b); b = j < 0 ? e : Math.min(j, e); continue; }
+      if (code.startsWith('/*', b)) { const j = code.indexOf('*/', b + 2); b = j < 0 ? e : Math.min(j + 2, e); continue; }
+      return b;
+    }
+  }
+  // The card as parts a model can name. A part is the statements under one comment heading, or one call of a piece
+  // (Mate's paper, sticky, receipt, ...; a helper the program defined; graph, timeline), or one text; consecutive
+  // statements of a step join the part before them unless a heading, a trailing comment or a blank line splits them.
+  // An edit mark ({do: 'edit'}) is never part of a part, and a statement that edits starts a new part.
+  // o: {code, stmts (from attribute), mark(i), box(i), pending(i), over, added, W, H, from (helpers defined before this
+  //     offset, Mate's own pieces, are not listed), drawnOnly (parts list only what is drawn: marks still waiting for
+  //     their line are left out)}
   const PIECE_CALLS = { graph: 1, timeline: 1, molecule: 1 };
+  const SCENE_CONST = /^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*scene3d\s*\(/;
+  const HELPER_SIGNATURE = [/^function\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)/, /^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:function\s*)?\(?([^)=]*?)\)?\s*=>/];
+  const HELPER_NAME = [/^function\s+([A-Za-z_$][\w$]*)/, /^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:function\b|\(|[A-Za-z_$][\w$]*\s*=>)/];
+  const firstMatch = (res, s) => { for (const re of res) { const m = re.exec(s); if (m) return m; } return null; };
   function describe(o) {
-    const code = o.code || '', L = lineIndex(code), parts = [], helpers = [], figures = [], mark = o.mark, helperNames = new Set();
-    let cur = null, section = null, carry = null, prevEnd = -1;
+    const code = o.code || '', L = lineIndex(code), mark = o.mark, parts = [], helpers = [], figures = [], helperNames = new Set();
+    let cur = null, section = null, carry = null, prevEnd = -1;   // the part being grown, the heading over the run, a heading waiting for code
     const newPart = p => { p.id = 'p' + (parts.length + 1); parts.push(p); return p; };
-    const isEdit = i => { const m = mark(i); return !!m && m.do === 'edit'; };
     for (const st of o.stmts || []) {
-      let b = st.s;
-      for (;;) {                                         // skip blanks and comments before the statement's code
-        while (b < st.e && /\s/.test(code[b])) b++;
-        if (code.startsWith('//', b)) { const j = code.indexOf('\n', b); b = j < 0 ? st.e : Math.min(j, st.e); continue; }
-        if (code.startsWith('/*', b)) { const j = code.indexOf('*/', b + 2); b = j < 0 ? st.e : Math.min(j + 2, st.e); continue; }
-        break;
-      }
+      const b = codeStart(code, st.s, st.e);
       if (b >= st.e) continue;
-      const l0 = lineOf(L, b); let l1 = lineOf(L, Math.max(b, st.e - 1));
+      const l0 = lineOf(L, b);
+      let l1 = lineOf(L, Math.max(b, st.e - 1));
       while (l1 > l0 && (L[l1].blank || L[l1].full != null)) l1--;
       const body = code.slice(b, st.e).trim();
-      const head = []; for (let k = l0 - 1; k > prevEnd && k >= 0 && L[k].full != null; k--) head.unshift(L[k].full);
+      // its heading: the whole-line comments just above it (a "Plan" comment is the program's own plan, not a heading)
+      const head = [];
+      for (let k = l0 - 1; k > prevEnd && k >= 0 && L[k].full != null; k--) head.unshift(L[k].full);
       const heading = head.filter(x => x && !/^plan\b/i.test(x)).join(' / ') || null;
-      let blank = false; for (let k = prevEnd + 1; k < l0 - head.length; k++) if (L[k] && L[k].blank) blank = true;
+      let blank = false;
+      for (let k = prevEnd + 1; k < l0 - head.length; k++) if (L[k] && L[k].blank) blank = true;
       prevEnd = l1;
-      const figure = /^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*scene3d\s*\(/.exec(body);
+      const figure = SCENE_CONST.exec(body);
       if (figure) {
-        let stageID = null; for (let i = st.n0; i < st.n1 && !stageID; i++) { const m = mark(i); if (m && m.do === 'stage3d') stageID = m.id; }
-        if (stageID) figures.push({ name: figure[1], stage: stageID });
+        let stage = null;
+        for (let i = st.n0; i < st.n1 && !stage; i++) { const m = mark(i); if (m && m.do === 'stage3d') stage = m.id; }
+        if (stage) figures.push({ name: figure[1], stage });
       }
-      const fn = figure ? null : /^function\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)/.exec(body) || /^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:function\s*)?\(?([^)=]*?)\)?\s*=>/.exec(body);
+      const fn = figure ? null : firstMatch(HELPER_SIGNATURE, body);
       if (fn && b >= (o.from || 0)) helpers.push(fn[1] + '(' + fn[2].replace(/\s+/g, ' ').trim() + ')');
-      const named = /^function\s+([A-Za-z_$][\w$]*)/.exec(body) || /^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:function\b|\(|[A-Za-z_$][\w$]*\s*=>)/.exec(body);
+      const named = firstMatch(HELPER_NAME, body);
       if (named) helperNames.add(named[1]);
       if (blank) { section = null; carry = null; }
-      const ms = []; let edits = 0;
-      for (let i = st.n0; i < st.n1; i++) { if (isEdit(i)) edits++; else ms.push(i); }
-      if (!ms.length) { if (edits) { cur = null; carry = null; } else if (heading && !fn) carry = heading; else if (fn) carry = null; continue; }
+      const ms = [];
+      let edits = 0;
+      for (let i = st.n0; i < st.n1; i++) { const m = mark(i); if (m && m.do === 'edit') edits++; else ms.push(i); }
+      if (!ms.length) {                                   // drew nothing: an edit ends the part; a lone heading waits for code
+        if (edits) { cur = null; carry = null; } else if (heading && !fn) carry = heading; else if (fn) carry = null;
+        continue;
+      }
       if (edits) cur = null;
-      const own = heading || carry; carry = null;
+      const own = heading || carry;
+      carry = null;
       if (heading) section = heading;
       const tail = L[l1].tail || L[l0].tail, m0 = mark(ms[0]), step = m0 ? m0.step : null, turn = (m0 && m0.turn) || 1;
       if (ms.every(i => mark(i) && mark(i).do === 'text')) { for (const i of ms) cur = newPart({ marks: [i], step, turn, text: true, desc: null }); continue; }
@@ -3066,25 +3137,20 @@
       const callee = call && /^([A-Za-z_$][\w$]*)\s*\(/.exec(call), piece = callee && (helperNames.has(callee[1]) || PIECE_CALLS[callee[1]]) ? callee[1] : null;
       const desc = own ? (tail ? own + ': ' + tail : own) : tail ? (section ? section + ': ' + tail : tail) : null;
       if (piece) {
-        // its words: the first string passed as an argument (not an option like {tone: 'coral'})
-        let args = ''; for (let k = 0, depth = 0, q = null; k < call.length; k++) {
-          const ch = call[k];
-          if (q) { if (depth === 0) args += ch; if (ch === '\\') { k++; if (depth === 0) args += call[k] || ''; } else if (ch === q) q = null; continue; }
-          if (ch === '"' || ch === "'" || ch === '`') { q = ch; if (depth === 0) args += ch; continue; }
-          if (ch === '{') depth++; else if (ch === '}') depth = Math.max(0, depth - 1); else if (depth === 0) args += ch;
-        }
-        const words = /"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|`([^`]*)`/.exec(args);
-        newPart({ marks: ms, step, turn, stmts: [{ call, n0: st.n0, n1: st.n1 }], piece, pieceText: words ? words[1] || words[2] || words[3] || '' : '', desc });
-        cur = null; continue;
+        newPart({ marks: ms, step, turn, stmts: [{ call, n0: st.n0, n1: st.n1 }], piece, pieceText: firstWords(call), desc });
+        cur = null;
+        continue;
       }
       if (!cur || own || tail || cur.text || cur.tail || blank || cur.step !== step || cur.turn !== turn) cur = newPart({ marks: ms, step, turn, tail: !!tail, stmts: [], desc });
       else cur.marks.push(...ms);
       cur.stmts.push({ call, n0: st.n0, n1: st.n1 });
     }
+    // what each part shows now (edits may have regrouped or erased its marks), its box and how much is still to draw
     const over = o.over || {}, box = o.box || (i => markBox(mark(i)));
     const all = parts.concat(o.added || []);
     for (const p of all) {
-      const ov = over[p.id]; if (ov) { p.marks = ov.marks.slice(); if (ov.desc) p.desc = ov.desc; p.text = false; }
+      const ov = over[p.id];
+      if (ov) { p.marks = ov.marks.slice(); if (ov.desc) p.desc = ov.desc; p.text = false; }
       p.vis = p.marks.filter(i => mark(i) && !mark(i).__erased && !(o.drawnOnly && o.pending && o.pending(i)));
       p.box = unionBox(p.vis.map(box));
       p.pending = p.vis.filter(i => o.pending && o.pending(i)).length;
@@ -3092,7 +3158,8 @@
     const texts = all.filter(p => p.vis.length === 1 && mark(p.vis[0]).do === 'text');
     for (const p of all) {
       const ms = p.vis.map(mark);
-      if (!p.desc && ms.length && p.box && ms.every(m => m.do === 'highlight')) {    // a highlight is named by the words it sits behind
+      // a highlight is named by the words it sits behind
+      if (!p.desc && ms.length && p.box && ms.every(m => m.do === 'highlight')) {
         const on = texts.filter(t => t.box && Math.min(t.box[2], p.box[2]) - Math.max(t.box[0], p.box[0]) > 0.4 * (t.box[2] - t.box[0]) && Math.min(t.box[3], p.box[3]) - Math.max(t.box[1], p.box[1]) > 0.3 * (t.box[3] - t.box[1]));
         if (on.length) p.desc = `highlight behind ${on.map(t => '"' + clip(mark(t.vis[0]).text, 30) + '"').slice(0, 2).join(' and ')}`;
       }
@@ -3105,9 +3172,21 @@
     }
     return { parts: all, helpers, figures };
   }
-  // the card as short lines a model can read: every part with its id, what it is, its box and its marks
-  // (ReferenceRenderer: a card drawn over several turns names each turn's steps "Turn 2, step 1"; o.maxChars keeps it short:
-  // past it, parts list their mark ranges only, then the oldest parts are summed up in one line)
+  // first..last as a mark range: m3, or m3–m9
+  const markRange = v => v.length > 1 ? `m${v[0]}–m${v[v.length - 1]}` : `m${v[0]}`;
+  const marksCount = n => `${n} mark${n > 1 ? 's' : ''}`;
+  // ids as ranges: p1–p62, x1
+  function idRanges(ids) {
+    const runs = [];
+    for (const id of ids) {
+      const m = /^([a-z]+)(\d+)$/.exec(id), last = runs[runs.length - 1];
+      if (m && last && last.pre === m[1] && last.b + 1 === +m[2]) last.b = +m[2]; else runs.push(m ? { pre: m[1], a: +m[2], b: +m[2] } : { id });
+    }
+    return runs.map(r => r.id || (r.a === r.b ? r.pre + r.a : `${r.pre}${r.a}–${r.pre}${r.b}`)).join(', ');
+  }
+  // The card as short lines a model can read: every part with its id, what it is, its box and its marks. A card drawn
+  // over several turns names each turn's steps "Turn 2, step 1". o.maxChars keeps it short: past it, parts list their
+  // mark ranges only, then the oldest parts are summed up in one line.
   function stateText(d, o) {
     if (o && o.maxChars && !o.brief && !o.skip) {
       const full = stateText(d, Object.assign({}, o, { maxChars: 0 }));
@@ -3129,20 +3208,18 @@
       // one piece (a sticky, a receipt, ...): its marks and the words on it (a small one lists its marks like any part)
       if (p.piece && !o.over[p.id] && (o.brief || p.vis.length > 3 || p.vis.some(i => o.mark(i).do === 'text'))) {
         const words = p.vis.map(o.mark).filter(m => m.do === 'text' && String(m.text) !== p.pieceText).map(m => `"${clip(m.text, 26)}"`);
-        const range = p.vis.length > 1 ? `m${p.vis[0]}–m${p.vis[p.vis.length - 1]}` : `m${p.vis[0]}`;
-        return `${p.vis.length} mark${p.vis.length > 1 ? 's' : ''} (${range})${words.length ? ', also says ' + words.slice(0, 4).join(', ') + (words.length > 4 ? ', …' : '') : ''}`;
+        return `${marksCount(p.vis.length)} (${markRange(p.vis)})${words.length ? ', also says ' + words.slice(0, 4).join(', ') + (words.length > 4 ? ', …' : '') : ''}`;
       }
+      if (o.brief) return `${marksCount(p.vis.length)} (${markRange(p.vis)})`;
       // a part made of several helper calls (flower(45, 410, 'pink'), ...) lists the calls, each with its marks
-      if (o.brief) return `${p.vis.length} mark${p.vis.length > 1 ? 's' : ''} (m${p.vis[0]}${p.vis.length > 1 ? '–m' + p.vis[p.vis.length - 1] : ''})`;
       if (p.stmts && p.stmts.length > 1 && !o.over[p.id] && p.stmts.every(t => t.call && t.n1 - t.n0 >= 3) && !p.vis.some(i => /3d$/.test((o.mark(i) || {}).do || ''))) {
         return p.stmts.map(t => { const v = p.vis.filter(i => i >= t.n0 && i < t.n1); return v.length ? `${clip(t.call, 44)} (m${v[0]}–m${v[v.length - 1]})` : null; }).filter(Boolean).join(' + ');
       }
+      // Runs of alike marks are one entry: "3× rect fill sky (m4–m6)". A row of the same 3D part (hangers, rungs,
+      // bolts) is one line with its id range, so a big figure still fits the card's words.
       const runs = [];
       for (const i of p.vis) {
-        const m = o.mark(i);
-        // A row of the same 3D part (hangers, rungs, bolts) is one line with its id range, so a big figure still fits
-        // the card's words.
-        const lab = m && m.do === 'part3d' ? 'part3d|' + describe3dPart(m, true) : markLabel(m), last = runs[runs.length - 1];
+        const m = o.mark(i), lab = m && m.do === 'part3d' ? 'part3d|' + describe3dPart(m, true) : markLabel(m), last = runs[runs.length - 1];
         if (last && last.lab === lab && m.do !== 'text' && last.b === i - 1) { last.b = i; last.n++; last.end = m; } else runs.push({ lab, a: i, b: i, n: 1, m, end: m });
       }
       return runs.map(r => r.lab.startsWith('part3d|')
@@ -3150,26 +3227,20 @@
         : (r.n > 1 ? r.n + '× ' : '') + r.lab + (r.m.do === 'text' && p.vis.length > 1 ? ` "${clip(r.m.text, 30)}"` : '') + ` (m${r.a}${r.n > 1 ? '–m' + r.b : ''})`).join(' + ');
     };
     const skipped = new Set(o.skip || []);
-    if (skipped.size) {                                // their ids as ranges: p1–p62, x1
-      const runs = [];
-      for (const id of [...skipped].map(p => String(p.id))) {
-        const m = /^([a-z]+)(\d+)$/.exec(id), last = runs[runs.length - 1];
-        if (m && last && last.pre === m[1] && last.b + 1 === +m[2]) last.b = +m[2]; else runs.push(m ? { pre: m[1], a: +m[2], b: +m[2] } : { id });
-      }
-      out.push(`(${skipped.size} older parts not listed: ${runs.map(r => r.id || (r.a === r.b ? r.pre + r.a : `${r.pre}${r.a}–${r.pre}${r.b}`)).join(', ')})`);
-    }
+    if (skipped.size) out.push(`(${skipped.size} older parts not listed: ${idRanges([...skipped].map(p => String(p.id)))})`);
     for (const p of d.parts) {
       if (!p.vis.length || skipped.has(p)) continue;
-      const key = turnOf(p) + '/' + p.step;
-      if (p.step != null && !seen.has(key) && !String(p.id).startsWith('x')) {
-        seen.add(key); const said = sayOf(turnOf(p), p.step);
+      const key = turnOf(p) + '/' + p.step, added = String(p.id).startsWith('x');
+      if (p.step != null && !seen.has(key) && !added) {
+        seen.add(key);
+        const said = sayOf(turnOf(p), p.step);
         out.push(`${multi ? `Turn ${turnOf(p)}, step ${p.step}` : `Step ${p.step}`}${said ? ` · Mate said: "${clip(said, 170)}"` : ''}`);
       }
-      if (String(p.id).startsWith('x') && !seen.has('x')) { seen.add('x'); out.push('Added by edits:'); }
-      out.push(`  ${p.id} ${clip(p.desc, 70)} ${fmtBox(p.box)}: ${markList(p)}${p.pending ? (p.pending === p.vis.length ? ' (not drawn yet)' : ` (${p.pending} not drawn yet)`) : ''}`);
+      if (added && !seen.has('x')) { seen.add('x'); out.push('Added by edits:'); }
+      const waiting = p.pending ? (p.pending === p.vis.length ? ' (not drawn yet)' : ` (${p.pending} not drawn yet)`) : '';
+      out.push(`  ${p.id} ${clip(p.desc, 70)} ${fmtBox(p.box)}: ${markList(p)}${waiting}`);
     }
-    const shown = d.parts.filter(p => p.vis.length);
-    const newest = shown.filter(p => !p.pending).slice(-1)[0];
+    const newest = d.parts.filter(p => p.vis.length && !p.pending).slice(-1)[0];
     const tail = [];
     if (newest) tail.push(`newest part: ${newest.id}`);
     if (o.last) tail.push(`last changed: ${o.last}`);
@@ -3178,24 +3249,31 @@
     return out.join('\n');
   }
 
-  // ================================================================ 1.6: the editor behind live(): ops, undo and the model's view
-  // Ops (one JSON object each): recolor, restyle, move, moveTo, scale, erase, redraw, add, highlight, undo.
-  // say / new / none are for the host (the voice, or starting a new drawing); the editor just reports them.
+  // ================================================================ recolour and restyle a mark
+  // A deeper shade of a colour, for the outline of a shape whose fill changed: the next tone down the palette, or the
+  // colour at 62% brightness.
   const DARKER = { butter: 'orange', sun: 'orange', orange: 'brown', peach: 'coral', coral: 'red', red: '#A32A2E', pink: 'coral', lilac: 'violet', violet: '#4A3AA8', sky: 'blue', blue: '#173F8A',
     mint: 'leaf', leaf: '#2A6E40', brown: '#5E3A1F', tan: 'brown', cream: 'tan', white: 'grey', grey: 'ink', ink: 'ink' };
+  // a colour as the program would name it: a tone, a known colour word ('Light Blue'), or what was given
   const normColor = c => { if (c == null) return c; const k = String(c).toLowerCase().replace(/[\s_-]+/g, ''); return TONES[k] ? k : COLOR_WORDS[k] || String(c).trim(); };
   function darker(c) {
     if (DARKER[c]) return DARKER[c];
-    const h = /^#?([0-9a-f]{6})$/i.exec(TONES[c] || c || ''); if (!h) return c;
-    const v = parseInt(h[1], 16); return '#' + [v >> 16, (v >> 8) & 255, v & 255].map(x => Math.round(x * 0.62).toString(16).padStart(2, '0')).join('');
+    const h = /^#?([0-9a-f]{6})$/i.exec(TONES[c] || c || '');
+    if (!h) return c;
+    const v = parseInt(h[1], 16);
+    return '#' + [v >> 16, (v >> 8) & 255, v & 255].map(x => Math.round(x * 0.62).toString(16).padStart(2, '0')).join('');
   }
+  // the fields an edit can change, saved and put back for undo
   const FIELDS = ['tone', 'fill', 'fillAlpha', 'outline', 'style', 'size', 'weight', 'dash', '__dash', 'brush', 'alpha'];
   const snapOf = m => { const f = {}; for (const k of FIELDS) f[k] = k in m ? m[k] : undefined; return f; };
   const restoreOf = (m, f) => { for (const k of FIELDS) if (f[k] === undefined) delete m[k]; else m[k] = f[k]; };
+  const CLOSED = ['circle', 'ellipse', 'rect', 'poly', 'path'];
+  // color: the colour a mark is seen in (a filled shape's fill, whose outline follows a shade darker; otherwise its
+  // ink); fill and line (or tone): exactly that part
   function recolorMark(m, op) {
     if (m.do === 'part3d') {
-      // ReferenceRenderer: a 3D part's colour is its material's (tone and fill mean nothing inside a figure); the repaint
-      // sends the part again under its id and the stage swaps it in place.
+      // a 3D part's colour is its material's (tone and fill mean nothing inside a figure); the repaint sends the part
+      // again under its id and the stage swaps it in place
       const c = op.color != null ? op.color : op.fill != null ? op.fill : op.line != null ? op.line : op.tone;
       if (c != null) m.material = Object.assign({}, m.material, { color: m.three ? realTone(normColor(c)) : tone(normColor(c)) });
       return;
@@ -3204,23 +3282,26 @@
     if (fill != null && m.do !== 'text' && m.do !== 'line' && m.do !== 'arrow') m.fill = fill;
     if (line != null) m.tone = line;
     if (color == null || fill != null || line != null) return;
-    const filled = m.fill && m.fill !== 'none' && ['circle', 'ellipse', 'rect', 'poly', 'path'].includes(m.do);
+    const filled = m.fill && m.fill !== 'none' && CLOSED.includes(m.do);
     if (!filled) { m.tone = color; return; }
-    const tonal = m.tone && m.tone !== m.fill && m.outline !== false;
-    m.fill = color; if (tonal) m.tone = darker(color);
+    const ownOutline = m.tone && m.tone !== m.fill && m.outline !== false;
+    m.fill = color;
+    if (ownOutline) m.tone = darker(color);
   }
+  const FONT_WORDS = { handwriting: 'hand', handwritten: 'hand', rounded: 'title', bold: 'title', plain: 'body', sans: 'body', typewriter: 'mono', code: 'mono' };
+  const BRUSHES = ['pen', 'marker', 'pencil', 'brush'];
   function restyleMark(m, op) {
-    // ReferenceRenderer: a 3D label's size is its words' size (15 to 28, as label() takes it), not a pen width.
+    const recolor = op.color != null || op.fill != null || op.line != null;
+    // a 3D label's size is its words' size (15 to 28, as label() takes it), not a pen width
     if (m.do === 'label3d') {
       if (op.size != null && +op.size > 0) m.size = Math.max(15, Math.min(28, +op.size));
-      if (op.color != null || op.fill != null || op.line != null) recolorMark(m, op);
+      if (recolor) recolorMark(m, op);
       return;
     }
-    const isText = m.do === 'text';
-    if (isText) {
-      // ReferenceRenderer: the drawing guide teaches o.style ('hand' | 'title' | 'body'); o.font is the lab's older name.
+    if (m.do === 'text') {
+      // o.style is what the drawing guide teaches ('hand' | 'title' | 'body'); o.font is an older name for it
       const font = op.font != null ? op.font : op.style;
-      if (font != null) m.style = ({ handwriting: 'hand', handwritten: 'hand', rounded: 'title', bold: 'title', plain: 'body', sans: 'body', typewriter: 'mono', code: 'mono' })[font] || font;
+      if (font != null) m.style = FONT_WORDS[font] || font;
       if (op.size != null && +op.size > 0) m.size = Math.max(13, Math.min(72, +op.size));
       if (op.weight != null) m.weight = op.weight === 'bold' ? 700 : op.weight === 'normal' ? 400 : op.weight;
     } else {
@@ -3228,19 +3309,20 @@
       if (w != null && +w > 0) m.size = Math.max(1, Math.min(14, +w));
       if (op.dash != null) {
         const on = op.dash === false || op.dash === 'none' ? undefined : op.dash;
-        if (m.do === 'line' || m.do === 'arrow') m.dash = on; else if (['circle', 'ellipse', 'rect', 'poly', 'path'].includes(m.do)) m.__dash = on;
+        if (m.do === 'line' || m.do === 'arrow') m.dash = on; else if (CLOSED.includes(m.do)) m.__dash = on;
       }
-      if (op.brush != null && ['pen', 'marker', 'pencil', 'brush'].includes(op.brush)) m.brush = op.brush;
+      if (op.brush != null && BRUSHES.includes(op.brush)) m.brush = op.brush;
     }
-    if (op.color != null || op.fill != null || op.line != null) recolorMark(m, op);
+    if (recolor) recolorMark(m, op);
   }
-  // ReferenceRenderer: what points at the user's screen (it means nothing once the screen changes) and what is a card
-  // (paper, a photo, a 3D figure: it means the same over any screen). Free sketches are neither.
+  // What points at the user's screen (it means nothing once the screen changes) and what is a card (paper, a photo, a
+  // 3D figure: it means the same over any screen). Free sketches are neither. A 3D figure's stage is a card: it was
+  // checked as 'scene3d', a kind no mark has, so a lone figure was cleared with the screen like pointing ink.
   const POINTING_ROLES = new Set(['point', 'target', 'hover', 'type', 'ring', 'frame', 'underline', 'check', 'cross', 'strike',
     'scroll', 'label', 'num', 'connect', 'trace']);
   const pointsAtScreen = m => !!m && (POINTING_ROLES.has(m.role) || m.do === 'highlight');
   const isCardMark = m => !!m && (m.role === 'paper' || m.role === 'photo' || (m.do === 'image' && m.role !== 'source')
-    || m.do === 'scene3d' || m.do === 'part3d' || m.do === 'label3d' || m.stage != null);
+    || m.do === 'stage3d' || m.do === 'part3d' || m.do === 'label3d' || m.stage != null);
   // on a card: the mark's middle sits on a card (tape and a title can stick out a little). Null with no card.
   function onCardTest(cardBoxes) {
     if (!cardBoxes.length) return null;

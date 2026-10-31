@@ -299,3 +299,25 @@ test('rebasing a stream takes the cut marks out of the layout', () => {
   assert.deepEqual([...stream.marks[2].at], [180, 206]);
   assert.equal(stream.log.marks.filter(e => e.i === 2).length, 1);
 });
+
+test('a 3D figure\'s stage is a card, not ink that points at the screen', () => {
+  const marks = M.runCode("scene3d(40, 40, 300, 240, s => { s.box({w: 1, h: 1, d: 1}) })", 800, 600);
+  const stage = marks.find(m => m.do === 'stage3d');
+  assert.ok(M.isCardMark(stage));
+  assert.ok(!M.pointsAtScreen(stage));
+});
+
+test('a line that continues an expression with * is not a comment heading', () => {
+  const code = 'const total = 3\n  * 2\nrect(10, 10, 100, 60)\n';
+  const marks = M.runCode(code, 800, 600), d = M.describe({ code, stmts: M.attribute(code, 800, 600), mark: i => marks[i], W: 800, H: 600 });
+  assert.equal(d.parts.length, 1);
+  assert.doesNotMatch(d.parts[0].desc, /^2\b/);
+});
+
+test('a path has a box whatever its commands', () => {
+  // relative commands (a document icon's lines) used to have no box, so they never rode with their card
+  assert.equal(JSON.stringify(M.markBox({ do: 'path', d: 'M10 10 l100 0 l0 50 z', size: 2 })), '[9,9,111,61]');
+  // a curve's box is the curve's, not its control points'
+  const [, y0, , y1] = M.markBox({ do: 'path', d: 'M0 100 C 50 0 150 200 200 100', size: 2 });
+  assert.ok(y0 > 60 && y1 < 140, `${y0} ${y1}`);
+});
