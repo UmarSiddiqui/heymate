@@ -1,60 +1,27 @@
-/* DMG asset downloads across every GitHub release, shown under the hero CTA.
-   These are downloads, not unique people or installed copies. Feed and
-   checksum fetches must not inflate the count.
-   Unauthenticated GitHub API allows 60 requests an hour per IP, so the total
-   is cached in sessionStorage for 10 minutes. Any failure leaves it hidden. */
+/* Real totals, no manufactured social proof. A shared server cache avoids
+   spending each visitor's GitHub rate limit. Last good session data stays
+   visible and labelled if the refresh fails. */
 (function () {
-  var el = document.querySelector("[data-download-count]");
-  if (!el || !window.fetch) return;
-
-  var API = "https://api.github.com/repos/UmarSiddiqui/heymate/releases?per_page=100";
-  var KEY = "heymate.dmg-downloads.v1";
-  var TTL = 10 * 60 * 1000;
-
-  // 950 -> "950", 1234 -> "1.2k", 999999 -> "1M".
-  function format(n) {
-    try {
-      return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 })
-        .format(n).replace("K", "k");
-    } catch (e) {
-      return n.toLocaleString("en-US");
-    }
+  "use strict";
+  var downloads = document.querySelector('[data-stat="downloads"]');
+  var stars = document.querySelector('[data-stat="stars"]');
+  var status = document.querySelector("[data-stats-status]");
+  if (!downloads || !stars) return;
+  var KEY = "heymate.community.v2", TTL = 600000, cached;
+  function valid(data) { return data && Number.isSafeInteger(data.downloads) && data.downloads >= 0 && Number.isSafeInteger(data.stars) && data.stars >= 0; }
+  function show(data, stale) {
+    downloads.textContent = data.downloads.toLocaleString("en-US");
+    stars.textContent = data.stars.toLocaleString("en-US");
+    status.textContent = stale ? "Last known GitHub totals · live refresh unavailable" : "Live GitHub totals · downloads, not unique users";
   }
-
-  function show(total) {
-    if (!total) return;
-    el.textContent = format(total) + " downloads";
-    el.title = total.toLocaleString("en-US") + " DMG downloads across all releases; not unique users";
-    el.hidden = false;
-  }
-
-  function next(link) {
-    var m = link && link.match(/<([^>]+)>;\s*rel="next"/);
-    return m ? m[1] : null;
-  }
-
-  function sum(url, total) {
-    return fetch(url, { headers: { Accept: "application/vnd.github+json" } }).then(function (res) {
-      if (!res.ok) throw new Error(res.status);
-      var more = next(res.headers.get("Link"));
-      return res.json().then(function (releases) {
-        releases.forEach(function (r) {
-          (r.assets || []).forEach(function (a) {
-            if (a.name === "HeyMate.dmg") total += a.download_count || 0;
-          });
-        });
-        return more ? sum(more, total) : total;
-      });
-    });
-  }
-
-  try {
-    var cached = JSON.parse(sessionStorage.getItem(KEY) || "null");
-    if (cached && Date.now() - cached.at < TTL) return show(cached.total);
-  } catch (e) {}
-
-  sum(API, 0).then(function (total) {
-    try { sessionStorage.setItem(KEY, JSON.stringify({ total: total, at: Date.now() })); } catch (e) {}
-    show(total);
-  }, function () {});
+  try { cached = JSON.parse(sessionStorage.getItem(KEY)); } catch (_) {}
+  if (cached && valid(cached.data)) { show(cached.data, Date.now() - cached.at >= TTL); if (Date.now() - cached.at < TTL) return; }
+  fetch("/api/stats", { signal: AbortSignal.timeout(12000) }).then(function (r) { if (!r.ok) throw new Error("Stats unavailable"); return r.json(); }).then(function (data) {
+    if (!valid(data)) throw new Error("Invalid stats");
+    show(data, false);
+    try { sessionStorage.setItem(KEY, JSON.stringify({ at: Date.now(), data: data })); } catch (_) {}
+  }).catch(function () {
+    if (cached && valid(cached.data)) show(cached.data, true);
+    else { downloads.textContent = "—"; stars.textContent = "—"; status.textContent = "GitHub totals unavailable right now · explore the source ↗"; }
+  });
 })();

@@ -15,36 +15,74 @@ import Testing
 struct ComputerUseTakeBackDecisionTests {
 
     @Test func synthesizedEventsNeverTakeBack() {
-        var travel: CGFloat = 0
+        var shake = PointerShakeDetector()
         for type in [CGEventType.mouseMoved, .leftMouseDown, .keyDown, .scrollWheel] {
             let input = ComputerUseTakeBack.Input(type: type, isSynthesized: true, delta: CGVector(dx: 400, dy: 0))
-            #expect(ComputerUseTakeBack.reason(for: input, pointerTravel: &travel) == nil)
+            #expect(ComputerUseTakeBack.reason(for: input, shake: &shake) == nil)
         }
-        #expect(travel == 0)
     }
 
     @Test func escapeAndOtherKeysAreToldApart() {
-        var travel: CGFloat = 0
+        var shake = PointerShakeDetector()
         let escape = ComputerUseTakeBack.Input(type: .keyDown, isSynthesized: false, keyCode: 53)
         let letter = ComputerUseTakeBack.Input(type: .keyDown, isSynthesized: false, keyCode: 0)
-        #expect(ComputerUseTakeBack.reason(for: escape, pointerTravel: &travel) == .escape)
-        #expect(ComputerUseTakeBack.reason(for: letter, pointerTravel: &travel) == .keyboard)
+        #expect(ComputerUseTakeBack.reason(for: escape, shake: &shake) == .escape)
+        #expect(ComputerUseTakeBack.reason(for: letter, shake: &shake) == .keyboard)
     }
 
     @Test func clicksAndScrollsTakeBackAtOnce() {
-        var travel: CGFloat = 0
+        var shake = PointerShakeDetector()
         for type in [CGEventType.leftMouseDown, .rightMouseDown, .scrollWheel] {
             let input = ComputerUseTakeBack.Input(type: type, isSynthesized: false)
-            #expect(ComputerUseTakeBack.reason(for: input, pointerTravel: &travel) == .pointer)
+            #expect(ComputerUseTakeBack.reason(for: input, shake: &shake) == .pointer)
         }
     }
 
-    @Test func aBumpIsNotAMoveButSlowTravelAddsUp() {
-        var travel: CGFloat = 0
-        let nudge = ComputerUseTakeBack.Input(type: .mouseMoved, isSynthesized: false, delta: CGVector(dx: 3, dy: 0))
-        #expect(ComputerUseTakeBack.reason(for: nudge, pointerTravel: &travel) == nil)
-        #expect(ComputerUseTakeBack.reason(for: nudge, pointerTravel: &travel) == nil)
-        #expect(ComputerUseTakeBack.reason(for: nudge, pointerTravel: &travel) == .pointer)
+    @Test func ordinaryMovesNeverTakeBackButAShakeDoes() {
+        var shake = PointerShakeDetector()
+        // A long, steady move across the screen is just the person working.
+        for step in 0..<100 {
+            let move = ComputerUseTakeBack.Input(type: .mouseMoved, isSynthesized: false, delta: CGVector(dx: 20, dy: 3), time: Double(step) * 0.01)
+            #expect(ComputerUseTakeBack.reason(for: move, shake: &shake) == nil)
+        }
+        // Left, right, left, right in quick strokes is a shake.
+        var reasons: [ComputerUseTakeBackReason?] = []
+        for (stroke, direction) in [-1.0, 1, -1, 1].enumerated() {
+            for step in 0..<5 {
+                let time = 2 + Double(stroke) * 0.1 + Double(step) * 0.02
+                let move = ComputerUseTakeBack.Input(type: .mouseMoved, isSynthesized: false, delta: CGVector(dx: 20 * direction, dy: 0), time: time)
+                reasons.append(ComputerUseTakeBack.reason(for: move, shake: &shake))
+            }
+        }
+        #expect(reasons.contains(.pointer))
+    }
+}
+
+struct PointerShakeDetectorTests {
+    private func strokes(_ directions: [CGFloat], length: CGFloat, every gap: TimeInterval, into shake: inout PointerShakeDetector) -> Bool {
+        var shook = false
+        for (index, direction) in directions.enumerated() {
+            shook = shake.observe(CGVector(dx: length * direction, dy: 0), at: Double(index) * gap) || shook
+        }
+        return shook
+    }
+
+    @Test func jitterAndSlowBackAndForthAreNotShakes() {
+        var jitter = PointerShakeDetector()
+        #expect(!strokes([1, -1, 1, -1, 1, -1, 1, -1], length: 6, every: 0.02, into: &jitter))
+        var slow = PointerShakeDetector()
+        #expect(!strokes([1, -1, 1, -1], length: 100, every: 0.5, into: &slow))
+    }
+
+    @Test func quickReversalsOnEitherAxisAreAShake() {
+        var horizontal = PointerShakeDetector()
+        #expect(strokes([1, -1, 1, -1], length: 80, every: 0.1, into: &horizontal))
+        var vertical = PointerShakeDetector()
+        var shook = false
+        for (index, direction) in [1.0, -1, 1, -1].enumerated() {
+            shook = vertical.observe(CGVector(dx: 0, dy: 80 * direction), at: Double(index) * 0.1) || shook
+        }
+        #expect(shook)
     }
 }
 

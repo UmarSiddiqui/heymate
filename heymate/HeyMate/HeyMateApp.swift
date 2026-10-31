@@ -13,8 +13,7 @@ struct HeyMateApp: App {
 
     var body: some Scene {
         Settings {
-            DesktopSettingsView(companionManager: appDelegate.companionManager)
-                .frame(minWidth: 820, minHeight: 560)
+            AccountProtectedSettingsView(appDelegate: appDelegate)
         }
     }
 }
@@ -23,7 +22,11 @@ struct HeyMateApp: App {
 /// control surface on launch.
 @MainActor
 final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
-    let companionManager = CompanionManager()
+    lazy var companionManager = CompanionManager()
+    private let account = HeyMateAccount.shared
+    private let accountWindow = AccountGateWindowController()
+    private var servicesStarted = false
+    private var accountRelocked = false
 
     /// Hosted unit tests inject XCTest into the app before launch. Starting
     /// production services here can block XCTest itself (for example while
@@ -35,6 +38,30 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard !isHostingUnitTests else { return }
         guard !surrenderToRunningInstance() else { return }
+        account.onAccessChange = { [weak self] allowed in
+            guard let self else { return }
+            if allowed {
+                self.accountWindow.dismiss()
+                self.startAuthorizedServices()
+            } else if self.servicesStarted {
+                // Revocation or an expired offline grant cannot leave the live app
+                // running behind an account window. Detached work survives
+                // termination under the existing runner contract.
+                self.accountRelocked = true
+                NSApp.terminate(nil)
+            }
+        }
+        account.requestSignOut = { [weak self] in
+            guard let self, self.applicationShouldTerminate(NSApp) == .terminateNow else { return }
+            _ = self.account.signOut()
+        }
+        accountWindow.show(account: account)
+        Task { await account.restore() }
+    }
+
+    private func startAuthorizedServices() {
+        guard account.mayUseApp, !servicesStarted else { return }
+        servicesStarted = true
         MateEngine.migrateRetiredSelection()
 
         HeyMateLog.log("🎯 HeyMate: Starting...")
@@ -108,7 +135,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        guard !isHostingUnitTests else { return }
+        guard !isHostingUnitTests, servicesStarted else { return }
         companionManager.stop()
         MateAgentServeBackend.shared.stop()
     }
@@ -116,7 +143,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     /// Verified detached execute legs survive Cmd-Q. Planning, legacy work, and
     /// launch races still stay attached to HeyMate and must finish or cancel.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard !isHostingUnitTests else { return .terminateNow }
+        guard !isHostingUnitTests, servicesStarted, !accountRelocked else { return .terminateNow }
         if companionManager.isMateAgentTurnInFlight {
             companionManager.openDesktopWindow(section: .chat)
             let alert = NSAlert()
@@ -147,6 +174,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     /// desktop window straight to a page.
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
+            guard account.mayUseApp else { accountWindow.show(account: account); continue }
             companionManager.handleDeepLink(url)
         }
     }
@@ -155,9 +183,26 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     /// bring it back rather than doing nothing. Only reachable while the
     /// window is open, since that is the only time the app has a Dock tile.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        guard account.mayUseApp else { accountWindow.show(account: account); return true }
         guard !hasVisibleWindows else { return true }
         companionManager.openDesktopWindow()
         return true
     }
 
+}
+
+private struct AccountProtectedSettingsView: View {
+    let appDelegate: CompanionAppDelegate
+    @ObservedObject private var account = HeyMateAccount.shared
+
+    var body: some View {
+        Group {
+            if account.mayUseApp {
+                DesktopSettingsView(companionManager: appDelegate.companionManager)
+                    .frame(minWidth: 820, minHeight: 560)
+            } else {
+                AccountGateView(account: account).frame(width: 520, height: 550)
+            }
+        }
+    }
 }

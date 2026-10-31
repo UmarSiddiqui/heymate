@@ -46,12 +46,14 @@ enum TalkToolCatalog {
     static let getMateStatusToolName = HarnessToolName.getMateStatus.rawValue
     static let answerRequestToolName = HarnessToolName.answerRequest.rawValue
     static let askDeeperToolName = HarnessToolName.askDeeper.rawValue
+    static let createMateToolName = "create_mate"
     static let useChromeToolName = "use_chrome"
 
     /// Local tools a Pi turn also gets through the scoped bridge, so one mate
-    /// can hand work to another. start_mate_work is left out on purpose: a
-    /// Pi mate does its own work rather than spawning native runs for itself.
-    static let piDelegationToolNames: Set<String> = [sendToMateToolName, getMateStatusToolName, answerRequestToolName]
+    /// can hand work to another or add a new one. start_mate_work is left out
+    /// on purpose: a Pi mate does its own work rather than spawning native
+    /// runs for itself.
+    static let piDelegationToolNames: Set<String> = [sendToMateToolName, getMateStatusToolName, answerRequestToolName, createMateToolName]
     /// Every local tool a Pi turn reaches through the scoped bridge: the
     /// delegation tools plus Chrome.
     static let piBridgeLocalToolNames: Set<String> = piDelegationToolNames.union([useChromeToolName])
@@ -197,6 +199,16 @@ enum TalkToolCatalog {
                 description: "Send a follow-up to an agent that is already running, or to an agent that already exists.",
                 inputSchemaJSON: """
                 {"type":"object","properties":{"agent":{"type":"string"},"message":{"type":"string"}},"required":["agent","message"]}
+                """
+            ),
+            origin: .local
+        ),
+        TalkTool(
+            toolDefinition: AssistantToolDefinition(
+                name: createMateToolName,
+                description: "Add a new agent (a specialist with its own chat) to the user's roster, optionally with a recurring routine. Use only when the user asked for a new agent. Returns the name actually saved; fails without creating anything when the name is taken or the routine schedule cannot be read.",
+                inputSchemaJSON: """
+                {"type":"object","properties":{"name":{"type":"string","description":"Optional. Must be unique among the user's agents; generated from job when omitted"},"job":{"type":"string","description":"What this agent does, in one sentence"},"soul":{"type":"string","description":"Optional personality or working style"},"routine":{"type":"string","description":"Optional. When it runs plus what it does each time, e.g. \\"every 2 hours check my inbox, file mail into the right labels and flag anything urgent\\". Schedules: every N hours, every few hours, every morning, daily at 8am or 8:30pm"}},"required":["job"]}
                 """
             ),
             origin: .local

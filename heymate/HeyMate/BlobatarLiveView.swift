@@ -36,7 +36,7 @@ struct BlobatarLiveView: View {
             if snapshotRendering {
                 snapshotArtwork(configuration: configuration, renderer: renderer)
             } else {
-                TimelineView(.animation(minimumInterval: 1 / 30, paused: !animates)) { timeline in
+                TimelineView(.animation(minimumInterval: 1 / 30, paused: !animates && !(reactions.active != nil && policy.allowsTransitions))) { timeline in
                     let figure = renderer.figure(seed: configuration.seed, options: configuration.options)
                     let frame = figure.flatMap {
                         renderer.frame(id: renderID, seed: configuration.seed, options: configuration.options,
@@ -44,6 +44,7 @@ struct BlobatarLiveView: View {
                                        now: timeline.date.timeIntervalSinceReferenceDate * 1000,
                                        animate: animates, target: animates ? cursor.target() : nil, figure: $0)
                     }
+                    let reaction = policy.allowsTransitions ? reactions.pose(at: timeline.date) : MateReactionPose()
                     Canvas { context, bounds in
                         guard let figure, let frame else { return }
                         context.concatenate(figure.fittingTransform(in: bounds, restsOnSurface: restsOnSurface))
@@ -51,10 +52,16 @@ struct BlobatarLiveView: View {
                             context.fill(path.applying(frame.body), with: .color(figure.headColor))
                         }
                         for (index, path) in figure.eyes.enumerated() {
-                            context.fill(path.applying(frame.eyes[index]), with: .color(figure.eyeColor))
+                            let eye = path.applying(frame.eyes[index])
+                            let openness = index == 0 ? reaction.leftEyeOpen : reaction.rightEyeOpen
+                            let center = eye.boundingRect.midY
+                            let blink = CGAffineTransform(translationX: 0, y: center)
+                                .scaledBy(x: 1, y: openness)
+                                .translatedBy(x: 0, y: -center)
+                            context.fill(eye.applying(blink), with: .color(figure.eyeColor))
                         }
                     }
-                    .mateReactionTransform(policy.allowsTransitions ? reactions.pose(at: timeline.date) : MateReactionPose(), size: size)
+                    .mateReactionTransform(reaction, size: size)
                 }
             }
         }
@@ -70,7 +77,8 @@ struct BlobatarLiveView: View {
         .onAppear { offerReaction() }
         .onChange(of: reactionEvent) { _, _ in offerReaction() }
         .onChange(of: policy) { _, updated in
-            if !updated.allowsTransitions { reactions.stop(); renderer.forget(renderID) }
+            if updated.reduceMotion { reactions.stop() }
+            if !updated.isVisible { renderer.forget(renderID) }
             reactions.deliver(isVisible: updated.isVisible, allowed: updated.allowsTransitions)
         }
         .onDisappear { reactions.stop(); renderer.forget(renderID) }

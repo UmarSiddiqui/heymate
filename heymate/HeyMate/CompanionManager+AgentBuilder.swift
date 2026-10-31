@@ -22,7 +22,7 @@ extension CompanionManager {
         let web = composioConnections.connectedSlugs
             .filter { $0.lowercased() != ComposioSessionStore.connectorID }
             .map { slug in
-                DesktopConnectorScopeMenu.readableName(
+                ConnectedIntegrations.readableName(
                     composioConnections.records[slug]?.displayName ?? slug, slug: slug
                 )
             }

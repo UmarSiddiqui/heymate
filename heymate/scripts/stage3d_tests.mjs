@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { createHash } from 'node:crypto';
 import vm from 'node:vm';
 import test from 'node:test';
 
@@ -31,7 +30,8 @@ function stageHarness(width = 300, height = 500, look = null, nativeMetal = fals
       setPixelRatio() {} setSize() {} dispose() {}
       render(scene, camera) { scene.updateMatrixWorld(true); camera.updateMatrixWorld(true); }
     };
-    THREE.PMREMGenerator = class { fromScene() { return { texture: null }; } };
+    globalThis.__envMaps = 0;
+    THREE.PMREMGenerator = class { fromScene() { globalThis.__envMaps++; return { texture: null }; } };
     globalThis.mateThreeBuild = () => ({ positions: new Float32Array([-1,-1,-1, 1,-1,-1, 0,1,1]) });
   `, context);
   vm.runInContext(fs.readFileSync(new URL('mate-metal-bridge.js', sources), 'utf8'), context);
@@ -81,49 +81,37 @@ test('portrait camera fits model sphere and explicit zero spin stays still', () 
 test('illustrated stages execute translated native fragment; studio keeps separate material path', () => {
   const illustrated = stageHarness(300, 500, 'illustrated'); illustrated.tick(1800);
   const mesh = illustrated.stage.parts.get('blade'), material = mesh.material;
-  assert.ok(material.isShaderMaterial && material.userData.nativeDaVinci);
+  assert.ok(material.isShaderMaterial && material.userData.mateShader);
   assert.equal(material.toneMapped, false, 'native shader already encodes sRGB');
-  assert.ok(material.fragmentShader.includes('smoothstep(-0.08, 0.14, facing)'));
-  assert.ok(material.fragmentShader.includes('0.985 - 0.06 * metalness'));
+  assert.ok(material.fragmentShader.includes('smoothstep(-0.1, 0.12, facing)'));
+  assert.ok(material.fragmentShader.includes('0.012 + 0.03 * roughness + 0.05 * metalness'));
   mesh.onBeforeRender(null, null, illustrated.stage.camera);
-  assert.equal(material.uniforms.frame.value.style.x, 1);
-  assert.equal(material.uniforms.object.value.baseColor.x, material.color.r);
+  assert.equal(material.uniforms.style.value.x, 1);
+  assert.equal(material.uniforms.baseColor.value.r, material.color.r);
   material.color.set('#FF0000'); material.emissive = material.color.clone(); material.emissiveIntensity = 0.3;
   mesh.onBeforeRender(null, null, illustrated.stage.camera);
-  assert.equal(material.uniforms.object.value.baseColor.x, 1);
-  assert.equal(material.uniforms.object.value.baseColor.y, 0);
-  assert.equal(material.uniforms.object.value.emissive.x, 0.3);
+  assert.equal(material.uniforms.baseColor.value.r, 1);
+  assert.equal(material.uniforms.baseColor.value.g, 0);
+  assert.equal(material.uniforms.emissive.value.r, 0.3);
   const studio = stageHarness(300, 500, 'studio'); studio.tick(1800);
   assert.ok(studio.stage.parts.get('blade').material.isMeshStandardMaterial);
+  assert.equal(illustrated.context.__envMaps, 0, 'illustrated shading does not need a reflection map');
+  assert.equal(studio.context.__envMaps, 1);
 });
 
-test('native fragment bodies remain mechanical MSL-to-GLSL translations of retained source', () => {
+test('browser fragment keeps the shared shading from davinci.metal', () => {
   const source = fs.readFileSync(new URL('native-shaders/davinci.metal', import.meta.url), 'utf8');
-  const provenance = JSON.parse(fs.readFileSync(new URL('native-shaders/provenance.json', import.meta.url), 'utf8'));
-  assert.equal(Buffer.byteLength(source), provenance.bytes);
-  assert.equal(createHash('sha256').update(source).digest('hex'), provenance.sourceSHA256);
-  const names = ['D_GGX', 'V_GGX_SmithCorrelated', 'F_Schlick', 'BRDF_GGX', 'sRGBFromLinear', 'davinci_fragment'];
-  const chunks = names.map(name => {
-    const match = new RegExp('^(?:fragment )?float[234]? ' + name + '\\(', 'm').exec(source);
-    assert.ok(match, name);
-    const start = source.indexOf('{', match.index);
-    let i = start + 1, depth = 1;
-    while (depth) { depth += (source[i] === '{') - (source[i] === '}'); i++; }
-    return name === 'davinci_fragment'
-      ? 'vec4 davinci_fragment(VertexOut vertexData, bool isFrontFacing, FrameUniforms frame, ObjectUniforms object) ' + source.slice(start, i)
-      : source.slice(match.index, i);
-  });
-  let expected = 'const float RECIPROCAL_PI = 0.3183098861837907;\n' + chunks.join('\n');
-  for (const [from, to] of [['float4x4','mat4'],['float3x3','mat3'],['float4','vec4'],['float3','vec3'],['float2','vec2'],['dfdx','dFdx'],['dfdy','dFdy'],['in','vertexData']]) {
-    expected = expected.replace(new RegExp('\\b' + from + '\\b', 'g'), to);
+  const marker = '// ---- shared with mate-stage3d.js ----';
+  const endMarker = '// ---- end shared ----';
+  const start = source.indexOf(marker);
+  const end = source.indexOf(endMarker);
+  assert.ok(start >= 0 && end > start);
+  let shared = source.slice(start, end + endMarker.length);
+  for (const [from, to] of [['float4x4','mat4'],['float3x3','mat3'],['float4','vec4'],['float3','vec3'],['float2','vec2'],['dfdx','dFdx'],['dfdy','dFdy']]) {
+    shared = shared.replace(new RegExp('\\b' + from + '\\b', 'g'), to);
   }
-  expected = expected.replace('vec3(value <= 0.0031308)', 'vec3(lessThanEqual(value, vec3(0.0031308)))');
-  expected = expected.replace('vec3 directions[2] = { normalize(vec3(3.0, 5.0, 4.0)), normalize(vec3(-4.0, 2.0, -4.0)) };',
-    'vec3 directions[2]; directions[0] = normalize(vec3(3.0, 5.0, 4.0)); directions[1] = normalize(vec3(-4.0, 2.0, -4.0));');
-  expected = expected.replace('vec3 colors[2] = { vec3(2.2), vec3(0.34670, 0.55201, 1.0) * 0.9 };',
-    'vec3 colors[2]; colors[0] = vec3(2.2); colors[1] = vec3(0.34670, 0.55201, 1.0) * 0.9;');
   const illustrated = stageHarness(300, 500, 'illustrated'); illustrated.tick(1800);
-  assert.ok(illustrated.stage.parts.get('blade').material.fragmentShader.includes(expected));
+  assert.ok(illustrated.stage.parts.get('blade').material.fragmentShader.includes(shared));
 });
 
 
@@ -170,7 +158,7 @@ test('native studio sends physical shader style; hidden geometry survives being 
   assert.equal(restored.meshes[0].bands.length, 2);
 });
 
-test('bundled Metal source remains byte-identical to recovered shader', () => {
+test('bundled Metal source stays byte-identical to davinci.metal', () => {
   assert.deepEqual(fs.readFileSync(new URL('DaVinciShaders.txt', sources)),
     fs.readFileSync(new URL('native-shaders/davinci.metal', import.meta.url)));
 });

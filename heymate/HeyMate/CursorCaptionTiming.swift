@@ -98,6 +98,7 @@ extension CompanionManager {
                 } else if hasSpoken, speechEndedAt == nil {
                     speechEndedAt = Date()
                 }
+                if self.isCursorCaptionHeld { continue }
                 if CursorCaptionTiming.shouldHide(
                     text: text,
                     shownAt: shownAt,

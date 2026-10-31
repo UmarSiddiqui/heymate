@@ -3,7 +3,8 @@
 //  HeyMate
 //
 //  Everything about one mate in one place: picture, details, and soul, plus
-//  what it remembers, what it does on a schedule, and the skills it uses.
+//  what it remembers, what it does on a schedule, the integrations it may
+//  use, and the skills it uses.
 //  Memory, routines, and skills used to be separate top-level pages; a user
 //  thinking "how do I change what this mate does?" now finds them here.
 //
@@ -32,6 +33,8 @@ struct MateSettingsSheet: View {
     @State private var isDraftingHabits = false
     @State private var isConfirmingDelete = false
     @State private var errorText: String?
+    /// Integration changes from HeyMate's defaults, applied on Save.
+    @State private var integrationDraft: [String: Bool]
 
     init(
         mate: Mate,
@@ -53,6 +56,7 @@ struct MateSettingsSheet: View {
         let habits = companionManager.agentHabits(for: mate)
         _howItWorks = State(initialValue: habits.howItWorks)
         _asksFirst = State(initialValue: habits.asksFirst)
+        _integrationDraft = State(initialValue: mate.conductsOthers ? [:] : (mate.connectorOverrides ?? [:]))
     }
 
     var body: some View {
@@ -145,6 +149,13 @@ struct MateSettingsSheet: View {
 
             memorySection
             routinesSection
+            AgentIntegrationsSection(
+                isDefaults: mate.conductsOthers,
+                draft: $integrationDraft,
+                companionManager: companionManager
+            ) {
+                open(.connectors)
+            }
             skillsSection
 
             if let errorText {
@@ -249,10 +260,17 @@ struct MateSettingsSheet: View {
     }
 
     /// Routines save as soon as they're added or edited, like in the chat
-    /// side panel; they aren't part of the profile Save.
+    /// side panel; they aren't part of Save, and the label says so.
     private var routinesSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionLabel("Routines")
+            // Routines run on their own clock, so they save as added and
+            // say so; everything else here waits for Save.
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                sectionLabel("Routines")
+                Text("Saved as soon as you add or change one")
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.textTertiary)
+            }
             RoutineAddField(companionManager: companionManager, mateID: mate.id)
             let routines = companionManager.routines.filter { $0.mateID == mate.id }
             if routines.isEmpty {
@@ -339,6 +357,13 @@ struct MateSettingsSheet: View {
         let saved = companionManager.agentHabits(for: mate)
         if saved.howItWorks != howItWorks || saved.asksFirst != asksFirst {
             companionManager.saveAgentHabits(id: mate.id, howItWorks: howItWorks, asksFirst: asksFirst)
+        }
+        if mate.conductsOthers {
+            for (selectionID, enabled) in integrationDraft {
+                companionManager.setChatConnectorEnabled(enabled, selectionID: selectionID)
+            }
+        } else if integrationDraft != (mate.connectorOverrides ?? [:]) {
+            companionManager.setMateConnectorOverrides(id: mate.id, overrides: integrationDraft)
         }
         dismiss()
     }

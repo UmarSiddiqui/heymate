@@ -1,13 +1,16 @@
-// HeyMate's host for ReferenceRenderer's native drawing canvas (mate-draw-native.js). In ReferenceRenderer the canvas runs in
-// JavaScriptCore and the app paints what it records with Core Animation (ScreenDrawingNativePainter); neither the app
-// nor that painter is in the copied sources. Here the canvas runs unchanged in a sandbox object on this page, this file
-// answers its __host calls (clock, timers, Core Text-style measuring through the page's own SVG) and paints the render
-// ops it drains into one SVG over the screen: the engine's own elements as they are, and the ones ReferenceRenderer's app
-// draws itself (window chrome, photos) drawn here. 3D stages go to mate-stage3d.js.
+// The page HeyMate's drawing window shows (Explainer.swift loads it in a transparent WKWebView over the screen).
+// It runs the drawing canvas (mate-draw-native.js with mate-draw-engine.js and the pieces) in a global of its own,
+// answers the canvas's host calls (clock, timers, text and path measuring through this page's SVG, and what the
+// screen under an area looks like, from the screenshot the model saw), paints the render ops the canvas records
+// into one SVG over the screen, and lets the user drag, zoom and close the cards it draws and press their buttons.
+// The things the canvas leaves to the app to draw (window chrome, photos, buttons) are drawn here. 3D stages go to
+// mate-stage3d.js. Anything the user or the drawing asks of the app (pointing, sounds, photos, button presses)
+// goes to Swift as a message on the 'heymate' handler.
 //
 // Needs, loaded first: three-r159.min.js, mate-three.js, mate-three-parts.js, mate-stage3d.js, and the sources
 // in window.__mateSources = {native, engine, pieces} (text).
-// API: HeyMateCanvas.begin({w, h, ink}), feed(code, done), line(k), lineLength(k, seconds), finish(), clear().
+// API: HeyMateCanvas.begin({w, h, width, ink}), feed(code, done), line(k), lineLength(k, seconds), continue(),
+// finish(), screenChanged(), photoFound(query, url), state(), clear(), screenSampling.
 (function () {
   'use strict';
   const NS = 'http://www.w3.org/2000/svg';
@@ -52,89 +55,91 @@
   }
   const textCanvas = document.createElement('canvas').getContext('2d');
 
-  // Direct algorithm port from ReferenceRenderer 1.1.1 arm64, SHA-256
-  // bb98afe140170240037589647cbfe00099079655e9223ec87f7f702db3fb7911.
-  // Host bindings: 0x101781e30; ink: 0x10178cce8; busy: 0x10178d124
-  // + 0x1017933b0; dominant luminance: 0x10178dff4; RGB: 0x101793d10.
-  // Native branches/weights/strides preserved; RGBA transport is HeyMate's adapter.
-  let screenPixels = null, screenWidth = 0, screenHeight = 0;
-  function setScreenPixels({ width, height, rgba } = {}) {
-    screenPixels = null; screenWidth = 0; screenHeight = 0;
-    // Adapter admission guards, not recovered native policy. Rejected/new
-    // captures never leave a previous screenshot available to a new turn.
-    if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1 ||
-        width * height > 16777216 || typeof rgba !== 'string') return false;
+  // ---------------------------------------------------------------- the screen under the drawing
+  // The screenshot the model saw, kept as one brightness per pixel (Rec. 709 luma of the sRGB values, 0..255), so
+  // the canvas can ask about any area of it: how bright its background is (lumFor), which ink reads on it (inkFor)
+  // and how busy it is (busyFor). A capture that is missing, malformed or too big leaves no screen at all: an earlier
+  // turn's screenshot never answers for a new one.
+  const MAX_SCREEN_PIXELS = 4096 * 4096;
+  const LIGHT_GROUND = 0.58;                 // a background brighter than this takes dark ink (the engine's check agrees)
+  const DARK_INK = '#15171C', LIGHT_INK = '#FFFFFF';
+  const BINS = 20, SAMPLES_PER_SIDE = 32;
+  let screen = null;                         // {w, h, luma, change}
+  function setScreenPixels({ width: w, height: h, rgba } = {}) {
+    screen = null;
+    if (!Number.isSafeInteger(w) || !Number.isSafeInteger(h) || w < 1 || h < 1 || w * h > MAX_SCREEN_PIXELS ||
+        typeof rgba !== 'string') return false;
     let raw;
     try { raw = atob(rgba); } catch (_) { return false; }
-    if (raw.length !== width * height * 4) return false;
-    screenPixels = Uint8Array.from(raw, c => c.charCodeAt(0));
-    screenWidth = width; screenHeight = height;
+    if (raw.length !== w * h * 4) return false;
+    const luma = new Uint8Array(w * h);
+    for (let p = 0, i = 0; p < luma.length; p++, i += 4) {
+      luma[p] = Math.round(0.2126 * raw.charCodeAt(i) + 0.7152 * raw.charCodeAt(i + 1) + 0.0722 * raw.charCodeAt(i + 2));
+    }
+    screen = { w, h, luma, change: changeTable(luma, w, h) };
     return true;
   }
-  function sampleBounds(x, y, w, h, edge) {
-    if (!screenPixels || ![x, y, w, h].every(Number.isFinite)) return null;
+  // How much brightness changes at each pixel, to its right and to the pixel below, as a summed-area table: entry
+  // (x, y) holds the total over every pixel left of x and above y, so the total over any area is four lookups. The
+  // last column and row have no neighbour and add nothing. Each pixel adds at most 510, so a 4096 x 4096 screen
+  // stays within 32 bits.
+  function changeTable(luma, w, h) {
+    const table = new Uint32Array(w * h);
+    for (let y = 1; y < h; y++) {
+      let row = 0;
+      for (let x = 1; x < w; x++) {
+        const p = (y - 1) * w + (x - 1);
+        row += Math.abs(luma[p + 1] - luma[p]) + Math.abs(luma[p + w] - luma[p]);
+        table[y * w + x] = table[(y - 1) * w + x] + row;
+      }
+    }
+    return table;
+  }
+  // The pixels an area covers, clipped to the screen ([left, top, right, bottom], inclusive), or null when it covers
+  // less than two pixels each way.
+  function area(x, y, w, h) {
+    if (!screen || ![x, y, w, h].every(Number.isFinite)) return null;
     const left = Math.max(0, Math.floor(x)), top = Math.max(0, Math.floor(y));
-    const right = Math.min(screenWidth - edge, Math.ceil(x + w));
-    const bottom = Math.min(screenHeight - edge, Math.ceil(y + h));
+    const right = Math.min(screen.w - 1, Math.ceil(x + w)), bottom = Math.min(screen.h - 1, Math.ceil(y + h));
     return left < right && top < bottom ? [left, top, right, bottom] : null;
   }
-  function screenLuminance(x, y) {
-    const i = (y * screenWidth + x) * 4;
-    return (0.2126 * screenPixels[i] + 0.7152 * screenPixels[i + 1] + 0.0722 * screenPixels[i + 2]) / 255;
-  }
-  function dominantLuminance(x, y, w, h) {
-    const box = sampleBounds(x, y, w, h, 1);
-    if (!box) return -1;
-    const [left, top, right, bottom] = box;
-    const stride = Math.max(1, Math.floor(Math.sqrt((right - left) * (bottom - top) / 400)));
-    const sums = new Float64Array(20), counts = new Uint32Array(20);
-    for (let row = top; row <= bottom; row += stride) {
-      for (let col = left; col <= right; col += stride) {
-        const value = screenLuminance(col, row), bin = Math.min(19, Math.trunc(value * 20));
-        sums[bin] += value; counts[bin]++;
+  // The background's brightness, 0..1 (-1: no screen there). Brightness is binned from up to 32 x 32 samples spread
+  // evenly over the area, and the fullest bin wins, so words and icons on a page don't pull its background towards
+  // them the way an average would. Equal bins go to the darker one.
+  function backgroundLuminance(x, y, w, h) {
+    const a = area(x, y, w, h);
+    if (!a) return -1;
+    const [left, top, right, bottom] = a, cols = Math.min(right - left + 1, SAMPLES_PER_SIDE), rows = Math.min(bottom - top + 1, SAMPLES_PER_SIDE);
+    const sums = new Float64Array(BINS), counts = new Uint32Array(BINS);
+    for (let r = 0; r < rows; r++) {
+      const row = (top + Math.floor((r + 0.5) * (bottom - top + 1) / rows)) * screen.w;
+      for (let c = 0; c < cols; c++) {
+        const v = screen.luma[row + left + Math.floor((c + 0.5) * (right - left + 1) / cols)], bin = Math.min(BINS - 1, Math.floor(v * BINS / 255));
+        sums[bin] += v; counts[bin]++;
       }
     }
-    // max(by:) uses strict comparison, so equally populated bins keep the
-    // first (darkest) index, not whichever pixel was visited first.
     let best = 0;
-    for (let i = 1; i < 20; i++) if (counts[i] > counts[best]) best = i;
-    return counts[best] > 0 ? sums[best] / counts[best] : -1;
+    for (let b = 1; b < BINS; b++) if (counts[b] > counts[best]) best = b;
+    return sums[best] / counts[best] / 255;
   }
-  function screenBusy(x, y, w, h) {
-    const box = sampleBounds(x, y, w, h, 2);
-    if (!box) return 0;
-    const [left, top, right, bottom] = box;
-    const rowStride = Math.max(1, Math.trunc((bottom - top) / 160));
-    const colStride = Math.max(1, Math.trunc((right - left) / 160));
-    let sum = 0, count = 0;
-    // Native samples selected scanlines, but every adjacent pixel on each
-    // selected scanline. It does not compare pixels separated by the stride.
-    for (let row = top; row <= bottom; row += rowStride) {
-      let previous = screenLuminance(left, row);
-      for (let col = left + 1; col <= right; col++) {
-        const value = screenLuminance(col, row);
-        sum += Math.abs(value - previous); previous = value;
-      }
-      count += right - left;
-    }
-    for (let col = left; col <= right; col += colStride) {
-      let previous = screenLuminance(col, top);
-      for (let row = top + 1; row <= bottom; row++) {
-        const value = screenLuminance(col, row);
-        sum += Math.abs(value - previous); previous = value;
-      }
-      count += bottom - top;
-    }
-    return count > 0 ? sum / count : 0;
+  // How busy an area is, 0..1: the average change in brightness between neighbouring pixels across all of it. A
+  // plain background is 0, text and controls raise it, a one-pixel checkerboard is 1.
+  function busyness(x, y, w, h) {
+    const a = area(x, y, w, h);
+    if (!a) return 0;
+    const [left, top, right, bottom] = a, t = screen.change, at = (cx, cy) => t[cy * screen.w + cx];
+    const total = at(right, bottom) - at(left, bottom) - at(right, top) + at(left, top);
+    return total / ((right - left) * (bottom - top) * 2 * 255);
   }
   const screenSampling = Object.freeze({
     set: setScreenPixels,
-    clear: () => { screenPixels = null; screenWidth = 0; screenHeight = 0; },
-    inkFor: (x, y, w, h) => dominantLuminance(x, y, w, h) > 0.58 ? '#15171C' : '#FFFFFF',
-    busyFor: screenBusy,
-    lumFor: dominantLuminance,
+    clear: () => { screen = null; },
+    inkFor: (x, y, w, h) => (backgroundLuminance(x, y, w, h) > LIGHT_GROUND ? DARK_INK : LIGHT_INK),
+    busyFor: busyness,
+    lumFor: backgroundLuminance,
   });
 
+  // ---------------------------------------------------------------- what the canvas asks of its host
   const timers = new Map();
   const host = {
     now,
@@ -167,23 +172,24 @@
   };
 
   // ---------------------------------------------------------------- the canvas, in its own global
+  // The page's globals the pieces read: they run inside model programs (new Function), which see this page, not G.
+  const SHARED_GLOBALS = ['__mateInk', '__canvasUnitPoints', '__inkFor', '__busyFor', '__lumFor', '__figuresFloat', '__shape3d',
+    '__hostDrawsPointers', '__hostDrawsButtons', '__hostDrawsWindows', '__hostDrawsMarquee', '__mateMotion', '__mateInTick3d'];
   function boot() {
     const src = window.__mateSources;
-    G.__host = host;
-    G.globalThis = G;
-    // JavaScriptCore has no animation frames: the engine's edits then run on the canvas's own timers, as in the app.
-    G.requestAnimationFrame = undefined; G.cancelAnimationFrame = undefined;
-    // The pieces run inside model programs (new Function), which see this page's globals, not G: they read these.
-    for (const key of ['__mateInk', '__canvasUnitPoints', '__inkFor', '__busyFor', '__lumFor', '__figuresFloat', '__shape3d',
-      '__hostDrawsPointers', '__hostDrawsButtons', '__hostDrawsWindows', '__hostDrawsMarquee', '__mateMotion', '__mateInTick3d']) {
-      Object.defineProperty(window, key, { configurable: true, get: () => G[key], set: v => { G[key] = v; } });
-    }
+    Object.assign(G, { __host: host, globalThis: G });
+    // As in JavaScriptCore, no animation frames: the engine's edits run on the canvas's own timers.
+    G.requestAnimationFrame = G.cancelAnimationFrame = undefined;
+    for (const key of SHARED_GLOBALS) Object.defineProperty(window, key, { configurable: true, get: () => G[key], set: v => { G[key] = v; } });
     const native = src.native.replace(/\}\)\(this\);\s*$/, '})(G);');
     new Function('G', 'with (G) {\n' + native + '\n' + src.engine + '\n}')(G);
     G.mateCanvas.setPieces(src.pieces);
   }
 
   // ---------------------------------------------------------------- painting what the canvas recorded
+  // The canvas records its drawing as render ops (set, remove, wrap, prop, stop, motion); paint() drains them after
+  // every call and every timer and applies them to one SVG over the screen, in four layers.
+  const LAYERS = ['under', 'main', 'hl', 'words'];
   const KEYFRAMES = `
     @keyframes pen { from { stroke-dashoffset: 1 } to { stroke-dashoffset: 0 } }
     @keyframes fadein { from { opacity: 0 } to { opacity: 1 } }
@@ -195,12 +201,13 @@
     @keyframes set { from { opacity: 1 } to { opacity: 1 } }
     #mate-canvas circle, #mate-canvas [data-pop] { transform-box: fill-box; transform-origin: center }
   `;
+  const CSS_EASE = [0.25, 0.1, 0.25, 1];
+  // A draw-in animation, started `delay` seconds after the canvas recorded it (`at`): a late paint starts it part way.
   function cssAnimation(a) {
     if (!a || !a.name) return '';
     const delay = (a.delay || 0) - (now() - (a.at || now()));
-    return `${a.name} ${Math.max(0.001, a.dur || 0).toFixed(3)}s cubic-bezier(${(a.fn || [0.25, 0.1, 0.25, 1]).join(',')}) ${delay.toFixed(3)}s both`;
+    return `${a.name} ${Math.max(0.001, a.dur || 0).toFixed(3)}s cubic-bezier(${(a.fn || CSS_EASE).join(',')}) ${delay.toFixed(3)}s both`;
   }
-
   function el(tag, attrs, parent) {
     const e = document.createElementNS(NS, tag);
     for (const k in attrs) if (attrs[k] != null) e.setAttribute(k, attrs[k]);
@@ -208,39 +215,37 @@
     return e;
   }
 
+  // The things the canvas leaves to the app to draw. Each keeps its own pattern or clip inside it, so they leave with it.
   // A little Mac window, as the pieces describe it: board in the paper tone, a title bar washed with Mate's ink,
   // red and green buttons, the title in grey, and a faint grid or dots on the board.
-  let patterns = 0;
-  function paintWindow(a) {
-    const x = +a.x, y = +a.y, w = +a.width, h = +a.height, head = +a['data-header'] || 28, r = 10;
+  const WINDOW = { corner: 10, header: 28, paper: '#FAF5EA', bar: '#E3E2E4', tint: '#0F7FFF', tintAlpha: 0.08, buttons: ['#FF736A', '#19C332'], title: '#7D8088' };
+  function paintWindow(a, n) {
+    const x = +a.x, y = +a.y, w = +a.width, h = +a.height, head = +a['data-header'] || WINDOW.header, r = WINDOW.corner;
     const g = el('g', { 'data-window': '' });
     g.style.filter = 'drop-shadow(0 8px 18px rgba(0,0,0,.22)) drop-shadow(0 0 1px rgba(0,0,0,.45))';
-    el('rect', { x, y, width: w, height: h, rx: r, fill: a['data-bg'] || '#FAF5EA' }, g);
-    const board = a['data-board'] || 'plain';
+    el('rect', { x, y, width: w, height: h, rx: r, fill: a['data-bg'] || WINDOW.paper }, g);
+    const board = a['data-board'];
     if (board === 'grid' || board === 'dots') {
-      const id = 'mate-board-' + (++patterns);
-      const p = el('pattern', { id, width: 24, height: 24, patternUnits: 'userSpaceOnUse', x, y: y + head }, defs);
-      if (board === 'grid') el('path', { d: 'M24 0 L0 0 0 24', fill: 'none', stroke: '#000', 'stroke-opacity': 0.06, 'stroke-width': 1 }, p);
-      else el('circle', { cx: 12, cy: 12, r: 1.2, fill: '#000', 'fill-opacity': 0.12 }, p);
+      const id = `mate-board-${n}`;
+      const pattern = el('pattern', { id, width: 24, height: 24, patternUnits: 'userSpaceOnUse', x, y: y + head }, el('defs', {}, g));
+      if (board === 'grid') el('path', { d: 'M24 0 L0 0 0 24', fill: 'none', stroke: '#000', 'stroke-opacity': 0.06, 'stroke-width': 1 }, pattern);
+      else el('circle', { cx: 12, cy: 12, r: 1.2, fill: '#000', 'fill-opacity': 0.12 }, pattern);
       el('rect', { x, y: y + head, width: w, height: h - head, fill: `url(#${id})`, rx: r }, g);
     }
-    const top = `M${x} ${y + head} V${y + r} Q${x} ${y} ${x + r} ${y} H${x + w - r} Q${x + w} ${y} ${x + w} ${y + r} V${y + head} Z`;
-    el('path', { d: top, fill: '#E3E2E4' }, g);
-    el('path', { d: top, fill: a['data-tint'] || '#0F7FFF', 'fill-opacity': a['data-tint-alpha'] || 0.08 }, g);
+    const bar = `M${x} ${y + head} V${y + r} Q${x} ${y} ${x + r} ${y} H${x + w - r} Q${x + w} ${y} ${x + w} ${y + r} V${y + head} Z`;
+    el('path', { d: bar, fill: WINDOW.bar }, g);
+    el('path', { d: bar, fill: a['data-tint'] || WINDOW.tint, 'fill-opacity': a['data-tint-alpha'] || WINDOW.tintAlpha }, g);
     el('rect', { x, y: y + head - 0.5, width: w, height: 0.5, fill: '#000', 'fill-opacity': 0.1 }, g);
-    ['#FF736A', '#19C332'].forEach((c, k) => el('circle', { cx: x + 16 + 20 * k, cy: y + head / 2, r: 6, fill: c }, g));
+    WINDOW.buttons.forEach((fill, k) => el('circle', { cx: x + 16 + 20 * k, cy: y + head / 2, r: 6, fill }, g));
     const title = (a['data-title'] || '').toLowerCase();
     if (title) {
-      const t = el('text', { x: x + w / 2, y: y + head / 2 + 4.5, 'text-anchor': 'middle', 'font-family': '-apple-system, system-ui, sans-serif',
-        'font-size': 13, 'font-weight': 600, fill: '#7E838D' }, g);
-      t.textContent = title;
+      el('text', { x: x + w / 2, y: y + head / 2 + 4.5, 'text-anchor': 'middle', 'font-family': '-apple-system, system-ui, sans-serif',
+        'font-size': 13, 'font-weight': 600, fill: WINDOW.title }, g).textContent = title;
     }
     return g;
   }
-
-  // ReferenceRenderer's app finds a real photo for the query as soon as it is written (the canvas lists it among the
-  // analysis's actions); HeyMate asks its own finder (findPhoto) and paints it when the address comes back. Until
-  // then the frame is a soft grey.
+  // A photo for a query: a soft grey frame until HeyMate's photo finder (findPhoto, asked once per query) sends an
+  // address, then the photo fades in, cropped to the frame.
   const photoURLs = new Map(), photoFrames = new Map(), photosAsked = new Set();
   function askForPhotos(actions) {
     for (const a of actions || []) {
@@ -250,132 +255,145 @@
     }
   }
   function fillPhoto(frame, url) {
-    const { g, x, y, w, h, r } = frame;
+    const { g, x, y, w, h, r, id } = frame;
     if (g.querySelector('image')) return;
-    const id = 'mate-photo-' + (++patterns);
-    const clip = el('clipPath', { id }, defs);
-    el('rect', { x, y, width: w, height: h, rx: r }, clip);
+    el('rect', { x, y, width: w, height: h, rx: r }, el('clipPath', { id }, el('defs', {}, g)));
     const image = el('image', { x, y, width: w, height: h, href: url, preserveAspectRatio: 'xMidYMid slice', 'clip-path': `url(#${id})` }, g);
     image.style.opacity = '0'; image.style.transition = 'opacity .5s';
     image.addEventListener('load', () => { image.style.opacity = '1'; });
   }
-  function paintPhoto(a) {
+  function paintPhoto(a, n) {
     const x = +a.x, y = +a.y, w = +a.width, h = +a.height, r = +a['data-radius'] || 2, query = String(a['data-query'] || '');
     const g = el('g', { transform: a['data-rotate'] ? `rotate(${a['data-rotate']} ${x + w / 2} ${y + h / 2})` : null });
     el('rect', { x, y, width: w, height: h, rx: r, fill: '#D9DCE2' }, g);
-    const frame = { g, x, y, w, h, r };
+    const frame = { g, x, y, w, h, r, id: `mate-photo-${n}` };
     if (photoURLs.get(query)) fillPhoto(frame, photoURLs.get(query));
     else { if (!photoFrames.has(query)) photoFrames.set(query, []); photoFrames.get(query).push(frame); }
     return g;
   }
+  const APP_DRAWN = { window: paintWindow, photo: paintPhoto };
 
+  // One recorded node (and its children) as page elements.
   function build(node) {
-    let e;
-    if (node.tag === 'window') e = paintWindow(node.a);
-    else if (node.tag === 'photo') e = paintPhoto(node.a);
-    else {
-      e = document.createElementNS(NS, node.tag);
-      for (const k in node.a) e.setAttribute(k, node.a[k]);
-    }
+    const e = APP_DRAWN[node.tag] ? APP_DRAWN[node.tag](node.a, node.n) : el(node.tag, node.a);
     e.__n = node.n;
     nodes.set(node.n, e);
     if (node.st) for (const k in node.st) if (k !== 'animation') { try { e.style[k] = node.st[k]; } catch (_) {} }
     if (node.anim) e.style.animation = cssAnimation(node.anim);
     if (node.text) fillLines(e, node.text.lines || []);
-    if (node.ch) for (const c of node.ch) e.appendChild(build(c));
+    for (const c of node.ch || []) e.appendChild(build(c));
     return e;
   }
-
+  // What an op addresses: a node by number, or the pen path inside a mask by the mask's id.
   function targetOf(t) {
     if (t.mask) { const m = svg.querySelector(`mask[id="${t.mask}"]`); return m && m.querySelector('path'); }
     return nodes.get(t.n);
   }
+
+  // Edits in motion. Opacity and the pen's dash run as Web Animations; when one ends its last value is written to
+  // the element and the animation dropped, so a later change to that property (an undo, a restyle) shows. A move
+  // glides the element's SVG transform (a CSS transform would leave its pen masks behind), one glide per element at a
+  // time: a new move starts from where the last one had got to.
+  const STYLE_OF = { opacity: 'opacity', dash: 'strokeDashoffset' };
   const matrix = xf => `matrix(${xf[0]} 0 0 ${xf[0]} ${xf[1]} ${xf[2]})`;
-  // The motion's own timing curve, as CSS evaluates cubic-bezier(x1, y1, x2, y2).
+  // A timing curve as CSS evaluates cubic-bezier(x1, y1, x2, y2): progress in time -> progress along the move.
   function bezier([x1, y1, x2, y2]) {
     const at = (a, b, t) => 3 * a * t * (1 - t) * (1 - t) + 3 * b * t * t * (1 - t) + t * t * t;
     return x => { let lo = 0, hi = 1; for (let k = 0; k < 24; k++) { const m = (lo + hi) / 2; if (at(x1, x2, m) < x) lo = m; else hi = m; } return at(y1, y2, (lo + hi) / 2); };
   }
   function glide(e, from, to, op) {
+    const run = e.__glide = {};
     // A drop lands at once (the canvas sends it as a 1 ms glide).
     if (op.dur < 0.05 && op.begin <= now() + 0.01) { e.setAttribute('transform', matrix(to)); return; }
-    const ease = bezier(op.fn || [0.25, 0.1, 0.25, 1]), start = op.begin, dur = Math.max(0.001, op.dur);
+    const ease = bezier(op.fn || CSS_EASE), dur = Math.max(0.001, op.dur);
     const step = () => {
-      const p = Math.min(1, Math.max(0, (now() - start) / dur)), k = ease(p);
+      if (e.__glide !== run) return;
+      const p = Math.min(1, Math.max(0, (now() - op.begin) / dur)), k = ease(p);
       e.setAttribute('transform', matrix(from.map((v, i) => v + (to[i] - v) * k)));
-      if (p < 1) requestAnimationFrame(step);
+      if (p < 1) requestAnimationFrame(step); else e.__glide = null;
     };
     step();
   }
+  function stopAnimating(e, key) {
+    for (const a of e.getAnimations ? e.getAnimations() : []) {
+      if (a.animationName) continue;                       // the draw-in (CSS) animation
+      if (!key || a.effect.getKeyframes().some(f => STYLE_OF[key] in f)) a.cancel();
+    }
+    if (!key || key === 'transform') e.__glide = null;
+  }
+  function animate(e, key, from, to, op) {
+    stopAnimating(e, key);
+    e.style.animation = 'none';
+    const prop = STYLE_OF[key];
+    if (!prop) return;
+    try {
+      const a = e.animate([{ [prop]: from }, { [prop]: to }],
+        { delay: Math.max(0, (op.begin - now()) * 1000), duration: op.dur * 1000, easing: `cubic-bezier(${op.fn.join(',')})`, fill: 'both' });
+      a.finished.then(() => { e.style[prop] = to; a.cancel(); }, () => {});
+    } catch (_) {}
+  }
 
-  // Moving an element in the page restarts its CSS animations (a Core Animation layer in ReferenceRenderer keeps going).
-  // Every draw-in animation ends on the element's own state (shown, unclipped, unscaled), so a finished one is simply
-  // switched off before the move; one still running is put back where it had got to.
+  // Moving an element in the page restarts its CSS animations (a Core Animation layer would keep going). Every
+  // draw-in animation ends on the element's own state (shown, unclipped, unscaled), so a finished one is switched off
+  // before the move; one still running is put back where it had got to.
   function keepingAnimations(e, move) {
-    const saved = [];
+    const running = [];
     for (const n of [e, ...e.querySelectorAll('*')]) {
       const anims = n.getAnimations ? n.getAnimations() : [];
       if (!anims.length) continue;
       if (anims.every(a => a.playState === 'finished')) n.style.animation = 'none';
-      else saved.push([n, anims.map(a => a.currentTime)]);
+      else running.push([n, anims.map(a => a.currentTime)]);
     }
     move();
-    for (const [n, times] of saved) {
-      const anims = n.getAnimations ? n.getAnimations() : [];
-      anims.forEach((a, i) => { if (times[i] != null) a.currentTime = times[i]; });
-    }
+    for (const [n, times] of running) (n.getAnimations ? n.getAnimations() : []).forEach((a, i) => { if (times[i] != null) a.currentTime = times[i]; });
   }
 
-  function apply(ops) {
-    for (const op of ops) {
-      if (op.op === 'remove') { const e = nodes.get(op.n); if (e) { e.remove(); nodes.delete(op.n); } }
-      else if (op.op === 'wrap') {
-        const child = nodes.get(op.child); if (!child || !child.parentNode) continue;
-        const g = document.createElementNS(NS, 'g'); g.__n = op.g; nodes.set(op.g, g);
-        keepingAnimations(child, () => { child.parentNode.insertBefore(g, child); g.appendChild(child); });
-      } else if (op.op === 'set') {
-        const parent = op.group === 'defs' ? defs : layers[op.group];
-        if (!parent) continue;
-        const old = nodes.get(op.node.n);
-        const e = build(op.node);
-        const before = op.before != null ? nodes.get(op.before) : null;
-        if (old && old.parentNode) old.replaceWith(e);
-        else parent.insertBefore(e, before && before.parentNode === parent ? before : null);
-      } else if (op.op === 'prop') {
-        const e = targetOf(op); if (!e) continue;
-        if (op.key === 'opacity') e.style.opacity = op.value;
-        else if (op.key === 'transform') e.setAttribute('transform', op.value);
-        else if (op.key === 'dash') e.style.strokeDashoffset = op.value;
-      } else if (op.op === 'stop') {
-        const e = targetOf(op); if (e) e.style.animation = 'none';
-      } else if (op.op === 'motion') {
-        const timing = { delay: Math.max(0, (op.begin - now()) * 1000), duration: op.dur * 1000, easing: `cubic-bezier(${op.fn.join(',')})`, fill: 'both' };
-        for (const item of op.items) {
-          const e = targetOf(item); if (!e) continue;
-          // A CSS transform leaves an element's pen masks behind (they stay where it was): glide its SVG transform.
-          if (item.key === 'transform') { glide(e, item.from, item.to, op); continue; }
-          e.style.animation = 'none';
-          const frames = item.key === 'dash' ? [{ strokeDashoffset: item.from }, { strokeDashoffset: item.to }]
-            : [{ [item.key]: item.from }, { [item.key]: item.to }];
-          try { e.animate(frames, timing); } catch (_) {}
-        }
+  const APPLY = {
+    remove(op) { const e = nodes.get(op.n); if (e) { e.remove(); nodes.delete(op.n); } },
+    // An element gets a group around it (for a later move or scale of the group).
+    wrap(op) {
+      const child = nodes.get(op.child);
+      if (!child || !child.parentNode) return;
+      const g = el('g', {}); g.__n = op.g; nodes.set(op.g, g);
+      keepingAnimations(child, () => { child.parentNode.insertBefore(g, child); g.appendChild(child); });
+    },
+    // A node is new or redrawn: it replaces the element it was, else goes into its layer before `before`.
+    set(op) {
+      const parent = op.group === 'defs' ? defs : layers[op.group];
+      if (!parent) return;
+      const old = nodes.get(op.node.n), e = build(op.node), before = op.before != null ? nodes.get(op.before) : null;
+      if (old && old.parentNode) old.replaceWith(e);
+      else parent.insertBefore(e, before && before.parentNode === parent ? before : null);
+    },
+    prop(op) {
+      const e = targetOf(op);
+      if (!e) return;
+      stopAnimating(e, op.key);
+      if (op.key === 'transform') e.setAttribute('transform', op.value);
+      else if (STYLE_OF[op.key]) e.style[STYLE_OF[op.key]] = op.value;
+    },
+    stop(op) { const e = targetOf(op); if (e) { e.style.animation = 'none'; stopAnimating(e); } },
+    motion(op) {
+      for (const item of op.items) {
+        const e = targetOf(item);
+        if (!e) continue;
+        if (item.key === 'transform') { stopAnimating(e, 'transform'); glide(e, item.from, item.to, op); }
+        else animate(e, item.key, item.from, item.to, op);
       }
-    }
-  }
-
+    },
+  };
   function paint() {
     if (!G.__drainRender) return;
-    let text;
-    try { text = G.__drainRender(); } catch (err) { console.warn('[mate] drain', err); return; }
-    if (!text) return;
-    const ops = JSON.parse(text);
+    let ops;
+    try { const text = G.__drainRender(); if (!text) return; ops = JSON.parse(text); } catch (err) { console.warn('[mate] drain', err); return; }
     if (window.__mateDebugOps) window.__mateDebugOps.push(...ops);
-    apply(ops);
+    for (const op of ops) if (APPLY[op.op]) APPLY[op.op](op);
   }
 
-  // The figure()'s tick functions, one frame at a time (ReferenceRenderer's stage calls mateCanvas.tick3d the same way).
+  // The figure()'s tick functions, one frame at a time (the stage calls mateCanvas.tick3d each frame).
   const tickProvider = (stage, ticks, dt) => G.mateCanvas.tick3d({ stage, ticks, dt });
 
+  // A fresh drawing surface of w x h canvas pixels, filling the page.
   function setUp(w, h) {
     if (!root) {
       const style = document.createElement('style'); style.textContent = KEYFRAMES; document.head.appendChild(style);
@@ -385,66 +403,73 @@
       root.addEventListener('pointerdown', onDown);
       root.addEventListener('pointermove', onMove);
       root.addEventListener('pointerup', onUp);
-      root.addEventListener('pointercancel', onUp);
+      root.addEventListener('pointercancel', onCancel);
     }
     if (globalThis.MateStage3D) MateStage3D.reset();
-    cardList = []; zoomed.clear(); gesture = null; lastRects = '';
+    cardList = []; gesture = null; lastRects = '';
     root.textContent = '';
     nodes.clear();
-    svg = document.createElementNS(NS, 'svg');
-    svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    svg = el('svg', { viewBox: `0 0 ${w} ${h}` });
     Object.assign(svg.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', overflow: 'visible' });
     defs = el('defs', {}, svg);
     layers = {};
-    for (const id of ['under', 'main', 'hl', 'words']) layers[id] = el('g', { id }, svg);
+    for (const id of LAYERS) layers[id] = el('g', { id }, svg);
     root.appendChild(svg);
     if (globalThis.MateStage3D) MateStage3D.attach(root, { tick3d: tickProvider, onBuild: buildAt });
   }
 
+  // Every call into the canvas paints what it recorded, even when the call throws.
   function call(fn) { try { return fn(); } finally { paint(); } }
 
   // ---------------------------------------------------------------- the user's hands on the drawing
-  // ReferenceRenderer's app lets cards be dragged (ScreenDrawingCardDragHandles), closed with their red button and made full
-  // screen with their green one, and 3D figures turned and clicked. The canvas says what the cards are (cards()); the
-  // app moves their elements while the pointer drags and tells the canvas where they were dropped (moveCard).
-  let cardList = [], zoomed = new Map(), lastRects = '';
+  // Cards can be dragged, closed with their red button and made full screen with their green one, and 3D figures
+  // turned and clicked. The canvas says what the cards are and where (cards()); this page moves a card's elements while
+  // the pointer drags, and tells the canvas where it was dropped (moveCard), closed (closeCard) or zoomed (zoomCard).
+  let cardList = [], lastRects = '';
   // The canvas is the screenshot (its pixels are the model's coordinates); the page is the screen in points.
   let canvasW = 1, canvasH = 1;
   const unit = () => globalThis.__mateUnitPx || 1;
+  const toPage = b => b.map(v => v * unit());
+  const boxOf = card => (card.window ? card.window.box : card.box);
+  const keyOf = card => (card.window ? 'w' + card.window.mark : card.marks.join(','));
+  const within = (b, outer, slack = 4) => b[0] >= outer[0] - slack && b[1] >= outer[1] - slack &&
+    b[0] + b[2] <= outer[0] + outer[2] + slack && b[1] + b[3] <= outer[1] + outer[3] + slack;
   // A 3D part starts growing: HeyMate's cursor flies to it and names it, so it looks like it builds the model.
   function buildAt(x, y, name) { post('pointAt', { x: x / unit(), y: y / unit(), label: name, role: 'build', w: canvasW, h: canvasH }); }
-  const toPage = b => b.map(v => v * unit());
+  function readCards() {
+    try { cardList = JSON.parse((G.mateCanvas && G.mateCanvas.cards()) || '[]'); } catch (_) { cardList = []; }
+    return cardList;
+  }
+  // Where HeyMate's window should take clicks (cards, 3D stages, buttons): the rest of the screen stays the user's.
   function refreshHits() {
     if (!G.mateCanvas) return;
-    try { cardList = JSON.parse(G.mateCanvas.cards() || '[]'); } catch (_) { cardList = []; }
-    const rects = cardList.map(c => toPage(c.window ? c.window.box : c.box)).concat(globalThis.MateStage3D ? MateStage3D.rects : [])
+    readCards();
+    placeButtons();
+    const rects = cardList.map(c => toPage(boxOf(c))).concat(globalThis.MateStage3D ? MateStage3D.rects : [])
       .concat([...buttons.values()].map(({ el }) => { const r = el.getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; }));
     const key = JSON.stringify(rects.map(r => r.map(Math.round)));
     if (key !== lastRects) { lastRects = key; post('hitRects', rects); }
   }
   setInterval(refreshHits, 250);
-
   function cardAt(x, y) {
-    for (let i = cardList.length - 1; i >= 0; i--) {
-      const c = cardList[i], b = c.window ? c.window.box : c.box;
-      if (x >= b[0] && x <= b[0] + b[2] && y >= b[1] && y <= b[1] + b[3]) return c;
-    }
+    for (let i = cardList.length - 1; i >= 0; i--) if (within([x, y, 0, 0], boxOf(cardList[i]), 0)) return cardList[i];
     return null;
   }
-  // The window's red and green buttons, where paintWindow drew them.
-  function buttonAt(card, x, y) {
-    const w = card.window; if (!w) return null;
-    const s = w.scale || 1, head = (w.header || 28) * s, cy = w.box[1] + head / 2;
-    for (const [name, cx] of [['close', w.box[0] + 16 * s], ['zoom', w.box[0] + 36 * s]]) if (Math.hypot(x - cx, y - cy) <= 9 * s) return name;
+  // A window's red and green buttons, where paintWindow drew them. cards() gives the window's box and header as they
+  // are now, zoomed or not; the buttons' offsets and size scale with it.
+  function windowButtonAt(card, x, y) {
+    const w = card.window;
+    if (!w) return null;
+    const s = w.scale || 1, cy = w.box[1] + (w.header || 28 * s) / 2;
+    for (const [name, offset] of [['close', 16], ['zoom', 36]]) if (Math.hypot(x - (w.box[0] + offset * s), y - cy) <= 9 * s) return name;
     return null;
   }
+  // Full screen, with a 60 point margin, and back.
   function zoom(card) {
-    const key = card.marks.join(',');
-    if (zoomed.has(key)) { zoomed.delete(key); return call(() => G.mateCanvas.zoomCard({ marks: card.marks, to: null })); }
-    const [x, y, w, h] = card.window.box, W = canvasW, H = canvasH;
-    const k = Math.min((W - 120 / unit()) / w, (H - 120 / unit()) / h);
-    zoomed.set(key, true);
-    call(() => G.mateCanvas.zoomCard({ marks: card.marks, to: [k, (W - k * w) / 2 - k * x, (H - k * h) / 2 - k * y] }));
+    if (card.window.zoomed) return call(() => G.mateCanvas.zoomCard({ marks: card.marks, to: null }));
+    const [x, y, w, h] = card.window.box, margin = 120 / unit();
+    const k = Math.min((canvasW - margin) / w, (canvasH - margin) / h);
+    return call(() => G.mateCanvas.zoomCard({ marks: card.marks, to: [k, (canvasW - k * w) / 2 - k * x, (canvasH - k * h) / 2 - k * y] }));
   }
 
   let gesture = null, analysis = null, heardLine = -1, pointed = new Set(), lineOffset = 0;
@@ -462,84 +487,121 @@
     }
   }
 
-  // ---------------------------------------------------------------- buttons (ScreenDrawingActionButtons in the app)
-  // button() leaves a spot with its box and {text, kind, value}; the canvas says when its beat is drawn and it can go up.
-  const buttons = new Map();             // mark index -> {el, box (canvas units), payload}
+  // ---------------------------------------------------------------- buttons
+  // button() leaves a spot with its box and {text, kind, value}; the canvas says when its beat is drawn and it can go
+  // up. A button drawn on a window belongs to it: it is placed from where the window is now (dragged, dropped, moved by
+  // an edit, zoomed), scaled with it, and closed with it. A window's box is fixed while it draws; other cards (a photo
+  // and its label) grow as their marks arrive, so a button on one keeps its own box, moved when the card is dropped.
+  const buttons = new Map();             // mark index -> {el, box (canvas units), payload, card: {key, home, scale} | null}
   function showButton(i, seconds, tries = 0) {
     const a = ((analysis && analysis.actions) || []).find(x => x.i === i && x.role === 'button');
     if (!a) { if (tries < 20) setTimeout(() => showButton(i, seconds, tries + 1), 100); return; }
     if (buttons.has(i)) return;
-    let payload = {};
+    let payload;
     try { payload = JSON.parse(a.text || '{}'); } catch (_) { return; }
     const box = a.box || [a.x, a.y, 120, 30];
     const el = document.createElement('button');
     el.dataset.mateButton = String(i);
-    el.textContent = payload.text + (payload.kind === 'open' ? '  ↗' : '');
+    el.textContent = String(payload.text || '') + (payload.kind === 'open' ? '  ↗' : '');
     const ink = G.__mateInk || '#3380FF';
     Object.assign(el.style, { position: 'absolute', font: '600 13px -apple-system, system-ui, sans-serif', color: '#15171C', whiteSpace: 'nowrap',
       background: `linear-gradient(#FFFFFF, ${ink}33)`, border: `1px solid ${ink}66`, borderRadius: '999px', padding: '0 14px',
       boxShadow: '0 2px 8px rgba(0,0,0,.25)', cursor: 'pointer', opacity: '0', transform: 'scale(.85)', transition: 'opacity .25s, transform .25s' });
-    placeButton(el, box);
     el.addEventListener('click', ev => { ev.stopPropagation(); post('button', payload); el.style.transform = 'scale(.94)'; setTimeout(() => { el.style.transform = 'none'; }, 120); });
     root.appendChild(el);
-    buttons.set(i, { el, box: box.slice(), payload });
+    const card = readCards().slice().reverse().find(c => c.window && within(box, boxOf(c)));
+    const b = { el, box: box.slice(), payload, card: card ? { key: keyOf(card), home: boxOf(card).slice(), scale: (card.window && card.window.scale) || 1 } : null };
+    buttons.set(i, b);
+    placeButton(b);
     setTimeout(() => { el.style.opacity = '1'; el.style.transform = 'none'; refreshHits(); }, Math.max(0, seconds) * 1000);
   }
-  function placeButton(el, box) {
+  // A button where it is now: on a card, at the same place relative to the card's box and scaled with it.
+  function placeButton(b, drag = [0, 0]) {
+    let [x, y, w, h] = b.box, s = 1;
+    const card = b.card && cardList.find(c => keyOf(c) === b.card.key);
+    if (card) {
+      const now = boxOf(card), from = b.card.home;
+      s = ((card.window && card.window.scale) || 1) / b.card.scale;
+      x = now[0] + (x - from[0]) * s; y = now[1] + (y - from[1]) * s;
+    }
     const u = unit();
-    Object.assign(el.style, { left: box[0] * u + 'px', top: box[1] * u + 'px', minWidth: box[2] * u + 'px', height: box[3] * u + 'px' });
+    Object.assign(b.el.style, { left: (x + drag[0]) * u + 'px', top: (y + drag[1]) * u + 'px', minWidth: w * u + 'px', height: h * u + 'px',
+      scale: s === 1 ? '' : String(s), transformOrigin: s === 1 ? '' : '0 0' });
   }
-  const inside = (b, card) => b[0] >= card[0] - 4 && b[1] >= card[1] - 4 && b[0] + b[2] <= card[0] + card[2] + 4 && b[1] + b[3] <= card[1] + card[3] + 4;
-  // A card's buttons ride with it when it is dropped, and go with it when it is closed.
-  function buttonsOn(card) { const b = card.window ? card.window.box : card.box; return [...buttons.entries()].filter(([, v]) => inside(v.box, b)); }
+  function placeButtons() { for (const b of buttons.values()) placeButton(b); }
+  const buttonsOn = card => [...buttons.entries()].filter(([, b]) => (b.card ? b.card.key === keyOf(card) : within(b.box, boxOf(card))));
   function clearButtons() { for (const { el } of buttons.values()) el.remove(); buttons.clear(); }
+
+  // ---------------------------------------------------------------- pointer gestures
+  // Down on a card starts a drag (once the pointer has moved 3 points), on a 3D stage a turn; up without a drag is a
+  // click: a window button, or a 3D part to ask about. A gesture the system cancels puts everything back.
   function onDown(ev) {
     if (ev.target && ev.target.closest && ev.target.closest('[data-mate-button]')) return;
     const x = ev.clientX, y = ev.clientY;
     refreshHits();
     post('touched', null);
-    const st = globalThis.MateStage3D && MateStage3D.stageAt(x, y);
-    const card = st ? null : cardAt(x / unit(), y / unit());
-    if (!st && !card) return;
-    gesture = { x, y, st, card, moved: false, lx: x, ly: y };
+    const stage = globalThis.MateStage3D && MateStage3D.stageAt(x, y);
+    const card = stage ? null : cardAt(x / unit(), y / unit());
+    if (!stage && !card) return;
+    gesture = { x, y, stage, card, moved: false, lx: x, ly: y };
     try { root.setPointerCapture(ev.pointerId); } catch (_) {}
     ev.preventDefault();
   }
+  const dragOf = (g, ev) => [(ev.clientX - g.x) / unit(), (ev.clientY - g.y) / unit()];
   function onMove(ev) {
     if (!gesture) return;
-    const dx = (ev.clientX - gesture.x) / unit(), dy = (ev.clientY - gesture.y) / unit();
     if (Math.hypot(ev.clientX - gesture.x, ev.clientY - gesture.y) > 3) gesture.moved = true;
-    if (gesture.st) { MateStage3D.turn(gesture.st, ev.clientX - gesture.lx, ev.clientY - gesture.ly); gesture.lx = ev.clientX; gesture.ly = ev.clientY; }
-    else if (gesture.moved) for (const n of gesture.card.units) {
-      const e = nodes.get(n); if (!e) continue;
+    if (gesture.stage) {
+      MateStage3D.turn(gesture.stage, ev.clientX - gesture.lx, ev.clientY - gesture.ly);
+      gesture.lx = ev.clientX; gesture.ly = ev.clientY;
+    } else if (gesture.moved) dragCard(gesture.card, dragOf(gesture, ev));
+  }
+  // While a card is dragged its elements and buttons ride along on top of whatever transform they have.
+  function dragCard(card, [dx, dy]) {
+    for (const n of card.units) {
+      const e = nodes.get(n);
+      if (!e) continue;
       if (e.__dragBase === undefined) e.__dragBase = e.getAttribute('transform') || '';
       e.setAttribute('transform', `translate(${dx} ${dy}) ${e.__dragBase}`.trim());
+    }
+    for (const [, b] of buttonsOn(card)) placeButton(b, [dx, dy]);
+  }
+  function endDrag(card) {
+    for (const n of card.units) {
+      const e = nodes.get(n);
+      if (!e || e.__dragBase === undefined) continue;
+      if (e.__dragBase) e.setAttribute('transform', e.__dragBase); else e.removeAttribute('transform');
+      delete e.__dragBase;
     }
   }
   function onUp(ev) {
     const g = gesture; gesture = null;
     if (!g) return;
-    const dx = (ev.clientX - g.x) / unit(), dy = (ev.clientY - g.y) / unit();
-    if (g.st) {
-      if (!g.moved) { const part = MateStage3D.pick(g.st, ev.clientX, ev.clientY); if (part) post('askPart', part); }
+    if (g.stage) {
+      if (!g.moved) { const part = MateStage3D.pick(g.stage, ev.clientX, ev.clientY); if (part) post('askPart', part); }
       return;
     }
-    for (const n of g.card.units) {
-      const e = nodes.get(n); if (!e || e.__dragBase === undefined) continue;
-      if (e.__dragBase) e.setAttribute('transform', e.__dragBase); else e.removeAttribute('transform');
-      delete e.__dragBase;
-    }
-    if (g.moved) {
-      for (const [, b] of buttonsOn(g.card)) { b.box[0] += dx; b.box[1] += dy; placeButton(b.el, b.box); }
-      call(() => G.mateCanvas.moveCard({ marks: g.card.marks, dx, dy })); refreshHits(); return;
-    }
-    const button = buttonAt(g.card, ev.clientX / unit(), ev.clientY / unit());
-    if (button === 'close') {
-      for (const [i, b] of buttonsOn(g.card)) { b.el.remove(); buttons.delete(i); }
-      const result = JSON.parse(call(() => G.mateCanvas.closeCard({ marks: g.card.marks })) || '{}');
-      refreshHits();
-      if (!result.left) setTimeout(() => post('empty', null), 600);
-    } else if (button === 'zoom') { zoom(g.card); setTimeout(refreshHits, 600); }
+    endDrag(g.card);
+    if (g.moved) { const [dx, dy] = dragOf(g, ev); dropCard(g.card, dx, dy); return; }
+    const button = windowButtonAt(g.card, ev.clientX / unit(), ev.clientY / unit());
+    if (button === 'close') closeCard(g.card);
+    else if (button === 'zoom') { zoom(g.card); refreshHits(); setTimeout(refreshHits, 600); }
+  }
+  function onCancel() {
+    const g = gesture; gesture = null;
+    if (g && g.card) { endDrag(g.card); refreshHits(); }
+  }
+  function dropCard(card, dx, dy) {
+    for (const [, b] of buttonsOn(card)) if (!b.card) { b.box[0] += dx; b.box[1] += dy; }
+    call(() => G.mateCanvas.moveCard({ marks: card.marks, dx, dy }));
+    refreshHits();
+  }
+  function closeCard(card) {
+    for (const [i, b] of buttonsOn(card)) { b.el.remove(); buttons.delete(i); }
+    let result = {};
+    try { result = JSON.parse(call(() => G.mateCanvas.closeCard({ marks: card.marks })) || '{}') || {}; } catch (_) {}
+    refreshHits();
+    if (!result.left) setTimeout(() => post('empty', null), 600);
   }
   (function loop() { paint(); requestAnimationFrame(loop); })();
 

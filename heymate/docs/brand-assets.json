@@ -1,0 +1,193 @@
+{
+  "source": "heymate/docs/notch-mischief.svg",
+  "primary": "05 Mischief",
+  "color": "#A8CBFA",
+  "outputs": [
+    {
+      "path": "heymate/HeyMate/Assets.xcassets/AppIcon.appiconset/1024-mac-v8.png",
+      "pixels": 1024,
+      "background": "#191919",
+      "macPadding": true
+    },
+    {
+      "path": "heymate/HeyMate/Assets.xcassets/AppIcon.appiconset/128-mac-v8.png",
+      "pixels": 128,
+      "background": "#191919",
+      "macPadding": true
+    },
+    {
+      "path": "heymate/HeyMate/Assets.xcassets/AppIcon.appiconset/16-mac-v8.png",
+      "pixels": 16,
+      "background": "#191919",
+      "macPadding": true
+    },
+    {
+      "path": "heymate/HeyMate/Assets.xcassets/AppIcon.appiconset/256-mac-v8.png",
+      "pixels": 256,
+      "background": "#191919",
+      "macPadding": true
+    },
+    {
+      "path": "heymate/HeyMate/Assets.xcassets/AppIcon.appiconset/32-mac-v8.png",
+      "pixels": 32,
+      "background": "#191919",
+      "macPadding": true
+    },
+    {
+      "path": "heymate/HeyMate/Assets.xcassets/AppIcon.appiconset/512-mac-v8.png",
+      "pixels": 512,
+      "background": "#191919",
+      "macPadding": true
+    },
+    {
+      "path": "heymate/HeyMate/Assets.xcassets/AppIcon.appiconset/64-mac-v8.png",
+      "pixels": 64,
+      "background": "#191919",
+      "macPadding": true
+    },
+    {
+      "path": "heymate/HeyMate/Assets.xcassets/AppIconDark.appiconset/1024-mac-dark-v8.png",
+      "pixels": 1024,
+      "background": "#0A0A0A",
+      "macPadding": true
+    },
+    {
+      "path": "heymate/HeyMate/Assets.xcassets/AppIconDark.appiconset/128-mac-dark-v8.png",
+      "pixels": 128,
+      "background": "#0A0A0A",
+      "macPadding": true
+    },
+    {
+      "path": "heymate/HeyMate/Assets.xcassets/AppIconDark.appiconset/16-mac-dark-v8.png",
+      "pixels": 16,
+      "background": "#0A0A0A",
+      "macPadding": true
+    },
+    {
+      "path": "heymate/HeyMate/Assets.xcassets/AppIconDark.appiconset/256-mac-dark-v8.png",
+      "pixels": 256,
+      "background": "#0A0A0A",
+      "macPadding": true
+    },
+    {
+      "path": "heymate/HeyMate/Assets.xcassets/AppIconDark.appiconset/32-mac-dark-v8.png",
+      "pixels": 32,
+      "background": "#0A0A0A",
+      "macPadding": true
+    },
+    {
+      "path": "heymate/HeyMate/Assets.xcassets/AppIconDark.appiconset/512-mac-dark-v8.png",
+      "pixels": 512,
+      "background": "#0A0A0A",
+      "macPadding": true
+    },
+    {
+      "path": "heymate/HeyMate/Assets.xcassets/AppIconDark.appiconset/64-mac-dark-v8.png",
+      "pixels": 64,
+      "background": "#0A0A0A",
+      "macPadding": true
+    },
+    {
+      "path": "heymate/HeyMate/Assets.xcassets/BrandIconLight.imageset/brand-icon-light.png",
+      "pixels": 1024,
+      "background": "#191919",
+      "macPadding": false
+    },
+    {
+      "path": "heymate/HeyMate/Assets.xcassets/BrandIconDark.imageset/brand-icon-dark.png",
+      "pixels": 1024,
+      "background": "#0A0A0A",
+      "macPadding": false
+    },
+    {
+      "path": "heymate/HeyMate/BrowserExtension/icon-16.png",
+      "pixels": 16,
+      "background": "#191919",
+      "macPadding": false
+    },
+    {
+      "path": "heymate/browser/extension/icon-16.png",
+      "pixels": 16,
+      "background": "#191919",
+      "macPadding": false
+    },
+    {
+      "path": "heymate/HeyMate/BrowserExtension/icon-48.png",
+      "pixels": 48,
+      "background": "#191919",
+      "macPadding": false
+    },
+    {
+      "path": "heymate/browser/extension/icon-48.png",
+      "pixels": 48,
+      "background": "#191919",
+      "macPadding": false
+    },
+    {
+      "path": "heymate/HeyMate/BrowserExtension/icon-128.png",
+      "pixels": 128,
+      "background": "#191919",
+      "macPadding": false
+    },
+    {
+      "path": "heymate/browser/extension/icon-128.png",
+      "pixels": 128,
+      "background": "#191919",
+      "macPadding": false
+    },
+    {
+      "path": "website/assets/img/icon/favicon-32.png",
+      "pixels": 32,
+      "background": "#191919",
+      "macPadding": false
+    },
+    {
+      "path": "website/assets/img/icon/favicon-mischief-32.png",
+      "pixels": 32,
+      "background": "#191919",
+      "macPadding": false
+    },
+    {
+      "path": "website/assets/img/icon/apple-touch.png",
+      "pixels": 180,
+      "background": "#191919",
+      "macPadding": false
+    },
+    {
+      "path": "website/assets/img/icon/apple-touch-mischief.png",
+      "pixels": 180,
+      "background": "#191919",
+      "macPadding": false
+    },
+    {
+      "path": "website/assets/img/icon/icon-192.png",
+      "pixels": 192,
+      "background": "#191919",
+      "macPadding": false
+    },
+    {
+      "path": "website/assets/img/icon/icon-mischief-192.png",
+      "pixels": 192,
+      "background": "#191919",
+      "macPadding": false
+    },
+    {
+      "path": "docs/media/heymate-icon.png",
+      "pixels": 256,
+      "background": "#191919",
+      "macPadding": false
+    },
+    {
+      "path": "marketing/demo-video/public/icon.png",
+      "pixels": 1024,
+      "background": "#191919",
+      "macPadding": false
+    },
+    {
+      "path": "marketing/demo-video/clip-a/public/icon.png",
+      "pixels": 1024,
+      "background": "#191919",
+      "macPadding": false
+    }
+  ]
+}

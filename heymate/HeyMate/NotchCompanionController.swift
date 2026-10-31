@@ -43,19 +43,13 @@ extension Notification.Name {
     static let heyMatePrivacyDragDidEnd = Notification.Name("heyMatePrivacyDragDidEnd")
 }
 
-/// Lets the expanded notch card become key so typed input and menus work,
-/// without using an activating window style that would steal the user's app.
-private final class KeyableNotchPanel: NSPanel {
-    override var canBecomeKey: Bool { true }
-}
-
 @MainActor
 final class NotchCompanionController {
 
     /// How long the pointer must rest on the collapsed tab before the card
     /// opens. Short enough to feel attached to the pointer, long enough to
     /// ignore a fast trip across the menu bar.
-    private static let hoverExpandDelayMilliseconds: UInt64 = 180
+    private static let hoverExpandDelayMilliseconds = UInt64(NotchLayoutMath.hoverPreparationDuration * 1_000)
 
     /// UserDefaults key for "hovering the notch opens the card". New installs
     /// default ON, matching the direct expansion model used by Boring Notch.
@@ -74,7 +68,7 @@ final class NotchCompanionController {
     /// auto-collapses. Absorbs the two ways a pointer "briefly" leaves the
     /// card in practice: crossing the hairline seam between tab and card,
     /// and overshooting the card's bottom edge mid-scroll.
-    private static let mouseExitCollapseGraceMilliseconds: UInt64 = 220
+    private static let mouseExitCollapseGraceMilliseconds: UInt64 = 120
 
     private var pillPanel: NSPanel?
     private var expandedPanel: NSPanel?
@@ -84,12 +78,21 @@ final class NotchCompanionController {
     private var statusItem: NSStatusItem?
     private var placementObserver: AnyCancellable?
 
+    /// With several displays the notch lives on the one being worked on: the
+    /// display under the cursor, when it can host a notch. Only moves while
+    /// collapsed, so an open card never jumps screens under the user.
+    private var followedDisplayID: CGDirectDisplayID?
+    private var cursorDisplayMonitor: Any?
+
     /// Single source of truth for everything the collapsed tab renders.
     /// Handed to the hosting view once at construction; afterwards the
     /// controller mutates its properties and SwiftUI diffs normally. This
     /// replaces the old pattern of assigning a fresh `rootView` on every
     /// audio tick, which rebuilt the entire view graph 12 times a second.
     private let pillModel = NotchPillModel()
+    private var compactStatus = NotchCompactStatus()
+    private var compactStatusExpiryTask: Task<Void, Never>?
+    private var compactStatusExpiry: Date?
 
     /// SwiftUI owns silhouette/rim/content staging while AppKit owns the
     /// matching top-anchored panel frame on the same display-link clock.
@@ -116,18 +119,23 @@ final class NotchCompanionController {
     /// Pinned cards ignore the mouse-exit grace timer and stay open until
     /// explicitly closed (a second tab click or the card's close button).
     private var isPinned = false
+    private var isAboutPopoverPresented = false
+
+    /// The popover is a separate AppKit window. Its clicks and pointer exits
+    /// must not dismiss the notch that owns its controls before mouse-up.
+    func setAboutPopoverPresented(_ presented: Bool) {
+        isAboutPopoverPresented = presented
+        if presented { cancelPendingGraceCollapse() }
+    }
 
     /// Cancelable hover→expand delay. Canceled when the pointer exits the
     /// tab before the delay elapses.
     private var pendingHoverExpandTask: Task<Void, Never>?
+    private var pendingClickOpenTask: Task<Void, Never>?
 
     /// Cancelable collapse-after-mouse-exit delay. Canceled when the pointer
     /// re-enters the card within the grace window.
     private var pendingGraceCollapseTask: Task<Void, Never>?
-
-    /// The short wait while the pill's peek slots blur out ahead of the card
-    /// growing. Canceled by any new transition; see `presentSurface`.
-    private var pendingPresentTask: Task<Void, Never>?
 
     /// Vsync-driven frame animator — compact activity resizing and the card's
     /// real expand/collapse frame growth. Replaced a `Task.sleep(16.6 ms)` loop
@@ -155,6 +163,11 @@ final class NotchCompanionController {
     /// ctrl+command uses compact chat.
     private var presentedSurface: NotchPresentedSurface = .fullCard
 
+    /// The person closed the notch caption; it stays closed until this
+    /// reply's caption clears.
+    private var isCaptionDismissed = false
+    private static let captionFont = NSFont.systemFont(ofSize: 15)
+
     /// Remembered sheet size. Dragging an edge updates it; a double-click
     /// restores `NotchHomeSize.standard`.
     private var homeSize = NotchHomeSize.stored()
@@ -175,7 +188,9 @@ final class NotchCompanionController {
 
     func start(companionManager: CompanionManager) {
         self.companionManager = companionManager
+        followedDisplayID = Self.displayID(of: Self.screenUnderCursor())
         showIfPossible()
+        startFollowingCursorDisplay()
         observeStateChanges()
         NotchUsageStore.shared.objectWillChange
             .receive(on: DispatchQueue.main)
@@ -268,7 +283,15 @@ final class NotchCompanionController {
         // back), dismissing here orders out every surface before the panel
         // references are dropped.
         cancellables.removeAll()
+        compactStatusExpiryTask?.cancel()
+        compactStatusExpiryTask = nil
+        compactStatusExpiry = nil
+        compactStatus = NotchCompactStatus()
         placementObserver = nil
+        if let cursorDisplayMonitor {
+            NSEvent.removeMonitor(cursorDisplayMonitor)
+            self.cursorDisplayMonitor = nil
+        }
         audioPowerCancellable = nil
         if let screenParametersObserver {
             NotificationCenter.default.removeObserver(screenParametersObserver)
@@ -345,11 +368,93 @@ final class NotchCompanionController {
             .store(in: &cancellables)
 
         companionManager.$agentRuns
+            .map { $0.map(NotchCompactStatus.Snapshot.init(run:)) }
+            .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] runs in
-                self?.pillModel.agentFilaments = AgentFilament.live(from: runs)
+            .sink { [weak self] snapshots in
+                self?.syncAgentStatus(snapshots)
             }
             .store(in: &cancellables)
+
+        // Main-queue hop: @Published emits before the property is stored.
+        Publishers.Merge(
+            companionManager.$cursorCaptionText.removeDuplicates().map { _ in () },
+            companionManager.$cursorCaptionProgress.removeDuplicates().map { _ in () }
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _ in
+            self?.syncCaption()
+        }
+        .store(in: &cancellables)
+    }
+
+    private func syncAgentStatus(_ snapshots: [NotchCompactStatus.Snapshot]) {
+        let wasShowingStatus = pillModel.showsStatusText
+        compactStatus.update(snapshots)
+        if pillModel.agentStatus != compactStatus.selected {
+            pillModel.agentStatus = compactStatus.selected
+        }
+        if pillModel.activeAgentCount != compactStatus.activeCount {
+            pillModel.activeAgentCount = compactStatus.activeCount
+        }
+        // New words do not change compact geometry. Rechecking a moving frame
+        // on every progress event used to restart the same resize animation.
+        if wasShowingStatus != pillModel.showsStatusText { syncPillFrameToModel() }
+
+        // One expiry wakeup per completion, no idle polling or repeated replay.
+        guard compactStatusExpiry != compactStatus.expiresAt else { return }
+        compactStatusExpiryTask?.cancel()
+        compactStatusExpiry = compactStatus.expiresAt
+        guard let deadline = compactStatus.expiresAt else {
+            compactStatusExpiryTask = nil
+            return
+        }
+        compactStatusExpiryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(max(deadline.timeIntervalSinceNow, 0)))
+            guard !Task.isCancelled, let self, let manager = self.companionManager else { return }
+            self.syncAgentStatus(manager.agentRuns.map(NotchCompactStatus.Snapshot.init(run:)))
+        }
+    }
+
+    /// The reply hangs from the notch while it is spoken: opens with the
+    /// first words, grows with the text, folds away when the caption clears.
+    private func syncCaption() {
+        guard let companionManager else { return }
+        guard !companionManager.cursorCaptionText.isEmpty else {
+            isCaptionDismissed = false
+            companionManager.isCursorCaptionHeld = false
+            if isExpanded, presentedSurface == .caption {
+                collapseAndUnpin()
+            }
+            return
+        }
+        guard Self.isEnabled, !isCaptionDismissed, !isTransitioning else { return }
+        if isExpanded {
+            if presentedSurface == .caption { fitCaptionToText() }
+            return
+        }
+        // The attached panel already shows the reply in its transcript.
+        guard !companionManager.isAttachedDesktopPanelVisible else { return }
+        presentSurface(.caption, pinned: true, takesKey: false)
+    }
+
+    private func fitCaptionToText() {
+        guard let expandedPanel, let screen = currentTargetScreen(),
+              let target = frame(for: .caption, screen: screen),
+              !framesAreEffectivelyEqual(expandedPanel.frame, target) else { return }
+        surfaceTransitionModel.resizedLayoutSize = target.size
+        animateFrame(of: expandedPanel, to: target, duration: NotchLayoutMath.pillResizeDuration)
+    }
+
+    private func captionTextHeight(_ text: String) -> CGFloat {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = NotchLayoutMath.captionLineSpacing
+        let bounds = (text as NSString).boundingRect(
+            with: CGSize(width: NotchLayoutMath.captionTextWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: Self.captionFont, .paragraphStyle: paragraph]
+        )
+        return ceil(bounds.height)
     }
 
     /// Attach/detach the mic-power subscription so it exists only while the
@@ -384,7 +489,7 @@ final class NotchCompanionController {
         pillModel.isOutlineEnabled = companionManager.isNotchOutlineEnabled
         pillModel.isAgentActive = companionManager.isForegroundAgentActive
         pillModel.isSilentModeEnabled = companionManager.isSilentModeEnabled
-        pillModel.agentFilaments = AgentFilament.live(from: companionManager.agentRuns)
+        pillModel.reducesMotion = prefersReducedMotion
         pillModel.activity = companionManager.activeNotchActivity
 
         guard !isExpanded, !isTransitioning else { return }
@@ -408,7 +513,8 @@ final class NotchCompanionController {
             activeInteraction: pillModel.wantsWidenedFrame
         ) else { return }
 
-        guard !framesAreEffectivelyEqual(pillPanel.frame, targetFrame) else { return }
+        guard !framesAreEffectivelyEqual(pillPanel.frame, targetFrame),
+              !frameAnimator.isAnimating(panel: pillPanel, to: targetFrame) else { return }
         animateFrame(
             of: pillPanel,
             to: targetFrame,
@@ -533,15 +639,50 @@ final class NotchCompanionController {
         handlePillClick()
     }
 
-    /// Prefer the built-in notched display. If this Mac has no camera housing
-    /// (Studio Display, iMac, lid-closed laptop on an external), fall back to
-    /// the main screen so the control surface still exists without a menu bar.
+    /// The display the cursor is on, when it can host the notch (a hardware
+    /// notch, or a fake one by preference). Otherwise prefer the built-in
+    /// notched display. If this Mac has no camera housing (Studio Display,
+    /// iMac, lid-closed laptop on an external), fall back to the main screen
+    /// so the control surface still exists without a menu bar.
     private func targetScreen() -> NSScreen? {
+        if NSScreen.screens.count > 1,
+           let followed = NSScreen.screens.first(where: { Self.displayID(of: $0) == followedDisplayID }),
+           notchHousing(for: followed) != nil {
+            return followed
+        }
         if let builtinScreen = findBuiltinScreen(),
            NotchLayoutMath.screenHasNotch(topSafeAreaInset: builtinScreen.safeAreaInsets.top) {
             return builtinScreen
         }
         return NSScreen.main ?? NSScreen.screens.first
+    }
+
+    /// Re-place the collapsed notch when the cursor crosses onto another
+    /// display. Mouse-moved global monitors need no extra permission.
+    private func startFollowingCursorDisplay() {
+        guard cursorDisplayMonitor == nil else { return }
+        cursorDisplayMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged]) { [weak self] _ in
+            MainActor.assumeIsolated { self?.followCursorDisplayIfNeeded() }
+        }
+    }
+
+    private func followCursorDisplayIfNeeded() {
+        guard NSScreen.screens.count > 1, !isExpanded, !isTransitioning,
+              let screen = Self.screenUnderCursor(), let displayID = Self.displayID(of: screen),
+              displayID != followedDisplayID else { return }
+        followedDisplayID = displayID
+        // A display that cannot host the notch keeps it where it was.
+        guard notchHousing(for: screen) != nil else { return }
+        showIfPossible()
+    }
+
+    private static func screenUnderCursor() -> NSScreen? {
+        let mouse = NSEvent.mouseLocation
+        return NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
+    }
+
+    private static func displayID(of screen: NSScreen?) -> CGDirectDisplayID? {
+        screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
     }
 
     /// The built-in display is the only one with a hardware notch. macOS
@@ -583,7 +724,7 @@ final class NotchCompanionController {
 
     /// Screen-derived tab frame. Hardware notch when available; otherwise the
     /// software-notch fallback parked just below the menu bar.
-    private func pillFrame(for screen: NSScreen, activeInteraction: Bool) -> CGRect? {
+    private func pillFrame(for screen: NSScreen, activeInteraction _: Bool) -> CGRect? {
         let outlineEnabled = companionManager?.isNotchOutlineEnabled ?? true
         let housing = notchHousing(for: screen)
         if let housing,
@@ -592,20 +733,26 @@ final class NotchCompanionController {
             topSafeAreaInset: housing.inset,
             auxiliaryTopLeftMaxX: housing.leftMaxX,
             auxiliaryTopRightMinX: housing.rightMinX,
-            activeInteraction: activeInteraction,
-            usageProviderCount: pillModel.usageProviderCount
+            activeInteraction: false
            ) {
             return NotchLayoutMath.outlinePaddedFrame(
-                hardware: pixelAlign(hardwareFrame, on: screen),
+                hardware: pixelAlign(NotchLayoutMath.compactSurfaceFrame(
+                    hardware: hardwareFrame, showsStatus: pillModel.showsStatusText,
+                    usageProviderCount: pillModel.showsStatusText ? 0 : pillModel.usageProviderCount,
+                    voiceOnly: pillModel.voiceState != .idle,
+                    speaking: pillModel.voiceState == .responding
+                ), on: screen),
                 isOutlineEnabled: outlineEnabled
             )
         }
         return NotchLayoutMath.outlinePaddedFrame(
             hardware: pixelAlign(
-                NotchLayoutMath.fallbackPillFrame(
-                    screenFrame: screen.frame,
-                    activeInteraction: activeInteraction,
-                    usageProviderCount: pillModel.usageProviderCount
+                NotchLayoutMath.compactSurfaceFrame(
+                    hardware: NotchLayoutMath.fallbackPillFrame(screenFrame: screen.frame),
+                    showsStatus: pillModel.showsStatusText,
+                    usageProviderCount: pillModel.showsStatusText ? 0 : pillModel.usageProviderCount,
+                    voiceOnly: pillModel.voiceState != .idle,
+                    speaking: pillModel.voiceState == .responding
                 ),
                 on: screen
             ),
@@ -694,7 +841,36 @@ final class NotchCompanionController {
             return compactChatFrame(for: screen)
         case .connectorSuggestion:
             return connectorSuggestionFrame(for: screen)
+        case .caption:
+            return captionFrame(for: screen)
         }
+    }
+
+    /// Sized to the caption's text, so a short reply is a slim strip.
+    private func captionFrame(for screen: NSScreen) -> CGRect? {
+        let height = NotchLayoutMath.captionHeight(
+            textHeight: captionTextHeight(companionManager?.cursorCaptionText ?? ""),
+            hasProgress: companionManager?.cursorCaptionProgress != nil
+        )
+        if let housing = notchHousing(for: screen),
+           let hardwareFrame = NotchLayoutMath.compactChatFrame(
+            screenFrame: screen.frame,
+            topSafeAreaInset: housing.inset,
+            auxiliaryTopLeftMaxX: housing.leftMaxX,
+            auxiliaryTopRightMinX: housing.rightMinX,
+            contentWidth: NotchLayoutMath.captionWidth,
+            contentHeight: height
+           ) {
+            return pixelAlign(hardwareFrame, on: screen)
+        }
+        return pixelAlign(
+            NotchLayoutMath.fallbackCompactChatFrame(
+                screenFrame: screen.frame,
+                contentWidth: NotchLayoutMath.captionWidth,
+                contentHeight: height
+            ),
+            on: screen
+        )
     }
 
     /// Screen-derived expanded-card frame — hardware notch when available,
@@ -863,7 +1039,8 @@ final class NotchCompanionController {
             pillModel.isOutlineEnabled = companionManager.isNotchOutlineEnabled
             pillModel.isAgentActive = companionManager.isForegroundAgentActive
             pillModel.isSilentModeEnabled = companionManager.isSilentModeEnabled
-            pillModel.agentFilaments = AgentFilament.live(from: companionManager.agentRuns)
+            pillModel.reducesMotion = prefersReducedMotion
+            syncAgentStatus(companionManager.agentRuns.map(NotchCompactStatus.Snapshot.init(run:)))
             pillModel.activity = companionManager.activeNotchActivity
         }
 
@@ -980,7 +1157,21 @@ final class NotchCompanionController {
             collapseAndUnpin()
         } else {
             HeyMateAnalytics.track(.notchOpened)
-            presentSurface(.fullCard, pinned: true)
+            guard pendingClickOpenTask == nil else { return }
+            cancelPendingHoverExpand()
+            if prefersReducedMotion {
+                presentSurface(.fullCard, pinned: true)
+                return
+            }
+            let cue = NotchOpenCue(kind: .click, duration: NotchLayoutMath.clickPreparationDuration)
+            pillModel.openingCue = cue
+            pillModel.reducesMotion = prefersReducedMotion
+            pendingClickOpenTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(cue.duration))
+                guard !Task.isCancelled, let self, self.pillModel.openingCue?.id == cue.id else { return }
+                self.pendingClickOpenTask = nil
+                self.presentSurface(.fullCard, pinned: true)
+            }
         }
     }
 
@@ -988,10 +1179,14 @@ final class NotchCompanionController {
         // Re-entering within the grace window cancels the scheduled collapse
         // — this is what makes the grace feel forgiving instead of laggy.
         cancelPendingGraceCollapse()
+        if presentedSurface == .caption {
+            companionManager?.isCursorCaptionHeld = true
+        }
     }
 
     private func handleExpandedCardMouseExit() {
-        guard isExpanded, !isPinned else { return }   // pinned cards never auto-collapse
+        companionManager?.isCursorCaptionHeld = false
+        guard isExpanded, !isPinned, !isAboutPopoverPresented else { return }
         scheduleGraceCollapse()
     }
 
@@ -1038,35 +1233,6 @@ final class NotchCompanionController {
         takesKey: Bool? = nil
     ) {
         cancelScheduledTransitions()
-
-        // A pill that is showing peek slots (voice state, drop target, an
-        // ambient activity) lets go of them first: blur them out, then grow
-        // the frame from a clean black pill. Without this the glyph and
-        // label ride the frame as it widens.
-        let pillIsShowingSlots = pillPanel?.isVisible == true
-            && expandedPanel?.isVisible != true
-            && pillModel.wantsWidenedFrame
-        if pillIsShowingSlots && !prefersReducedMotion {
-            frameAnimator.cancel()
-            pillModel.isYieldingToCard = true
-            isTransitioning = true
-            pendingPresentTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: UInt64(NotchLayoutMath.pillYieldDuration * 1_000_000_000))
-                guard !Task.isCancelled, let self else { return }
-                self.pendingPresentTask = nil
-                self.performPresentSurface(surface, pinned: pinned, takesKey: takesKey)
-            }
-            return
-        }
-        performPresentSurface(surface, pinned: pinned, takesKey: takesKey)
-    }
-
-    private func performPresentSurface(
-        _ surface: NotchPresentedSurface,
-        pinned: Bool,
-        takesKey: Bool?
-    ) {
-        cancelScheduledTransitions()
         // Stop any in-flight pill hover-widen so it doesn't keep ticking
         // frames under/after the card morph — that double animation is what
         // reads as "widens left-right, then finally opens" instead of one
@@ -1096,16 +1262,19 @@ final class NotchCompanionController {
             return
         }
 
-        let preservesWorkspaceMorph = surface == .fullChat && presentedSurface == .fullChat
+        let preservesSurfaceMorph = surface == presentedSurface
             && expandedPanel?.isVisible == true
         presentedSurface = surface
         isExpanded = true
         isTransitioning = true
-        // Every open makes a sound; hover-peeks are softer than a deliberate open.
-        if pinned {
-            HeyMateCue.shared.fire(.panelOpen)
-        } else {
-            UISoundPlayer.shared.playDisclosure(.peek, isOpen: true)
+        // Every open makes a sound; hover-peeks are softer than a deliberate
+        // open. The caption is silent: HeyMate's voice is the sound.
+        if surface != .caption {
+            if pinned {
+                HeyMateCue.shared.fire(.panelOpen)
+            } else {
+                UISoundPlayer.shared.playDisclosure(.peek, isOpen: true)
+            }
         }
         installDismissalMonitors()
 
@@ -1129,7 +1298,7 @@ final class NotchCompanionController {
             startFrame = pillFrame(for: targetScreen, activeInteraction: false) ?? destinationFrame
         }
 
-        surfaceTransitionModel.prepare(preservingMorph: preservesWorkspaceMorph)
+        surfaceTransitionModel.prepare(preservingMorph: preservesSurfaceMorph)
         expandedPanel.setFrame(startFrame, display: false)
         expandedPanel.contentView = makeExpandedContentView(
             surface: surface,
@@ -1147,7 +1316,6 @@ final class NotchCompanionController {
         // black pixels for the handoff frame.
         expandedPanel.contentView?.displayIfNeeded()
         pillPanel?.orderOut(nil)
-        pillModel.isYieldingToCard = false
 
         if prefersReducedMotion {
             expandedPanel.setFrame(destinationFrame, display: true, animate: false)
@@ -1158,25 +1326,26 @@ final class NotchCompanionController {
         }
 
         surfaceTransitionModel.present()
-        // Growing out of the pill: let the card's height settle past its
-        // final size and back. Surface-to-surface changes (already open)
-        // keep the plain swoosh.
+        // One spring clock for frame and silhouette. Width stays bounded;
+        // only vertical travel receives the restrained settling tail.
         animateFrame(
             of: expandedPanel,
             to: destinationFrame,
             duration: surface == .fullChat ? NotchLayoutMath.workspaceExpandDuration : NotchLayoutMath.expandDuration,
-            curve: surface == .fullChat ? .workspaceMorph : .codenotchUnfold,
+            curve: .surfaceOpen,
             onProgress: { [weak self] easedProgress, linearProgress in
                 self?.surfaceTransitionModel.updateMorph(
                     easedProgress: easedProgress,
                     linearProgress: linearProgress,
-                    followsFrame: surface == .fullChat
+                    followsFrame: true
                 )
             },
             completion: { [weak self] in
                 guard let self else { return }
                 self.isTransitioning = false
                 if shouldTakeKey { self.expandedPanel?.makeKey() }
+                // Words that streamed in during the open.
+                if surface == .caption { self.syncCaption() }
             }
         )
     }
@@ -1190,9 +1359,14 @@ final class NotchCompanionController {
         cancelScheduledTransitions()
         frameAnimator.cancel()
         let wasPinned = isPinned
+        let wasCaption = presentedSurface == .caption
         isPinned = false
         isPillHovered = false
         pillModel.isHovered = false
+        if wasCaption, let companionManager {
+            companionManager.isCursorCaptionHeld = false
+            isCaptionDismissed = !companionManager.cursorCaptionText.isEmpty
+        }
 
         guard isExpanded, let expandedPanel, expandedPanel.isVisible else {
             finishCollapse()
@@ -1210,10 +1384,12 @@ final class NotchCompanionController {
 
         isTransitioning = true
         surfaceTransitionModel.dismiss()
-        if wasPinned {
-            HeyMateCue.shared.fire(.panelClose)
-        } else {
-            UISoundPlayer.shared.playDisclosure(.peek, isOpen: false)
+        if !wasCaption {
+            if wasPinned {
+                HeyMateCue.shared.fire(.panelClose)
+            } else {
+                UISoundPlayer.shared.playDisclosure(.peek, isOpen: false)
+            }
         }
 
         // Shrink the real window back toward the pill's own frame, same
@@ -1226,12 +1402,12 @@ final class NotchCompanionController {
             of: expandedPanel,
             to: collapseTargetFrame,
             duration: closesWorkspace ? NotchLayoutMath.workspaceCollapseDuration : NotchLayoutMath.collapseDuration,
-            curve: closesWorkspace ? .workspaceMorph : .codenotchFold,
+            curve: .surfaceClose,
             onProgress: { [weak self] easedProgress, linearProgress in
                 self?.surfaceTransitionModel.updateMorph(
                     easedProgress: easedProgress,
                     linearProgress: linearProgress,
-                    followsFrame: closesWorkspace
+                    followsFrame: true
                 )
             },
             completion: { [weak self] in
@@ -1247,6 +1423,9 @@ final class NotchCompanionController {
         isPinned = false
         presentedSurface = .fullCard
         showIfPossible()
+        // A reply still being spoken returns to the notch once the card that
+        // covered it folds away.
+        syncCaption()
     }
 
     /// Orders out every notch surface and resets interaction state. Unlike
@@ -1318,11 +1497,17 @@ final class NotchCompanionController {
     // MARK: Transition timers
 
     private func scheduleHoverExpand() {
+        guard pendingClickOpenTask == nil else { return }
         cancelPendingHoverExpand()
+        let cue = NotchOpenCue(kind: .hover, duration: NotchLayoutMath.hoverPreparationDuration)
+        pillModel.openingCue = cue
+        pillModel.reducesMotion = prefersReducedMotion
         pendingHoverExpandTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.hoverExpandDelayMilliseconds * 1_000_000)
-            guard !Task.isCancelled else { return }
-            self?.expandAfterHover()
+            guard !Task.isCancelled, let self, self.pillModel.openingCue?.id == cue.id else { return }
+            self.pendingHoverExpandTask = nil
+            self.pillModel.openingCue = nil
+            self.expandAfterHover()
         }
     }
 
@@ -1338,6 +1523,7 @@ final class NotchCompanionController {
     private func cancelPendingHoverExpand() {
         pendingHoverExpandTask?.cancel()
         pendingHoverExpandTask = nil
+        if pillModel.openingCue?.kind == .hover { pillModel.openingCue = nil }
     }
 
     private func cancelPendingGraceCollapse() {
@@ -1350,7 +1536,9 @@ final class NotchCompanionController {
     private func installDismissalMonitors() {
         if escapeKeyMonitor == nil {
             escapeKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self, self.isExpanded, event.keyCode == 53 else { return event }
+                guard let self, self.isExpanded, !self.isAboutPopoverPresented,
+                      event.keyCode == 53 else { return event }
+                if self.presentedSurface == .caption, event.window !== self.expandedPanel { return event }
                 if self.companionManager?.voiceState == .listening {
                     self.companionManager?.finishVoiceInputFromNotch()
                     return nil
@@ -1364,7 +1552,9 @@ final class NotchCompanionController {
                 matching: [.leftMouseDown, .rightMouseDown]
             ) { [weak self] event in
                 guard let self, self.isExpanded,
+                      !self.isAboutPopoverPresented,
                       self.presentedSurface != .fullChat,
+                      self.presentedSurface != .caption,
                       event.window !== self.expandedPanel,
                       event.window !== self.pillPanel else { return event }
                 self.collapseAndUnpin()
@@ -1377,7 +1567,7 @@ final class NotchCompanionController {
                 matching: [.leftMouseDown, .rightMouseDown]
             ) { [weak self] event in
                 Task { @MainActor in
-                    guard let self, self.isExpanded else { return }
+                    guard let self, self.isExpanded, !self.isAboutPopoverPresented else { return }
                     // A global monitor only fires for events HeyMate did not
                     // receive, so anything landing inside the card never gets
                     // here. The frame check covers the pill window and any
@@ -1387,6 +1577,8 @@ final class NotchCompanionController {
                     // The full chat is a place you work in, like a window:
                     // it stays until Escape or its close button.
                     if self.presentedSurface == .fullChat { return }
+                    // The caption talks while you keep working in that app.
+                    if self.presentedSurface == .caption { return }
                     self.collapseAndUnpin()
                 }
             }
@@ -1411,17 +1603,9 @@ final class NotchCompanionController {
     private func cancelScheduledTransitions() {
         cancelPendingHoverExpand()
         cancelPendingGraceCollapse()
-        cancelPendingPresent()
-    }
-
-    /// Abandons a card open that is still waiting on the pill's slots to
-    /// blur out, and puts the pill back the way it was.
-    private func cancelPendingPresent() {
-        guard let pendingPresentTask else { return }
-        pendingPresentTask.cancel()
-        self.pendingPresentTask = nil
-        pillModel.isYieldingToCard = false
-        isTransitioning = false
+        pendingClickOpenTask?.cancel()
+        pendingClickOpenTask = nil
+        pillModel.openingCue = nil
     }
 }
 
@@ -1439,8 +1623,8 @@ final class NotchCompanionController {
 private final class NotchFrameAnimator: NSObject {
 
     /// Easing shape applied to linear time before interpolating the frame.
-    /// Expanded surface uses a relaxed Boring Notch-style cadence in both
-    /// directions. Pill hover keeps its smaller cubic motion.
+    /// Expanded surfaces use short bounded responses; compact status resizing
+    /// keeps its smaller cubic motion.
     enum Curve {
         case easeOutCubic
         case easeOutExpo
@@ -1449,7 +1633,7 @@ private final class NotchFrameAnimator: NSObject {
         /// Swoosh for width and position; height additionally overshoots
         /// by ~3% and settles. The top edge stays flush with the bezel.
         case liquidOpen
-        case codenotchUnfold, codenotchFold, workspaceMorph
+        case surfaceOpen, surfaceClose, workspaceMorph
     }
 
     private weak var panel: NSPanel?
@@ -1461,6 +1645,10 @@ private final class NotchFrameAnimator: NSObject {
     private var curve: Curve = .easeOutCubic
     private var onProgress: ((_ easedProgress: CGFloat, _ linearProgress: CGFloat) -> Void)?
     private var completion: (() -> Void)?
+
+    func isAnimating(panel: NSPanel, to target: CGRect) -> Bool {
+        displayLink != nil && self.panel === panel && targetFrame == target
+    }
 
     /// Starts interpolating `panel.frame` toward `targetFrame`. Cancels any
     /// in-flight animation first. `completion` fires ONLY on a natural
@@ -1523,9 +1711,9 @@ private final class NotchFrameAnimator: NSObject {
         let easedProgress = eased(linearProgress)
 
         let frame: CGRect
-        if curve == .codenotchUnfold {
-            frame = NotchLayoutMath.interpolatedRect(from: sourceFrame, to: targetFrame,
-                widthProgress: min(easedProgress, 1), heightProgress: easedProgress)
+        if curve == .surfaceOpen || curve == .surfaceClose {
+            frame = NotchLayoutMath.animatedSurfaceFrame(from: sourceFrame, to: targetFrame,
+                progress: linearProgress, opening: curve == .surfaceOpen)
         } else if curve == .liquidOpen {
             frame = NotchLayoutMath.interpolatedRect(
                 from: sourceFrame,
@@ -1541,14 +1729,14 @@ private final class NotchFrameAnimator: NSObject {
             )
         }
         panel.setFrame(frame, display: true, animate: false)
-        panel.invalidateShadow()
+        if panel.hasShadow { panel.invalidateShadow() }
         onProgress?(easedProgress, linearProgress)
 
         if linearProgress >= 1 {
             // Land exactly on the target before reporting completion — the
             // final interpolated frame can sit a fraction of a point short.
             panel.setFrame(targetFrame, display: true, animate: false)
-            panel.invalidateShadow()
+            if panel.hasShadow { panel.invalidateShadow() }
             onProgress?(1, 1)
             let completion = self.completion
             displayLink.invalidate()
@@ -1566,8 +1754,8 @@ private final class NotchFrameAnimator: NSObject {
         case .easeOutExpo: return NotchLayoutMath.easeOutExpo(linearProgress)
         case .easeInCubic: return NotchLayoutMath.easeInCubic(linearProgress)
         case .swoosh, .liquidOpen: return NotchLayoutMath.swooshEase(linearProgress)
-        case .codenotchUnfold: return CNNotchMotion.progress(linearProgress, expanding: true)
-        case .codenotchFold: return CNNotchMotion.progress(linearProgress, expanding: false)
+        case .surfaceOpen: return NotchLayoutMath.surfaceOpenProgress(linearProgress)
+        case .surfaceClose: return NotchLayoutMath.surfaceMotionProgress(linearProgress)
         case .workspaceMorph: return NotchLayoutMath.workspaceMorphProgress(linearProgress)
         }
     }

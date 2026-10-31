@@ -108,7 +108,11 @@ export class HeyMateHarness {
           // The native scoped bridge enforces current-turn action approvals too.
           const result = await current.client.callTool({ name: tool.name, arguments: args,
             ...(id ? { _meta: { 'heymate/idempotency_key': id } } : {}) }, undefined, { signal });
-          if (result.isError) throw new Error('Connector action failed. Inspect returned tool evidence before reporting success.');
+          if (result.isError) {
+            // Keep the tool's own reason: without it the model can only say "it failed".
+            const reason = (result.content ?? []).filter(part => part.type === 'text').map(part => part.text).join('\n').trim().slice(0, 500);
+            throw new Error(`Connector action failed${reason ? `: ${reason}` : ''}. Inspect returned tool evidence before reporting success.`);
+          }
           return { content: result.content ?? [], details: {} };
         };
         const adapted = { name: `${name}_${tool.name}`, label: tool.name, description: tool.description || tool.name,

@@ -169,3 +169,23 @@ test('restart restores only host-verified final checkpoint without invoking a se
   assert.equal(state.record.pending, false); assert.equal(state.record.rows.at(-1).content, 'Already verified.');
   assert.equal((await harness.store.load(record.id)).rows.length, 2);
 });
+
+test('early read failures are reused and reset isolates late results', async () => {
+  let release;
+  const tool = { name: 'fixture_read', parameters, execute(_id, args) {
+    if (args.value === 1) throw new Error('fixture failure');
+    return new Promise(resolve => { release = resolve; });
+  } };
+  const early = earlyReads([{ tool }]);
+  const event = (id, value) => ({ type: 'message_update', assistantMessageEvent: {
+    type: 'toolcall_end', toolCall: { type: 'toolCall', id, name: tool.name, arguments: { value } }
+  } });
+  early.onEvent(event('fail', 1));
+  const failed = await early.take('fail', tool.name, { value: 1 });
+  assert.equal(failed.isError, true);
+  assert.match(failed.content[0].text, /fixture failure/);
+  early.onEvent(event('late', 2));
+  early.reset();
+  release({ content: [{ type: 'text', text: 'old result' }] });
+  assert.equal(await early.take('late', tool.name, { value: 2 }), null);
+});

@@ -38,6 +38,9 @@ nonisolated struct Mate: Equatable, Identifiable {
     /// Legacy per-agent integration choices. Integrations are global now;
     /// kept only so older files still decode.
     var connectorExclusionIDs: [String]? = nil
+    /// Integrations this agent turns on or off against HeyMate's defaults,
+    /// keyed by chat connector selection ID. A missing key inherits.
+    var connectorOverrides: [String: Bool]? = nil
 
     static let defaultName = "HeyMate"
     static let defaultJob = "Talks with you and hands work to your agents"
@@ -56,7 +59,7 @@ extension Mate: Codable {
     private enum CodingKeys: String, CodingKey {
         case id, name, job, pinned, archived, unreadCount, createdAt, updatedAt
         case memoryNote, folderPath, soul, faceAssetName, faceTint, faceHair, faceOutfit
-        case conductsOthers, brainRawValue, connectorExclusionIDs
+        case conductsOthers, brainRawValue, connectorExclusionIDs, connectorOverrides
     }
 
     init(from decoder: Decoder) throws {
@@ -79,6 +82,7 @@ extension Mate: Codable {
         conductsOthers = try container.decodeIfPresent(Bool.self, forKey: .conductsOthers) ?? false
         brainRawValue = try container.decodeIfPresent(String.self, forKey: .brainRawValue)
         connectorExclusionIDs = try container.decodeIfPresent([String].self, forKey: .connectorExclusionIDs)
+        connectorOverrides = try container.decodeIfPresent([String: Bool].self, forKey: .connectorOverrides)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -101,5 +105,6 @@ extension Mate: Codable {
         try container.encode(conductsOthers, forKey: .conductsOthers)
         try container.encodeIfPresent(brainRawValue, forKey: .brainRawValue)
         try container.encodeIfPresent(connectorExclusionIDs, forKey: .connectorExclusionIDs)
+        try container.encodeIfPresent(connectorOverrides, forKey: .connectorOverrides)
     }
 }

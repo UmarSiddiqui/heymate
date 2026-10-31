@@ -33,3 +33,21 @@ nonisolated struct AgentFilament: Identifiable, Equatable {
         return Double(hash % 360) / 360.0
     }
 }
+
+extension NotchCompactStatus.Snapshot {
+    init(run: AgentRun) {
+        let phase: NotchCompactStatus.Phase
+        switch run.status {
+        case .queued: phase = .queued
+        case .planning: phase = .planning
+        case .running: phase = .working
+        case .awaitingPlanApproval, .waitingForApproval: phase = .needsUser
+        case .succeeded: phase = .succeeded
+        case .failed: phase = .failed
+        case .cancelled: phase = .cancelled
+        }
+        self.init(id: run.id, title: run.title, action: run.latestAction, phase: phase,
+                  hue: AgentFilament.stableHue(forFolderSlug: run.workspaceURL.lastPathComponent),
+                  createdAt: run.createdAt)
+    }
+}

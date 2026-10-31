@@ -103,6 +103,21 @@ struct MateAgentServeTests {
         #expect(await owner.shutdown())
     }
 
+    @Test func cancellingOneWaiterLeavesSharedStartupForTheOthers() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let owner = MateAgentServeBackend()
+        defer { owner.stop() }
+        let leaving = Task { try await owner.start(configuration: fixture.launch, timeout: .seconds(5)) }
+        let staying = Task { try await owner.start(configuration: fixture.launch, timeout: .seconds(5)) }
+        try await Task.sleep(for: .milliseconds(20))
+        leaving.cancel()
+        await #expect(throws: CancellationError.self) { try await leaving.value }
+        let identity = try await staying.value
+        #expect(owner.identity == identity)
+        #expect(await owner.shutdown())
+    }
+
     @Test func completionBeforeAcceptanceIsBufferedAndOtherSessionEventsIgnored() async throws {
         let peer = Peer()
         let session = MateAgentServeSession(connection: peer.socket)

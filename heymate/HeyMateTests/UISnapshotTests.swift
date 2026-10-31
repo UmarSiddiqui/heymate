@@ -20,6 +20,43 @@ struct UISnapshotTests {
         ProcessInfo.processInfo.environment["HEYMATE_SNAPSHOT_DIR"].map { URL(fileURLWithPath: $0) }
     }
 
+    /// The drive consent card with the goal sentence a real Talk turn wrote.
+    @Test(.enabled(if: outputDirectory != nil))
+    func driveConsentCard() throws {
+        try Self.render(
+            DriveTakeOverConsentCard(
+                goal: "The current calculation is cleared and 998633 is entered.",
+                applicationName: "Calculator",
+                origin: "talk",
+                topInset: 32,
+                onDecline: {},
+                onAccept: {}
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(Color(white: 0.4)),
+            size: CGSize(width: 720, height: 140),
+            dark: true,
+            name: "drive-consent"
+        )
+    }
+
+    /// The notch's one-at-a-time permission ask with two switches off.
+    @Test(.enabled(if: outputDirectory != nil))
+    func notchPermissionFlow() throws {
+        let guide = PermissionGuide { permission in
+            permission != .inputMonitoring && permission != .screenRecording
+        }
+        try Self.render(
+            NotchPermissionFlow(guide: guide, openChecklist: {})
+                .padding(16)
+                .frame(width: 420)
+                .background(Color.black),
+            size: CGSize(width: 420, height: 110),
+            dark: true,
+            name: "notch-permission-flow"
+        )
+    }
+
     @Test(.enabled(if: outputDirectory != nil))
     func mateHome() throws {
         let manager = Self.sampleManager()

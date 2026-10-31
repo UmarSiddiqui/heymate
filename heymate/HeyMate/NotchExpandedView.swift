@@ -343,17 +343,12 @@ struct NotchExpandedView: View {
                 .frame(width: max(hardwareNotchWidth, 0))
                 .accessibilityHidden(true)
 
-            // Status, collapse and quit live on the right wing so the bottom
-            // bar only carries tools, and neither wing reads as an empty box.
-            // Quit takes the top-right corner — there is no Dock icon or
-            // menu bar to quit from otherwise.
+            // Status and collapse live on the right wing. Quit is in About
+            // (ⓘ), so the wing stays light.
             HStack(spacing: 6) {
                 Spacer(minLength: 0)
                 headerStatusPill
                 headerIconButton(systemName: "chevron.up", help: "Collapse", action: onClose)
-                headerIconButton(systemName: "power", help: "Quit HeyMate") {
-                    NSApp.terminate(nil)
-                }
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
@@ -366,11 +361,16 @@ struct NotchExpandedView: View {
     private var headerStatusPill: some View {
         HStack(spacing: 6) {
             DSStatusDot(color: statusDotColor, size: 5)
-            Text(headerStatusText)
-                .font(DS.Fonts.control)
-                .foregroundColor(DS.Colors.textSecondary)
-                .lineLimit(1)
+            // "Ready" is the resting state; the dot says it. Words appear
+            // only when something is happening or setup is unfinished.
+            if !isResting {
+                Text(headerStatusText)
+                    .font(DS.Fonts.control)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .lineLimit(1)
+            }
         }
+        .help(headerStatusText)
         .padding(.horizontal, 6)
         .frame(height: NotchControlMetrics.compactControlSize)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: companionManager.voiceState)
@@ -394,6 +394,8 @@ struct NotchExpandedView: View {
             .disclosureSound(isShowingAboutPopover, .popover)
             .popover(isPresented: $isShowingAboutPopover, arrowEdge: .bottom) {
                 notchAboutPopover
+                    .onAppear { companionManager.setNotchAboutPopoverPresented(true) }
+                    .onDisappear { companionManager.setNotchAboutPopoverPresented(false) }
             }
         }
         // 16pt matches the content columns and keeps the end controls clear
@@ -402,31 +404,28 @@ struct NotchExpandedView: View {
         .padding(.horizontal, DS.Spacing.lg)
     }
 
-    /// Chat and Settings share full-size, labeled controls.
+    /// Chat and Settings as quiet notch buttons: no capsule group, so the
+    /// bar reads as tools rather than a second window toolbar.
     private var doorButtons: some View {
         HStack(spacing: 2) {
             Button {
                 companionManager.openDesktopWindow(section: .chat)
             } label: {
-                Label("Open chat", systemImage: "bubble.left.and.bubble.right")
+                Label("Chat", systemImage: "bubble.left.and.bubble.right")
+                    .font(DS.Fonts.control)
+                    .padding(.horizontal, 10)
+                    .frame(height: NotchControlMetrics.controlSize)
             }
-            .dsCapsuleButtonStyle(.primary, height: DS.ControlSize.regular)
+            .notchSoftButtonStyle(.capsule)
+            .foregroundColor(DS.Colors.textSecondary)
             .keyboardShortcut("1", modifiers: .command)
-            .help("Open chats, mates, and the character editor")
+            .help("Open chats, mates, and the character editor (⌘1)")
             .accessibilityLabel("Open chat and characters")
-            Button {
+            headerIconButton(systemName: "gearshape", help: "Settings (⌘3)") {
                 companionManager.openDesktopWindow(section: .settings)
-            } label: {
-                Label("Settings", systemImage: "gearshape")
             }
-            .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.regular)
             .keyboardShortcut("3", modifiers: .command)
-            .help("Settings: engine, voice, shortcuts, appearance (⌘3)")
-            .accessibilityLabel("Settings")
         }
-        .padding(2)
-        .background(Capsule().fill(Color.white.opacity(0.035)))
-        .overlay(Capsule().strokeBorder(Color.white.opacity(0.075), lineWidth: 0.5))
     }
 
     private func headerIconButton(
@@ -445,6 +444,10 @@ struct NotchExpandedView: View {
         .pointerCursor()
         .help(help)
         .accessibilityLabel(help)
+    }
+
+    private var isResting: Bool {
+        companionManager.hasCompletedOnboarding && companionManager.voiceState == .idle
     }
 
     private var statusDotColor: Color {
@@ -641,11 +644,13 @@ private struct NotchHomeTab: View {
                 HStack(alignment: .top, spacing: DS.Spacing.lg) {
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-                            if !shortcutsAreOff {
+                            // At rest the talk hint lives in the composer's
+                            // placeholder; the card shows only real activity.
+                            if !shortcutsAreOff && !isComposerHero {
                                 NotchStatusCard(companionManager: companionManager)
                             }
                             typedMessageInputRow
-                            missingPermissionNote
+                            NotchPermissionFlow(guide: permissionGuide, openChecklist: openPermissionSettings)
                             NotchSubscriptionSignInBanner(signIn: companionManager.subscriptionSignIn)
                             ContextualConnectorSuggestionBanner(companionManager: companionManager)
                             unfinishedAgentCards
@@ -684,44 +689,11 @@ private struct NotchHomeTab: View {
         missingPermissions.first?.breaksShortcuts == true
     }
 
-    /// One compact route to the complete permission checklist. The warning
-    /// must fit below the composer even in the minimum-height notch card.
-    @ViewBuilder
-    private var missingPermissionNote: some View {
-        if let first = missingPermissions.first {
-            Button {
-                UserDefaults.standard.set(DesktopSettingsTab.permissions.rawValue,
-                                          forKey: DesktopSettingsTab.storageKey)
-                companionManager.openDesktopWindow(section: .settings)
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: first.systemImage).foregroundStyle(DS.Colors.warningText)
-                    ViewThatFits(in: .horizontal) {
-                        Text(first.breaksShortcuts ? "Keyboard shortcuts are off" : first.offText)
-                        Text(first.breaksShortcuts ? "Enable shortcuts" : "Permissions needed")
-                    }
-                    .font(DS.Fonts.caption.weight(.semibold))
-                    .lineLimit(1)
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
-                }
-                .foregroundStyle(DS.Colors.textSecondary)
-                .padding(.horizontal, 10).padding(.vertical, 8)
-                .background(RoundedRectangle(cornerRadius: DS.CornerRadius.large).fill(DS.Colors.notchWellFill))
-            }
-            .buttonStyle(.plain)
-            .help(permissionNoteHelp(for: first))
-            .accessibilityLabel("\(first.breaksShortcuts ? "Keyboard shortcuts are off" : first.offText). Open permission settings")
-        }
-    }
-
-    private func permissionNoteHelp(for permission: HeyMatePermission) -> String {
-        var lines: [String] = []
-        if permission.breaksShortcuts {
-            lines.append("HeyMate needs \(permission.title) to hear ⌃⌥ and your other shortcuts.")
-        }
-        if let hint = permission.settingsHint { lines.append(hint) }
-        return lines.joined(separator: " ")
+    /// The full checklist in Settings, for every switch at once.
+    private func openPermissionSettings() {
+        UserDefaults.standard.set(DesktopSettingsTab.permissions.rawValue,
+                                  forKey: DesktopSettingsTab.storageKey)
+        companionManager.openDesktopWindow(section: .settings)
     }
 
     // MARK: Setup
@@ -776,22 +748,26 @@ private struct NotchHomeTab: View {
             typedMessageComposerRow
             commandBarFeedbackRow
         }
-        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     /// A soft well, not a capsule with a rim: the text sits top-left, the
     /// send button bottom-right, and the box fills whatever height the
     /// column gives it.
+    /// The talk hint folds in here while it's true, so Home needs no
+    /// separate "hold ⌃⌥" line.
+    private var composerPlaceholder: String {
+        shortcutsAreOff ? "Ask HeyMate…" : "Ask HeyMate…  or hold \(companionManager.talkShortcutOption.displayText)"
+    }
+
     private var typedMessageComposerRow: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextField("Ask HeyMate…", text: $typedMessageInput, axis: .vertical)
+            TextField(composerPlaceholder, text: $typedMessageInput, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(isComposerHero ? DS.Fonts.headline : DS.Fonts.body)
+                .font(DS.Fonts.body)
                 .foregroundColor(DS.Colors.textPrimary)
                 .lineLimit(1...4)
                 .padding(.leading, 12)
-                .padding(.top, 5)
-                .frame(maxHeight: .infinity, alignment: .topLeading)
+                .padding(.bottom, 5)
                 .focused($isComposerFocused)
                 .onSubmit(sendTypedMessageFromInput)
 
@@ -815,7 +791,7 @@ private struct NotchHomeTab: View {
             .padding(.trailing, 5)
         }
         .padding(.vertical, DS.Spacing.xs + 1)
-        .frame(minHeight: 38, maxHeight: .infinity)
+        .frame(minHeight: 38)
         .background(
             RoundedRectangle(cornerRadius: DS.CornerRadius.hero, style: .continuous)
                 .fill(isComposerFocused ? DS.Colors.notchSelectedFill : DS.Colors.notchWellFill)

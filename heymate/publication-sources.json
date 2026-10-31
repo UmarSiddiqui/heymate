@@ -1,70 +1,113 @@
 {
   "schema": 1,
   "reviewStatus": "unresolved",
-  "reason": "Known recovered implementations remain. Naming cleanup does not establish independent authorship or distribution rights.",
-  "unresolved": [
-    {
-      "path": "HeyMate/mate-draw-engine.js",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
-      "path": "HeyMate/mate-draw-native.js",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
-      "path": "HeyMate/mate-draw-pieces.js",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
-      "path": "HeyMate/mate-three-parts.js",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
-      "path": "HeyMate/DaVinciShaders.txt",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
-      "path": "scripts/native-shaders/davinci.metal",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
-      "path": "browser/extension/mate-core.mjs",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
-      "path": "agent-runtime/src/notes.mjs",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
-      "path": "agent-runtime/src/recovered-h1-script.mjs",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
-      "path": "agent-runtime/src/recovered-h1-early-reads.mjs",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
-      "path": "agent-runtime/src/recovered-h1-telemetry.mjs",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
-      "path": "agent-runtime/src/recovered-step-journal.mjs",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
-      "path": "HeyMate/mate-stage3d.js",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
-      "path": "HeyMate/mate-host.js",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    }
-  ],
+  "reason": "Every inventoried recovered implementation has been replaced; the replacements await source and behavior review (replacementReview). Naming cleanup and rewrites do not by themselves establish independent authorship or distribution rights.",
+  "unresolved": [],
   "licensedDependencies": [
     "Three.js (MIT): retain upstream notices",
     "Patrick Hand (SIL Open Font License): retain bundled license"
   ],
   "clearance": "Engineering inventory only; not legal clearance. Replacements require behavioral and visual parity review.",
   "enforcement": "advisory",
-  "releaseAuthorization": "User requested release on 2026-10-29 with source review unresolved."
+  "releaseAuthorization": "User requested release on 2026-10-29 with source review unresolved.",
+  "replacementReview": [
+    {
+      "path": "agent-runtime/src/telemetry.mjs",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "agent-runtime/src/recovered-h1-telemetry.mjs"
+    },
+    {
+      "path": "agent-runtime/src/early-reads.mjs",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "agent-runtime/src/recovered-h1-early-reads.mjs"
+    },
+    {
+      "path": "agent-runtime/src/step-journal.mjs",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "agent-runtime/src/recovered-step-journal.mjs"
+    },
+    {
+      "path": "HeyMate/mate-three-parts.js",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "HeyMate/mate-three-parts.js (recovered 2026-10-29 snapshot)"
+    },
+    {
+      "path": "HeyMate/mate-three.js",
+      "status": "rebuilt-from-upstream-mit-source",
+      "replaces": "HeyMate/mate-three.js (recovered bundle, not previously inventoried)",
+      "build": "scripts/three-kernel"
+    },
+    {
+      "path": "HeyMate/mate-draw-pieces.js",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "HeyMate/mate-draw-pieces.js (recovered 2026-10-29 snapshot)"
+    },
+    {
+      "path": "HeyMate/mate-draw-native.js",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "HeyMate/mate-draw-native.js (recovered 2026-10-29 snapshot)"
+    },
+    {
+      "path": "agent-runtime/src/notes.mjs",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "agent-runtime/src/notes.mjs (recovered 2026-10-29 snapshot)"
+    },
+    {
+      "path": "HeyMate/mate-draw-engine.js",
+      "status": "rewritten-section-by-section-awaiting-source-and-behavior-review",
+      "replaces": "HeyMate/mate-draw-engine.js (recovered 2026-10-29 snapshot)",
+      "note": "Every section rewritten 2026-10-31, then two more passes the same day (docs/publication-source-review.md). 80 substantive lines (2.7%) still match the original, by the per-section measure: exported names and signatures hosts and tests call, the window element's data-* attributes, the material and role names hosts and pieces read, section headings and the file's closing line. The drawing palette is HeyMate's own (scripts/drawing-palette.py)."
+    },
+    {
+      "path": "HeyMate/mate-host.js",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "HeyMate/mate-host.js (2026-10-29, with a direct port of the original app's screen sampler)",
+      "note": "Screen sampling, host hooks, painter, gestures and buttons rewritten 2026-10-31; the ported sampler is gone."
+    },
+    {
+      "path": "scripts/native-shaders/davinci.metal",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "scripts/native-shaders/davinci.metal (recovered Metal literal)",
+      "note": "Rewritten 2026-10-31 with HeyMate/DaVinciShaders.txt kept byte-identical. Historical digests stay in scripts/native-shaders/provenance.json. The shared shading is copied into HeyMate/mate-stage3d.js as GLSL. Struct and field names are HeyMate's own since the second pass; the byte layout DaVinciMetalRenderer.swift packs is unchanged."
+    },
+    {
+      "path": "HeyMate/DaVinciShaders.txt",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "HeyMate/DaVinciShaders.txt (bundled copy of the recovered Metal literal)",
+      "note": "Same bytes as scripts/native-shaders/davinci.metal."
+    },
+    {
+      "path": "agent-runtime/src/recovered-h1-script.mjs",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "agent-runtime/src/recovered-h1-script.mjs (recovered H1 script runner)",
+      "note": "Rewritten 2026-10-31. Same program contract, still evaluated inside QuickJS. Historical hash stays in scripts/recovered-h1-orchestration-hashes.json."
+    },
+    {
+      "path": "HeyMate/mate-stage3d.js",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "HeyMate/mate-stage3d.js (recovered 3D stage adapter)",
+      "note": "Rewritten 2026-10-31. Same beats, camera, visits, labels, motions and picking. Illustrated stages no longer build the studio reflection map. The shared GLSL still matches scripts/native-shaders/davinci.metal. Regression tests in scripts/stage3d_tests.mjs. Material preset values replaced 2026-10-31; the preset names stay as the model's vocabulary."
+    },
+    {
+      "path": "browser/extension/mate-core.mjs",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "browser/extension/mate-core.mjs (recovered browser engine shipped through cb15e6e3)",
+      "note": "Rewritten 2026-10-31 to the background.js request contract; unit tests in scripts/browser_core_tests.mjs and scripts/browser_port_tests.mjs, live check in an isolated Chromium in scripts/browser_live_check.mjs. Operations the app never sends were not carried over. Release review on 2026-10-31 fixed Chrome download provenance, bounded debugger operations/cleanup and per-turn keep renewal; 31 browser tests and 15 isolated live checks pass. Overall source clearance remains unresolved."
+    }
+  ],
+  "engineeringReview": {
+    "date": "2026-10-31",
+    "status": "checks-passed",
+    "scope": "Replacement integration, regression behavior, dependency notice presence, installed signing preflight, compile-only validation and the existing-account Google consent/native callback; publication provenance approval remains advisory and unresolved.",
+    "knownUnreplacedCount": 0,
+    "checks": {
+      "scriptTests": 107,
+      "agentRuntimeTests": 80,
+      "accountClientOAuthTests": 22,
+      "isolatedChromiumChecks": 15,
+      "universalReleaseCompile": "passed-unsigned-scratch",
+      "liveGoogleConsentAndCallback": "passed-canonical-installed-app-existing-account"
+    },
+    "remainingRuntimeValidation": []
+  }
 }

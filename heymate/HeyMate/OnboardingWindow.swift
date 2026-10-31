@@ -247,13 +247,10 @@ struct OnboardingRootView: View {
             }
         case .circle:
             OnboardingStepFrame(
-                title: "Circle it, then ask",
-                subtitle: "Hold the circle keys and draw around something. Then hold the talk keys and ask about it."
+                title: "Circle and ask",
+                subtitle: "Hold the talk keys, circle something while you speak, then let go."
             ) {
-                VStack(spacing: 14) {
-                    OnboardingShortcutPrompt(keys: tour.circleKeys, verb: "Hold", phrase: "and draw around it")
-                    OnboardingShortcutPrompt(keys: tour.talkKeys, verb: "Then hold", phrase: "What is this?")
-                }
+                OnboardingShortcutPrompt(keys: tour.talkKeys, verb: "Hold and circle", phrase: "What is this?")
                 OnboardingAnswerLine(tour: tour)
             }
         case .type:

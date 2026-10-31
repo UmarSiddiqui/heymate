@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>GIDClientID</key>
+    <string>554870227003-ngka8narrkfheeo8m96a9hruk8sgdgdc.apps.googleusercontent.com</string>
     <!-- Public project token, never a PostHog personal or secret API key. -->
     <key>POSTHOG_API_KEY</key>
     <string>$(POSTHOG_API_KEY)</string>
@@ -41,6 +43,10 @@
 	       heymate://open/agents                                (open a desktop section) -->
 	<key>CFBundleURLTypes</key>
 	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array><string>com.googleusercontent.apps.554870227003-ngka8narrkfheeo8m96a9hruk8sgdgdc</string></array>
+		</dict>
 		<dict>
 			<key>CFBundleURLName</key>
 			<string>com.heymate.app.deeplink</string>

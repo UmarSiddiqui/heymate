@@ -2,177 +2,87 @@
 //  NoteDetailView.swift
 //  HeyMate
 //
-//  HeyMate's own note detail: shows a note's blocks and lets you add text,
-//  ink, and todo blocks. HeyMate's own SwiftUI — modeled on ReferenceRenderer's notes
-//  canvas but not copied from it.
+//  A note's detail: title, page tabs, and either the block editor or, for a
+//  board page, the card canvas. Edits are saved (debounced) through
+//  `NoteStore.updateDocument`.
 //
 
 import SwiftUI
 
 struct NoteDetailView: View {
     @ObservedObject var store: NoteStore
-    @State var note: Note
-    @State private var newText = ""
-    @State private var editingTitle = false
+    let noteID: UUID
+    @State private var document: NoteDocument
+    @State private var pageIndex = 0
+    @State private var saveTask: Task<Void, Never>?
+
+    init(store: NoteStore, note: Note) {
+        self.store = store
+        noteID = note.id
+        _document = State(initialValue: note.document ?? NoteDocument.migrating(title: note.title, legacy: note.blocks))
+    }
+
+    private var safeIndex: Int { min(pageIndex, document.pages.count - 1) }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Title bar
             HStack {
-                TextField("Title", text: $note.title)
-                    .font(DS.Fonts.title)
-                    .foregroundColor(DS.Colors.textPrimary)
-                    .onSubmit {
-                        try? save()
-                    }
+                TextField("Title", text: Binding(get: { document.title ?? "" }, set: { document.title = $0 }))
+                    .textFieldStyle(.plain).font(DS.Fonts.title).foregroundColor(DS.Colors.textPrimary)
                 Spacer()
-                Button(action: { try? save() }) {
-                    Image(systemName: "checkmark")
-                        .foregroundColor(DS.Colors.accent)
-                }
-                .buttonStyle(.plain)
-                .help("Save")
+                Menu {
+                    Button("Add page") { document.pages.append(Page(name: "Page \(document.pages.count + 1)")); pageIndex = document.pages.count - 1 }
+                    Button("Add board") { document.pages.append(Page(name: "Board", isBoard: true)); pageIndex = document.pages.count - 1 }
+                    if document.pages.count > 1 {
+                        Button("Delete this page", role: .destructive) { document.pages.remove(at: safeIndex); pageIndex = 0 }
+                    }
+                } label: { Image(systemName: "plus.square.on.square").foregroundColor(DS.Colors.textSecondary) }
+                .menuStyle(.borderlessButton).fixedSize()
             }
             .padding(DS.Spacing.md)
 
-            Divider()
+            if document.pages.count > 1 { pageTabs }
+            Divider().background(DS.Colors.borderSubtle)
 
-            // Blocks
-            ScrollView {
-                VStack(alignment: .leading, spacing: DS.Spacing.md) {
-                    ForEach(Array(note.blocks.enumerated()), id: \.element.id) { index, block in
-                        NoteBlockView(block: block) { updated in
-                            var blocks = note.blocks
-                            blocks[index] = updated
-                            try? store.update(note, blocks: blocks)
-                            note.blocks = blocks
-                        } onDelete: {
-                            try? store.removeBlock(at: index, from: note.id)
-                            note.blocks.remove(at: index)
-                        }
-                    }
+            let page = $document.pages[safeIndex]
+            if page.wrappedValue.isBoard { NoteCanvasView(page: page) } else { NoteBlockEditor(page: page) }
 
-                    // Add block controls
-                    VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-                        Text("Add block")
-                            .font(DS.Fonts.caption)
-                            .foregroundColor(DS.Colors.textTertiary)
-                        HStack(spacing: DS.Spacing.sm) {
-                            Button("Text") {
-                                let block = NoteBlock(kind: .text, content: newText)
-                                newText = ""
-                                try? store.appendBlock(block, to: note.id)
-                                note.blocks.append(block)
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(newText.isEmpty)
-
-                            Button("Todo") {
-                                let block = NoteBlock(kind: .todo, content: newText)
-                                newText = ""
-                                try? store.appendBlock(block, to: note.id)
-                                note.blocks.append(block)
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(newText.isEmpty)
-
-                            Button("Ink") {
-                                let block = NoteBlock(kind: .ink, content: "")
-                                try? store.appendBlock(block, to: note.id)
-                                note.blocks.append(block)
-                            }
-                            .buttonStyle(.bordered)
-
-                            TextField("Enter text…", text: $newText)
-                                .textFieldStyle(.roundedBorder)
-                        }
-                    }
-                    .padding(DS.Spacing.md)
-                }
-                .padding(DS.Spacing.md)
-            }
-
-            Divider()
-
-            // Status
+            Divider().background(DS.Colors.borderSubtle)
             HStack {
-                Text("\(note.blocks.count) block\(note.blocks.count == 1 ? "" : "s")")
-                    .font(DS.Fonts.caption)
-                    .foregroundColor(DS.Colors.textTertiary)
+                Text("\(document.pages.reduce(0) { $0 + $1.blocks.count }) blocks · \(document.pages.count) page\(document.pages.count == 1 ? "" : "s")")
+                    .font(DS.Fonts.caption).foregroundColor(DS.Colors.textTertiary)
                 Spacer()
-                Text(note.updatedAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(DS.Fonts.caption)
-                    .foregroundColor(DS.Colors.textTertiary)
-            }
-            .padding(DS.Spacing.md)
+            }.padding(DS.Spacing.sm)
         }
-        .frame(minWidth: 400, minHeight: 300)
+        .background(DS.Colors.background)
+        .onChange(of: document) { _, new in scheduleSave(new) }
+        .onDisappear { flush() }
     }
 
-    private func save() throws {
-        try store.update(note, title: note.title)
+    private var pageTabs: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(Array(document.pages.enumerated()), id: \.element.id) { index, page in
+                    Button { pageIndex = index } label: {
+                        Text(page.name).font(DS.Fonts.caption).foregroundColor(DS.Colors.textPrimary)
+                            .padding(.horizontal, 10).padding(.vertical, 4)
+                            .background(Capsule().fill(index == safeIndex ? DS.Colors.surface3 : DS.Colors.surface1))
+                    }.buttonStyle(.plain)
+                }
+            }.padding(.horizontal, DS.Spacing.md).padding(.bottom, DS.Spacing.sm)
+        }
     }
-}
 
-/// Renders a single block inside a note.
-private struct NoteBlockView: View {
-    @State var block: NoteBlock
-    let onUpdate: (NoteBlock) -> Void
-    let onDelete: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-            switch block.kind {
-            case .text:
-                Text(block.content.isEmpty ? "(empty text)" : block.content)
-                    .font(DS.Fonts.body)
-                    .foregroundColor(DS.Colors.textPrimary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            case .todo:
-                HStack(spacing: DS.Spacing.sm) {
-                    Image(systemName: block.content.isEmpty ? "square" : "checkmark.square")
-                        .foregroundColor(DS.Colors.accent)
-                    Text(block.content.isEmpty ? "(empty todo)" : block.content)
-                        .font(DS.Fonts.body)
-                        .foregroundColor(DS.Colors.textPrimary)
-                    Spacer()
-                }
-            case .ink:
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(DS.Colors.surface2)
-                    .frame(height: 100)
-                    .overlay(
-                        VStack {
-                            Image(systemName: "scribble")
-                                .foregroundColor(DS.Colors.textTertiary)
-                            Text("Ink drawing")
-                                .font(DS.Fonts.caption)
-                                .foregroundColor(DS.Colors.textTertiary)
-                        }
-                    )
-            case .table:
-                VStack(alignment: .leading, spacing: DS.Spacing.xs) {
-                    ForEach(block.children.indices, id: \.self) { rowIndex in
-                        HStack(spacing: DS.Spacing.sm) {
-                            ForEach(block.children[rowIndex].content.components(separatedBy: "\t"), id: \.self) { cell in
-                                Text(cell)
-                                    .font(DS.Fonts.caption)
-                                    .foregroundColor(DS.Colors.textSecondary)
-                                Divider()
-                                    .frame(height: 12)
-                            }
-                        }
-                    }
-                }
-            }
+    private func scheduleSave(_ doc: NoteDocument) {
+        saveTask?.cancel()
+        saveTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard !Task.isCancelled else { return }
+            try? store.updateDocument(doc, for: noteID)
         }
-        .padding(DS.Spacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                .fill(DS.Colors.surface2.opacity(0.5))
-        )
-        .contextMenu {
-            Button("Delete", role: .destructive, action: onDelete)
-        }
+    }
+    private func flush() {
+        saveTask?.cancel()
+        try? store.updateDocument(document, for: noteID)
     }
 }

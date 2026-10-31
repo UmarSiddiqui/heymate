@@ -126,9 +126,12 @@ struct VoiceProviderTests {
 @MainActor
 struct VoiceProviderPersistenceTests {
 
-    @Test func retiredMacSpeakingChoiceUsesKokoro() {
-        #expect(CompanionManager.makeSpeakingClient(for: .macOS, workerBaseURL: "http://localhost") is KokoroTTSClient)
-        #expect(CompanionManager.makeSpeakingClient(for: .onDevice, workerBaseURL: "http://localhost") is KokoroTTSClient)
+    @Test func retiredMacSpeakingChoiceUsesTheLocalVoice() {
+        let kokoroRuns = KokoroEngine.unsupportedReason == nil
+        for provider in [VoiceSpeakProvider.macOS, .onDevice] {
+            let client = CompanionManager.makeSpeakingClient(for: provider, workerBaseURL: "http://localhost")
+            #expect(kokoroRuns ? client is KokoroTTSClient : client is MacOSSpeechSynthesizerClient)
+        }
     }
 
     @Test func kokoroStaysOffWhereAppleBNNSCrashesIt() {

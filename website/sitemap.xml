@@ -1,20 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
-        xmlns:video="http://www.google.com/schemas/sitemap-video/1.1">
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://getheymate.vercel.app/</loc>
-    <lastmod>2026-10-11</lastmod>
+    <lastmod>2026-10-31</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
-    <video:video>
-      <video:thumbnail_loc>https://getheymate.vercel.app/assets/video/demo-poster-v2.jpg</video:thumbnail_loc>
-      <video:title>HeyMate: 38-second illustrated product tour</video:title>
-      <video:description>An animated tour with recreated UI showing screen-aware answers, coding-agent plan approval, and mates. This is an illustration, not a recorded usability test.</video:description>
-      <video:content_loc>https://getheymate.vercel.app/assets/video/heymate-demo-v2.mp4</video:content_loc>
-      <video:duration>38</video:duration>
-      <video:publication_date>2026-09-28</video:publication_date>
-      <video:family_friendly>yes</video:family_friendly>
-    </video:video>
   </url>
   <url>
     <loc>https://getheymate.vercel.app/changelog</loc>

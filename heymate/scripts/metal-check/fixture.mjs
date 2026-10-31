@@ -28,7 +28,7 @@ part('sphere', {r:0.75}, 0,-1, {color:'#86cddd',opacity:0.38,double:true});
 part('sphere', {r:0.75}, 2,-1, {color:'#b4bfcd',metalness:0.7,cut:[1,0,0,2]});
 const canvas = {getBoundingClientRect:()=>({left:0,top:0,width:768,height:512})};
 const renderer = MateMetal.create(canvas);
-renderer.stage = {pivot,centre:new THREE.Vector3(),look:'illustrated',ink:'#30333a',labelList:[]};
+renderer.stage = {pivot,centre:new THREE.Vector3(),look:'illustrated',ink:'#2b2e34',labelList:[]};
 renderer.render(scene,camera);
 `, context);
 fs.writeFileSync(process.argv[2], JSON.stringify(payload));

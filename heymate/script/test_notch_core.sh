@@ -20,13 +20,19 @@ let package = Package(name: "HeyMateNotchCore", platforms: [.macOS(.v14)],
     swiftLanguageModes: [.v5])
 ''')
 for file in (root/'HeyMate/Codenotch').glob('*.swift'): shutil.copy2(file,source/file.name)
-for name in ['NotchUsageStore','NotchProviderCatalog','NotchCodenotchReader','NotchExternalActivity','NotchLayoutMath','NotchGlyphOutline']:
+for name in ['NotchUsageStore','NotchProviderCatalog','NotchCodenotchReader','NotchExternalActivity','NotchLayoutMath','NotchGlyphOutline','NotchCompactStatus','NotchOpenCue','NotchOpenRing']:
     shutil.copy2(root/f'HeyMate/{name}.swift',source/f'{name}.swift')
 # Ring host declarations are independent from the rest of HeyMate's services.
 view=(root/'HeyMate/NotchUsageView.swift').read_text().split('struct NotchUsageView:')[0]
+# The compact usage host now shares a font token with the full app. Carry the
+# actual token declaration without importing unrelated app services.
+micro=next(line.strip() for line in (root/'HeyMate/DesignSystem.swift').read_text().splitlines() if 'static let micro = ' in line)
+view += '\nenum DS { enum Fonts { ' + micro + ' } }\n'
 (source/'NotchUsageRingHost.swift').write_text(view)
 for file in (root/'HeyMateTests/Codenotch').glob('*.swift'): shutil.copy2(file,tests/file.name)
 shutil.copy2(root/'HeyMateTests/NotchCodenotchIntegrationTests.swift',tests/'NotchCodenotchIntegrationTests.swift')
+shutil.copy2(root/'HeyMateTests/NotchCompactStatusTests.swift',tests/'NotchCompactStatusTests.swift')
+shutil.copy2(root/'HeyMateTests/NotchOpenCueTests.swift',tests/'NotchOpenCueTests.swift')
 # The transition-model test needs NotchChatView's SwiftUI host; Xcode runs it.
 s=(root/'HeyMateTests/NotchLayoutMathTests.swift').read_text()
 a=s.index('    @Test func workspaceCanReverseMidMorphWithoutNeckOrContentJumping()')

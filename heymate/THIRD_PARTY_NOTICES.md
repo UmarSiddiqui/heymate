@@ -145,3 +145,10 @@ The source inventory in `publication-sources.json` lists recovered implementatio
 whose distribution rights or independent replacements remain unresolved.
 These notices do not grant rights to that code. Source review remains advisory
 and unresolved; publication is not evidence of permission or independent authorship.
+
+## Notes canvas fonts
+
+The notes canvas names Patrick Hand and Barlow (both SIL Open Font License 1.1).
+They are not bundled in HeyMate. If installed on the Mac they are used; otherwise
+the canvas falls back to Noteworthy / system fonts. If they are bundled later,
+add each font's OFL text and copyright line here.

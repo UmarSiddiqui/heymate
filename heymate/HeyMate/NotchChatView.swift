@@ -325,6 +325,8 @@ enum NotchPresentedSurface: Equatable {
     /// "open chat" lands instead of a separate window.
     case fullChat
     case connectorSuggestion
+    /// HeyMate's reply, spoken out of the notch instead of beside the cursor.
+    case caption
 }
 
 /// Shared root so the expanded panel can morph between the full Home card
@@ -383,7 +385,7 @@ struct NotchSurfaceRoot: View {
             // The display-link morph already drives the surface and reveal.
             // A second cue transform moved the whole silhouette off its neck.
             surfaceContent
-            if surface != .connectorSuggestion {
+            if surface != .connectorSuggestion && surface != .caption {
                 NotchHomeResizeChrome(
                     onBegan: onResizeBegan,
                     onChanged: onResizeChanged,
@@ -438,6 +440,14 @@ struct NotchSurfaceRoot: View {
                 occludedTopInset: occludedTopInset,
                 layoutSize: layoutSize,
                 transitionModel: transitionModel
+            )
+        case .caption:
+            NotchCaptionCard(
+                companionManager: companionManager,
+                occludedTopInset: occludedTopInset,
+                layoutSize: layoutSize,
+                transitionModel: transitionModel,
+                onClose: onClose
             )
         }
     }

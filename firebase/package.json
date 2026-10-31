@@ -1,0 +1,8 @@
+{
+  "name": "heymate-account-emulator-tests",
+  "private": true,
+  "scripts": {
+    "test": "firebase emulators:exec --project demo-heymate-accounts --only auth,firestore 'node --test accounts.integration.test.mjs'"
+  },
+  "devDependencies": { "firebase-tools": "15.34.2" }
+}

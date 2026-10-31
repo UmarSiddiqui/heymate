@@ -1,658 +1,811 @@
-// Mate's 3D kernel: every part a figure() program makes, built with three.js (mate-three.js, loaded first) into
-// the arrays the Metal stage draws. It runs in its own JavaScriptCore context on a background queue
-// (MateThreeKernel.swift), never in the drawing engine's: a part's shape is built when its statement runs, long
-// before its beat draws it, and cached by its recipe.
+// HeyMate's 3D part builder.
 //
-// mateThreeBuild(kind, recipeJSON) -> { positions, normals, uvs, indices, samples } (typed arrays) or throws.
-// Recipes are what the engine's figure() parts send (mate-draw-engine.js api.figure): sizes in world units, `axis`
-// for the part's main axis ('x', '-z' or [x, y, z]; most parts stand along y), `stretch` [sx, sy, sz] for a part
-// scaled unevenly. Shapes follow the 3D speed bench's three.js lane (lab runtime.js geometryFor) so its programs
-// draw the same here.
+// The drawing engine describes each figure() part as a kind plus a JSON recipe. This file turns a recipe into the
+// triangle arrays the 3D stage uploads. It loads after mate-three.js (globalThis.MateThreeLib) and exposes:
+//
+//   mateThreeKinds                     the part kinds it can build
+//   mateThreeBuild(kind, recipeJSON)   -> { positions, normals, uvs, indices, samples } (typed arrays), or throws
+//
+// Guarantees: a part is closed unless its recipe asks for a sheet (an open cylinder, a dome, a surface), every
+// triangle faces the way its normals point, and the same recipe always builds the same arrays (parts are cached by
+// recipe). Keys every kind accepts: axis ('x', '-z' or [x, y, z]; parts stand along y unless noted), thick (a wall
+// that thick), stretch [sx, sy, sz] and mirror [±1, ±1, ±1].
 (function () {
   'use strict';
-  const T = globalThis.MateThreeLib;
-  const num = (v, d) => (typeof v === 'number' && isFinite(v) ? v : d);
-  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-  const pos = (v, d) => Math.max(1e-4, num(v, d));
-  const vec3 = p => Array.isArray(p) && p.length >= 3 && p.every(n => typeof n === 'number' && isFinite(n)) ? new T.Vector3(p[0], p[1], p[2]) : null;
-  const vec2 = p => Array.isArray(p) && p.length >= 2 && isFinite(p[0]) && isFinite(p[1]) ? new T.Vector2(+p[0], +p[1]) : null;
-  // The most any one part may hold, so a runaway recipe (a spring of a thousand coils) can't stall the kernel.
-  const MAX_VERTICES = 120000;
+  const L = globalThis.MateThreeLib;
+  // A runaway recipe (a spring of a thousand coils) fails instead of stalling the page.
+  const VERTEX_LIMIT = 120000;
+  const TAU = Math.PI * 2;
 
-  const AXES = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] };
-  function axisVector(axis) {
-    if (typeof axis === 'string') {
-      const m = /^\s*([+-]?)\s*([xyz])\s*$/i.exec(axis);
-      if (!m) return null;
-      const a = AXES[m[2].toLowerCase()];
-      return new T.Vector3(a[0], a[1], a[2]).multiplyScalar(m[1] === '-' ? -1 : 1);
+  // ---------------------------------------------------------------- reading recipes
+  const isNum = v => typeof v === 'number' && Number.isFinite(v);
+  const numOr = (v, fallback) => (isNum(v) ? v : fallback);
+  const within = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+  const size = (v, fallback) => Math.max(1e-4, numOr(v, fallback));
+  const whole = (v, fallback, lo, hi) => within(Math.round(numOr(v, fallback)), lo, hi);
+  const sweepOf = o => within(numOr(o.arc, 360), 1, 360) * Math.PI / 180;
+  const numeric = x => (typeof x === 'number' || (typeof x === 'string' && x.trim() !== '')) && Number.isFinite(+x);
+  const point3 = v => Array.isArray(v) && v.length >= 3 && isNum(v[0]) && isNum(v[1]) && isNum(v[2]) ? new L.Vector3(v[0], v[1], v[2]) : null;
+  const point2 = v => Array.isArray(v) && v.length >= 2 && numeric(v[0]) && numeric(v[1]) ? new L.Vector2(+v[0], +v[1]) : null;
+  // Points from a recipe list, with repeats dropped (a curve through the same point twice has no direction there).
+  function pathPoints(list, limit) {
+    const out = [];
+    for (const p of (Array.isArray(list) ? list : []).map(point3)) {
+      if (p && (!out.length || out[out.length - 1].distanceToSquared(p) > 1e-12)) out.push(p);
+      if (out.length === limit) break;
     }
-    const v = vec3(axis);
-    return v && v.lengthSq() > 1e-12 ? v.normalize() : null;
-  }
-  // Turns a part built along its natural axis (y for most) to point along `axis`.
-  function turnTo(geometry, axis, natural) {
-    const to = axisVector(axis);
-    const from = new T.Vector3(...AXES[natural || 'y']);
-    if (!to || to.distanceToSquared(from) < 1e-12) return geometry;
-    return geometry.applyQuaternion(new T.Quaternion().setFromUnitVectors(from, to));
-  }
-
-  // ---------------------------------------------------------------- bevels (three-metal, 2026-10-12)
-  // Blender's answers bevel nearly every machined part (19 of 26 scripts on the language bar): a rounded edge catches
-  // the light, which is most of why a model reads as real. A bevelled round part is a lathe of its outline with each
-  // corner rounded by a quarter arc.
-  const BEVEL_STEPS = 4;
-  // The corner at (x, y) between the edge coming in and the one going out, rounded by radius b (a quarter-ish arc
-  // that starts b back along the incoming edge and ends b along the outgoing one).
-  function roundCorner(points, prev, corner, next, b) {
-    const ax = prev[0] - corner[0], ay = prev[1] - corner[1], bx = next[0] - corner[0], by = next[1] - corner[1];
-    const la = Math.hypot(ax, ay) || 1, lb = Math.hypot(bx, by) || 1;
-    const s = [corner[0] + ax / la * b, corner[1] + ay / la * b], e = [corner[0] + bx / lb * b, corner[1] + by / lb * b];
-    for (let i = 0; i <= BEVEL_STEPS; i++) {
-      const t = i / BEVEL_STEPS, u = 1 - t;
-      // A quadratic Bézier with the corner as its control point: tangent to both edges.
-      points.push([u * u * s[0] + 2 * u * t * corner[0] + t * t * e[0], u * u * s[1] + 2 * u * t * corner[1] + t * t * e[1]]);
-    }
-  }
-  // A closed or open outline [[x, y], ...] with every corner listed in `rounded` (indices) rounded by b.
-  function roundOutline(outline, rounded, b) {
-    const points = [];
-    outline.forEach((p, i) => {
-      if (rounded.includes(i) && i > 0 && i < outline.length - 1) roundCorner(points, outline[i - 1], p, outline[i + 1], b);
-      else points.push(p);
-    });
-    return points.map(([x, y]) => new T.Vector2(Math.max(0, x), y));
-  }
-  const latheOf = (points, o) => new T.LatheGeometry(points, clamp(Math.round(num(o.seg, 64)), 8, 128), 0, clamp(num(o.arc, 360), 1, 360) * Math.PI / 180);
-  // Several indexed geometries as one (position, normal, uv), for parts built from pieces (an arrow's shaft and head).
-  function merged(geometries) {
-    const positions = [], normals = [], uvs = [], indices = [];
-    for (const geometry of geometries) {
-      if (!geometry.attributes.normal) geometry.computeVertexNormals();
-      const base = positions.length / 3, p = geometry.attributes.position, n = geometry.attributes.normal, uv = geometry.attributes.uv;
-      for (let i = 0; i < p.count; i++) {
-        positions.push(p.getX(i), p.getY(i), p.getZ(i));
-        normals.push(n.getX(i), n.getY(i), n.getZ(i));
-        uvs.push(uv ? uv.getX(i) : 0, uv ? uv.getY(i) : 0);
-      }
-      if (geometry.index) { const index = geometry.index.array; for (let i = 0; i < index.length; i++) indices.push(base + index[i]); }
-      else for (let i = 0; i < p.count; i++) indices.push(base + i);
-    }
-    const out = new T.BufferGeometry();
-    out.setAttribute('position', new T.Float32BufferAttribute(positions, 3));
-    out.setAttribute('normal', new T.Float32BufferAttribute(normals, 3));
-    out.setAttribute('uv', new T.Float32BufferAttribute(uvs, 2));
-    out.setIndex(indices);
     return out;
   }
-  // A geometry turned inside out by a mirror or a negative scale: its triangles wound the other way again, so they
-  // still face out (the stage culls back faces).
-  function rewind(g) {
-    if (g.index) {
-      const index = g.index.array;
-      for (let i = 0; i + 2 < index.length; i += 3) { const t = index[i + 1]; index[i + 1] = index[i + 2]; index[i + 2] = t; }
-      g.index.needsUpdate = true;
-      return;
-    }
-    for (const name of Object.keys(g.attributes)) {
-      const a = g.attributes[name], size = a.itemSize, array = a.array;
-      for (let v = 0; v + 2 < a.count; v += 3) for (let k = 0; k < size; k++) {
-        const one = (v + 1) * size + k, two = (v + 2) * size + k, t = array[one]; array[one] = array[two]; array[two] = t;
-      }
-    }
-  }
-  const bevelOf = (o, limit) => Math.min(Math.max(0, num(o.bevel, 0)), limit);
 
-  // ---------------------------------------------------------------- thickness (Blender's Solidify, three-metal 2026-10-12)
-  // A thin sheet (a dome, a membrane, a valve leaflet, a canopy, a shell) given a wall: the surface, a copy pushed in
-  // along its normals by `thick` facing the other way, and a rim joining the two round every open edge (19 of 26
-  // Blender answers on the language bar did this). A closed part becomes hollow, which shows once it is cut.
-  function solidify(g, thickness) {
-    if (!g.attributes.normal) g.computeVertexNormals();
-    const p = g.attributes.position, count = p.count;
-    const index = g.index ? g.index.array : Uint32Array.from({ length: count }, (_, i) => i);
-    const triangles = index.length - index.length % 3;
-    // Welded points (a seam's or a hard edge's copies are one point), each with its area-weighted normal: the wall is
-    // pushed in along it, so it stays one piece across seams.
-    const ids = new Uint32Array(count), keys = new Map(), welded = [];
-    for (let i = 0; i < count; i++) {
-      const key = Math.round(p.getX(i) * 1e5) + ',' + Math.round(p.getY(i) * 1e5) + ',' + Math.round(p.getZ(i) * 1e5);
-      let id = keys.get(key);
-      if (id === undefined) { id = welded.length; keys.set(key, id); welded.push([p.getX(i), p.getY(i), p.getZ(i), 0, 0, 0]); }
-      ids[i] = id;
+  const UNIT = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] };
+  function direction(axis) {
+    if (typeof axis === 'string') {
+      // 'x', '+y', '-z' (any case, spaces allowed)
+      const name = axis.replace(/\s+/g, '').toLowerCase(), letter = name.slice(-1), sign = name.slice(0, -1);
+      if (!UNIT[letter] || !['', '+', '-'].includes(sign)) return null;
+      const v = new L.Vector3().fromArray(UNIT[letter]);
+      return sign === '-' ? v.negate() : v;
     }
-    for (let t = 0; t < triangles; t += 3) {
-      const a = welded[ids[index[t]]], b = welded[ids[index[t + 1]]], c = welded[ids[index[t + 2]]];
-      const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
-      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-      for (const w of [a, b, c]) { w[3] += nx; w[4] += ny; w[5] += nz; }
-    }
-    for (const w of welded) { const l = Math.hypot(w[3], w[4], w[5]) || 1; w[3] /= l; w[4] /= l; w[5] /= l; }
-    const inward = w => [w[0] - w[3] * thickness, w[1] - w[4] * thickness, w[2] - w[5] * thickness];
-    // The inside wall: every point pushed in, facing the other way.
-    const inner = g.clone();
-    const ip = inner.attributes.position, inn = inner.attributes.normal;
-    for (let i = 0; i < count; i++) {
-      ip.setXYZ(i, ...inward(welded[ids[i]]));
-      inn.setXYZ(i, -inn.getX(i), -inn.getY(i), -inn.getZ(i));
-    }
-    rewind(inner);
-    // The rim round every open edge (an edge only one triangle has), wound to face out across the edge.
-    const edges = new Map();
-    for (let t = 0; t < triangles; t += 3) for (let k = 0; k < 3; k++) {
-      const a = ids[index[t + k]], b = ids[index[t + (k + 1) % 3]];
-      if (a === b) continue;
-      const key = a < b ? a * welded.length + b : b * welded.length + a;
-      const e = edges.get(key);
-      if (e) e[2]++; else edges.set(key, [a, b, 1]);
-    }
-    const rim = [];
-    for (const [a, b, uses] of edges.values()) {
-      if (uses !== 1) continue;
-      const A = welded[a].slice(0, 3), B = welded[b].slice(0, 3), Ai = inward(welded[a]), Bi = inward(welded[b]);
-      rim.push(...A, ...Ai, ...Bi, ...A, ...Bi, ...B);
-    }
-    const pieces = [g, inner];
-    if (rim.length) {
-      const r = new T.BufferGeometry();
-      r.setAttribute('position', new T.Float32BufferAttribute(rim, 3));
-      r.computeVertexNormals();
-      pieces.push(r);
-    }
-    return merged(pieces);
+    const v = point3(axis);
+    return v && v.lengthSq() > 1e-12 ? v.normalize() : null;
   }
-
-  // ---------------------------------------------------------------- soft shapes (three-metal 2026-10-12)
-  // Balls and sticks melted together with a smooth union (the shader answers' smin, Blender's metaballs): a heart from
-  // three balls, a kidney, a cell with its organelles budding off, a tooth, a cloud, vessels joining a chamber. Meshed
-  // with surface nets, normals from the field's gradient. The kernel runs JavaScriptCore without its JIT, so the field
-  // is sampled only near the surface, each block of it with only the primitives near it, from one flat array, and
-  // nothing is allocated per cell (a heart of four primitives builds in about 60 ms there).
-  const SOFT_STRIDE = 13;           // per primitive: kind, a xyz, d xyz (b - a), 1/|d|², r1, r2, reach (max r), unused
-  function softShape(o) {
-    const list = [];
-    const finite = v => typeof v === 'number' && isFinite(v);
-    for (const b of (Array.isArray(o.balls) ? o.balls : []).slice(0, 64)) {
-      const v = Array.isArray(b) ? b : b && typeof b === 'object' ? [...(Array.isArray(b.at) ? b.at : [0, 0, 0]), b.r] : null;
-      if (v && v.length >= 4 && v.slice(0, 4).every(finite) && v[3] > 0) list.push([0, v[0], v[1], v[2], 0, 0, 0, 0, v[3], v[3]]);
-    }
-    for (const s of (Array.isArray(o.sticks) ? o.sticks : []).slice(0, 64)) {
-      let v = null;
-      if (Array.isArray(s) && s.length >= 7 && typeof s[0] === 'number') v = s;
-      else if (Array.isArray(s) && Array.isArray(s[0]) && Array.isArray(s[1])) v = [...s[0], ...s[1], s[2], s[3]];
-      else if (s && typeof s === 'object' && Array.isArray(s.from) && Array.isArray(s.to)) v = [...s.from, ...s.to, s.r, s.r2];
-      if (!v || !v.slice(0, 7).every(finite) || v[6] <= 0) continue;
-      const r2 = finite(v[7]) && v[7] > 0 ? v[7] : v[6];
-      const dx = v[3] - v[0], dy = v[4] - v[1], dz = v[5] - v[2], dd = dx * dx + dy * dy + dz * dz;
-      list.push([1, v[0], v[1], v[2], dx, dy, dz, dd > 1e-12 ? 1 / dd : 0, v[6], r2]);
-    }
-    if (!list.length) return null;
-    const count = list.length, P = new Float64Array(count * SOFT_STRIDE);
-    let meanRadius = 0;
-    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
-    list.forEach((q, i) => {
-      for (let j = 0; j < 10; j++) P[i * SOFT_STRIDE + j] = q[j];
-      const reach = Math.max(q[8], q[9]);
-      P[i * SOFT_STRIDE + 10] = reach;
-      meanRadius += (q[8] + q[9]) / 2;
-      for (let a = 0; a < 3; a++) {
-        lo[a] = Math.min(lo[a], q[1 + a] - reach, q[1 + a] + q[4 + a] - reach);
-        hi[a] = Math.max(hi[a], q[1 + a] + reach, q[1 + a] + q[4 + a] + reach);
-      }
-    });
-    meanRadius /= count;
-    const k = clamp(num(o.blend, meanRadius * 0.5), 0, meanRadius * 4), quarterK = k * 0.25, invK = k > 0 ? 1 / k : 0;
-    // The smooth union of the listed primitives' distances (negative inside): all of them, or a block's own.
-    const everyone = Int32Array.from({ length: count }, (_, i) => i);
-    let only = everyone, onlyCount = count;
-    const field = (x, y, z) => {
-      let best = 1e9;
-      for (let j = 0; j < onlyCount; j++) {
-        const o = only[j] * SOFT_STRIDE;
-        const px = x - P[o + 1], py = y - P[o + 2], pz = z - P[o + 3];
-        let d;
-        if (P[o] === 0) d = Math.sqrt(px * px + py * py + pz * pz) - P[o + 8];
-        else {
-          const dx = P[o + 4], dy = P[o + 5], dz = P[o + 6];
-          let h = (px * dx + py * dy + pz * dz) * P[o + 7];
-          h = h < 0 ? 0 : h > 1 ? 1 : h;
-          const qx = px - dx * h, qy = py - dy * h, qz = pz - dz * h;
-          d = Math.sqrt(qx * qx + qy * qy + qz * qz) - (P[o + 8] + (P[o + 9] - P[o + 8]) * h);
-        }
-        if (d < best + k) {
-          if (k > 0 && best < 1e8) { let m = k - (best > d ? best - d : d - best); m = m > 0 ? m * invK : 0; best = (best < d ? best : d) - m * m * quarterK; }
-          else if (d < best) best = d;
-        }
-      }
-      return best;
-    };
-    const margin = k * 0.3 + meanRadius * 0.15;
-    for (let a = 0; a < 3; a++) { lo[a] -= margin; hi[a] += margin; }
-    // How much faster than its distance the field can change: 1 for balls (the smooth union keeps that), a little more
-    // round a tapered stick.
-    let rate = 1;
-    for (const q of list) if (q[0] === 1 && q[7] > 0) rate = Math.max(rate, Math.sqrt(1 + (q[9] - q[8]) * (q[9] - q[8]) * q[7]));
-    rate *= 1.05;
-    // A block round (x, y, z) reaching `reach` from it: of the primitives its parent block kept, only those that could
-    // come within the blend of the field anywhere in it are kept for it (each at most `rate` per unit closer there
-    // than at its middle, the field at most that much higher).
-    const lists = [0, 1, 2, 3, 4, 5].map(() => new Int32Array(count));
-    const nearCentre = new Float64Array(count);
-    const focus = (depth, x, y, z, reach) => {
-      const from = depth === 0 ? everyone : lists[depth - 1], fromCount = depth === 0 ? count : listCounts[depth - 1];
-      let best = 1e9;
-      for (let j = 0; j < fromCount; j++) {
-        const o = from[j] * SOFT_STRIDE, px = x - P[o + 1], py = y - P[o + 2], pz = z - P[o + 3];
-        let d;
-        if (P[o] === 0) d = Math.sqrt(px * px + py * py + pz * pz) - P[o + 8];
-        else {
-          let h = (px * P[o + 4] + py * P[o + 5] + pz * P[o + 6]) * P[o + 7];
-          h = h < 0 ? 0 : h > 1 ? 1 : h;
-          const qx = px - P[o + 4] * h, qy = py - P[o + 5] * h, qz = pz - P[o + 6] * h;
-          d = Math.sqrt(qx * qx + qy * qy + qz * qz) - (P[o + 8] + (P[o + 9] - P[o + 8]) * h);
-        }
-        nearCentre[j] = d;
-        if (d < best) best = d;
-      }
-      const into = lists[depth], cutoff = best + 2 * rate * reach + k;
-      let n = 0;
-      for (let j = 0; j < fromCount; j++) if (nearCentre[j] < cutoff) into[n++] = from[j];
-      listCounts[depth] = n;
-      only = into; onlyCount = n;
-    };
-    const listCounts = new Int32Array(6);
-    // 48 cells on the long side.
-    const span = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]), step = span / 48;
-    return surfaceNets(field, focus, lo, step, [0, 1, 2].map(a => Math.max(2, Math.ceil((hi[a] - lo[a]) / step) + 1)), rate);
-  }
-  // Naive surface nets: a point in every grid cell the surface crosses (the average of where it crosses the cell's
-  // edges), and a quad round every grid edge it crosses, wound to face out (the field is negative inside). The field
-  // is sampled where the surface can be, found by halving blocks: 8 cells wide, then 4, 2, 1; a block whose corners
-  // all lie on one side, farther from the surface than half its diagonal (the field changes no faster than about its
-  // distance, `rate`), can't hold it and is skipped. So only a band about two cells thick round the surface is
-  // sampled, each point once, with only the primitives near its block (focus).
-  function surfaceNets(field, focus, lo, step, n, rate) {
-    const nx = n[0], ny = n[1], nz = n[2], cx = nx - 1, cy = ny - 1, cz = nz - 1;
-    const values = new Float32Array(nx * ny * nz), sampled = new Uint8Array(nx * ny * nz);
-    const sample = (x, y, z) => {
-      const i = x + nx * (y + ny * z);
-      if (!sampled[i]) { values[i] = field(lo[0] + x * step, lo[1] + y * step, lo[2] + z * step); sampled[i] = 1; }
-      return values[i];
-    };
-    const cellPoint = new Int32Array(cx * cy * cz).fill(-1);
-    const positions = [], normals = [], crossed = [], indices = [];
-    const corner = new Float64Array(8);
-    // The cube's 12 edges as pairs of corner numbers (corner c is at x = c & 1, y = (c >> 1) & 1, z = c >> 2).
-    const EDGE_A = [0, 2, 4, 6, 0, 1, 4, 5, 0, 1, 2, 3], EDGE_B = [1, 3, 5, 7, 2, 3, 6, 7, 4, 5, 6, 7];
-    const e = step * 0.5;
-    // A cell the surface crosses: its point, and its normal from the field's gradient there.
-    const crossCell = (x, y, z) => {
-      let sx = 0, sy = 0, sz = 0, crossings = 0;
-      for (let k = 0; k < 12; k++) {
-        const a = EDGE_A[k], b = EDGE_B[k], va = corner[a], vb = corner[b];
-        if ((va < 0) === (vb < 0)) continue;
-        const t = va / (va - vb);
-        sx += (a & 1) + ((b & 1) - (a & 1)) * t;
-        sy += ((a >> 1) & 1) + (((b >> 1) & 1) - ((a >> 1) & 1)) * t;
-        sz += (a >> 2) + ((b >> 2) - (a >> 2)) * t;
-        crossings++;
-      }
-      const px = lo[0] + (x + sx / crossings) * step, py = lo[1] + (y + sy / crossings) * step, pz = lo[2] + (z + sz / crossings) * step;
-      // The gradient from four samples at a tetrahedron's corners round the point.
-      const a = field(px + e, py - e, pz - e), b = field(px - e, py - e, pz + e), c = field(px - e, py + e, pz - e), d = field(px + e, py + e, pz + e);
-      const gx = a - b - c + d, gy = -a - b + c + d, gz = -a + b - c + d;
-      const gl = Math.sqrt(gx * gx + gy * gy + gz * gz) || 1;
-      cellPoint[x + cx * (y + cy * z)] = positions.length / 3;
-      positions.push(px, py, pz);
-      normals.push(gx / gl, gy / gl, gz / gl);
-      crossed.push(x, y, z);
-    };
-    // A block of `size` cells from (x0, y0, z0), `depth` halvings below a root block.
-    const visit = (x0, y0, z0, size, depth) => {
-      const x1 = Math.min(x0 + size, cx), y1 = Math.min(y0 + size, cy), z1 = Math.min(z0 + size, cz);
-      if (x0 >= x1 || y0 >= y1 || z0 >= z1) return;
-      const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0, halfDiagonal = 0.5 * step * Math.sqrt(dx * dx + dy * dy + dz * dz);
-      // A block's own primitives (a single cell keeps its block's: the normals' samples stay inside it).
-      if (size > 1) focus(depth, lo[0] + (x0 + x1) * 0.5 * step, lo[1] + (y0 + y1) * 0.5 * step, lo[2] + (z0 + z1) * 0.5 * step, halfDiagonal + step);
-      let inside = 0, nearest = 1e9;
-      for (let c = 0; c < 8; c++) {
-        const v = sample(c & 1 ? x1 : x0, (c >> 1) & 1 ? y1 : y0, c >> 2 ? z1 : z0);
-        corner[c] = v;
-        if (v < 0) inside++;
-        const m = v < 0 ? -v : v;
-        if (m < nearest) nearest = m;
-      }
-      if (size === 1) { if (inside !== 0 && inside !== 8) crossCell(x0, y0, z0); return; }
-      if ((inside === 0 || inside === 8) && nearest > halfDiagonal * rate) return;
-      const half = size >> 1;
-      for (let c = 0; c < 8; c++) visit(x0 + (c & 1) * half, y0 + ((c >> 1) & 1) * half, z0 + (c >> 2) * half, half, depth + 1);
-    };
-    const ROOT = 8;
-    for (let z = 0; z < cz; z += ROOT) for (let y = 0; y < cy; y += ROOT) for (let x = 0; x < cx; x += ROOT) visit(x, y, z, ROOT, 0);
-    const cell = (x, y, z) => (x < 0 || y < 0 || z < 0 || x >= cx || y >= cy || z >= cz) ? -1 : cellPoint[x + cx * (y + cy * z)];
-    const quad = (a, b, c, d, outward) => {
-      if (a < 0 || b < 0 || c < 0 || d < 0) return;
-      if (outward) indices.push(a, b, c, a, c, d); else indices.push(a, c, b, a, d, c);
-    };
-    // A quad round every crossed grid edge: each starts at the low corner of a crossed cell (the cell holds it), whose
-    // corners were all sampled. Along x the cells round it lie in the (y, z) plane, along y in (z, x), along z in
-    // (x, y): counter-clockwise seen from the side the surface faces.
-    for (let i = 0; i < crossed.length; i += 3) {
-      const x = crossed[i], y = crossed[i + 1], z = crossed[i + 2], base = x + nx * (y + ny * z), here = values[base] < 0;
-      if ((values[base + 1] < 0) !== here) quad(cell(x, y - 1, z - 1), cell(x, y, z - 1), cell(x, y, z), cell(x, y - 1, z), here);
-      if ((values[base + nx] < 0) !== here) quad(cell(x - 1, y, z - 1), cell(x - 1, y, z), cell(x, y, z), cell(x, y, z - 1), here);
-      if ((values[base + nx * ny] < 0) !== here) quad(cell(x - 1, y - 1, z), cell(x, y - 1, z), cell(x, y, z), cell(x - 1, y, z), here);
-    }
-    const g = new T.BufferGeometry();
-    g.setAttribute('position', new T.Float32BufferAttribute(positions, 3));
-    g.setAttribute('normal', new T.Float32BufferAttribute(normals, 3));
-    g.setIndex(indices);
+  // Turns a part built along `built` (y unless given) to lie along the recipe's axis.
+  function aim(g, axis, built = 'y') {
+    const to = direction(axis), from = new L.Vector3().fromArray(UNIT[built]);
+    if (to && to.distanceToSquared(from) > 1e-12) g.applyQuaternion(new L.Quaternion().setFromUnitVectors(from, to));
     return g;
   }
 
-  // ---------------------------------------------------------------- the parts
-  const SHAPES = {
+  // ---------------------------------------------------------------- building meshes
+  // Vertices with normals and uvs, and triangles that turn to face the way their corners' normals point, so no
+  // generator here has to get winding right by hand. Triangles with no area are dropped.
+  class Mesh {
+    constructor() { this.p = []; this.n = []; this.t = []; this.ix = []; }
+    vertex(x, y, z, nx, ny, nz, u = 0, v = 0) {
+      this.p.push(x, y, z); this.n.push(nx, ny, nz); this.t.push(u, v);
+      return this.p.length / 3 - 1;
+    }
+    tri(a, b, c) {
+      const p = this.p, n = this.n;
+      const ux = p[b * 3] - p[a * 3], uy = p[b * 3 + 1] - p[a * 3 + 1], uz = p[b * 3 + 2] - p[a * 3 + 2];
+      const vx = p[c * 3] - p[a * 3], vy = p[c * 3 + 1] - p[a * 3 + 1], vz = p[c * 3 + 2] - p[a * 3 + 2];
+      const fx = uy * vz - uz * vy, fy = uz * vx - ux * vz, fz = ux * vy - uy * vx;
+      if (fx * fx + fy * fy + fz * fz < 1e-24) return;
+      const facing = fx * (n[a * 3] + n[b * 3] + n[c * 3]) + fy * (n[a * 3 + 1] + n[b * 3 + 1] + n[c * 3 + 1]) + fz * (n[a * 3 + 2] + n[b * 3 + 2] + n[c * 3 + 2]);
+      if (facing >= 0) this.ix.push(a, b, c); else this.ix.push(a, c, b);
+    }
+    quad(a, b, c, d) { this.tri(a, b, c); this.tri(a, c, d); }
+    geometry() { return arrays(this.p, this.n, this.t, this.ix); }
+  }
+  function arrays(positions, normals, uvs, indices) {
+    const g = new L.BufferGeometry();
+    g.setAttribute('position', new L.Float32BufferAttribute(positions, 3));
+    if (normals) g.setAttribute('normal', new L.Float32BufferAttribute(normals, 3));
+    if (uvs) g.setAttribute('uv', new L.Float32BufferAttribute(uvs, 2));
+    g.setIndex(indices);
+    return g;
+  }
+  function indexed(g) {
+    if (!g.index) g.setIndex(Array.from({ length: g.attributes.position.count }, (_, i) => i));
+    return g;
+  }
+  // Several geometries as one indexed geometry (position, normal, uv).
+  function join(parts) {
+    const p = [], n = [], t = [], ix = [];
+    for (const g of parts) {
+      if (!g.attributes.normal) g.computeVertexNormals();
+      const gp = g.attributes.position, gn = g.attributes.normal, gt = g.attributes.uv, first = p.length / 3;
+      for (let i = 0; i < gp.count; i++) {
+        p.push(gp.getX(i), gp.getY(i), gp.getZ(i));
+        n.push(gn.getX(i), gn.getY(i), gn.getZ(i));
+        t.push(gt ? gt.getX(i) : 0, gt ? gt.getY(i) : 0);
+      }
+      if (g.index) for (const i of g.index.array) ix.push(first + i);
+      else for (let i = 0; i < gp.count; i++) ix.push(first + i);
+    }
+    return arrays(p, n, t, ix);
+  }
+  // Reverses every triangle: the inside of a wall, or a part a mirror turned inside out.
+  function flip(g) {
+    const index = indexed(g).index;
+    for (let i = 0; i + 2 < index.count; i += 3) {
+      const b = index.getX(i + 1);
+      index.setX(i + 1, index.getX(i + 2));
+      index.setX(i + 2, b);
+    }
+    index.needsUpdate = true;
+    return g;
+  }
+
+  // ---------------------------------------------------------------- revolving a profile
+  // Spins a profile [[r, y], ...] round the y axis by `sweep`. A bend sharper than `crease` degrees keeps a hard edge (each side
+  // its own normal), so a cylinder's rim reads crisp and a vase's belly stays smooth. A partial sweep is closed with
+  // flat faces at both cuts unless `open`, like a slice taken out of a cake.
+  function revolve(profile, segments, sweep = TAU, open = false, crease = 35) {
+    const creaseCos = Math.cos(crease * Math.PI / 180);
+    const pts = [];
+    for (const [r, y] of profile) {
+      const q = [Math.max(0, r), y];
+      if (!pts.length || Math.hypot(q[0] - pts[pts.length - 1][0], q[1] - pts[pts.length - 1][1]) > 1e-9) pts.push(q);
+    }
+    if (pts.length < 2) pts.splice(0, pts.length, [0, 0], [1, 0], [1, 1], [0, 1]);
+    // Each segment's outward normal in the (r, y) plane, for a profile running counter-clockwise (up the outside).
+    const segNormal = i => {
+      const dr = pts[i + 1][0] - pts[i][0], dy = pts[i + 1][1] - pts[i][1], l = Math.hypot(dr, dy);
+      return [dy / l, -dr / l];
+    };
+    const rows = [];
+    let travelled = 0;
+    const total = pts.reduce((s, p, i) => (i ? s + Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) : 0), 0) || 1;
+    for (let i = 0; i < pts.length; i++) {
+      if (i) travelled += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+      const before = i > 0 ? segNormal(i - 1) : null, after = i < pts.length - 1 ? segNormal(i) : null, v = travelled / total;
+      if (before && after && before[0] * after[0] + before[1] * after[1] < creaseCos) {
+        rows.push({ r: pts[i][0], y: pts[i][1], n: before, v, joined: true }, { r: pts[i][0], y: pts[i][1], n: after, v, joined: false });
+      } else {
+        const a = before || after, b = after || before, l = Math.hypot(a[0] + b[0], a[1] + b[1]) || 1;
+        rows.push({ r: pts[i][0], y: pts[i][1], n: [(a[0] + b[0]) / l, (a[1] + b[1]) / l], v, joined: true });
+      }
+    }
+    const mesh = new Mesh(), full = sweep >= TAU - 1e-9, columns = segments + 1;
+    const ring = [];
+    for (const row of rows) {
+      const ids = [];
+      for (let j = 0; j < columns; j++) {
+        const phi = (j % segments === 0 && full) ? 0 : j / segments * sweep, s = Math.sin(phi), c = Math.cos(phi);
+        ids.push(mesh.vertex(row.r * s, row.y, row.r * c, row.n[0] * s, row.n[1], row.n[0] * c, j / segments, row.v));
+      }
+      ring.push(ids);
+    }
+    for (let i = 1; i < rows.length; i++) {
+      if (!rows[i].joined) continue;
+      for (let j = 0; j < segments; j++) mesh.quad(ring[i - 1][j], ring[i - 1][j + 1], ring[i][j + 1], ring[i][j]);
+    }
+    if (!full && !open) capCuts(mesh, pts, sweep);
+    return mesh.geometry();
+  }
+  // The two flat faces a partial sweep leaves: the profile's outline (closed back along the axis) at each cut.
+  function capCuts(mesh, pts, sweep) {
+    const outline = pts.map(([r, y]) => new L.Vector2(r, y));
+    const first = outline[0], last = outline[outline.length - 1];
+    if (first.distanceTo(last) < 1e-9) outline.pop();
+    if (outline.length < 3) return;
+    const triangles = L.ShapeUtils.triangulateShape(outline, []);
+    for (const phi of [0, sweep]) {
+      const s = Math.sin(phi), c = Math.cos(phi), facing = phi === 0 ? -1 : 1;
+      // The cut's normal is the sweep's direction of travel there, pointing away from the solid.
+      const nx = c * facing, nz = -s * facing;
+      const ids = outline.map(p => mesh.vertex(p.x * s, p.y, p.x * c, nx, 0, nz, p.x, p.y));
+      for (const [a, b, d] of triangles) mesh.tri(ids[a], ids[b], ids[d]);
+    }
+  }
+  // A profile with its listed corners rounded: each becomes a circular arc meeting both edges `b` from the corner
+  // (less where an edge is too short to give that much).
+  function rounded(profile, corners, b, steps = 6) {
+    const out = [];
+    profile.forEach((c, i) => {
+      if (!corners.includes(i) || i === 0 || i === profile.length - 1) { out.push(c); return; }
+      const p = profile[i - 1], n = profile[i + 1];
+      const lp = Math.hypot(p[0] - c[0], p[1] - c[1]), ln = Math.hypot(n[0] - c[0], n[1] - c[1]);
+      if (lp < 1e-9 || ln < 1e-9) { out.push(c); return; }
+      const u = [(p[0] - c[0]) / lp, (p[1] - c[1]) / lp], w = [(n[0] - c[0]) / ln, (n[1] - c[1]) / ln];
+      const cosAngle = within(u[0] * w[0] + u[1] * w[1], -1, 1), half = Math.acos(cosAngle) / 2;
+      if (half > Math.PI / 2 - 1e-3) { out.push(c); return; }      // a straight run has no corner to round
+      const back = Math.min(b, lp * 0.5, ln * 0.5), bl = Math.hypot(u[0] + w[0], u[1] + w[1]) || 1;
+      const centre = [c[0] + (u[0] + w[0]) / bl * back / Math.cos(half), c[1] + (u[1] + w[1]) / bl * back / Math.cos(half)];
+      const start = [c[0] + u[0] * back, c[1] + u[1] * back], end = [c[0] + w[0] * back, c[1] + w[1] * back];
+      const a0 = Math.atan2(start[1] - centre[1], start[0] - centre[0]);
+      let turn = Math.atan2(end[1] - centre[1], end[0] - centre[0]) - a0;
+      if (turn > Math.PI) turn -= TAU; else if (turn < -Math.PI) turn += TAU;
+      const radius = Math.hypot(start[0] - centre[0], start[1] - centre[1]);
+      for (let k = 0; k <= steps; k++) {
+        const a = a0 + turn * k / steps;
+        out.push([centre[0] + radius * Math.cos(a), centre[1] + radius * Math.sin(a)]);
+      }
+    });
+    return out;
+  }
+  const bevelOf = (o, limit) => Math.min(Math.max(0, numOr(o.bevel, 0)), limit);
+  const segmentsOf = (o, fallback) => whole(o.seg, fallback, 3, 128);
+
+  // ---------------------------------------------------------------- tubes along curves
+  // A round tube of radius r along a curve, `along` rings of `around` sides. Ends: 'round' (half a ball, a hose's or a
+  // wire's end), 'flat' (a disc, a cut pipe) or 'none'. A closed curve needs no ends.
+  function sweepTube(curve, r, along, around, { closed = false, ends = 'round' } = {}) {
+    const frames = curve.computeFrenetFrames(along, closed), mesh = new Mesh();
+    const rings = [];
+    const ringAt = (centre, N, B, radius, tilt, T, v) => {
+      const ids = [];
+      for (let j = 0; j <= around; j++) {
+        const a = (j % around) / around * TAU, c = Math.cos(a), s = Math.sin(a);
+        const dx = N.x * c + B.x * s, dy = N.y * c + B.y * s, dz = N.z * c + B.z * s;
+        const nc = Math.cos(tilt), ns = Math.sin(tilt);
+        ids.push(mesh.vertex(centre.x + dx * radius, centre.y + dy * radius, centre.z + dz * radius,
+          dx * nc + T.x * ns, dy * nc + T.y * ns, dz * nc + T.z * ns, v, j / around));
+      }
+      return ids;
+    };
+    // A closed curve's last ring is its first, so the seam shares vertices and can't open.
+    for (let i = 0; i < along; i++) rings.push(ringAt(curve.getPointAt(i / along), frames.normals[i], frames.binormals[i], r, 0, frames.tangents[i], i / along));
+    rings.push(closed ? rings[0] : ringAt(curve.getPointAt(1), frames.normals[along], frames.binormals[along], r, 0, frames.tangents[along], 1));
+    for (let i = 1; i < rings.length; i++) for (let j = 0; j < around; j++) mesh.quad(rings[i - 1][j], rings[i - 1][j + 1], rings[i][j + 1], rings[i][j]);
+    if (!closed && ends !== 'none') {
+      for (const [i, sign] of [[0, -1], [along, 1]]) {
+        const centre = curve.getPointAt(i / along), T = frames.tangents[i].clone().multiplyScalar(sign);
+        const N = frames.normals[i], B = frames.binormals[i], base = rings[i];
+        if (ends === 'flat') {
+          const mid = mesh.vertex(centre.x, centre.y, centre.z, T.x, T.y, T.z);
+          const rim = ringAt(centre, N, B, r, Math.PI / 2, T, i / along);
+          for (let j = 0; j < around; j++) mesh.tri(mid, rim[j], rim[j + 1]);
+          continue;
+        }
+        const steps = Math.max(3, Math.round(around / 4));
+        let previous = base;
+        for (let k = 1; k < steps; k++) {
+          const phi = k / steps * Math.PI / 2;
+          const at = centre.clone().addScaledVector(T, r * Math.sin(phi));
+          const next = ringAt(at, N, B, r * Math.cos(phi), phi, T, i / along);
+          for (let j = 0; j < around; j++) mesh.quad(previous[j], previous[j + 1], next[j + 1], next[j]);
+          previous = next;
+        }
+        const tip = centre.clone().addScaledVector(T, r);
+        const apex = mesh.vertex(tip.x, tip.y, tip.z, T.x, T.y, T.z);
+        for (let j = 0; j < around; j++) mesh.tri(previous[j], previous[j + 1], apex);
+      }
+    }
+    return mesh.geometry();
+  }
+  class Section extends L.Curve {       // the stretch [0, until] of another curve, by length
+    constructor(curve, until) { super(); this.curve = curve; this.until = until; }
+    getPoint(t, target = new L.Vector3()) { return this.curve.getPointAt(t * this.until, target); }
+  }
+  class Helix extends L.Curve {
+    constructor(r, h, turns) { super(); this.r = r; this.h = h; this.turns = turns; }
+    getPoint(t, target = new L.Vector3()) {
+      const a = t * this.turns * TAU;
+      return target.set(this.r * Math.cos(a), -this.h / 2 + this.h * t, this.r * Math.sin(a));
+    }
+  }
+  class Circle extends L.Curve {        // in the xz plane, starting on +x
+    constructor(r, sweep) { super(); this.r = r; this.sweep = sweep; }
+    getPoint(t, target = new L.Vector3()) {
+      const a = t * this.sweep;
+      return target.set(this.r * Math.cos(a), 0, -this.r * Math.sin(a));
+    }
+  }
+  const smoothThrough = (pts, closed = false) => new L.CatmullRomCurve3(pts, closed, 'centripetal');
+
+  // ---------------------------------------------------------------- walls (Solidify)
+  // A sheet given thickness: the surface, a copy pushed in along the welded, area-weighted normals, and a strip
+  // joining them round every open edge. A closed part becomes hollow, which shows once it is cut.
+  function wall(g, thickness) {
+    g = indexed(g);
+    if (!g.attributes.normal) g.computeVertexNormals();
+    const p = g.attributes.position, index = g.index.array, triangles = index.length - index.length % 3;
+    const id = new Uint32Array(p.count), seen = new Map(), at = [];
+    for (let i = 0; i < p.count; i++) {
+      const key = Math.round(p.getX(i) * 1e5) + '|' + Math.round(p.getY(i) * 1e5) + '|' + Math.round(p.getZ(i) * 1e5);
+      let k = seen.get(key);
+      if (k === undefined) { k = at.length; seen.set(key, k); at.push([p.getX(i), p.getY(i), p.getZ(i), 0, 0, 0]); }
+      id[i] = k;
+    }
+    for (let t = 0; t < triangles; t += 3) {
+      const a = at[id[index[t]]], b = at[id[index[t + 1]]], c = at[id[index[t + 2]]];
+      const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      for (const q of [a, b, c]) { q[3] += nx; q[4] += ny; q[5] += nz; }
+    }
+    const pushed = at.map(q => {
+      const l = Math.hypot(q[3], q[4], q[5]) || 1;
+      return [q[0] - q[3] / l * thickness, q[1] - q[4] / l * thickness, q[2] - q[5] / l * thickness];
+    });
+    const inner = g.clone(), ip = inner.attributes.position, inormal = inner.attributes.normal;
+    for (let i = 0; i < p.count; i++) {
+      ip.setXYZ(i, ...pushed[id[i]]);
+      inormal.setXYZ(i, -inormal.getX(i), -inormal.getY(i), -inormal.getZ(i));
+    }
+    flip(inner);
+    // Open edges: used by one triangle only. Each keeps the direction its triangle runs it in.
+    const edges = new Map(), m = at.length;
+    for (let t = 0; t < triangles; t += 3) for (let k = 0; k < 3; k++) {
+      const a = id[index[t + k]], b = id[index[t + (k + 1) % 3]];
+      if (a === b) continue;
+      const key = a < b ? a * m + b : b * m + a, e = edges.get(key);
+      if (e) e.uses++; else edges.set(key, { a, b, uses: 1 });
+    }
+    const strip = [];
+    for (const { a, b, uses } of edges.values()) {
+      if (uses !== 1) continue;
+      const A = at[a].slice(0, 3), B = at[b].slice(0, 3), Ai = pushed[a], Bi = pushed[b];
+      // The surface runs a -> b, so the strip runs b -> a along the outside and a -> b along the inside.
+      strip.push(...B, ...A, ...Ai, ...B, ...Ai, ...Bi);
+    }
+    const parts = [g, inner];
+    if (strip.length) {
+      const s = new L.BufferGeometry();
+      s.setAttribute('position', new L.Float32BufferAttribute(strip, 3));
+      s.computeVertexNormals();
+      parts.push(s);
+    }
+    return join(parts);
+  }
+
+  // ---------------------------------------------------------------- soft shapes
+  // Balls and sticks melted together: the smooth union of their distances, meshed with surface nets. Each vertex is
+  // then pulled onto the true surface (two Newton steps along the field's gradient), and its normal is that
+  // gradient, so a blob shades smoothly instead of showing the grid it was found on.
+  // A ball is [x, y, z, r] or { at: [x, y, z], r }. A stick is [x1, y1, z1, x2, y2, z2, r, r2?], [[x1, y1, z1],
+  // [x2, y2, z2], r, r2?] or { from, to, r, r2? }; r2 (the far end's radius) defaults to r. 64 of each at most.
+  const listOf = v => (Array.isArray(v) ? v.slice(0, 64) : []);
+  function ballNumbers(b) {
+    if (Array.isArray(b)) return b;
+    if (!b || typeof b !== 'object') return null;
+    const [x = 0, y = 0, z = 0] = Array.isArray(b.at) ? b.at : [];
+    return [x, y, z, b.r];
+  }
+  function stickNumbers(s) {
+    if (Array.isArray(s)) return Array.isArray(s[0]) && Array.isArray(s[1]) ? s[0].concat(s[1], [s[2], s[3]]) : s;
+    if (s && typeof s === 'object' && Array.isArray(s.from) && Array.isArray(s.to)) return s.from.concat(s.to, [s.r, s.r2]);
+    return null;
+  }
+  function softParts(o) {
+    const prims = [];
+    for (const v of listOf(o.balls).map(ballNumbers)) {
+      if (!v || !v.slice(0, 4).every(isNum) || v.length < 4 || !(v[3] > 0)) continue;
+      prims.push({ a: v.slice(0, 3), d: [0, 0, 0], r1: v[3], r2: v[3] });
+    }
+    for (const v of listOf(o.sticks).map(stickNumbers)) {
+      if (!v || v.length < 7 || !v.slice(0, 7).every(isNum) || !(v[6] > 0)) continue;
+      const far = isNum(v[7]) && v[7] > 0 ? v[7] : v[6];
+      prims.push({ a: v.slice(0, 3), d: [0, 1, 2].map(k => v[3 + k] - v[k]), r1: v[6], r2: far });
+    }
+    return prims;
+  }
+  function softBody(o) {
+    const prims = softParts(o);
+    if (!prims.length) return null;
+    const n = prims.length, F = new Float64Array(n * 9);   // a xyz, d xyz, 1/|d|², r1, r2
+    let mean = 0, slope = 1;
+    const boxes = [];
+    prims.forEach((q, i) => {
+      const dd = q.d[0] ** 2 + q.d[1] ** 2 + q.d[2] ** 2;
+      F.set([...q.a, ...q.d, dd > 1e-12 ? 1 / dd : 0, q.r1, q.r2], i * 9);
+      mean += (q.r1 + q.r2) / 2;
+      // A tapered stick's distance can change a little faster than 1 per unit moved.
+      if (dd > 1e-12) slope = Math.max(slope, Math.sqrt(1 + (q.r2 - q.r1) ** 2 / dd));
+      const reach = Math.max(q.r1, q.r2);
+      boxes.push([[0, 1, 2].map(a => Math.min(q.a[a], q.a[a] + q.d[a]) - reach), [0, 1, 2].map(a => Math.max(q.a[a], q.a[a] + q.d[a]) + reach)]);
+    });
+    mean /= n;
+    slope *= 1.05;
+    const k = within(numOr(o.blend, mean * 0.5), 0, mean * 4), quarterK = k / 4;
+    // The polynomial smooth minimum of the listed primitives' distances (each a ball, or a stick whose radius runs
+    // from r1 to r2). A primitive farther than the blend from the best so far changes nothing, which is what makes
+    // per-block candidate lists exact near the surface.
+    const blendScale = k > 0 ? quarterK / (k * k) : 0;
+    function field(list, x, y, z) {
+      let best = 1e30;
+      for (let i = 0, count = list.length; i < count; i++) {
+        const o9 = list[i] * 9;
+        const px = x - F[o9], py = y - F[o9 + 1], pz = z - F[o9 + 2], dx = F[o9 + 3], dy = F[o9 + 4], dz = F[o9 + 5];
+        let h = (px * dx + py * dy + pz * dz) * F[o9 + 6];
+        h = h < 0 ? 0 : h > 1 ? 1 : h;
+        const qx = px - dx * h, qy = py - dy * h, qz = pz - dz * h;
+        const d = Math.sqrt(qx * qx + qy * qy + qz * qz) - (F[o9 + 7] + (F[o9 + 8] - F[o9 + 7]) * h);
+        if (i === 0) { best = d; continue; }
+        const gap = k - (best > d ? best - d : d - best);
+        best = (best < d ? best : d) - (gap > 0 ? gap * gap * blendScale : 0);
+      }
+      return best;
+    }
+    const cells = isNum(o.detail) ? within(Math.round(o.detail * 10), 24, 80) : 48;
+    const lo = [0, 1, 2].map(a => Math.min(...boxes.map(b => b[0][a]))), hi = [0, 1, 2].map(a => Math.max(...boxes.map(b => b[1][a])));
+    const span = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) + k, step = span / cells, pad = k * 0.5 + step * 2;
+    const origin = lo.map(v => v - pad), dims = [0, 1, 2].map(a => Math.max(2, Math.ceil((hi[a] - lo[a] + 2 * pad) / step) + 1));
+    const [nx, ny, nz] = dims;
+    // Blocks of BLOCK cells. Each keeps the primitives whose box, grown by the blend and a few cells, reaches it.
+    const BLOCK = 8, bx = Math.ceil(nx / BLOCK), by = Math.ceil(ny / BLOCK), bz = Math.ceil(nz / BLOCK);
+    const grow = k + step * 3, lists = new Array(bx * by * bz);
+    for (let z = 0; z < bz; z++) for (let y = 0; y < by; y++) for (let x = 0; x < bx; x++) {
+      const bl = [x, y, z].map((c, a) => origin[a] + c * BLOCK * step), bh = bl.map(v => v + BLOCK * step);
+      const list = [];
+      boxes.forEach(([blo, bhi], j) => { if ([0, 1, 2].every(a => blo[a] - grow <= bh[a] && bhi[a] + grow >= bl[a])) list.push(j); });
+      lists[x + bx * (y + by * z)] = Int32Array.from(list);
+    }
+    // Grid samples, each taken once. A block's list is exact for points up to a few cells outside it, so whichever
+    // block asks first may take it.
+    const values = new Float32Array(nx * ny * nz), sampled = new Uint8Array(nx * ny * nz);
+    const value = (x, y, z, list) => {
+      const i = x + nx * (y + ny * z);
+      if (!sampled[i]) { values[i] = field(list, origin[0] + x * step, origin[1] + y * step, origin[2] + z * step); sampled[i] = 1; }
+      return values[i];
+    };
+    // A vertex in every cell the surface crosses, pulled onto the surface.
+    const vertexOf = new Int32Array((nx - 1) * (ny - 1) * (nz - 1)).fill(-1), crossed = [], mesh = new Mesh(), e = step * 0.25;
+    // The field's gradient from four samples at a tetrahedron's corners round the point.
+    const gradient = (list, x, y, z) => {
+      const a = field(list, x + e, y - e, z - e), b = field(list, x - e, y - e, z + e), c = field(list, x - e, y + e, z - e), d = field(list, x + e, y + e, z + e);
+      return [(a - b - c + d) / (4 * e), (-a - b + c + d) / (4 * e), (-a + b - c + d) / (4 * e)];
+    };
+    const corner = new Float64Array(8);
+    const cellVertex = (x, y, z, list) => {
+      let sx = 0, sy = 0, sz = 0, hits = 0;
+      for (let c = 0; c < 8; c++) corner[c] = value(x + (c & 1), y + ((c >> 1) & 1), z + (c >> 2), list);
+      for (let c = 0; c < 8; c++) for (const axisBit of [1, 2, 4]) {
+        if (c & axisBit) continue;
+        const va = corner[c], vb = corner[c | axisBit];
+        if ((va < 0) === (vb < 0)) continue;
+        const t = va / (va - vb);
+        sx += (c & 1) + (axisBit === 1 ? t : 0); sy += ((c >> 1) & 1) + (axisBit === 2 ? t : 0); sz += (c >> 2) + (axisBit === 4 ? t : 0);
+        hits++;
+      }
+      let px = origin[0] + (x + sx / hits) * step, py = origin[1] + (y + sy / hits) * step, pz = origin[2] + (z + sz / hits) * step;
+      // One Newton step onto the surface (never farther than a cell), then the normal where it lands.
+      let g = gradient(list, px, py, pz);
+      const f = field(list, px, py, pz), gg = g[0] * g[0] + g[1] * g[1] + g[2] * g[2];
+      if (gg > 1e-12) {
+        const move = f / gg * Math.min(1, step / (Math.abs(f) / Math.sqrt(gg) + 1e-12));
+        px -= g[0] * move; py -= g[1] * move; pz -= g[2] * move;
+        g = gradient(list, px, py, pz);
+      }
+      const gl = Math.hypot(g[0], g[1], g[2]) || 1;
+      return mesh.vertex(px, py, pz, g[0] / gl, g[1] / gl, g[2] / gl);
+    };
+    // Only a thin band round the surface is sampled: a block whose middle is farther from the surface than any of its
+    // corners can be (the field changes at most `slope` per unit) can't hold it and is skipped; the rest are halved
+    // down to single cells.
+    const visit = (x0, y0, z0, span, list) => {
+      const x1 = Math.min(x0 + span, nx - 1), y1 = Math.min(y0 + span, ny - 1), z1 = Math.min(z0 + span, nz - 1);
+      if (x0 >= x1 || y0 >= y1 || z0 >= z1) return;
+      if (span > 1) {
+        const half = Math.hypot(x1 - x0, y1 - y0, z1 - z0) * step / 2;
+        const f = field(list, origin[0] + (x0 + x1) / 2 * step, origin[1] + (y0 + y1) / 2 * step, origin[2] + (z0 + z1) / 2 * step);
+        if (Math.abs(f) > slope * half) return;
+        const s = span >> 1;
+        for (let c = 0; c < 8; c++) visit(x0 + (c & 1) * s, y0 + ((c >> 1) & 1) * s, z0 + (c >> 2) * s, s, list);
+        return;
+      }
+      const inside = value(x0, y0, z0, list) < 0;
+      let mixed = false;
+      for (let c = 1; c < 8 && !mixed; c++) mixed = (value(x0 + (c & 1), y0 + ((c >> 1) & 1), z0 + (c >> 2), list) < 0) !== inside;
+      if (!mixed) return;
+      vertexOf[x0 + (nx - 1) * (y0 + (ny - 1) * z0)] = cellVertex(x0, y0, z0, list);
+      crossed.push(x0, y0, z0);
+    };
+    for (let z = 0; z < bz; z++) for (let y = 0; y < by; y++) for (let x = 0; x < bx; x++) {
+      const list = lists[x + bx * (y + by * z)];
+      if (list.length) visit(x * BLOCK, y * BLOCK, z * BLOCK, BLOCK, list);
+    }
+    const cell = (x, y, z) => x < 0 || y < 0 || z < 0 || x >= nx - 1 || y >= ny - 1 || z >= nz - 1 ? -1 : vertexOf[x + (nx - 1) * (y + (ny - 1) * z)];
+    const sign = (x, y, z) => values[x + nx * (y + ny * z)] < 0;   // every corner of a crossed cell was sampled
+    const face = (a, b, c, d) => { if (a >= 0 && b >= 0 && c >= 0 && d >= 0) mesh.quad(a, b, c, d); };
+    // A quad round every grid edge with a sign change, joining the four cells that share it (each edge belongs to
+    // the cell at its low end, which was crossed). Mesh.tri orients it by the gradient normals.
+    for (let i = 0; i < crossed.length; i += 3) {
+      const x = crossed[i], y = crossed[i + 1], z = crossed[i + 2], inside = sign(x, y, z);
+      if (sign(x + 1, y, z) !== inside) face(cell(x, y - 1, z - 1), cell(x, y, z - 1), cell(x, y, z), cell(x, y - 1, z));
+      if (sign(x, y + 1, z) !== inside) face(cell(x - 1, y, z - 1), cell(x, y, z - 1), cell(x, y, z), cell(x - 1, y, z));
+      if (sign(x, y, z + 1) !== inside) face(cell(x - 1, y - 1, z), cell(x, y - 1, z), cell(x, y, z), cell(x - 1, y, z));
+    }
+    return mesh.geometry();
+  }
+
+  // A seeded random source, so a blob's lumps are the same every time its recipe is built.
+  function seeded(seed) {
+    let s = (Math.floor(seed * 1000) ^ 0x9e3779b9) >>> 0;
+    return { random() { s = (s + 0x6d2b79f5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; } };
+  }
+
+  // ---------------------------------------------------------------- SVG path data
+  // M L H V C S Q T A Z, absolute and relative, with repeated arguments. y is flipped (SVG's y runs down the
+  // screen, a shape's runs up) and every coordinate is scaled by `unit`.
+  function readPathData(d, unit) {
+    const path = new L.ShapePath(), tokens = d.match(/[a-zA-Z]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g) || [];
+    const at = (x, y) => [x * unit, -y * unit];
+    let i = 0, command = '', x = 0, y = 0, startX = 0, startY = 0, control = null, previous = '';
+    const more = () => i < tokens.length && !/^[a-zA-Z]$/.test(tokens[i]);
+    const next = () => +tokens[i++];
+    for (let guard = 0; i < tokens.length && guard < 20000; guard++) {
+      if (/^[a-zA-Z]$/.test(tokens[i])) command = tokens[i++];
+      else if (!command) { i++; continue; }
+      const relative = command !== command.toUpperCase(), kind = command.toUpperCase();
+      const X = v => (relative ? x + v : v), Y = v => (relative ? y + v : v);
+      if (kind === 'Z') {
+        if (path.currentPath) path.currentPath.closePath();
+        x = startX; y = startY; previous = 'Z'; control = null;
+        continue;
+      }
+      if (!more()) continue;
+      const need = { M: 2, L: 2, H: 1, V: 1, C: 6, S: 4, Q: 4, T: 2, A: 7 }[kind];
+      if (!need || tokens.length - i < need) { i++; continue; }
+      if (kind === 'M') {
+        x = X(next()); y = Y(next()); startX = x; startY = y;
+        path.moveTo(...at(x, y));
+        command = relative ? 'l' : 'L';      // more pairs after a move are lines
+        control = null;
+      } else if (kind === 'L' || kind === 'H' || kind === 'V') {
+        if (kind !== 'V') x = kind === 'H' ? X(next()) : X(next());
+        if (kind === 'L') y = Y(next()); else if (kind === 'V') y = Y(next());
+        path.lineTo(...at(x, y));
+        control = null;
+      } else if (kind === 'C' || kind === 'S') {
+        const reflect = previous === 'C' && control;
+        const c1 = kind === 'C' ? [X(next()), Y(next())] : reflect ? [2 * x - control[0], 2 * y - control[1]] : [x, y];
+        const c2 = [X(next()), Y(next())], end = [X(next()), Y(next())];
+        path.bezierCurveTo(...at(...c1), ...at(...c2), ...at(...end));
+        control = c2; [x, y] = end;
+      } else if (kind === 'Q' || kind === 'T') {
+        const reflect = previous === 'Q' && control;
+        const c = kind === 'Q' ? [X(next()), Y(next())] : reflect ? [2 * x - control[0], 2 * y - control[1]] : [x, y];
+        const end = [X(next()), Y(next())];
+        path.quadraticCurveTo(...at(...c), ...at(...end));
+        control = c; [x, y] = end;
+      } else {
+        const rx = Math.abs(next()), ry = Math.abs(next()), tilt = next() * Math.PI / 180, large = next() !== 0, sweep = next() !== 0;
+        const end = [X(next()), Y(next())];
+        for (const [px, py] of arcPoints(x, y, rx, ry, tilt, large, sweep, end[0], end[1])) path.lineTo(...at(px, py));
+        control = null; [x, y] = end;
+      }
+      previous = kind === 'S' ? 'C' : kind === 'T' ? 'Q' : kind;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) break;
+    }
+    return path;
+  }
+  // An SVG endpoint arc as points no more than 7.5° apart (centre found as the SVG spec's appendix describes).
+  function arcPoints(x1, y1, rx, ry, tilt, large, sweep, x2, y2) {
+    if (rx < 1e-12 || ry < 1e-12 || (x1 === x2 && y1 === y2)) return [[x2, y2]];
+    const c = Math.cos(tilt), s = Math.sin(tilt), hx = (x1 - x2) / 2, hy = (y1 - y2) / 2;
+    const px = c * hx + s * hy, py = -s * hx + c * hy;
+    const grow = px * px / (rx * rx) + py * py / (ry * ry);
+    if (grow > 1) { rx *= Math.sqrt(grow); ry *= Math.sqrt(grow); }
+    const top = rx * rx * ry * ry - rx * rx * py * py - ry * ry * px * px, bottom = rx * rx * py * py + ry * ry * px * px;
+    const scale = (large === sweep ? -1 : 1) * Math.sqrt(Math.max(0, top / (bottom || 1)));
+    const cpx = scale * rx * py / ry, cpy = -scale * ry * px / rx;
+    const cx = c * cpx - s * cpy + (x1 + x2) / 2, cy = s * cpx + c * cpy + (y1 + y2) / 2;
+    const angle = (ux, uy) => Math.atan2(uy, ux);
+    const from = angle((px - cpx) / rx, (py - cpy) / ry);
+    let turn = angle((-px - cpx) / rx, (-py - cpy) / ry) - from;
+    if (sweep && turn < 0) turn += TAU; else if (!sweep && turn > 0) turn -= TAU;
+    const steps = Math.max(2, Math.ceil(Math.abs(turn) / (7.5 * Math.PI / 180))), out = [];
+    for (let k = 1; k <= steps; k++) {
+      const a = from + turn * k / steps, ex = rx * Math.cos(a), ey = ry * Math.sin(a);
+      out.push(k === steps ? [x2, y2] : [cx + c * ex - s * ey, cy + s * ex + c * ey]);
+    }
+    return out;
+  }
+  // Outline points with repeats (and a closing copy of the first point) removed: extruding a duplicate leaves a crack.
+  function clean(points) {
+    const out = [];
+    for (const p of points) if (!out.length || out[out.length - 1].distanceToSquared(p) > 1e-14) out.push(p);
+    while (out.length > 1 && out[0].distanceToSquared(out[out.length - 1]) <= 1e-14) out.pop();
+    return out;
+  }
+  // The recipe's flat shapes: SVG path data in `d`, or a point list `shape` with optional `holes`.
+  function flatShapes(o) {
+    let shapes = [];
+    if (typeof o.d === 'string' && o.d.trim()) shapes = readPathData(o.d.slice(0, 20000), numOr(o.unit, 0.01)).toShapes(true);
+    if (!shapes.length) {
+      const outline = (Array.isArray(o.shape) ? o.shape : []).map(point2).filter(Boolean).slice(0, 2000);
+      const s = new L.Shape(outline.length >= 3 ? outline : [new L.Vector2(0, 0), new L.Vector2(1, 0), new L.Vector2(1, 1)]);
+      for (const hole of Array.isArray(o.holes) ? o.holes : []) {
+        const h = (Array.isArray(hole) ? hole : []).map(point2).filter(Boolean);
+        if (h.length >= 3) s.holes.push(new L.Path(h));
+      }
+      shapes = [s];
+    }
+    return shapes.map(s => {
+      const { shape, holes } = s.extractPoints(12), out = new L.Shape(clean(shape));
+      for (const h of holes) { const c = clean(h); if (c.length >= 3) out.holes.push(new L.Path(c)); }
+      return out;
+    }).filter(s => s.curves.length >= 2);
+  }
+  function extruded(shapes, depth, bevel, bevelSegments) {
+    const g = new L.ExtrudeGeometry(shapes, { depth, bevelEnabled: bevel > 0, bevelSize: bevel, bevelThickness: bevel, bevelSegments, curveSegments: 12 });
+    return g.translate(0, 0, -depth / 2);
+  }
+
+  // ---------------------------------------------------------------- kinds
+  const KINDS = {
     box(o) {
       const s = Array.isArray(o.size) ? o.size : [o.w, o.h, o.d];
-      const w = pos(s[0], 1), h = pos(s[1], 1), d = pos(s[2], 1);
-      const r = Math.min(num(o.r, num(o.bevel, 0)), Math.min(w, h, d) * 0.45);
-      return r > 0.0005 ? new T.RoundedBoxGeometry(w, h, d, 3, r) : new T.BoxGeometry(w, h, d);
+      const w = size(s[0], 1), h = size(s[1], 1), d = size(s[2], 1);
+      const r = Math.min(numOr(o.r, numOr(o.bevel, 0)), Math.min(w, h, d) * 0.45);
+      return r > 5e-4 ? new L.RoundedBoxGeometry(w, h, d, 4, r) : new L.BoxGeometry(w, h, d);
     },
     cyl(o) {
-      const r = pos(o.r, 0.5), top = Math.max(0, num(o.top, r)), seg = clamp(Math.round(num(o.seg, 48)), 3, 128), h = pos(o.h, 1);
-      const arc = clamp(num(o.arc, 360), 1, 360) * Math.PI / 180;
-      const b = o.open === true ? 0 : bevelOf(o, Math.min(Math.min(r, top || r) * 0.45, h * 0.45));
-      if (b > 0.0005) {
-        // Its outline from the bottom's middle, round both rims (a top of 0 is a point, left sharp).
-        const outline = [[0, -h / 2], [r, -h / 2], [top, h / 2], [0, h / 2]];
-        return turnTo(latheOf(roundOutline(outline, top > 0 ? [1, 2] : [1], b), o), o.axis);
-      }
-      return turnTo(new T.CylinderGeometry(top, r, h, seg, 1, o.open === true, 0, arc), o.axis);
+      const r = size(o.r, 0.5), top = Math.max(0, numOr(o.top, r)), h = size(o.h, 1), open = o.open === true;
+      const b = open ? 0 : bevelOf(o, Math.min(Math.min(r, top || r), h) * 0.45);
+      let profile = open ? [[r, -h / 2], [top, h / 2]] : [[0, -h / 2], [r, -h / 2], [top, h / 2], [0, h / 2]];
+      if (b > 5e-4) profile = rounded(profile, top > 0 ? [1, 2] : [1], b);
+      return aim(revolve(profile, segmentsOf(o, 48), sweepOf(o), open), o.axis);
     },
     cone(o) {
-      const r = pos(o.r, 0.5), h = pos(o.h, 1), b = bevelOf(o, Math.min(r, h) * 0.45);
-      if (b > 0.0005) return turnTo(latheOf(roundOutline([[0, -h / 2], [r, -h / 2], [0, h / 2]], [1], b), o), o.axis);
-      return turnTo(new T.ConeGeometry(r, h, clamp(Math.round(num(o.seg, 48)), 3, 128)), o.axis);
+      const r = size(o.r, 0.5), h = size(o.h, 1), b = bevelOf(o, Math.min(r, h) * 0.45);
+      let profile = [[0, -h / 2], [r, -h / 2], [0, h / 2]];
+      if (b > 5e-4) profile = rounded(profile, [1], b);
+      return aim(revolve(profile, segmentsOf(o, 48), sweepOf(o)), o.axis);
     },
-    // A hollow cylinder: a pipe section, a cylinder wall, a ring with thickness.
+    // A cylinder with a hole down its middle (`inner` is the hole's radius): a pipe length, a bearing, a thick ring.
     tube(o) {
-      const r = pos(o.r, 1), inner = clamp(num(o.inner, r * 0.8), 0, r * 0.999), h = pos(o.h, 1);
-      const b = bevelOf(o, Math.min((r - inner) * 0.45, h * 0.45));
-      if (b > 0.0005) {
-        const outline = [[inner, -h / 2 + b * 2], [inner, -h / 2], [r, -h / 2], [r, h / 2], [inner, h / 2], [inner, -h / 2 + b * 2]];
-        return turnTo(latheOf(roundOutline(outline, [1, 2, 3, 4], b), o), o.axis);
-      }
-      const pts = [[inner, -h / 2], [r, -h / 2], [r, h / 2], [inner, h / 2], [inner, -h / 2]].map(([x, y]) => new T.Vector2(x, y));
-      return turnTo(latheOf(pts, o), o.axis);
+      const r = size(o.r, 1), inner = within(numOr(o.inner, r * 0.8), 0, r * 0.999), h = size(o.h, 1);
+      const b = bevelOf(o, Math.min((r - inner), h) * 0.45);
+      // Counter-clockwise from halfway up the inside wall, so the seam sits on a flat stretch.
+      let profile = [[inner, 0], [inner, -h / 2], [r, -h / 2], [r, h / 2], [inner, h / 2], [inner, 0]];
+      if (b > 5e-4) profile = rounded(profile, [1, 2, 3, 4], b);
+      return aim(revolve(profile, segmentsOf(o, 64), sweepOf(o)), o.axis);
     },
-    // A flow arrow: a tube along a smooth curve through points, ending in a cone (air through an engine, blood through
-    // a heart, which way a gear turns). r is the shaft's radius; head, headR the cone's length and radius.
+    // A flow arrow: a round-ended shaft along a smooth curve through points, ending in a cone (air through an engine,
+    // blood through a heart, which way a gear turns). r is the shaft's radius; head and headR the cone's length and radius.
     arrow(o) {
-      const pts = (Array.isArray(o.points) ? o.points : []).map(vec3).filter(Boolean).slice(0, 200);
-      if (pts.length < 2) pts.splice(0, pts.length, new T.Vector3(0, 0, 0), new T.Vector3(1, 0, 0));
-      const r = pos(o.r, 0.04), curve = new T.CatmullRomCurve3(pts, false, 'centripetal', 0.2), length = curve.getLength();
-      const head = Math.min(pos(o.head, r * 5), length * 0.6), headR = pos(o.headR, r * 2.6);
-      const tHead = curve.getUtoTmapping(Math.max(0, (length - head) / length));
-      const shaftPoints = [];
-      for (let i = 0; i <= 48; i++) shaftPoints.push(curve.getPoint(tHead * i / 48));
-      const segments = clamp(Math.round(length / r * 2), 16, 400);
-      const shaft = new T.TubeGeometry(new T.CatmullRomCurve3(shaftPoints, false, 'centripetal', 0.2), segments, r, 12, false);
-      const base = curve.getPoint(tHead), tip = curve.getPoint(1);
-      const direction = tip.clone().sub(base);
-      if (direction.lengthSq() < 1e-12) direction.set(1, 0, 0);
-      const cone = new T.ConeGeometry(headR, head, 24);
-      cone.translate(0, head / 2, 0);
-      cone.applyQuaternion(new T.Quaternion().setFromUnitVectors(new T.Vector3(0, 1, 0), direction.normalize()));
+      const pts = pathPoints(o.points, 200);
+      if (pts.length < 2) pts.splice(0, pts.length, pts[0] || new L.Vector3(), (pts[0] || new L.Vector3()).clone().add(new L.Vector3(1, 0, 0)));
+      const r = size(o.r, 0.04), curve = smoothThrough(pts), length = curve.getLength();
+      const head = Math.min(size(o.head, r * 5), length * 0.6), headR = size(o.headR, r * 2.6);
+      const until = Math.max(1e-3, (length - head) / length);
+      const shaft = sweepTube(new Section(curve, until), r, within(Math.round(length * until / r * 2), 16, 400), 16, { ends: 'flat' });
+      // The flat end sits under the cone's base; round off the tail instead.
+      const tail = sweepTube(new Section(curve, Math.min(until, r / length)), r, 1, 16, { ends: 'round' });
+      const base = curve.getPointAt(until), tip = curve.getPointAt(1), heading = tip.clone().sub(base);
+      if (heading.lengthSq() < 1e-12) heading.copy(curve.getTangentAt(1));
+      const cone = revolve([[0, 0], [headR, 0], [0, head]], 32);
+      cone.applyQuaternion(new L.Quaternion().setFromUnitVectors(new L.Vector3(0, 1, 0), heading.normalize()));
       cone.translate(base.x, base.y, base.z);
-      const start = new T.SphereGeometry(r, 12, 8);
-      start.translate(pts[0].x, pts[0].y, pts[0].z);
-      return merged([shaft, cone, start]);
+      return join([shaft, tail, cone]);
     },
     lathe(o) {
-      const profile = (Array.isArray(o.profile) ? o.profile : []).map(vec2).filter(Boolean).map(p => new T.Vector2(Math.max(0, p.x), p.y));
-      const pts = profile.length >= 2 ? profile : [[0, 0], [1, 0], [1, 1], [0, 1]].map(([x, y]) => new T.Vector2(x, y));
-      return turnTo(new T.LatheGeometry(pts.slice(0, 400), clamp(Math.round(num(o.seg, 64)), 8, 128)), o.axis);
+      const profile = (Array.isArray(o.profile) ? o.profile : []).map(point2).filter(Boolean).slice(0, 400).map(p => [Math.max(0, p.x), p.y]);
+      // A hand-written profile is a few points standing for a smooth curve: only near-right-angle bends stay sharp.
+      return aim(revolve(profile.length >= 2 ? profile : [[0, 0], [1, 0], [1, 1], [0, 1]], whole(o.seg, 64, 8, 128), TAU, true, 65), o.axis);
     },
     sphere(o) {
-      const r = pos(o.r, 0.5);
-      // dome: true keeps the top half (a dome, a cap, an eye's cornea).
-      const theta = o.dome === true ? Math.PI / 2 : Math.PI;
-      return turnTo(new T.SphereGeometry(r, clamp(Math.round(num(o.seg, 48)), 8, 128), clamp(Math.round(num(o.seg, 48) * 2 / 3), 6, 96), 0, Math.PI * 2, 0, theta), o.axis);
+      const r = size(o.r, 0.5), seg = numOr(o.seg, 48);
+      // dome: true keeps the top half (a dome, a cap, an eye's cornea), open underneath.
+      return aim(new L.SphereGeometry(r, whole(seg, 48, 8, 128), whole(seg * 2 / 3, 32, 6, 96), 0, TAU, 0, o.dome === true ? Math.PI / 2 : Math.PI), o.axis);
     },
+    // Lies flat, its hole along y. A partial arc gets flat ends, like a cut length of hose.
     torus(o) {
-      const arc = clamp(num(o.arc, 360), 1, 360) * Math.PI / 180;
-      // three's torus lies in the xy plane (its hole along z); a Mate torus lies flat, its hole along y.
-      return turnTo(new T.TorusGeometry(pos(o.r, 1), pos(o.tube, 0.2), 24, 72, arc), o.axis || 'y', 'z');
+      const sweep = sweepOf(o), full = sweep >= TAU - 1e-9;
+      const g = sweepTube(new Circle(size(o.r, 1), sweep), size(o.tube, 0.2), Math.max(8, Math.round(72 * sweep / TAU)), 24, { closed: full, ends: 'flat' });
+      return aim(g, o.axis || 'y');
     },
     capsule(o) {
-      return turnTo(new T.CapsuleGeometry(pos(o.r, 0.3), Math.max(0, num(o.h, 1)), 8, 24), o.axis);
+      return aim(new L.CapsuleGeometry(size(o.r, 0.3), Math.max(0, numOr(o.h, 1)), 8, 24), o.axis);
     },
-    // A tube along a smooth curve through points: a hose, a wire, a blood vessel, a strand, a pipe run.
+    // A tube along a smooth curve through points, with round ends: a hose, a wire, a blood vessel, a strand, a pipe run.
     pipe(o) {
-      const pts = (Array.isArray(o.points) ? o.points : []).map(vec3).filter(Boolean).slice(0, 200);
-      if (pts.length < 2) pts.splice(0, pts.length, new T.Vector3(0, 0, 0), new T.Vector3(0, 1, 0));
+      const pts = pathPoints(o.points, 200);
+      if (pts.length < 2) pts.splice(0, pts.length, new L.Vector3(0, 0, 0), new L.Vector3(0, 1, 0));
       const closed = o.closed === true && pts.length >= 3;
-      const curve = new T.CatmullRomCurve3(pts, closed, 'centripetal', 0.2);
-      const segments = clamp(pts.length * 24, 24, 2400);
-      return new T.TubeGeometry(curve, segments, pos(o.r, 0.1), clamp(Math.round(num(o.seg, 16)), 4, 32), closed);
+      return sweepTube(smoothThrough(pts, closed), size(o.r, 0.1), within(pts.length * 24, 24, 2400), whole(o.seg, 16, 4, 32), { closed });
     },
     spring(o) {
-      const r = pos(o.r, 0.5), h = pos(o.h, 2), coils = clamp(num(o.coils, 8), 0.25, 60);
-      class Helix extends T.Curve {
-        getPoint(t, v = new T.Vector3()) { const a = t * coils * Math.PI * 2; return v.set(r * Math.cos(a), -h / 2 + h * t, r * Math.sin(a)); }
-      }
-      return turnTo(new T.TubeGeometry(new Helix(), Math.round(clamp(coils * 40, 16, 2400)), pos(o.wire, 0.06), 10, false), o.axis);
+      const r = size(o.r, 0.5), h = size(o.h, 2), coils = within(numOr(o.coils, 8), 0.25, 60);
+      return aim(sweepTube(new Helix(r, h, coils), size(o.wire, 0.06), Math.round(within(coils * 40, 16, 2400)), 12), o.axis);
     },
-    // A spur gear lying in the xy plane (its axle along z), `teeth` round its rim, an axle hole when `hole` > 0.
+    // A spur gear lying in the xy plane (its axle along z): `teeth` round its rim, each with flanks that bulge a
+    // little and a rounded tip, and an axle hole when `hole` > 0.
     gear(o) {
-      const teeth = clamp(Math.round(num(o.teeth, 16)), 6, 200), r = pos(o.r, 1), depth = clamp(num(o.tooth, r * 0.14), r * 0.02, r * 0.5);
-      const width = pos(o.w, 0.3), s = new T.Shape();
-      for (let i = 0; i < teeth * 4; i++) {
-        const a = (i / (teeth * 4)) * Math.PI * 2, rr = (i % 4 < 2) ? r : r - depth;
-        const x = rr * Math.cos(a), y = rr * Math.sin(a);
-        if (i) s.lineTo(x, y); else s.moveTo(x, y);
+      const teeth = whole(o.teeth, 16, 6, 200), r = size(o.r, 1), depth = within(numOr(o.tooth, r * 0.14), r * 0.02, r * 0.5);
+      const width = size(o.w, 0.3), root = r - depth, pitch = TAU / teeth;
+      const tipHalf = pitch * 0.16, baseHalf = pitch * 0.27, outline = [];
+      const polar = (a, rr) => new L.Vector2(rr * Math.cos(a), rr * Math.sin(a));
+      for (let t = 0; t < teeth; t++) {
+        const c = t * pitch;
+        // Up one flank (bulging: halfway up it has already closed 70% of the gap to the tip), across the tip, down.
+        const flank = s => (baseHalf - (baseHalf - tipHalf) * Math.sin(s * Math.PI / 2));
+        outline.push(polar(c - flank(0), root), polar(c - flank(0.5), root + depth * 0.5), polar(c - tipHalf, r));
+        outline.push(polar(c + tipHalf, r), polar(c + flank(0.5), root + depth * 0.5), polar(c + flank(0), root));
+        outline.push(polar(c + pitch / 2, root));
       }
-      const hole = num(o.hole, 0);
-      if (hole > 0 && hole < r - depth) { const p = new T.Path(); p.absarc(0, 0, hole, 0, Math.PI * 2, true); s.holes.push(p); }
-      const bevel = typeof o.bevel === 'number' ? Math.min(Math.max(0, o.bevel), width * 0.45, depth * 0.45) : Math.min(0.02, width * 0.2);
-      const g = new T.ExtrudeGeometry(s, { depth: width, bevelEnabled: true, bevelSize: bevel, bevelThickness: bevel, bevelSegments: 2, curveSegments: 4 });
-      g.translate(0, 0, -width / 2);
-      return turnTo(g, o.axis || 'z', 'z');
+      const shape = new L.Shape(clean(outline)), hole = numOr(o.hole, 0);
+      if (hole > 0 && hole < root) { const p = new L.Path(); p.absarc(0, 0, hole, 0, TAU, true); shape.holes.push(p); }
+      const bevel = isNum(o.bevel) ? Math.min(Math.max(0, o.bevel), width * 0.45, depth * 0.45) : Math.min(0.02, width * 0.2);
+      return aim(extruded([shape], width, bevel, 2), o.axis || 'z', 'z');
     },
-    // A flat shape pushed into depth: [[x, y], ...] (or SVG path data in `d`), lying in the xy plane, depth along z.
+    // An outline in the xy plane (points in `shape` with optional `holes`, or SVG path data in `d`) given `depth` along z.
     extrude(o) {
-      const depth = pos(o.depth, 0.3), shapes = shapesFrom(o);
-      const bevel = o.bevel === false ? 0 : typeof o.bevel === 'number' ? Math.min(Math.max(0, o.bevel), depth * 0.45) : Math.min(0.015, depth * 0.2);
-      const g = new T.ExtrudeGeometry(shapes, { depth, bevelEnabled: bevel > 0, bevelSize: bevel, bevelThickness: bevel, bevelSegments: typeof o.bevel === 'number' ? 3 : 2, curveSegments: 12 });
-      g.translate(0, 0, -depth / 2);
-      return turnTo(g, o.axis || 'z', 'z');
+      const depth = size(o.depth, 0.3);
+      const bevel = o.bevel === false ? 0 : isNum(o.bevel) ? Math.min(Math.max(0, o.bevel), depth * 0.45) : Math.min(0.015, depth * 0.2);
+      const shapes = flatShapes(o);
+      return aim(extruded(shapes.length ? shapes : [new L.Shape([new L.Vector2(0, 0), new L.Vector2(1, 0), new L.Vector2(1, 1)])], depth, bevel, isNum(o.bevel) ? 3 : 2), o.axis || 'z', 'z');
     },
-    // An organic lump: a cell, an organelle, a folded protein, a rock, a cloud. Given balls ([x, y, z, r]) and sticks
-    // ([x1, y1, z1, x2, y2, z2, r, r2]), it is those melted together, blend wide (softShape).
+    // An organic lump: a cell, an organelle, a rock, a cloud. Given balls ([x, y, z, r]) and sticks
+    // ([x1, y1, z1, x2, y2, z2, r, r2]) it is those melted together (blend sets how wide the melt is); otherwise a
+    // sphere of radius r (or size [x, y, z], squash) roughened by smooth noise of strength `lumps`.
     blob(o) {
-      const soft = (Array.isArray(o.balls) && o.balls.length) || (Array.isArray(o.sticks) && o.sticks.length) ? softShape(o) : null;
-      if (soft) return soft;
-      const g = T.mergeVertices(new T.IcosahedronGeometry(1, clamp(Math.round(num(o.detail, 5)), 2, 8)).deleteAttribute('normal').deleteAttribute('uv'));
-      const position = g.attributes.position, v = new T.Vector3();
-      const seed = num(o.seed, 1), lumps = clamp(num(o.lumps, 0.12), 0, 0.22);
-      const size = Array.isArray(o.size) ? o.size : [num(o.r, 1), num(o.r, 1) * num(o.squash, 1), num(o.r, 1)];
-      const sx = pos(size[0], 1), sy = pos(size[1], 1), sz = pos(size[2], 1);
-      for (let i = 0; i < position.count; i++) {
-        v.fromBufferAttribute(position, i);
-        const n = Math.sin(v.x * 3.1 + seed) * Math.sin(v.y * 2.7 + seed * 1.7) * Math.sin(v.z * 3.3 + seed * 0.6);
-        const k = 1 + lumps * n;
-        position.setXYZ(i, v.x * sx * k, v.y * sy * k, v.z * sz * k);
+      const soft = softBody(o);
+      if (soft) return soft;   // balls or sticks given
+      const g = L.mergeVertices(new L.IcosahedronGeometry(1, whole(o.detail, 5, 2, 8) + 3).deleteAttribute('normal').deleteAttribute('uv'));
+      const noise = new L.SimplexNoise(seeded(numOr(o.seed, 1))), lumps = within(numOr(o.lumps, 0.12), 0, 0.22);
+      const r = numOr(o.r, 1), s = Array.isArray(o.size) ? o.size : [r, r * numOr(o.squash, 1), r];
+      const sx = size(s[0], 1), sy = size(s[1], 1), sz = size(s[2], 1), p = g.attributes.position;
+      for (let i = 0; i < p.count; i++) {
+        const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+        // A few broad lobes with a faint second layer: a potato or a cell, not gravel.
+        const bump = noise.noise3d(x * 0.55, y * 0.55, z * 0.55) + noise.noise3d(x * 1.2 + 7, y * 1.2, z * 1.2) * 0.2;
+        const k = 1 + lumps * bump;
+        p.setXYZ(i, x * sx * k, y * sy * k, z * sz * k);
       }
       g.computeVertexNormals();
       return g;
     },
-    // A faceted solid: a crystal, a gem, a die, an atom model's cage. faces 4, 6, 8, 12 or 20.
+    // A regular solid with 4, 6, 8, 12 or 20 faces (20 unless said): gems, dice, crystals, cages.
     poly(o) {
-      const r = pos(o.r, 0.5), detail = clamp(Math.round(num(o.detail, 0)), 0, 3), faces = Math.round(num(o.faces, 20));
-      const g = faces === 4 ? new T.TetrahedronGeometry(r, detail) : faces === 6 ? new T.BoxGeometry(r * 1.15, r * 1.15, r * 1.15)
-        : faces === 8 ? new T.OctahedronGeometry(r, detail) : faces === 12 ? new T.DodecahedronGeometry(r, detail) : new T.IcosahedronGeometry(r, detail);
-      return turnTo(g, o.axis);
+      const r = size(o.r, 0.5), detail = whole(o.detail, 0, 0, 3), faces = Math.round(numOr(o.faces, 20));
+      const g = faces === 4 ? new L.TetrahedronGeometry(r, detail) : faces === 6 ? new L.BoxGeometry(r * 1.15, r * 1.15, r * 1.15)
+        : faces === 8 ? new L.OctahedronGeometry(r, detail) : faces === 12 ? new L.DodecahedronGeometry(r, detail) : new L.IcosahedronGeometry(r, detail);
+      return aim(g, o.axis);
     },
-    // A surface z = f(u, v) the engine sampled into a grid of points (rows of [x, y, z]).
+    // A sheet through a grid of points the engine sampled (rows of [x, y, z]), such as z = f(u, v).
     surface(o) {
-      const rows = (Array.isArray(o.grid) ? o.grid : []).map(row => (Array.isArray(row) ? row : []).map(vec3)).filter(row => row.length >= 2 && row.every(Boolean));
-      const columns = rows.length ? Math.min(...rows.map(r => r.length)) : 0;
-      if (rows.length < 2 || columns < 2) return new T.PlaneGeometry(1, 1);
-      const positions = [], uvs = [], indices = [];
-      for (let j = 0; j < rows.length; j++) for (let i = 0; i < columns; i++) {
-        const p = rows[j][i]; positions.push(p.x, p.y, p.z); uvs.push(i / (columns - 1), j / (rows.length - 1));
-      }
-      for (let j = 0; j < rows.length - 1; j++) for (let i = 0; i < columns - 1; i++) {
+      const rows = (Array.isArray(o.grid) ? o.grid : []).map(row => (Array.isArray(row) ? row : []).map(point3)).filter(row => row.length >= 2 && row.every(Boolean));
+      const columns = rows.length ? Math.min(...rows.map(row => row.length)) : 0;
+      if (rows.length < 2 || columns < 2) return new L.PlaneGeometry(1, 1);
+      const p = [], t = [], ix = [];
+      rows.forEach((row, j) => { for (let i = 0; i < columns; i++) { p.push(row[i].x, row[i].y, row[i].z); t.push(i / (columns - 1), j / (rows.length - 1)); } });
+      for (let j = 0; j + 1 < rows.length; j++) for (let i = 0; i + 1 < columns; i++) {
         const a = j * columns + i, b = a + columns;
-        indices.push(a, b, a + 1, b, b + 1, a + 1);
+        ix.push(a, b, a + 1, b, b + 1, a + 1);
       }
-      const g = new T.BufferGeometry();
-      g.setAttribute('position', new T.Float32BufferAttribute(positions, 3));
-      g.setAttribute('uv', new T.Float32BufferAttribute(uvs, 2));
-      g.setIndex(indices);
+      const g = arrays(p, null, t, ix);
       g.computeVertexNormals();
       return g;
     },
   };
-  // The same parts under the names the old scene3d() and three.js use.
-  SHAPES.cylinder = SHAPES.cyl;
+  KINDS.cylinder = KINDS.cyl;           // the name three.js and the old scene3d() use
 
-  // SVG path data (M L H V C S Q T A Z, absolute and relative) or a point list -> three.js Shapes (holes by winding).
-  function shapesFrom(o) {
-    if (typeof o.d === 'string' && o.d.trim()) {
-      const unit = num(o.unit, 0.01), path = new T.ShapePath();
-      parsePathData(o.d.slice(0, 20000), path, unit);
-      const shapes = path.toShapes(true);
-      if (shapes.length) return shapes;
-    }
-    const pts = (Array.isArray(o.shape) ? o.shape : []).map(vec2).filter(Boolean).slice(0, 2000);
-    const s = new T.Shape(pts.length >= 3 ? pts : [new T.Vector2(0, 0), new T.Vector2(1, 0), new T.Vector2(1, 1)]);
-    for (const hole of Array.isArray(o.holes) ? o.holes : []) {
-      const hp = (Array.isArray(hole) ? hole : []).map(vec2).filter(Boolean);
-      if (hp.length >= 3) s.holes.push(new T.Path(hp));
-    }
-    return [s];
-  }
-  // y is flipped: SVG's y runs down the screen, a shape's y runs up.
-  function parsePathData(d, path, unit) {
-    const tokens = d.match(/[a-zA-Z]|-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/g) || [];
-    let i = 0, cmd = '', x = 0, y = 0, sx = 0, sy = 0, lastCx = null, lastCy = null, lastKind = '';
-    const P = (px, py) => [px * unit, -py * unit];
-    const nextNum = () => { const t = tokens[i++]; return t === undefined ? NaN : parseFloat(t); };
-    const isNum = () => i < tokens.length && !/^[a-zA-Z]$/.test(tokens[i]);
-    let guard = 0;
-    while (i < tokens.length && guard++ < 20000) {
-      if (/^[a-zA-Z]$/.test(tokens[i])) cmd = tokens[i++];
-      else if (!cmd) { i++; continue; }
-      const rel = cmd === cmd.toLowerCase(), C = cmd.toUpperCase();
-      const ax = v => rel ? x + v : v, ay = v => rel ? y + v : v;
-      if (C === 'Z') { path.currentPath && path.currentPath.closePath(); x = sx; y = sy; lastKind = 'Z'; continue; }
-      if (!isNum()) continue;
-      if (C === 'M') {
-        x = ax(nextNum()); y = ay(nextNum()); sx = x; sy = y; path.moveTo(...P(x, y)); cmd = rel ? 'l' : 'L'; lastKind = 'M';
-      } else if (C === 'L') { x = ax(nextNum()); y = ay(nextNum()); path.lineTo(...P(x, y)); lastKind = 'L';
-      } else if (C === 'H') { x = rel ? x + nextNum() : nextNum(); path.lineTo(...P(x, y)); lastKind = 'L';
-      } else if (C === 'V') { y = rel ? y + nextNum() : nextNum(); path.lineTo(...P(x, y)); lastKind = 'L';
-      } else if (C === 'C' || C === 'S') {
-        let c1x, c1y;
-        if (C === 'C') { c1x = ax(nextNum()); c1y = ay(nextNum()); }
-        else { c1x = lastKind === 'C' && lastCx !== null ? 2 * x - lastCx : x; c1y = lastKind === 'C' && lastCy !== null ? 2 * y - lastCy : y; }
-        const c2x = ax(nextNum()), c2y = ay(nextNum()), ex = ax(nextNum()), ey = ay(nextNum());
-        path.bezierCurveTo(...P(c1x, c1y), ...P(c2x, c2y), ...P(ex, ey));
-        lastCx = c2x; lastCy = c2y; x = ex; y = ey; lastKind = 'C';
-      } else if (C === 'Q' || C === 'T') {
-        let qx, qy;
-        if (C === 'Q') { qx = ax(nextNum()); qy = ay(nextNum()); }
-        else { qx = lastKind === 'Q' && lastCx !== null ? 2 * x - lastCx : x; qy = lastKind === 'Q' && lastCy !== null ? 2 * y - lastCy : y; }
-        const ex = ax(nextNum()), ey = ay(nextNum());
-        path.quadraticCurveTo(...P(qx, qy), ...P(ex, ey));
-        lastCx = qx; lastCy = qy; x = ex; y = ey; lastKind = 'Q';
-      } else if (C === 'A') {
-        const rx = Math.abs(nextNum()), ry = Math.abs(nextNum()), rot = nextNum() * Math.PI / 180, large = nextNum(), sweep = nextNum();
-        const ex = ax(nextNum()), ey = ay(nextNum());
-        arcTo(path, x, y, rx, ry, rot, large, sweep, ex, ey, P);
-        x = ex; y = ey; lastKind = 'A';
-      } else { i++; }
-      if (![x, y].every(isFinite)) break;
-    }
-  }
-  // SVG's endpoint arc as short cubic Béziers (the SVG spec's centre parameterisation).
-  function arcTo(path, x1, y1, rx, ry, phi, large, sweep, x2, y2, P) {
-    if (!rx || !ry) { path.lineTo(...P(x2, y2)); return; }
-    const cos = Math.cos(phi), sin = Math.sin(phi);
-    const dx = (x1 - x2) / 2, dy = (y1 - y2) / 2, x1p = cos * dx + sin * dy, y1p = -sin * dx + cos * dy;
-    const lambda = (x1p * x1p) / (rx * rx) + (y1p * y1p) / (ry * ry);
-    if (lambda > 1) { rx *= Math.sqrt(lambda); ry *= Math.sqrt(lambda); }
-    const sign = (large ? 1 : 0) === (sweep ? 1 : 0) ? -1 : 1;
-    const num_ = rx * rx * ry * ry - rx * rx * y1p * y1p - ry * ry * x1p * x1p, den = rx * rx * y1p * y1p + ry * ry * x1p * x1p;
-    const coef = sign * Math.sqrt(Math.max(0, num_ / (den || 1)));
-    const cxp = coef * (rx * y1p) / ry, cyp = coef * -(ry * x1p) / rx;
-    const cx = cos * cxp - sin * cyp + (x1 + x2) / 2, cy = sin * cxp + cos * cyp + (y1 + y2) / 2;
-    const angle = (ux, uy, vx, vy) => Math.atan2(ux * vy - uy * vx, ux * vx + uy * vy);
-    let t1 = angle(1, 0, (x1p - cxp) / rx, (y1p - cyp) / ry), dt = angle((x1p - cxp) / rx, (y1p - cyp) / ry, (-x1p - cxp) / rx, (-y1p - cyp) / ry);
-    if (!sweep && dt > 0) dt -= 2 * Math.PI; else if (sweep && dt < 0) dt += 2 * Math.PI;
-    const n = Math.max(1, Math.ceil(Math.abs(dt) / (Math.PI / 2))), step = dt / n, k = 4 / 3 * Math.tan(step / 4);
-    for (let s = 0; s < n; s++) {
-      const a = t1 + s * step, b = a + step;
-      const e = (t) => [cx + rx * Math.cos(t) * cos - ry * Math.sin(t) * sin, cy + rx * Math.cos(t) * sin + ry * Math.sin(t) * cos];
-      const d = (t) => [-rx * Math.sin(t) * cos - ry * Math.cos(t) * sin, -rx * Math.sin(t) * sin + ry * Math.cos(t) * cos];
-      const [ax_, ay_] = e(a), [bx, by] = e(b), [dax, day] = d(a), [dbx, dby] = d(b);
-      path.bezierCurveTo(...P(ax_ + k * dax, ay_ + k * day), ...P(bx - k * dbx, by - k * dby), ...P(bx, by));
-    }
-  }
-
-  // ---------------------------------------------------------------- packing for the Metal stage
-  // Up to `max` points that frame the part: its extremes on every axis, then evenly spread vertices.
-  function framingSamples(p, max) {
+  // ---------------------------------------------------------------- packing for the stage
+  // Up to `max` points that frame the part, for the camera: the extremes along each axis first, then vertices taken
+  // at an even stride.
+  function framing(p, max) {
     const n = p.length / 3;
-    if (n <= max) return new Float32Array(p);
-    const picks = new Set();
-    for (let axis = 0; axis < 3; axis++) {
-      let lo = 0, hi = 0;
-      for (let i = 1; i < n; i++) { if (p[i * 3 + axis] < p[lo * 3 + axis]) lo = i; if (p[i * 3 + axis] > p[hi * 3 + axis]) hi = i; }
-      picks.add(lo); picks.add(hi);
+    if (n <= max) return Float32Array.from(p);
+    const keep = new Set();
+    for (let a = 0; a < 3; a++) {
+      let low = 0, high = 0;
+      for (let i = 1; i < n; i++) {
+        if (p[i * 3 + a] < p[low * 3 + a]) low = i;
+        if (p[i * 3 + a] > p[high * 3 + a]) high = i;
+      }
+      keep.add(low).add(high);
     }
-    const stride = n / (max - picks.size);
-    for (let k = 0; picks.size < max && k * stride < n; k++) picks.add(Math.floor(k * stride));
-    const out = new Float32Array(picks.size * 3); let o = 0;
-    for (const i of picks) { out[o++] = p[i * 3]; out[o++] = p[i * 3 + 1]; out[o++] = p[i * 3 + 2]; }
+    const stride = n / (max - keep.size);
+    for (let k = 0; keep.size < max && k * stride < n; k++) keep.add(Math.floor(k * stride));
+    const out = new Float32Array(keep.size * 3);
+    let o = 0;
+    for (const i of keep) { out[o++] = p[i * 3]; out[o++] = p[i * 3 + 1]; out[o++] = p[i * 3 + 2]; }
     return out;
   }
   function pack(g) {
+    indexed(g);
     if (!g.attributes.normal) g.computeVertexNormals();
-    const position = g.attributes.position.array;
     const count = g.attributes.position.count;
-    if (count > MAX_VERTICES) throw new Error('part too detailed (' + count + ' vertices)');
-    let indices;
-    if (g.index) indices = g.index.array instanceof Uint32Array ? g.index.array : Uint32Array.from(g.index.array);
-    else { indices = new Uint32Array(count); for (let i = 0; i < count; i++) indices[i] = i; }
+    if (count > VERTEX_LIMIT) throw new Error('part too detailed (' + count + ' vertices)');
+    const positions = Float32Array.from(g.attributes.position.array), normals = Float32Array.from(g.attributes.normal.array);
+    for (let i = 0; i < positions.length; i++) if (!Number.isFinite(positions[i]) || !Number.isFinite(normals[i])) throw new Error('part has invalid geometry');
     return {
-      positions: position instanceof Float32Array ? position : Float32Array.from(position),
-      normals: g.attributes.normal.array,
-      uvs: g.attributes.uv ? g.attributes.uv.array : null,
-      indices,
-      samples: framingSamples(position, 600),
+      positions, normals,
+      uvs: g.attributes.uv ? Float32Array.from(g.attributes.uv.array) : null,
+      indices: Uint32Array.from(g.index.array),
+      samples: framing(positions, 600),
     };
   }
 
-  globalThis.mateThreeKinds = Object.keys(SHAPES);
+  globalThis.mateThreeKinds = Object.keys(KINDS);
   globalThis.mateThreeBuild = function (kind, recipeJSON) {
-    const make = SHAPES[kind];
-    if (!make) throw new Error('unknown 3D part "' + kind + '"');
-    const recipe = JSON.parse(recipeJSON || '{}');
+    const make = Object.prototype.hasOwnProperty.call(KINDS, kind) ? KINDS[kind] : null;
+    if (!make) throw new Error(`unknown 3D part "${kind}"`);
+    const recipe = JSON.parse(recipeJSON || '{}') || {};
     let g = make(recipe);
-    // thick: a wall that thick (Blender's Solidify): a sheet gets a rim, a closed part goes hollow.
-    const thick = num(recipe.thick, 0);
-    if (thick > 0) g = solidify(g, Math.min(thick, 10));
-    // An uneven scale, then a mirror (figure() mirror: 'x' sends its copy with mirror [-1, 1, 1]); a negative one
-    // turns the part inside out, so its triangles are wound back.
-    const stretch = vec3(recipe.stretch), mirror = vec3(recipe.mirror);
-    const sx = (stretch ? stretch.x || 1 : 1) * (mirror ? Math.sign(mirror.x) || 1 : 1);
-    const sy = (stretch ? stretch.y || 1 : 1) * (mirror ? Math.sign(mirror.y) || 1 : 1);
-    const sz = (stretch ? stretch.z || 1 : 1) * (mirror ? Math.sign(mirror.z) || 1 : 1);
+    const thick = numOr(recipe.thick, 0);
+    if (thick > 0) g = wall(g, Math.min(thick, 10));
+    // An uneven scale, then a mirror (figure()'s mirror: 'x' sends its copy with mirror [-1, 1, 1]). A negative scale
+    // turns the part inside out, so its triangles are reversed to face out again.
+    const stretch = point3(recipe.stretch), mirror = point3(recipe.mirror);
+    const factor = a => (stretch ? stretch.getComponent(a) || 1 : 1) * (mirror ? Math.sign(mirror.getComponent(a)) || 1 : 1);
+    const sx = factor(0), sy = factor(1), sz = factor(2);
     if (sx !== 1 || sy !== 1 || sz !== 1) g.scale(sx, sy, sz);
-    if (sx * sy * sz < 0) rewind(g);
+    if (sx * sy * sz < 0) flip(g);
     return pack(g);
   };
 })();

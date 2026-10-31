@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-"""Check retained original journal bytes and their adapter-only module boundary."""
+"""Verify historical journal provenance without requiring the removed port."""
 import hashlib
 import json
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[2]
 manifest = json.loads((root / 'heymate/scripts/recovered-journal-provenance.json').read_text())
-target = (root / manifest['target']).read_bytes()
-assert hashlib.sha256(target).hexdigest() == manifest['targetSHA256'], 'Recovered journal module changed'
+target = root / manifest['target']
+if target.exists():
+    raise SystemExit('Recovered journal module still exists; replacement is incomplete.')
 source = root / manifest['segments'][0]['source']
 if source.exists():
     original = source.read_bytes()
-    assert hashlib.sha256(original).hexdigest() == manifest['sourceSHA256'], 'Recovered original bundle changed'
+    assert hashlib.sha256(original).hexdigest() == manifest['sourceSHA256'], 'Historical bundle changed'
     for segment in manifest['segments']:
         data = original[segment['startByte']:segment['endByte']]
-        assert hashlib.sha256(data).hexdigest() == segment['sha256'], 'Original journal source range changed'
-        assert data in target, 'Original journal bytes missing from port'
-    print('PASS original emitted journal ranges and target SHA-256')
+        assert hashlib.sha256(data).hexdigest() == segment['sha256'], 'Historical source range changed'
+    print('PASS historical journal source hashes; recovered module absent')
 else:
-    print('PASS pinned journal target SHA-256 (private original bundle unavailable)')
+    print('PASS recovered module absent; historical source unavailable for hash verification')

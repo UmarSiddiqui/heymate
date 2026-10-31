@@ -2,8 +2,8 @@ import AppKit
 import MetalKit
 import simd
 
-/// Native GPU host for the recovered DaVinci shaders. Scene math remains in the drawing VM.
-/// The source resource is byte-identical to scripts/native-shaders/davinci.metal.
+/// Native GPU host for HeyMate's 3D shaders (DaVinciShaders.txt, the same file as scripts/native-shaders/davinci.metal).
+/// Scene math remains in the drawing VM.
 @MainActor
 final class DaVinciMetalContext {
     let device: MTLDevice
@@ -24,26 +24,24 @@ final class DaVinciMetalContext {
         }
         self.device = device; self.queue = queue
         samples = device.supportsTextureSampleCount(4) ? 4 : 1
-        // Color and ID passes must clip the same surfaces. Keep the recovered source intact;
-        // this adapter adds cut-away color coverage and a hatched interior.
+        // Color and ID passes must clip the same surfaces: the colour pass adds cut-away coverage and a hatched interior.
         let adapter = """
-        fragment float4 heymate_surface(VertexOut in [[stage_in]], bool front [[front_facing]],
-             constant FrameUniforms &frame [[buffer(1)]], constant ObjectUniforms &object [[buffer(2)]]) {
-            bool cut = dot(object.cut.xyz, object.cut.xyz) > 0.25;
-            if (cut && dot(in.worldPosition, object.cut.xyz) > object.cut.w) discard_fragment();
-            float4 color = davinci_fragment(in, front, frame, object);
-            if (cut && !front && object.flags.z < 0.5) {
-                float hatch = smoothstep(0.35, 0.65, fract((in.position.x + in.position.y) / 7.0));
+        fragment float4 heymate_surface(Surface in [[stage_in]], bool front [[front_facing]],
+             constant View &view [[buffer(1)]], constant Part &part [[buffer(2)]]) {
+            bool cut = dot(part.cutPlane.xyz, part.cutPlane.xyz) > 0.25;
+            if (cut && dot(in.world, part.cutPlane.xyz) > part.cutPlane.w) discard_fragment();
+            float4 color = mate_shade(in, front, view, part);
+            if (cut && !front && part.options.z < 0.5) {
+                float hatch = smoothstep(0.35, 0.65, fract((in.clip.x + in.clip.y) / 7.0));
                 color.rgb *= mix(0.52, 0.78, hatch);
             }
             return color;
         }
         """
-        let callable = source.replacingOccurrences(of: "fragment float4 davinci_fragment(VertexOut in [[stage_in]], bool isFrontFacing [[front_facing]],\n                                 constant FrameUniforms &frame [[buffer(1)]],\n                                 constant ObjectUniforms &object [[buffer(2)]])", with: "float4 davinci_fragment(VertexOut in, bool isFrontFacing, constant FrameUniforms &frame, constant ObjectUniforms &object)")
-        let library = try device.makeLibrary(source: callable + adapter, options: nil)
+        let library = try device.makeLibrary(source: source + adapter, options: nil)
         func pipeline(_ fragment: String, format: MTLPixelFormat, samples: Int, blend: Bool = false, dual: Bool = false) throws -> MTLRenderPipelineState {
             let p = MTLRenderPipelineDescriptor()
-            p.vertexFunction = library.makeFunction(name: fragment.contains("ink") ? "davinci_outline_vertex" : "davinci_vertex")
+            p.vertexFunction = library.makeFunction(name: fragment.contains("ink") ? "mate_ink_vertex" : "mate_vertex")
             p.fragmentFunction = library.makeFunction(name: fragment)
             p.rasterSampleCount = samples
             p.colorAttachments[0].pixelFormat = format
@@ -60,8 +58,8 @@ final class DaVinciMetalContext {
         }
         solid = try pipeline("heymate_surface", format: .bgra8Unorm, samples: samples)
         clear = try pipeline("heymate_surface", format: .bgra8Unorm, samples: samples, blend: true)
-        ids = try pipeline("davinci_picking_fragment", format: .r32Uint, samples: 1)
-        ink = try pipeline("davinci_ink_and_seam_fragment", format: .bgra8Unorm, samples: 1, dual: true)
+        ids = try pipeline("mate_part_id_fragment", format: .r32Uint, samples: 1)
+        ink = try pipeline("mate_ink_and_seam_fragment", format: .bgra8Unorm, samples: 1, dual: true)
         let depth = MTLDepthStencilDescriptor()
         depth.depthCompareFunction = .lessEqual; depth.isDepthWriteEnabled = true
         guard let write = device.makeDepthStencilState(descriptor: depth) else { throw NativeMetalError.invalid("Depth state unavailable") }
@@ -252,7 +250,7 @@ final class DaVinciMetalRenderer {
         edges.colorAttachments[0].texture = output; edges.colorAttachments[0].loadAction = .load; edges.colorAttachments[0].storeAction = .store
         guard let pen = command.makeRenderCommandEncoder(descriptor: edges) else { throw NativeMetalError.invalid("Outline encoder failed") }
         pen.setRenderPipelineState(context.ink)
-        // Recovered source specifies pen ABI, not original host defaults. Widths are in backing pixels.
+        // The pen: ink colour, outline and seam half-widths in backing pixels, seam strength and shade.
         let rgb = try Self.floats(payload["ink"], count: 3)
         let illustrated = payload["illustrated"] as? Bool == true
         var outline = rgb.map { Self.srgb($0) } + [1, min(4, (illustrated ? 1 : 0.55) * scale), min(4, 0.45 * scale), 0.55, 0.65]

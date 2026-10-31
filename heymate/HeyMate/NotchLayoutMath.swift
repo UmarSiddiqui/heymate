@@ -29,6 +29,23 @@ enum NotchLayoutMath {
     /// resting place every time state changed.
     nonisolated static let activeWidthBonus: CGFloat = 96
 
+    /// Idle matches the hardware cutout. Only live status or usage adds wings
+    /// so its content stays outside the camera housing.
+    nonisolated static let compactStatusWidthBonus: CGFloat = 112
+    nonisolated static let compactVoiceWidthBonus: CGFloat = 64
+    nonisolated static let compactSpeakingWidthBonus: CGFloat = 160
+    nonisolated static let compactShoulderRadius: CGFloat = 0
+
+    nonisolated static func compactSurfaceFrame(
+        hardware: CGRect, showsStatus: Bool, usageProviderCount: Int, voiceOnly: Bool = false, speaking: Bool = false
+    ) -> CGRect {
+        let usageBonus = usageProviderCount > 0 ? 2 * (compactUsageWidth(providerCount: usageProviderCount) + 14) : 0
+        let bonus = speaking ? compactSpeakingWidthBonus : voiceOnly ? compactVoiceWidthBonus
+            : (showsStatus ? compactStatusWidthBonus : usageBonus)
+        return CGRect(x: hardware.minX - bonus / 2, y: hardware.minY,
+                      width: hardware.width + bonus, height: hardware.height)
+    }
+
     /// Width available to ONE peek slot at the widened size. Used by tests
     /// and by callers that need to know whether a label will fit.
     nonisolated static var peekSlotWidth: CGFloat { activeWidthBonus / 2 }
@@ -153,32 +170,68 @@ enum NotchLayoutMath {
         return t * t * t * (t * (t * 6 - 15) + 10)
     }
 
-    nonisolated static let workspaceExpandDuration: TimeInterval = 0.52
-    nonisolated static let workspaceCollapseDuration: TimeInterval = 0.34
+    nonisolated static let workspaceExpandDuration: TimeInterval = 0.64
+    nonisolated static let workspaceCollapseDuration: TimeInterval = 0.20
 
-    /// Snappy: the frame lands early on the fast-attack swoosh curve and the
-    /// content simply fades in over it. Real panel geometry moves on the
-    /// display-link clock; content and corners settle with it.
-    nonisolated static var expandDuration: TimeInterval { CNNotchMotion.unfoldSpring.settlingDuration }
+    /// Frame and corners use the same bounded response below.
+    nonisolated static let expandDuration: TimeInterval = 0.56
 
     /// Closing is faster than opening, matching pointer intent.
-    nonisolated static var collapseDuration: TimeInterval { CNNotchMotion.foldSpring.settlingDuration }
+    nonisolated static let collapseDuration: TimeInterval = 0.18
+
+    nonisolated static let hoverPreparationDuration: TimeInterval = 0.16
+    nonisolated static let clickPreparationDuration: TimeInterval = 0.09
+
+    /// A restrained spring tail applies only to vertical travel. The panel's
+    /// width is always clamped, and vertical overshoot is capped at two points.
+    nonisolated static func surfaceOpenProgress(_ progress: CGFloat) -> CGFloat {
+        let t = min(max(progress, 0), 1)
+        guard t > 0 else { return 0 }
+        guard t < 1 else { return 1 }
+        let damping: CGFloat = 0.84
+        let rate: CGFloat = 10
+        let frequency = rate * sqrt(1 - damping * damping)
+        func response(_ time: CGFloat) -> CGFloat {
+            1 - exp(-damping * rate * time) * (cos(frequency * time)
+                + damping / sqrt(1 - damping * damping) * sin(frequency * time))
+        }
+        return min(max(response(t) / response(1), 0), 1.008)
+    }
+
+    nonisolated static func animatedSurfaceFrame(
+        from source: CGRect, to target: CGRect, progress: CGFloat, opening: Bool
+    ) -> CGRect {
+        let response = opening ? surfaceOpenProgress(progress) : surfaceMotionProgress(progress)
+        let heightDelta = abs(target.height - source.height)
+        let heightLimit: CGFloat = heightDelta > 0 ? 1 + min(2 / heightDelta, 0.008) : 1
+        return interpolatedRect(from: source, to: target,
+                                widthProgress: min(response, 1), heightProgress: min(response, heightLimit))
+    }
+
+    /// Critically damped response, normalized to land exactly. Starts with
+    /// zero velocity, travels promptly, and never widens beyond the target.
+    nonisolated static func surfaceMotionProgress(_ progress: CGFloat) -> CGFloat {
+        let t = min(max(progress, 0), 1)
+        guard t > 0 else { return 0 }
+        guard t < 1 else { return 1 }
+        let rate: CGFloat = 8
+        return (1 - (1 + rate * t) * exp(-rate * t)) / (1 - (1 + rate) * exp(-rate))
+    }
 
     /// Preview settles border radius over 180 ms while width/height continue
     /// their final 30 ms. Expressed separately so silhouette lands cleanly.
     nonisolated static let cornerSettleDuration: TimeInterval = 0.18
 
-    /// How long the collapsed tab's peek slots blur and fade out before the
-    /// card's frame starts growing. Short enough that a click still feels
-    /// immediate, long enough to read as the pill "letting go".
-    nonisolated static let pillYieldDuration: TimeInterval = 0.06
+    /// Compact content yields in the same compositor handoff as the card;
+    /// there is no serial pause before opening.
+    nonisolated static let pillYieldDuration: TimeInterval = 0
 
     /// Blur radius the peek slots reach as they yield. Zero: they just fade,
     /// so nothing pulls focus or reads as a zoom.
     nonisolated static let pillYieldBlur: CGFloat = 0
 
     /// Idle ↔ listening width change on the collapsed tab.
-    nonisolated static let pillResizeDuration: TimeInterval = 0.22
+    nonisolated static let pillResizeDuration: TimeInterval = 0.14
 
     /// Extra window chrome around the hardware cutout so a 1.5pt theme rim
     /// (and its glow) is not clipped. Padding hangs left/right/below; the
@@ -267,6 +320,36 @@ enum NotchLayoutMath {
     /// Visible height below the camera housing. Identity, actions, and
     /// capability chips fit without compressing labels or controls.
     nonisolated static let connectorSuggestionHeight: CGFloat = 84
+
+    /// HeyMate's spoken words, hanging from the housing like the notch is
+    /// talking. The card and the controller's text measurement share these
+    /// so the frame grows line by line with the reply.
+    nonisolated static let captionTextWidth: CGFloat = 372
+    nonisolated static let captionGlyphWidth: CGFloat = 14
+    nonisolated static let captionControlsWidth: CGFloat = 48
+    nonisolated static let captionColumnSpacing: CGFloat = 10
+    nonisolated static let captionHorizontalPadding: CGFloat = 16
+    nonisolated static let captionTopPadding: CGFloat = 8
+    nonisolated static let captionBottomPadding: CGFloat = 14
+    nonisolated static let captionLineSpacing: CGFloat = 2
+    nonisolated static let captionLineHeight: CGFloat = 20
+    nonisolated static let captionProgressHeight: CGFloat = 16
+    nonisolated static let captionMinimumHeight: CGFloat = 44
+    /// About five lines; longer replies scroll to the newest words.
+    nonisolated static let captionMaximumHeight: CGFloat = 132
+
+    nonisolated static var captionWidth: CGFloat {
+        captionTextWidth + captionGlyphWidth + captionControlsWidth
+            + captionColumnSpacing * 2 + captionHorizontalPadding * 2
+    }
+
+    /// Visible caption height below the housing for text that lays out
+    /// `textHeight` tall at `captionTextWidth`.
+    nonisolated static func captionHeight(textHeight: CGFloat, hasProgress: Bool) -> CGFloat {
+        let body = captionTopPadding + max(textHeight, captionLineHeight) + captionBottomPadding
+            + (hasProgress ? captionProgressHeight : 0)
+        return min(max(body.rounded(.up), captionMinimumHeight), captionMaximumHeight)
+    }
 
     /// Assumed menu-bar strip height when placing the software-notch fallback
     /// on a display that has no camera housing. Matches `NSStatusBar` thickness.
@@ -665,10 +748,10 @@ enum NotchLayoutMath {
     /// How "card-shaped" the surface is at this point in the morph: 1 = full
     /// card, 0 = pill. Drives the bottom corner radius so the shape reads as
     /// one continuous liquid surface instead of a full-radius card clipped
-    /// by a pill-sized window. Radius uses the preview's independent 180 ms
-    /// CSS-ease settle; collapse inverts it.
+    /// by a pill-sized window. Radius follows the frame's own response;
+    /// collapse inverts it.
     nonisolated static func morphCardness(linearProgress: CGFloat, isExpanding: Bool) -> CGFloat {
-        let settledProgress = min(max(CNNotchMotion.progress(linearProgress, expanding: isExpanding), 0), 1)
+        let settledProgress = min(isExpanding ? surfaceOpenProgress(linearProgress) : surfaceMotionProgress(linearProgress), 1)
         return isExpanding ? settledProgress : 1 - settledProgress
     }
 

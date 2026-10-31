@@ -46,6 +46,8 @@ struct MateHomeView: View {
     @State private var imagePasteMonitor: Any?
     @State private var isNearBottom = true
     @State private var viewportHeight: CGFloat = 0
+    /// Height of the composer floating over the transcript's bottom edge.
+    @State private var composerDockHeight: CGFloat = 0
     @State private var transcriptContentMaxY: CGFloat = 0
     @State private var isHoveringTalk = false
     @State private var extraRevealed = 0
@@ -889,16 +891,39 @@ struct MateHomeView: View {
             conversationHeader
                 .cueMotion(.homeReveal, part: .item(0))
                 .overlay { CueSparkles(sound: .homeReveal) }
-            transcript
-                .cueMotion(.homeReveal, part: .item(1))
-            mateJobsStrip
-            composer
-                .frame(maxWidth: MateHomeLayout.readingMeasure)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 12)
-                .padding(.horizontal, usesCompactLayout ? 12 : 20)
-                .padding(.bottom, usesCompactLayout ? 10 : 16)
-                .cueMotion(.homeReveal, part: .item(2))
+            // The composer and its companion float over the transcript, so
+            // messages scroll on behind the blob instead of stopping above
+            // the space it stands in.
+            ZStack(alignment: .bottom) {
+                transcript
+                    .cueMotion(.homeReveal, part: .item(1))
+                VStack(spacing: 0) {
+                    mateJobsStrip
+                    composer
+                        .frame(maxWidth: MateHomeLayout.readingMeasure)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 12)
+                        .padding(.horizontal, usesCompactLayout ? 12 : 20)
+                        .padding(.bottom, usesCompactLayout ? 10 : 16)
+                        .cueMotion(.homeReveal, part: .item(2))
+                }
+                .background(alignment: .bottom) {
+                    // Text fades out as it reaches the bar rather than
+                    // running under it.
+                    LinearGradient(
+                        stops: [
+                            .init(color: DS.Colors.homeBackground.opacity(0), location: 0),
+                            .init(color: DS.Colors.homeBackground, location: 0.7)
+                        ],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                    .frame(height: composerBarFadeHeight)
+                    .allowsHitTesting(false)
+                }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                    composerDockHeight = height
+                }
+            }
         }
         .dropDestination(for: URL.self) { urls, _ in
             addImageFiles(urls)
@@ -946,16 +971,20 @@ struct MateHomeView: View {
                 .keyboardShortcut("n", modifiers: .command)
                 .help("New chat (⌘N)")
                 .accessibilityLabel("New chat")
-                Button {
-                    UISoundPlayer.shared.playDisclosure(.pane, isOpen: !isDrawerOpen)
-                    isDrawerOpen.toggle()
-                } label: {
-                    Image(systemName: "sidebar.right")
-                        .font(DS.Glyph.regular)
+                // Wide layouts open the drawer from the name pill centered
+                // above the chat; a second button did the same thing.
+                if usesCompactLayout {
+                    Button {
+                        UISoundPlayer.shared.playDisclosure(.pane, isOpen: !isDrawerOpen)
+                        isDrawerOpen.toggle()
+                    } label: {
+                        Image(systemName: "sidebar.right")
+                            .font(DS.Glyph.regular)
+                    }
+                    .dsToolbarIconButtonStyle(isActive: isDrawerOpen)
+                    .help(isDrawerOpen ? "Hide agent details" : "Agent details")
+                    .accessibilityLabel(isDrawerOpen ? "Hide agent details" : "Agent details")
                 }
-                .dsToolbarIconButtonStyle(isActive: isDrawerOpen)
-                .help(isDrawerOpen ? "Hide agent details" : "Agent details")
-                .accessibilityLabel(isDrawerOpen ? "Hide agent details" : "Agent details")
                 if usesCompactLayout {
                     Menu {
                         ForEach(MateHomeLayout.workspaceSections) { section in
@@ -1053,11 +1082,11 @@ struct MateHomeView: View {
         return "Chat history"
     }
 
-    /// The face over a name pill, centered above the chat. The pill opens
-    /// the mate's profile on the right; the face opens the editor.
+    /// Name pill centered above the chat. It opens the profile. A second
+    /// face only appears when the composer is not already showing this mate.
     private var centeredMateIdentity: some View {
         VStack(spacing: 4) {
-            if let mate = activeMate {
+            if let mate = activeMate, !showsComposerCompanion {
                 Button {
                     appearanceMate = mate
                 } label: {
@@ -1091,7 +1120,17 @@ struct MateHomeView: View {
             .help(isDrawerOpen ? "Hide profile" : "Show profile")
             .accessibilityLabel(isDrawerOpen ? "Hide \(activeMate?.name ?? Mate.defaultName)'s profile" : "Show \(activeMate?.name ?? Mate.defaultName)'s profile")
         }
-        .padding(.top, 6)
+        .padding(.top, showsComposerCompanion ? 0 : 6)
+    }
+
+    /// Wide chat draws the mate once, on the composer. Talk-first always
+    /// has a face there; the typed bar has one for blob and Milo looks.
+    /// Compact chat has no composer face, so the header keeps its own.
+    private var showsComposerCompanion: Bool {
+        guard !usesCompactLayout, let mate = activeMate else { return false }
+        if showsTalkFirstComposer { return true }
+        let token = MateFace.selectionToken(for: mate)
+        return BlobatarCharacter.contains(token) || MiloLook(assetName: token) != nil
     }
 
     private var headerTitles: some View {
@@ -1184,9 +1223,9 @@ struct MateHomeView: View {
                         streamingRow
                             .id("mate-streaming")
                     }
-                    if !companionManager.mateAgentActivity.isEmpty {
+                    if !visibleAgentActivity.isEmpty {
                         VStack(alignment: .leading, spacing: 5) {
-                            ForEach(companionManager.mateAgentActivity.suffix(6)) { entry in
+                            ForEach(visibleAgentActivity) { entry in
                                 Label(entry.text, systemImage: "gearshape.2")
                                     .font(DS.Fonts.caption)
                                     .foregroundStyle(DS.Colors.textSecondary)
@@ -1248,7 +1287,9 @@ struct MateHomeView: View {
                             }.buttonStyle(.plain).font(DS.Fonts.caption)
                         }
                     }
-                    Color.clear.frame(height: 1).id("mate-transcript-bottom")
+                    // Scrolling to latest pins this marker to the bottom
+                    // edge, so it spans the floating composer's height.
+                    Color.clear.frame(height: 1 + composerDockHeight).id("mate-transcript-bottom")
                 }
                 .frame(maxWidth: MateHomeLayout.readingMeasure, alignment: .leading)
                 .frame(maxWidth: .infinity)
@@ -1295,6 +1336,16 @@ struct MateHomeView: View {
                 scrollToLatestAfterLayout(proxy)
             }
             .onAppear { scrollToLatestAfterLayout(proxy) }
+            // The composer's height arrives after the first scroll, and
+            // its padding would leave the newest reply under the blob.
+            .onChange(of: composerDockHeight) { old, new in
+                if old == 0 {
+                    scrollToLatestAfterLayout(proxy)
+                } else if transcriptContentMaxY - (new - old) - viewportHeight < 72 {
+                    isNearBottom = true
+                    scrollToLatest(proxy)
+                }
+            }
             .overlay(alignment: .bottom) {
                 if !isNearBottom && !companionManager.currentChat.messages.isEmpty {
                     Button {
@@ -1309,10 +1360,25 @@ struct MateHomeView: View {
                     }
                     .buttonStyle(.plain)
                     .pointerCursor()
-                    .padding(.bottom, 10)
+                    .padding(.bottom, 10 + composerDockHeight)
                 }
             }
         }
+    }
+
+    /// Only the bar itself gets a backdrop; the companion above it stays
+    /// see-through.
+    private var composerBarFadeHeight: CGFloat {
+        min(composerDockHeight, usesCompactLayout ? 90 : 110)
+    }
+
+    /// Live progress while a turn runs; once it ends only failures, stops
+    /// and notices stay, since the reply itself says what was done.
+    private var visibleAgentActivity: [MateAgentActivityEntry] {
+        let entries = companionManager.isComposerStopVisible
+            ? companionManager.mateAgentActivity
+            : companionManager.mateAgentActivity.filter(\.persistsAfterTurn)
+        return Array(entries.suffix(6))
     }
 
     private func followLatest(_ proxy: ScrollViewProxy) {
@@ -1464,7 +1530,7 @@ struct MateHomeView: View {
                              artifactPaths: companionManager.harnessReplyChrome[message.id]?.artifactPaths ?? [])
                     .id("task-\(run.id)")
                 ChatMessageActionBar(
-                    text: message.text, isUser: false,
+                    text: message.visibleText, isUser: false,
                     isRevealed: hovered || message.id == messageWindow.visible.last?.id,
                     onEdit: nil,
                     onRegenerate: companionManager.precedingUserText(for: message.id) != nil ? {
@@ -1538,8 +1604,8 @@ struct MateHomeView: View {
                             .foregroundColor(DS.Colors.textTertiary)
                         }
                     } else {
-                        CueWordReveal(text: message.text, bornAt: message.createdAt) { visibleWords in
-                            ChatMarkdownText(text: message.text, visibleWordCount: visibleWords)
+                        CueWordReveal(text: message.visibleText, bornAt: message.createdAt) { visibleWords in
+                            ChatMarkdownText(text: message.visibleText, visibleWordCount: visibleWords)
                         }
                         .cueMotion(.messageReceived, bornAt: message.createdAt, anchor: .topLeading)
                         .cueMotion(.question, part: .item(0), bornAt: message.createdAt, anchor: .topLeading)
@@ -1646,7 +1712,6 @@ struct MateHomeView: View {
                         }
                         voiceMenu
                         Spacer(minLength: 4)
-                        DesktopConnectorScopeMenu(companionManager: companionManager, compact: true, isNarrow: usesCompactLayout)
                         DesktopComposerModelButton(companionManager: companionManager)
                         Button {
                             if companionManager.isComposerStopVisible {
@@ -1738,17 +1803,19 @@ struct MateHomeView: View {
         )
     }
 
-    /// Unfinished jobs sit just above the composer, in the chat that asked
-    /// for them. This is the only place a job lives in the window: a plan
+    /// This agent's unfinished jobs from its other chats sit just above the
+    /// composer; this chat's own jobs are cards in the transcript. A plan
     /// waiting on you opens right here to be read and approved, and running
     /// work shows its live step. Finished jobs report back as chat messages,
     /// so they need no row. Jobs that need you come first and are never
-    /// hidden behind a "more" link, since nowhere else lists them.
+    /// hidden behind a "more" link.
     @ViewBuilder
     private var mateJobsStrip: some View {
-        let unfinished = activeMateJobs
-            .filter { !$0.status.isTerminal }
-            .sorted { $0.status.needsUser && !$1.status.needsUser }
+        // Jobs this chat asked for already show as cards in the transcript.
+        let unfinished = MateJobs.composerStrip(
+            jobs: activeMateJobs,
+            shownInTranscript: Set(chatTasks.map(\.id))
+        )
         if !unfinished.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(unfinished) { run in
@@ -1960,7 +2027,9 @@ struct MateHomeView: View {
         HStack(spacing: 8) {
             Image(systemName: isHoldingTalk ? "waveform" : "mic.fill")
                 .font(DS.Glyph.regular)
-            Text(isHoldingTalk ? "Listening…" : (usesCompactLayout ? "Hold to talk" : "Hold \(talkShortcutLabel) to talk"))
+            // The hint under the button names the shortcut; saying it twice
+            // read as two different ways to talk.
+            Text(isHoldingTalk ? "Listening…" : "Hold to talk")
                 .font(DS.Fonts.controlLarge)
                 .lineLimit(1)
         }
@@ -2313,7 +2382,9 @@ struct MateHomeView: View {
                 Button {
                     beginMateSettings(mate)
                 } label: {
-                    Label("Edit agent", systemImage: "paintbrush.pointed")
+                    // Personality, habits, routines and integrations live
+                    // there, not only looks.
+                    Label("Agent settings", systemImage: "gearshape")
                         .font(DS.Fonts.control)
                 }
                 .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)

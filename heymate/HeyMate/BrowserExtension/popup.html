@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>HeyMate</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      font-size: 13px;
+      padding: 12px;
+      width: 260px;
+      background: #1a1a1a;
+      color: #e5e5e5;
+    }
+    h1 { display: flex; align-items: center; gap: 8px; font-size: 16px; margin: 0 0 8px 0; color: #ffffff; }
+    .status { font-size: 11px; margin-bottom: 10px; }
+    .connected { color: #4ade80; }
+    .disconnected { color: #f87171; }
+    button {
+      width: 100%;
+      padding: 8px 12px;
+      margin: 4px 0;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    button.primary { background: #3380ff; color: #ffffff; }
+    button.primary:hover { background: #2b6fdd; }
+    button.secondary { background: #2a2a2c; color: #e5e5e5; border: 1px solid #3a3a3c; }
+    button.secondary:hover { background: #3a3a3c; }
+    .hint { font-size: 11px; color: #8a8a8a; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h1><img src="icon-48.png" width="24" height="24" alt="">HeyMate</h1>
+  <div class="status connected" id="status">Connecting…</div>
+  <button class="primary" id="openTab">Open Tab in HeyMate Group</button>
+  <button class="secondary" id="snapshot">Snapshot Active Tab</button>
+  <div class="hint">Use Chrome with HeyMate to control web pages.</div>
+  <script src="popup.js"></script>
+</body>
+</html>

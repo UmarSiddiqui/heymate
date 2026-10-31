@@ -28,7 +28,10 @@ nonisolated struct ChatMessage: Codable, Equatable, Identifiable {
     var taskRunID: UUID? = nil
     var taskResultKey: String? = nil
 
-    var visibleText: String { taskSummary ?? legacyTaskSummary ?? text }
+    /// Replies saved before directives were stripped still carry them.
+    var visibleText: String {
+        taskSummary ?? legacyTaskSummary ?? (role == .assistant ? GuidedReplyParser.chatText(text) : text)
+    }
     var isDelegatedTask: Bool { taskSummary != nil || legacyTaskSummary != nil }
 
     /// Exact historical generated envelope only; never match loose user keywords.

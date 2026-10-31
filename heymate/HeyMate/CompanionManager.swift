@@ -86,9 +86,9 @@ final class CompanionManager: ObservableObject {
     /// bridge a Pi turn attaches. Delegation rides the same bridge so First
     /// Mate can hand work to a specialist; start_mate_work stays native-only.
     func scopedConnectorToolDescriptions(token: String) -> [[String: Any]] {
-        guard let scope = talkToolScopes[token], ownsCurrentResponse(scope.completion) else { return [] }
+        guard let scope = talkToolScopes[token], ownsActiveResponse(scope.completion) else { return [] }
         return TalkToolCatalog.availableTools(connectorRuntime: connectorRuntime).compactMap { tool in
-            guard isScopedBridgeTool(tool) else { return nil }
+            guard isScopedBridgeTool(tool, owner: scope.owner) else { return nil }
             let definition = tool.toolDefinition
             let schema = (try? JSONSerialization.jsonObject(with: Data(definition.inputSchemaJSON.utf8))) as? [String: Any]
             return ["name": definition.name, "description": definition.description,
@@ -96,26 +96,26 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    private func isScopedBridgeTool(_ tool: TalkTool) -> Bool {
+    private func isScopedBridgeTool(_ tool: TalkTool, owner: AgentChatOwner) -> Bool {
         switch tool.origin {
         case .local:
             return TalkToolCatalog.piBridgeLocalToolNames.contains(tool.toolDefinition.name)
         case .connector(let identifier, _, _):
             let name = tool.toolDefinition.name
-            return isConnectorEnabledForChat(identifier)
+            return isConnectorEnabledForChat(identifier, owner: owner)
                 && !Self.isWithheldFromTalk(name.components(separatedBy: "__").last ?? name)
         }
     }
 
     func executeScopedConnectorTool(token: String, name: String, arguments: [String: Any]) async -> (text: String, isError: Bool) {
-        guard let scope = talkToolScopes[token], ownsCurrentResponse(scope.completion),
+        guard let scope = talkToolScopes[token], ownsActiveResponse(scope.completion),
               let tool = TalkToolCatalog.availableTools(connectorRuntime: connectorRuntime).first(where: {
-                  $0.toolDefinition.name == name && isScopedBridgeTool($0)
+                  $0.toolDefinition.name == name && isScopedBridgeTool($0, owner: scope.owner)
               }) else { return ("This conversation tool scope expired or the connector is unavailable.", true) }
         let result = await executeTalkTool(.init(toolUseIdentifier: UUID().uuidString, toolName: name,
             inputArgumentsJSON: String(data: (try? JSONSerialization.data(withJSONObject: arguments)) ?? Data("{}".utf8), encoding: .utf8) ?? "{}"),
             availableTalkTools: [tool], completion: scope.completion, resultOwner: scope.owner)
-        guard ownsCurrentResponse(scope.completion) else { return ("This reply was cancelled. Outcome remains unverified.", true) }
+        guard ownsActiveResponse(scope.completion) else { return ("This reply was cancelled. Outcome remains unverified.", true) }
         if !result.isError {
             for (kind, ids) in MateAgentGmailVerification.verifiedActions(tool: name, arguments: arguments, result: result.text) {
                 talkGmailEvidence[token, default: [:]][kind, default: []].formUnion(ids)
@@ -125,7 +125,7 @@ final class CompanionManager: ObservableObject {
     }
 
     func scopedTalkToolDescriptions(token: String) -> [[String: Any]] {
-        guard let scope = talkToolScopes[token], ownsCurrentResponse(scope.completion) else {
+        guard let scope = talkToolScopes[token], ownsActiveResponse(scope.completion) else {
             HeyMateLog.log("Talk local tool discovery refused: inactive scope")
             return []
         }
@@ -140,7 +140,7 @@ final class CompanionManager: ObservableObject {
     }
 
     func executeScopedTalkTool(token: String, name: String, arguments: [String: Any]) -> (text: String, isError: Bool) {
-        guard let scope = talkToolScopes[token], ownsCurrentResponse(scope.completion),
+        guard let scope = talkToolScopes[token], ownsActiveResponse(scope.completion),
               TalkToolCatalog.availableTools(connectorRuntime: connectorRuntime).contains(where: {
                   guard case .local = $0.origin else { return false }
                   return $0.toolDefinition.name == name
@@ -177,6 +177,8 @@ final class CompanionManager: ObservableObject {
     let mateRoutineScheduler: MateRoutineScheduler
     /// A deterministic client can exercise turn ownership without contacting a provider.
     private let conversationClientOverride: (any VisionConversationClient)?
+    /// Opt a synthetic client into the independent MateAgent lifecycle in tests.
+    var testIndependentChatTurns = false
 
     @Published var mates: [Mate] = []
     @Published var routines: [MateRoutine] = []
@@ -618,6 +620,14 @@ final class CompanionManager: ObservableObject {
     /// it. Off until the user turns it on; destructive actions always ask.
     let computerUseCoordinator = ComputerUseCoordinator()
 
+    /// Multi-step takeover of one app window, asked for by Talk, an agent,
+    /// or the local bridge. Always behind its own consent card.
+    lazy var driveController: DriveTakeOverController = {
+        let controller = DriveTakeOverController()
+        controller.host = self
+        return controller
+    }()
+
     /// Same gate, for a connector tool call the Talk model asks to make.
     /// Each connector's own `ConnectorApprovalPolicy` decides whether a
     /// given call needs it; this coordinator only owns the suspend/resume.
@@ -629,8 +639,9 @@ final class CompanionManager: ObservableObject {
     @discardableResult
     func performComputerUseDirectives(in responseText: String) async -> String? {
         guard computerUseCoordinator.isEnabled else { return nil }
+        let driveOutcome = await performDriveDirectives(in: responseText)
         let parsedActions = ComputerUseTagParser.parseActions(in: responseText)
-        guard !parsedActions.isEmpty else { return nil }
+        guard !parsedActions.isEmpty else { return driveOutcome }
 
         computerUseCoordinator.beginDrive()
         defer { computerUseCoordinator.endDrive() }
@@ -645,7 +656,7 @@ final class CompanionManager: ObservableObject {
             outcomeLines.append(outcome)
             if computerUseCoordinator.takeBackReason != nil { break }
         }
-        return outcomeLines.joined(separator: "\n")
+        return ([driveOutcome].compactMap { $0 } + outcomeLines).joined(separator: "\n")
     }
 
     /// Which outside services HeyMate may reach, and how each one
@@ -687,10 +698,18 @@ final class CompanionManager: ObservableObject {
         )
     }
 
-    /// Integrations are global: every agent, routine and handoff uses the
-    /// same set the user turned on.
+    /// HeyMate's integrations are the defaults. An agent's own chat, routine
+    /// or handoff layers that agent's overrides on top; Talk and HeyMate
+    /// itself use the defaults.
     private func isConnectorSelectionEnabledForTurn(_ selectionID: String) -> Bool {
-        !chatConnectorExclusions.contains(selectionID)
+        isConnectorSelectionEnabled(selectionID, for: speakingMateForTurn())
+    }
+
+    func isConnectorSelectionEnabled(_ selectionID: String, for mate: Mate?) -> Bool {
+        if let mate, !mate.conductsOthers, let override = mate.connectorOverrides?[selectionID] {
+            return override
+        }
+        return isChatConnectorEnabled(selectionID)
     }
 
     private var enabledChatComposioSlugs: Set<String> {
@@ -704,6 +723,18 @@ final class CompanionManager: ObservableObject {
             return !enabledChatComposioSlugs.isEmpty
         }
         return isConnectorSelectionEnabledForTurn(Self.chatConnectorSelectionID(forConnectorID: connectorID))
+    }
+
+    /// Evaluate a scoped call against its initiating mate, even after the
+    /// user opens another chat. A missing owner fails closed.
+    func isConnectorEnabledForChat(_ connectorID: String, owner: AgentChatOwner) -> Bool {
+        guard let mate = mateDirectory.mates.first(where: { $0.id == owner.mateID }) else { return false }
+        if connectorID == ComposioSessionStore.connectorID {
+            return composioConnections.connectedSlugs.contains {
+                isConnectorSelectionEnabled(Self.chatConnectorSelectionID(forComposioSlug: $0), for: mate)
+            }
+        }
+        return isConnectorSelectionEnabled(Self.chatConnectorSelectionID(forConnectorID: connectorID), for: mate)
     }
 
     /// The full desktop window. Built lazily — a user who never opens it
@@ -740,6 +771,10 @@ final class CompanionManager: ObservableObject {
     func closeDesktopWindow() {
         notchCompanionController.closeFullChat()
         if desktopWindowController.isVisible { desktopWindowController.toggle() }
+    }
+
+    func setNotchAboutPopoverPresented(_ presented: Bool) {
+        notchCompanionController.setAboutPopoverPresented(presented)
     }
 
     /// Planning and launch races still make Cmd-Q unsafe. A write-enabled job
@@ -1037,7 +1072,7 @@ final class CompanionManager: ObservableObject {
         apiKey: CompanionManager.nativeCredentialAccessAllowed ? CustomAPIConfiguration.apiKey() : nil
     )
 
-    var voiceSynthesisClient: any TTSClient = KokoroTTSClient()
+    var voiceSynthesisClient: any TTSClient = CompanionManager.localSpeakingClient()
 
     /// Speech-to-text backend for Talk / Dictate. Persisted independently of the brain.
     @Published var selectedListenProvider: VoiceListenProvider = VoiceListenProvider.fromUserDefaults()
@@ -1416,17 +1451,23 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Local voice is the default and the only fallback for ElevenLabs.
+    /// Kokoro where it runs safely; the Mac's own voice where Apple's BNNS
+    /// bug would take the whole app down mid-reply.
+    static func localSpeakingClient() -> any TTSClient {
+        KokoroEngine.unsupportedReason == nil ? KokoroTTSClient() : MacOSSpeechSynthesizerClient()
+    }
+
     static func makeSpeakingClient(
         for provider: VoiceSpeakProvider,
         workerBaseURL: String
     ) -> any TTSClient {
         switch provider {
         case .macOS, .onDevice:
-            return KokoroTTSClient()
+            return localSpeakingClient()
         case .elevenLabs:
             return FallbackTTSClient(
                 primary: ElevenLabsVoiceClient(workerURL: "\(workerBaseURL)/tts"),
-                fallback: KokoroTTSClient()
+                fallback: localSpeakingClient()
             )
         }
     }
@@ -1936,6 +1977,9 @@ final class CompanionManager: ObservableObject {
         }
     }
     var cursorCaptionTask: Task<Void, Never>?
+    /// The pointer is on the notch caption; a finished reply waits for it
+    /// to leave so the words are not pulled away mid-copy.
+    var isCursorCaptionHeld = false
     /// Small "2 of 4" / "step 2 of 5" line above the caption during guidance.
     @Published var cursorCaptionProgress: String?
 
@@ -2064,6 +2108,14 @@ final class CompanionManager: ObservableObject {
     /// The currently running AI response task, if any. Cancelled when the user
     /// speaks again so a new response can begin immediately.
     var currentResponseTask: Task<Void, Never>?
+    private struct IndependentChatTurn {
+        let completion: HeyMateRequestCompletionState
+        let task: Task<Void, Never>
+        var session: ChatSession
+    }
+    private var independentChatTurns: [UUID: IndependentChatTurn] = [:]
+    private var ephemeralIndependentChats: [UUID: ChatSession] = [:]
+    private var currentResponseChatID: UUID?
     /// Guards stale Talk completions after a newer turn cancelled the task.
     private(set) var currentResponseCompletion: HeyMateRequestCompletionState?
 
@@ -2358,12 +2410,13 @@ final class CompanionManager: ObservableObject {
 
     func openChat(id: UUID) {
         guard id != currentChat.id else { return }
-        guard let session = chatHistoryStore.session(id: id) ?? savedChats.first(where: { $0.id == id }) else {
+        guard let session = chatHistoryStore.session(id: id) ?? savedChats.first(where: { $0.id == id }) ?? ephemeralIndependentChats[id] ?? independentChatTurns[id]?.session else {
             return
         }
         cancelForegroundChatTurnForNavigation()
         persistCurrentChatIfNeeded()
         currentChat = session
+        restoreIndependentChatTurn()
         streamingAssistantText = ""
         let mateID = session.mateID ?? mateDirectory.defaultMateID
         mateDirectory.activeMateID = mateID
@@ -2376,6 +2429,8 @@ final class CompanionManager: ObservableObject {
 
     func deleteChat(id: UUID) {
         cancelPendingOpenCodeTrainingSend(chatID: id)
+        cancelIndependentChatTurn(chatID: id)
+        ephemeralIndependentChats.removeValue(forKey: id)
         if backgroundRoutineSession?.id == id {
             cancelInFlightChatTurn()
         } else if currentChat.id == id {
@@ -2393,6 +2448,8 @@ final class CompanionManager: ObservableObject {
 
     func clearAllChats() {
         cancelOpenCodeTrainingSend()
+        for id in Array(independentChatTurns.keys) { cancelIndependentChatTurn(chatID: id) }
+        ephemeralIndependentChats.removeAll()
         // Deleting all history also stops background delivery, otherwise
         // its next token or result would recreate a chat the user erased.
         if backgroundRoutineSession != nil { cancelInFlightChatTurn() }
@@ -2431,6 +2488,27 @@ final class CompanionManager: ObservableObject {
     /// already writing to its own session keeps running in that session.
     func cancelForegroundChatTurnForNavigation() {
         guard backgroundRoutineSession == nil else { return }
+        if let id = currentResponseChatID, id == currentChat.id,
+           let turn = independentChatTurns[id], !turn.completion.didComplete,
+           currentResponseCompletion === turn.completion {
+            independentChatTurns[id]?.session = currentChat
+            if !rememberConversationsEnabled { ephemeralIndependentChats[id] = currentChat }
+            currentResponseTask = nil
+            currentResponseCompletion = nil
+            currentResponseChatID = nil
+            streamingAssistantText = ""
+            mateAgentActivity = []
+            voiceSynthesisClient.stopPlayback()
+            clearCursorCaption()
+            clearPointingTarget()
+            activeWalkthrough = nil
+            disarmWalkthroughClickMonitor()
+            switch state {
+            case .thinking, .capturingContext, .speaking: dispatch(.cancel)
+            default: break
+            }
+            return
+        }
         mateAgentActivity = []
         activeWalkthrough = nil
         disarmWalkthroughClickMonitor()
@@ -2456,6 +2534,68 @@ final class CompanionManager: ObservableObject {
         currentResponseCompletion === completion && !completion.didComplete
     }
 
+    private func ownsActiveResponse(_ completion: HeyMateRequestCompletionState) -> Bool {
+        !completion.didComplete && (ownsCurrentResponse(completion) || independentChatTurns.values.contains { $0.completion === completion })
+    }
+
+    func restoreIndependentChatTurn() {
+        guard let turn = independentChatTurns[currentChat.id], !turn.completion.didComplete else { return }
+        guard backgroundRoutineSession == nil,
+              !isResponseInFlight || currentResponseCompletion === turn.completion else { return }
+        currentResponseChatID = currentChat.id
+        currentResponseCompletion = turn.completion
+        currentResponseTask = turn.task
+    }
+
+    func independentSession(forMateID mateID: UUID) -> ChatSession? {
+        (independentChatTurns.values.map(\.session) + Array(ephemeralIndependentChats.values))
+            .filter { ($0.mateID ?? mateDirectory.defaultMateID) == mateID }
+            .max { $0.updatedAt < $1.updatedAt }
+    }
+
+    func cancelIndependentChatTurns(forMateID mateID: UUID) {
+        let ids = independentChatTurns.filter { ($0.value.session.mateID ?? mateDirectory.defaultMateID) == mateID }.map(\.key)
+        for id in ids { cancelIndependentChatTurn(chatID: id) }
+        ephemeralIndependentChats = ephemeralIndependentChats.filter { ($0.value.mateID ?? mateDirectory.defaultMateID) != mateID }
+    }
+
+    func cancelIndependentChatTurn(chatID: UUID) {
+        guard let turn = independentChatTurns.removeValue(forKey: chatID) else { return }
+        turn.completion.didComplete = true
+        turn.task.cancel()
+        if currentResponseCompletion === turn.completion {
+            currentResponseTask = nil
+            currentResponseCompletion = nil
+            currentResponseChatID = nil
+            streamingAssistantText = ""
+            dispatch(.cancel)
+        }
+    }
+
+    private func deliverIndependentChatResult(_ text: String, chatID: UUID, resultKey: String?) {
+        guard var turn = independentChatTurns[chatID], !turn.completion.didComplete else { return }
+        var session: ChatSession
+        if currentChat.id == chatID {
+            session = currentChat
+        } else if rememberConversationsEnabled {
+            session = chatHistoryStore.session(id: chatID) ?? turn.session
+        } else {
+            session = ephemeralIndependentChats[chatID] ?? turn.session
+        }
+        if let resultKey, session.messages.contains(where: { $0.taskResultKey == resultKey }) { return }
+        session.messages.append(ChatMessage(id: UUID(), role: .assistant, text: text, createdAt: Date(), taskResultKey: resultKey))
+        session.updatedAt = Date()
+        turn.session = session
+        independentChatTurns[chatID] = turn
+        if currentChat.id == chatID { currentChat = session }
+        if rememberConversationsEnabled {
+            chatHistoryStore.upsert(session)
+            savedChats = chatHistoryStore.loadAll()
+        } else {
+            ephemeralIndependentChats[chatID] = session
+        }
+    }
+
     /// Stops the open reply: the in-flight task, streamed text, and speech.
     /// Returns to idle so the composer cannot stay on thinking, capturing, or speaking.
     func cancelInFlightChatTurn(resetInteractionState: Bool = true) {
@@ -2463,6 +2603,8 @@ final class CompanionManager: ObservableObject {
             mateAgentActivity.append(MateAgentActivityEntry(type: "turn.cancelled"))
         }
         let completion = currentResponseCompletion
+        if let id = currentResponseChatID { independentChatTurns.removeValue(forKey: id) }
+        currentResponseChatID = nil
         completion?.didComplete = true
         currentResponseTask?.cancel()
         currentResponseTask = nil
@@ -3512,7 +3654,7 @@ final class CompanionManager: ObservableObject {
 
     /// Prompt fragment describing the selected region with higher priority
     /// than the rest of the screenshot. Returns nil when nothing selected.
-    func spatialSelectionPromptFragment() -> String? {
+    func spatialSelectionPromptFragment(screenLabel: String? = nil) -> String? {
         guard let selection = activeSpatialSelection,
               let screenFrame = spatialSelectionScreenFrame else { return nil }
 
@@ -3522,7 +3664,7 @@ final class CompanionManager: ObservableObject {
         let b = selection.bounds
 
         return """
-        PRIORITY REGION: the user circled an area on the display whose frame is \(screenFrame). Treat this region as the subject of their question above everything else visible:
+        PRIORITY REGION: the user circled an area on the display whose frame is \(screenFrame)\(screenLabel.map { "; its image is labeled \"\($0)\"" } ?? ""). Treat this region as the subject of their question above everything else visible:
         bounds(normalized x,y,w,h)=[\(String(format: "%.3f,%.3f,%.3f,%.3f", b[0], b[1], b[2], b[3]))]
         polygon(normalized)=[\(polygonText)]
         """
@@ -3761,6 +3903,26 @@ final class CompanionManager: ObservableObject {
         return lines.joined(separator: "\n")
     }
 
+    /// Voice and silent typing both start a Talk turn with the buddy on
+    /// screen, so a reply that points has somewhere to point from.
+    private func deployCursorForInteraction() {
+        // A new interaction wins over a recall already in flight. Overlay
+        // view sees deployed phase and resumes normal pointer following.
+        if cursorDockPhase == .returning {
+            cursorDockPhase = .deployed
+        }
+
+        // Cancel any pending transient hide so the overlay stays visible
+        transientHideTask?.cancel()
+        transientHideTask = nil
+
+        // If the cursor is hidden, bring it back transiently for this interaction
+        if !isCursorCompanionEnabled && !isOverlayVisible {
+            cursorDockPhase = .launching
+            showCursorOverlay()
+        }
+    }
+
     private func handleShortcutTransition(_ transition: PushToTalkShortcut.Transition) {
         switch transition {
         case .pressed:
@@ -3770,21 +3932,7 @@ final class CompanionManager: ObservableObject {
             }
             guard !voiceDictation.isDictationInProgress else { return }
 
-            // A new interaction wins over a recall already in flight. Overlay
-            // view sees deployed phase and resumes normal pointer following.
-            if cursorDockPhase == .returning {
-                cursorDockPhase = .deployed
-            }
-
-            // Cancel any pending transient hide so the overlay stays visible
-            transientHideTask?.cancel()
-            transientHideTask = nil
-
-            // If the cursor is hidden, bring it back transiently for this interaction
-            if !isCursorCompanionEnabled && !isOverlayVisible {
-                cursorDockPhase = .launching
-                showCursorOverlay()
-            }
+            deployCursorForInteraction()
 
             // Dismiss the notch card so it doesn't cover the screen
             NotificationCenter.default.post(name: .heyMateDismissPanel, object: nil)
@@ -3799,6 +3947,19 @@ final class CompanionManager: ObservableObject {
             // and start listening again — Talk always interrupts.
             inputModeOfActiveSession = .talk
             dispatch(.startListening(.talk))
+
+            // The Talk chord also accepts an optional freehand region. Keep
+            // listening after mouse-up; releasing the chord ends both inputs.
+            overlayWindowManager.beginSpatialCapture { [weak self] points in
+                self?.spatialDraftPoints = points
+            } completion: { [weak self] screenFrame, selection in
+                guard let self else { return }
+                if let screenFrame, let selection {
+                    self.spatialSelectionScreenFrame = screenFrame
+                    self.activeSpatialSelection = selection
+                }
+                self.spatialDraftPoints = []
+            }
 
             // They're doing what the onboarding prompt asks; put it away.
             dismissOnboardingPrompt()
@@ -3835,6 +3996,7 @@ final class CompanionManager: ObservableObject {
             // Without this, a quick press-and-release drops the release event and
             // leaves the waveform overlay stuck on screen indefinitely.
             HeyMateAnalytics.track(.pushToTalkReleased)
+            overlayWindowManager.finishSpatialCapture()
             pendingKeyboardShortcutStartTask?.cancel()
             pendingKeyboardShortcutStartTask = nil
             voiceDictation.finishShortcutDictation()
@@ -3860,10 +4022,20 @@ final class CompanionManager: ObservableObject {
     func sendTypedMessage(
         _ typedMessageText: String,
         imageAttachments: [ChatImageAttachment] = [],
-        asHeyMateTalk: Bool = false
+        asHeyMateTalk: Bool = false,
+        internalMateTurn: Bool = false
     ) -> Bool {
         let trimmedTypedMessageText = typedMessageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTypedMessageText.isEmpty || !imageAttachments.isEmpty else { return false }
+        if !internalMateTurn && (activeRoutineTurn != nil || activeHandoffMateID != nil) {
+            commandBarFeedback = "A scheduled or delegated turn is starting. Try again when it finishes."
+            return false
+        }
+        if !asHeyMateTalk, let turn = independentChatTurns[currentChat.id], !turn.completion.didComplete,
+           mateAgentConversationClients[currentChat.id]?.canSteer != true {
+            commandBarFeedback = "This mate is still starting or finishing work. Wait or stop it first."
+            return false
+        }
         if let typedMessageBusyReason {
             commandBarFeedback = typedMessageBusyReason
             return false
@@ -3898,8 +4070,12 @@ final class CompanionManager: ObservableObject {
                 HeyMateAnalytics.track(.userMessageSent(characterCount: messageText.count))
                 commandBarFeedback = nil
                 lastTranscript = messageText
+                // The notch composer is Talk with a keyboard: same cursor and
+                // same screen rule as speaking. Only the desktop chat is
+                // "inside HeyMate" for capture purposes.
+                if asHeyMateTalk { deployCursorForInteraction() }
                 sendToTalk(messageText.appending(contextPreamble(for: contextTokens)), requiresIdle: false,
-                           imageAttachments: imageAttachments, typedInsideHeyMate: true)
+                           imageAttachments: imageAttachments, typedInsideHeyMate: !asHeyMateTalk)
                 return true
 
         }
@@ -4006,7 +4182,7 @@ final class CompanionManager: ObservableObject {
             return
         }
         isHeyMateTalkTurn = true
-        if acceptLocalMateCommand(trimmedTranscript) { return }
+        if activeSpatialSelection == nil, acceptLocalMateCommand(trimmedTranscript) { return }
 
         routeUserTranscript(trimmedTranscript, requiresIdle: false)
     }
@@ -4053,7 +4229,8 @@ final class CompanionManager: ObservableObject {
                 wantsScreen: wantsScreen,
                 typedInsideHeyMate: typedInsideHeyMate,
                 frontmostIsHeyMate: frontmostIsHeyMate,
-                hasSpatialSelection: activeSpatialSelection != nil
+                hasSpatialSelection: activeSpatialSelection != nil,
+                actsOnScreen: TalkContextPolicy.asksToActOnScreen(transcript)
             ),
             imageAttachments: imageAttachments
         )
@@ -4065,6 +4242,12 @@ final class CompanionManager: ObservableObject {
         Task { [weak self] in
             try? await self?.voiceSynthesisClient.speakText(utterance)
         }
+    }
+
+    /// Tells the model the screen is missing and why, so it says so instead
+    /// of guessing at what the user is looking at.
+    nonisolated static func screenCaptureUnavailableNote(_ error: Error) -> String {
+        "Screen capture failed: \(error.localizedDescription) No live screen image is attached. Do not claim to see the screen; if the request needs it, tell the user the screen could not be captured and why."
     }
 
     /// Captures a screenshot, sends it along with the transcript to the
@@ -4083,16 +4266,30 @@ final class CompanionManager: ObservableObject {
            let client = mateAgentConversationClients[steerSession.id], client.canSteer {
             appendUserMessage(transcript, attachmentNames: imageAttachments.map(\.fileName))
             let capturesScreen = shouldCaptureScreen && !isFrontmostAppScreenExcluded
-            let focusedWindow = talkUsesFocusedWindowContext
+            let selectedFrame = spatialSelectionScreenFrame
+            let selectedFragment = spatialSelectionPromptFragment()
+            let focusedWindow = talkUsesFocusedWindowContext && selectedFrame == nil
+            clearSpatialSelection()
             Task { [weak self] in
                 var images: [(data: Data, label: String)] = []
+                var selectionContext: String?
+                var unavailableNote: String?
                 if capturesScreen {
                     CaptureAudit.shared.recordCaptureAttempt(context: CaptureAudit.Context.talkResponsePipeline)
-                    let captures = (try? await (focusedWindow ? ScreenCapture.focusedWindow() : ScreenCapture.allScreens())) ?? []
+                    var captures: [ScreenSnapshot] = []
+                    do {
+                        captures = try await focusedWindow ? ScreenCapture.focusedWindow() : ScreenCapture.allScreens()
+                    } catch {
+                        HeyMateLog.log("📸 Talk steer: screen capture failed — \(error.localizedDescription)")
+                        unavailableNote = Self.screenCaptureUnavailableNote(error)
+                    }
                     images += captures.map { (data: $0.imageData, label: $0.label) }
+                    if let frame = selectedFrame, let selected = captures.first(where: { $0.displayFrame == frame }), let selectedFragment {
+                        selectionContext = selectedFragment + "\nSelected display image: \(selected.label)."
+                    }
                 }
                 images += imageAttachments.map { (data: $0.data, label: $0.modelLabel) }
-                do { try await client.steer(transcript, images: images) }
+                do { try await client.steer([transcript, selectionContext, unavailableNote].compactMap { $0 }.joined(separator: "\n\n"), images: images) }
                 catch { self?.commandBarFeedback = "That message could not join the running turn. Send it again when the turn ends." }
             }
             return
@@ -4104,6 +4301,13 @@ final class CompanionManager: ObservableObject {
         let userActedWhileThinking = noteGuidedActionIfNeeded(for: transcript)
         guidedClickLandedDuringTurn = false
         let turnSession = backgroundRoutineSession ?? (isHeyMateTalkTurn ? heyMateTalkSession : currentChat)
+        let independentChat = (conversationClientOverride == nil || testIndependentChatTurns)
+            && !isHeyMateTalkTurn && backgroundRoutineSession == nil
+            && activeRoutineTurn == nil && activeHandoffMateID == nil
+        if independentChat, let existing = independentChatTurns[turnSession.id], !existing.completion.didComplete {
+            commandBarFeedback = "This mate is still working. Wait for the response or stop it first."
+            return
+        }
         computerUseCoordinator.conversationID = turnSession.id
         computerUseCoordinator.beginTurn()
         currentResponseCompletion?.didComplete = true
@@ -4112,26 +4316,52 @@ final class CompanionManager: ObservableObject {
 
         let completion = HeyMateRequestCompletionState()
         let speakingMate = speakingMateForTurn()
+        let turnMemoryOwner = memoryOwnerForTurn
+        let turnIdentity = mateIdentityBlock(for: speakingMate) ?? ""
+        let turnMemoryBlock = Self.memoryPromptBlock(items: MemoryContext.items(memoryItems, for: turnMemoryOwner))
+        let turnSelectedFrame = spatialSelectionScreenFrame
+        let turnSelectionFragment = spatialSelectionPromptFragment()
+        let turnFrontmostExcluded = isFrontmostAppScreenExcluded
+        let turnFocusedWindow = talkUsesFocusedWindowContext
+        let turnWalkthrough = walkthroughPromptBlock()
+        let turnPendingNote = independentChat ? pendingTurnNote : nil
+        if independentChat {
+            pendingTurnNote = nil
+            clearSpatialSelection()
+        }
+        let turnEnabledApps = Set(composioConnections.connectedSlugs.filter {
+            isConnectorSelectionEnabled(Self.chatConnectorSelectionID(forComposioSlug: $0), for: speakingMate)
+        })
+        if independentChat {
+            appendUserMessage(transcript, attachmentNames: imageAttachments.map(\.fileName))
+        }
         // Capture before scheduling: navigation can run before this task
         // starts, as well as while connector activation is suspended.
         // OpenCode settings can change while connector/screen capture awaits.
         // Keep the client whose exact model passed the consent check above.
         currentResponseCompletion = completion
+        currentResponseChatID = independentChat ? turnSession.id : nil
         explainerWindowController.resetStreamDismissal()
         currentResponseTask = Task {
             // Every exit, early returns included, ends the turn. Runs after
             // the closing `guard !completion.didComplete` below, so the
             // normal ending still dispatches `interactionFinished` first.
-            defer { completion.didComplete = true }
+            defer {
+                completion.didComplete = true
+                if independentChat, independentChatTurns[turnSession.id]?.completion === completion {
+                    independentChatTurns.removeValue(forKey: turnSession.id)
+                }
+            }
             // A cancelled task can first be scheduled after navigation. It
             // must not append the old question into the newly opened chat.
-            guard !Task.isCancelled, ownsCurrentResponse(completion) else { return }
-            appendUserMessage(
-                transcript,
-                attachmentNames: imageAttachments.map(\.fileName)
-            )
-            streamingAssistantText = ""
-            dispatch(.beginContextCapture)
+            guard !Task.isCancelled, ownsActiveResponse(completion) else { return }
+            if !independentChat {
+                appendUserMessage(transcript, attachmentNames: imageAttachments.map(\.fileName))
+            }
+            if ownsCurrentResponse(completion) {
+                streamingAssistantText = ""
+                dispatch(.beginContextCapture)
+            }
 
             do {
                 guard !Task.isCancelled, !completion.didComplete else { return }
@@ -4141,14 +4371,14 @@ final class CompanionManager: ObservableObject {
                 if !capturesScreen {
                     HeyMateLog.log("⚡️ Talk: text-only fast path")
                     screenCaptures = []
-                } else if isFrontmostAppScreenExcluded {
+                } else if turnFrontmostExcluded {
                     HeyMateLog.log("🛡️ Talk: frontmost app excluded — voice-only response")
                     contextUnavailableNote = "(the user's screen context is unavailable right now; answer from the words alone and never claim to see anything on screen)"
                     screenCaptures = []
                 } else {
                     CaptureAudit.shared.recordCaptureAttempt(context: CaptureAudit.Context.talkResponsePipeline)
                     do {
-                    if talkUsesFocusedWindowContext {
+                    if turnFocusedWindow && turnSelectedFrame == nil {
                         // Focused-window capture falls back to all screens
                         // itself when no frontmost window qualifies.
                         screenCaptures = try await ScreenCapture.focusedWindow()
@@ -4159,14 +4389,15 @@ final class CompanionManager: ObservableObject {
                         guard !Task.isCancelled else { throw error }
                         // A text/file task must not fail because optional
                         // screen context is unavailable to the wrapper.
-                        contextUnavailableNote = "Screen capture is unavailable. No live screen image is attached; answer from the user's words and explicit attachments only."
+                        HeyMateLog.log("📸 Talk: screen capture failed — \(error.localizedDescription)")
+                        contextUnavailableNote = Self.screenCaptureUnavailableNote(error)
                         screenCaptures = []
                     }
                 }
 
                 guard !Task.isCancelled, !completion.didComplete else { return }
 
-                dispatch(.contextCaptured)
+                if ownsCurrentResponse(completion) { dispatch(.contextCaptured) }
 
                 var screenImages: [(data: Data, label: String)] = []
                 for capture in screenCaptures {
@@ -4179,9 +4410,13 @@ final class CompanionManager: ObservableObject {
                 }
                 let labeledImages = screenImages + attachedImages
 
-                let spatialFragment = spatialSelectionPromptFragment()
-                activeSpatialSelection = nil
-                spatialSelectionScreenFrame = nil
+                let selectedCapture = turnSelectedFrame.flatMap { frame in
+                    screenCaptures.first { $0.displayFrame == frame }
+                }
+                let spatialFragment = selectedCapture.flatMap { capture in
+                    turnSelectionFragment.map { $0 + "\nSelected display image: \(capture.label)." }
+                }
+                if !independentChat { clearSpatialSelection() }
 
                 // The agent keeps its own chat history. It still needs what
                 // only this turn knows: a selection, scoped memory, the
@@ -4193,35 +4428,35 @@ final class CompanionManager: ObservableObject {
                 if let spatialFragment {
                     turnContext.append(spatialFragment)
                 }
-                if let memoryBlock = Self.memoryPromptBlock(items: MemoryContext.items(memoryItems, for: memoryOwnerForTurn)) {
+                if let memoryBlock = turnMemoryBlock {
                     turnContext.append(memoryBlock)
                 }
-                if !screenCaptures.isEmpty, let walkthroughBlock = walkthroughPromptBlock() {
+                if !screenCaptures.isEmpty, let walkthroughBlock = turnWalkthrough {
                     turnContext.append(walkthroughBlock)
                 }
-                if userActedWhileThinking || guidedClickLandedDuringTurn {
+                if userActedWhileThinking || (ownsCurrentResponse(completion) && guidedClickLandedDuringTurn) {
                     turnContext.append("The user acted while you were thinking.")
                 }
                 // ReferenceRenderer's canvas says what its drawing holds, so a follow-up can build on it or change it.
-                if let drawing = await explainerWindowController.drawingState() {
+                if ownsCurrentResponse(completion), let drawing = await explainerWindowController.drawingState() {
                     turnContext.append(CompanionPrompts.drawingOnScreen(drawing))
                 }
-                if let note = pendingTurnNote {
-                    pendingTurnNote = nil
+                if let note = independentChat ? turnPendingNote : pendingTurnNote {
+                    if !independentChat { pendingTurnNote = nil }
                     turnContext.append(note)
                 }
-                guidedClickLandedDuringTurn = false
+                if ownsCurrentResponse(completion) { guidedClickLandedDuringTurn = false }
                 // The first turn after launch waits for connectors to come back (and Composio to retry a timed-out
                 // tool list), after the screen is captured; otherwise the turn's scope holds no app tools and the
                 // model says Gmail wasn't delivered.
                 if conversationClientOverride == nil { await awaitConnectorActivation() }
-                guard !Task.isCancelled, ownsCurrentResponse(completion) else { return }
+                guard !Task.isCancelled, ownsActiveResponse(completion) else { return }
                 if !imageAttachments.isEmpty {
                     turnContext.append(
                         "The user explicitly attached \(imageAttachments.count) image(s). Analyze those attachments as primary context. They are not live screens, so never emit pointer coordinates for them."
                     )
                 }
-                talkTurnHasImages = !labeledImages.isEmpty
+                if ownsCurrentResponse(completion) { talkTurnHasImages = !labeledImages.isEmpty }
 
                 // Resolve after connector activation so the client sees live
                 // tools, using the brain captured before any navigation.
@@ -4276,15 +4511,18 @@ final class CompanionManager: ObservableObject {
                 }
                 defer { revokeTalkToolScope(talkScopeToken) }
                 let scopedToolNames = scopedConnectorToolDescriptions(token: talkScopeToken).compactMap { $0["name"] as? String }
-                let effectiveSystemPrompt = MateAgentConversationClient.interfaceInstructions(mateIdentity: mateIdentityBlock(for: speakingMate) ?? "")
+                let effectiveSystemPrompt = MateAgentConversationClient.interfaceInstructions(mateIdentity: turnIdentity)
                     + "\n\n" + MateAgentServeConversationClient.connectorInstructions(
                         tools: scopedToolNames.filter { !TalkToolCatalog.piBridgeLocalToolNames.contains($0) },
-                        enabledApps: enabledChatComposioSlugs.sorted())
-                    + { let guides = AppGuides.text(for: Array(enabledChatComposioSlugs)); return guides.isEmpty ? "" : "\n\n" + guides }()
+                        enabledApps: turnEnabledApps.sorted())
+                    + { let guides = AppGuides.text(for: Array(turnEnabledApps)); return guides.isEmpty ? "" : "\n\n" + guides }()
                     + (scopedToolNames.contains(TalkToolCatalog.useChromeToolName) ? "\n\n" + BrowserGuide.text : "")
                     // Screen turns need the tag contract the guided-reply parser reads.
                     // A 3D model does not need a screenshot, and it is never a file.
                     + (screenCaptures.isEmpty ? "" : "\n\n" + CompanionPrompts.screenTools)
+                    // Guided playback runs [ACT:] directives; the model only
+                    // writes them if it is told the grammar exists.
+                    + (computerUseCoordinator.isEnabled ? "\n\n" + BehaviorContract.computerControlSection : "")
                     + "\n\n" + CompanionPrompts.explainerContract
 
                 let fullResponseText: String
@@ -4331,7 +4569,23 @@ final class CompanionManager: ObservableObject {
                             .filter { !$0.isEmpty }.joined(separator: " ")
                         shownText = said + (ExplainerParser.onlyPoints(drawn.program ?? "") ? "\n\n(Pointed it out.)" : "\n\n(Drew an explanation.)")
                     }
+                    if independentChat && !ownsCurrentResponse(completion) {
+                        if drawn.program != nil {
+                            let said = ([drawn.text.trimmingCharacters(in: .whitespacesAndNewlines)] + drawn.lines)
+                                .filter { !$0.isEmpty }.joined(separator: " ")
+                            shownText = said + "\n\n(The visual explanation was not displayed while this chat was in the background.)"
+                        } else if shownModel != nil || modelPatch != nil {
+                            shownText = chatText.trimmingCharacters(in: .whitespacesAndNewlines)
+                                + "\n\n(The 3D model was not displayed while this chat was in the background.)"
+                        }
+                        deliverIndependentChatResult(shownText, chatID: turnSession.id, resultKey: delivery?.key)
+                        if let delivery { try serveClient?.acknowledgeDelivery(delivery.id) }
+                        return
+                    }
                     appendAssistantMessage(shownText, resultKey: delivery?.key)
+                    if independentChat && !rememberConversationsEnabled {
+                        ephemeralIndependentChats[turnSession.id] = currentChat
+                    }
                     if let delivery { try serveClient?.acknowledgeDelivery(delivery.id) }
                     rememberFinishedTalkExchange(user: transcript, assistant: shownText)
                     updateRollingSessionSummary()
@@ -4373,6 +4627,10 @@ final class CompanionManager: ObservableObject {
                     completeActiveHandoff(succeeded: false)
                 }
             } catch {
+                if independentChat && !ownsCurrentResponse(completion) && ownsActiveResponse(completion) {
+                    deliverIndependentChatResult("HeyMate Agent could not finish: " + error.localizedDescription, chatID: turnSession.id, resultKey: nil)
+                    return
+                }
                 guard !Task.isCancelled, ownsCurrentResponse(completion) else { return }
                 Self.recordPipelineError(error, category: .responsePipeline)
                 dispatch(.fail(error.localizedDescription))
@@ -4408,6 +4666,9 @@ final class CompanionManager: ObservableObject {
                 }
                 scheduleNextHandoffIfNeeded()
             }
+        }
+        if independentChat, let task = currentResponseTask {
+            independentChatTurns[turnSession.id] = IndependentChatTurn(completion: completion, task: task, session: currentChat)
         }
     }
 
@@ -4455,7 +4716,7 @@ final class CompanionManager: ObservableObject {
                             actions: [everyTime ? summary : summary + " (then HeyMate keeps working in its Chrome tabs for 20 minutes)"]
                         )
                     )
-                    return approved && !Task.isCancelled && self.ownsCurrentResponse(completion)
+                    return approved && !Task.isCancelled && self.ownsActiveResponse(completion)
                 }
             }
             return executeLocalTalkTool(named: toolCall.toolName, arguments: arguments, resultOwner: resultOwner)
@@ -4466,7 +4727,8 @@ final class CompanionManager: ObservableObject {
                 connectorDisplayName: connectorDisplayName,
                 maximumRisk: maximumRisk,
                 arguments: arguments,
-                responseIsCurrent: { self.ownsCurrentResponse(completion) }
+                responseIsCurrent: { self.ownsActiveResponse(completion) },
+                owner: resultOwner
             )
         }
     }
@@ -4517,6 +4779,9 @@ final class CompanionManager: ObservableObject {
             let succeeded = action.perform()
             return succeeded ? (action.spokenAcknowledgement, false) : ("Couldn't change the volume.", true)
 
+        case TalkToolCatalog.createMateToolName:
+            return createMateFromTalkTool(arguments: arguments)
+
         default:
             return ("Unknown local tool \(toolName).", true)
         }
@@ -4538,15 +4803,18 @@ final class CompanionManager: ObservableObject {
         connectorDisplayName: String,
         maximumRisk: ConnectorToolRisk,
         arguments: [String: Any],
-        responseIsCurrent: (() -> Bool)? = nil
+        responseIsCurrent: (() -> Bool)? = nil,
+        owner: AgentChatOwner? = nil
     ) async -> (text: String, isError: Bool) {
-        guard isConnectorEnabledForChat(connectorIdentifier) else {
+        guard owner.map({ isConnectorEnabledForChat(connectorIdentifier, owner: $0) })
+                ?? isConnectorEnabledForChat(connectorIdentifier) else {
             return ("That connector is disabled for this chat.", true)
         }
         if connectorIdentifier == ComposioSessionStore.connectorID,
            let disabledApp = disabledComposioAppRequested(
                 byToolNamed: namespacedToolID,
-                arguments: arguments
+                arguments: arguments,
+                owner: owner
            ) {
             return ("\(disabledApp) is disabled for this chat.", true)
         }
@@ -4565,7 +4833,8 @@ final class CompanionManager: ObservableObject {
         if approvalPolicy.requiresApproval(forRisk: risk) {
             let wasApproved = await connectorToolCoordinator.requestApproval(
                 for: ConnectorToolApprovalRequest(
-                    connectorDisplayName: connectorDisplayName,
+                    connectorDisplayName: owner.flatMap { id in mateDirectory.mates.first(where: { $0.id == id.mateID }) }
+                        .map { "\($0.name) · \(connectorDisplayName)" } ?? connectorDisplayName,
                     toolName: namespacedToolID,
                     argumentsSummary: TalkToolCatalog.argumentsSummary(arguments),
                     risk: risk,
@@ -4596,7 +4865,8 @@ final class CompanionManager: ObservableObject {
     /// scope therefore must inspect inner tool slugs, not only connector id.
     private func disabledComposioAppRequested(
         byToolNamed toolName: String,
-        arguments: [String: Any]
+        arguments: [String: Any],
+        owner: AgentChatOwner? = nil
     ) -> String? {
         guard toolName.uppercased().contains("COMPOSIO_MULTI_EXECUTE_TOOL"),
               let tools = arguments["tools"] as? [[String: Any]] else { return nil }
@@ -4610,7 +4880,14 @@ final class CompanionManager: ObservableObject {
                 uppercaseInnerName.hasPrefix($0.uppercased().replacingOccurrences(of: "-", with: "_") + "_")
             }) else { continue }
             let selectionID = Self.chatConnectorSelectionID(forComposioSlug: matchedSlug)
-            if !isConnectorSelectionEnabledForTurn(selectionID) {
+            let enabled: Bool
+            if let owner {
+                guard let mate = mateDirectory.mates.first(where: { $0.id == owner.mateID }) else { return matchedSlug }
+                enabled = isConnectorSelectionEnabled(selectionID, for: mate)
+            } else {
+                enabled = isConnectorSelectionEnabledForTurn(selectionID)
+            }
+            if !enabled {
                 return composioConnections.records[matchedSlug]?.displayName ?? matchedSlug
             }
         }
@@ -4787,7 +5064,11 @@ final class CompanionManager: ObservableObject {
                screenNumber >= 1 && screenNumber <= screenCaptures.count {
                 return screenCaptures[screenNumber - 1]
             }
-            return screenCaptures.first(where: { $0.isCursorScreen })
+            // No screen tag: the display the cursor is on now, not at capture
+            // time. A reply takes seconds and the user may have moved screens.
+            let mouse = NSEvent.mouseLocation
+            return screenCaptures.first(where: { NSMouseInRect(mouse, $0.displayFrame, false) })
+                ?? screenCaptures.first(where: { $0.isCursorScreen })
         }()
 
         if case .card(let card)? = parseResult.visualGuidance {
@@ -5445,13 +5726,14 @@ extension CompanionManager {
                   let message = HarnessToolRequestParser.argument(arguments, keys: ["message", "task", "instruction"]) else {
                 return ("Say which agent and what to send.", true)
             }
-            return sendFollowUpToMate(named: mateName, message: message, fromToolLoop: fromToolLoop)
+            return sendFollowUpToMate(named: mateName, message: message, fromToolLoop: fromToolLoop,
+                                      requester: resultOwner ?? harnessResultOwner())
         case .answerRequest:
             guard let mateName = HarnessToolRequestParser.argument(arguments, keys: ["agent", "agent_name", "mate", "mate_name", "name"]),
                   let answer = HarnessToolRequestParser.argument(arguments, keys: ["answer", "message", "task"]) else {
                 return ("Say which agent and the answer.", true)
             }
-            return answerMateRequest(named: mateName, answer: answer, fromToolLoop: fromToolLoop)
+            return answerMateRequest(named: mateName, answer: answer, fromToolLoop: fromToolLoop, requester: resultOwner)
         case .askDeeper:
             let question = HarnessToolRequestParser.argument(arguments, keys: ["task", "question", "message"])
                 ?? fallbackTranscript
@@ -5606,7 +5888,8 @@ extension CompanionManager {
         scheduleNextHandoffIfNeeded()
     }
 
-    fileprivate func sendFollowUpToMate(named name: String, message: String, fromToolLoop: Bool) -> (text: String, isError: Bool) {
+    fileprivate func sendFollowUpToMate(named name: String, message: String, fromToolLoop: Bool,
+                                        requester: AgentChatOwner? = nil) -> (text: String, isError: Bool) {
         guard let mate = mateForHarnessWork(named: name) else {
             return ("No mate named \(name).", true)
         }
@@ -5616,16 +5899,24 @@ extension CompanionManager {
             }
             return (agentLauncher.followUpDeliverySummary(runID: run.id), false)
         }
-        return harnessOutcomeMessage(beginMateWork(
-            task: message,
-            mate: mate,
-            newName: nil,
-            suspendsTalk: !fromToolLoop,
-            recordUserMessage: !fromToolLoop
-        ))
+        // Native runs no longer start under the Pi harness, so a mate with no
+        // live job gets the message as a handoff: a turn in its own chat once
+        // this reply finishes, with its report returned to the asking chat.
+        guard requester?.mateID != mate.id else { return ("That is this agent. Do the work here.", true) }
+        guard activeHandoffHops < MateMessagingBrief.maxHops else {
+            return ("Too many agent-to-agent hops. Ask the user before passing this on again.", true)
+        }
+        let sender = requester.flatMap { owner in mates.first { $0.id == owner.mateID } }
+        pendingHandoffs.append(MateHandoff(
+            mateID: mate.id, mateName: mate.name, instruction: message,
+            fromMateName: sender?.conductsOthers == false ? sender?.name : nil,
+            hops: activeHandoffHops + 1, requester: requester))
+        scheduleNextHandoffIfNeeded()
+        return ("Sent to \(mate.name). It runs in \(mate.name)'s chat after this reply and the report returns here. Not done yet.", false)
     }
 
-    fileprivate func answerMateRequest(named name: String, answer: String, fromToolLoop: Bool) -> (text: String, isError: Bool) {
+    fileprivate func answerMateRequest(named name: String, answer: String, fromToolLoop: Bool,
+                                       requester: AgentChatOwner? = nil) -> (text: String, isError: Bool) {
         guard let mate = mateForHarnessWork(named: name) else {
             return ("No mate named \(name).", true)
         }
@@ -5648,7 +5939,7 @@ extension CompanionManager {
                 }
             }
         }
-        return sendFollowUpToMate(named: mate.name, message: answer, fromToolLoop: fromToolLoop)
+        return sendFollowUpToMate(named: mate.name, message: answer, fromToolLoop: fromToolLoop, requester: requester)
     }
 
     fileprivate func continueFailedRunIfRetry(_ transcript: String) -> Bool {

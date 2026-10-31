@@ -1,13 +1,13 @@
 # HeyMate
 
-> Learn your software. One step at a time. HeyMate is an open-source AI companion: bring your own AI—your existing Claude, ChatGPT (Codex), or OpenCode subscription does the work. Free, MIT-licensed screen guidance for desktop apps and websites; it explains the next step, points to it, and waits while you try it. Currently available for macOS. HeyMate does not meter model use; provider limits and optional paid connectors still apply. It also supports named mates, coding agents, and optional notch utilities.
+> A little company. A lot of help. HeyMate is an open-source AI companion: bring your own AI—your existing Claude, ChatGPT (Codex), or OpenCode subscription does the work. Free, MIT-licensed screen guidance for desktop apps and websites; it explains the next step, points to it, and waits while you try it. Currently available for macOS. HeyMate does not meter model use; provider limits and optional paid connectors still apply. It also supports specialist mates, routines, approved computer control, signed-in Chrome through its extension, Notes, and AI usage in the notch. The website previews the updated handover design and voice-created mates planned for the next release.
 
 - Website: https://getheymate.vercel.app
 - Source: https://github.com/UmarSiddiqui/heymate
 - Download: https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg
 - Releases: https://github.com/UmarSiddiqui/heymate/releases
 - Contribute: https://github.com/UmarSiddiqui/heymate/blob/main/CONTRIBUTING.md
-- Illustrated tour (recreated UI, not recorded proof): https://getheymate.vercel.app/#demo
+- Interactive browser preview (scripted replies, no microphone or screen access): https://getheymate.vercel.app/#demo
 - Privacy: https://getheymate.vercel.app/privacy
 - Permissions: https://getheymate.vercel.app/permissions
 - Guide: https://getheymate.vercel.app/how-to-use-heymate

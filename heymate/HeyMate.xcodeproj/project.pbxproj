@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AA70AA012F6500010039DA55 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = AA70AA032F6500010039DA55 /* GoogleSignIn */; };
+		AA70AA022F6500010039DA55 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = AA70AA042F6500010039DA55 /* GoogleSignInSwift */; };
 		A10000012F90000100000001 /* HeyMateAgentRunner in Embed Agent Runner */ = {isa = PBXBuildFile; fileRef = A10003012F90030100000301 /* HeyMateAgentRunner */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003112F90031100000311 /* HeyMateAgentRunnerMain.swift */; };
 		A10001022F90010200000102 /* HeyMate/AgentRuntimeTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10003122F90031200000312 /* HeyMate/AgentRuntimeTypes.swift */; };
@@ -170,6 +172,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA00BB032F6500030039DA55 /* Sparkle in Frameworks */,
+				AA70AA012F6500010039DA55 /* GoogleSignIn in Frameworks */,
+				AA70AA022F6500010039DA55 /* GoogleSignInSwift in Frameworks */,
 				AA00BB062F6500060039DA55 /* PostHog in Frameworks */,
 				AA00BB092F6500090039DA55 /* FluidAudio in Frameworks */,
 				AA00BB0C2F65000C0039DA55 /* HeyMateComputerUse in Frameworks */,
@@ -280,7 +284,8 @@
 			);
 			name = "HeyMate";
 			packageProductDependencies = (
-				AA00BB022F6500020039DA55 /* Sparkle */,
+				AA70AA032F6500010039DA55 /* GoogleSignIn */,
+				AA70AA042F6500010039DA55 /* GoogleSignInSwift */,				AA00BB022F6500020039DA55 /* Sparkle */,
 				AA00BB052F6500050039DA55 /* PostHog */,
 				AA00BB082F6500080039DA55 /* FluidAudio */,
 				AA00BB0B2F65000B0039DA55 /* HeyMateComputerUse */,
@@ -389,6 +394,7 @@
 			mainGroup = 28F22CB62F56440300A0FC59;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				AA70AA052F6500010039DA55 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 				AA00BB012F6500010039DA55 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				AA00BB042F6500040039DA55 /* XCRemoteSwiftPackageReference "posthog-ios" */,
 				AA00BB072F6500070039DA55 /* XCRemoteSwiftPackageReference "FluidAudio" */,
@@ -945,10 +951,20 @@ A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */,
 		AA00BB072F6500070039DA55 /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
+			traits = (
+				TTS,
+				Diarizer,
+				NemoTextProcessing,
+			);
 			requirement = {
 				kind = upToNextMinorVersion;
-				minimumVersion = 0.17.7;
+				minimumVersion = 0.18.0;
 			};
+		};
+		AA70AA052F6500010039DA55 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = { kind = exactVersion; version = 9.0.0; };
 		};
 /* End XCRemoteSwiftPackageReference section */
 
@@ -973,6 +989,8 @@ A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */,
 			package = AA00BB0A2F65000A0039DA55 /* XCLocalSwiftPackageReference "Packages/HeyMateComputerUse" */;
 			productName = HeyMateComputerUse;
 		};
+		AA70AA032F6500010039DA55 /* GoogleSignIn */ = {isa = XCSwiftPackageProductDependency; package = AA70AA052F6500010039DA55; productName = GoogleSignIn; };
+		AA70AA042F6500010039DA55 /* GoogleSignInSwift */ = {isa = XCSwiftPackageProductDependency; package = AA70AA052F6500010039DA55; productName = GoogleSignInSwift; };
 /* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 28F22CB72F56440300A0FC59 /* Project object */;

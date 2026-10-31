@@ -51,12 +51,17 @@ nonisolated enum LocalControlCommand: Equatable {
     /// A job's folder is sandboxed away from HeyMate's settings, so this is
     /// how an approved plan ("make me three mates") adds one.
     case createMate(name: String?, job: String)
+    /// Offers a drive. The person still has to press Take over on the
+    /// consent card; nothing here can start one on its own.
+    case driveOffer(DriveRequest)
+    case driveStatus(driveIdentifier: String?)
+    case driveCancel(driveIdentifier: String?)
 
     /// Reaches the user's accounts or changes their roster, so it needs a
     /// token even when the overlay commands don't.
     var touchesConnectedAccounts: Bool {
         switch self {
-        case .listTalkTools, .callTalkTool, .listScopedConnectorTools, .callScopedConnectorTool, .listConnectorTools, .callConnectorTool, .createMate: return true
+        case .driveOffer, .listTalkTools, .callTalkTool, .listScopedConnectorTools, .callScopedConnectorTool, .listConnectorTools, .callConnectorTool, .createMate: return true
         default: return false
         }
     }
@@ -96,6 +101,7 @@ nonisolated enum LocalControlRouter {
         // Pre-flight and liveness checks need no body.
         if method == "OPTIONS" || (method == "GET" && path == "/health") { return .accepted(.health) }
         if method == "GET", path == "/explain/state" { return .accepted(.drawingState) }
+        if method == "GET", path == "/drive/status" { return .accepted(.driveStatus(driveIdentifier: nil)) }
         if refusedPaths.contains(path) { return unknown }
         guard method == "POST" else {
             return method == "GET" ? unknown : .rejected(statusCode: 405, message: "Use POST for control commands")
@@ -171,6 +177,22 @@ nonisolated enum LocalControlRouter {
         case "/mate/create":
             guard let job = fields.nonBlank("job") else { return .rejected(statusCode: 400, message: "Missing job") }
             return .accepted(.createMate(name: fields.nonBlank("name"), job: job))
+        case "/drive/offer":
+            guard let goal = fields.nonBlank("goal") else { return .rejected(statusCode: 400, message: "Missing goal") }
+            return .accepted(.driveOffer(DriveRequest(
+                goal: goal,
+                applicationName: fields.nonBlank("app") ?? fields.nonBlank("applicationName"),
+                targetBundleID: fields.nonBlank("targetBundleID"),
+                neverPress: fields.strings("neverPress") ?? fields.strings("never_press") ?? [],
+                values: (body["values"] as? [String: String]) ?? [:],
+                successContains: fields.strings("successContains") ?? fields.strings("success_contains") ?? [],
+                maxSteps: fields.number("maxSteps").map(Int.init) ?? fields.number("max_steps").map(Int.init) ?? DriveEngine.defaultMaxSteps,
+                origin: fields.nonBlank("origin") ?? "bridge"
+            )))
+        case "/drive/status":
+            return .accepted(.driveStatus(driveIdentifier: fields.nonBlank("driveIdentifier")))
+        case "/drive/cancel":
+            return .accepted(.driveCancel(driveIdentifier: fields.nonBlank("driveIdentifier")))
         default:
             return unknown
         }
@@ -205,6 +227,10 @@ nonisolated enum LocalControlRouter {
 
         func string(_ key: String) -> String? {
             body[key] as? String
+        }
+
+        func strings(_ key: String) -> [String]? {
+            (body[key] as? [Any])?.compactMap { $0 as? String }.filter { !$0.isEmpty }
         }
 
         func nonBlank(_ key: String) -> String? {

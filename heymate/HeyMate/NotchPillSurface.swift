@@ -2,29 +2,8 @@
 //  NotchPillSurface.swift
 //  HeyMate
 //
-//  The collapsed notch tab, rebuilt around three rules learned from the
-//  previous version:
-//
-//  1. HOVER PEEKS, CLICK OPENS. Resting the pointer on the camera housing
-//     no longer drops the whole Home card. It widens the tab a few points
-//     and reveals a leading glyph + a trailing context chip on either side
-//     of the physical camera — the Dynamic Island "compact leading /
-//     compact trailing" idea. Committing to the full card stays a click,
-//     so brushing past the notch on the way to the menu bar costs nothing.
-//
-//  2. NOTHING ANIMATES WHILE IDLE. The old pill hosted a
-//     `TimelineView(.animation)` that re-evaluated its body 24 times a
-//     second forever, on a menu-bar app that is idle ~99% of the time.
-//     Every recurring animation here is an implicit `repeatForever`
-//     animation, which Core Animation runs on the render server without
-//     waking SwiftUI, and the ones that cost anything only exist while the
-//     matching state is live.
-//
-//  3. THE HOSTING VIEW IS BUILT ONCE. `NotchCompanionController` used to
-//     assign a fresh `rootView` on every audio-power tick, which throws
-//     away and rebuilds the whole SwiftUI graph 12×/sec while listening.
-//     State now lives in `NotchPillModel`, an ObservableObject the view
-//     observes, so updates are ordinary SwiftUI diffs.
+//  Native notch silhouette, restrained edge colour, and event-driven activity.
+//  The hosting view is stable; idle has no timer or repeating animation.
 //
 
 import Combine
@@ -48,15 +27,11 @@ final class NotchPillModel: ObservableObject {
     /// Pointer is resting on the tab. Highlights compact surface without
     /// changing geometry; open-on-hover remains controller policy.
     @Published var isHovered = false
+    @Published var openingCue: NotchOpenCue?
+    @Published var reducesMotion = false
 
     @Published var hasUsage = false
     @Published var usageProviderCount = 0
-
-    /// The card is about to open from this tab. The peek slots blur and fade
-    /// out first (the controller waits `NotchLayoutMath.pillYieldDuration`),
-    /// so the frame grows from a clean black pill instead of carrying the
-    /// glyph and label with it.
-    @Published var isYieldingToCard = false
 
     /// Highest-priority ambient fact from the micro-apps (media, timer,
     /// battery…). Shown in the trailing slot when the companion is
@@ -66,12 +41,11 @@ final class NotchPillModel: ObservableObject {
     @Published var themeColor: Color = AppTheme.color
     @Published var isOutlineEnabled = true
     @Published var isAgentActive = false
+    @Published var agentStatus: NotchCompactStatus.Snapshot?
+    @Published var activeAgentCount = 0
     /// Silent mode swaps voice words ("speaking", "ready") for ones that
     /// match what is happening: a reply being written, a quiet companion.
     @Published var isSilentModeEnabled = false
-    /// One line per live agent. Filaments fit inside housing and never widen
-    /// notch or show dashboard count.
-    @Published var agentFilaments: [AgentFilament] = []
 
     /// Height of the camera housing (`NSScreen.safeAreaInsets.top`).
     @Published var occludedTopInset: CGFloat = 0
@@ -80,11 +54,13 @@ final class NotchPillModel: ObservableObject {
     /// this span so their content is never hidden behind the camera.
     @Published var hardwareNotchWidth: CGFloat = NotchLayoutMath.fallbackIdleWidth
 
-    /// True when compact state needs exposed side slots. Pointer hover alone
-    /// only highlights the housing: widening before a click makes expansion
-    /// read as two separate stages instead of one top-centre morph.
+    var showsStatusText: Bool {
+        voiceState != .idle || agentStatus != nil || activity != nil
+    }
+
+    /// Only live status or usage needs space outside the camera housing.
     var wantsWidenedFrame: Bool {
-        voiceState != .idle || activity != nil || hasUsage
+        showsStatusText || hasUsage
     }
 }
 
@@ -112,6 +88,22 @@ struct NotchPillView: View {
         NotchLayoutMath.pillCornerRadius(forHeight: model.occludedTopInset)
     }
 
+    private var housingShape: NotchSilhouetteShape {
+        NotchSilhouetteShape(
+            shoulderRadius: model.occludedTopInset > 0 ? NotchLayoutMath.compactShoulderRadius : 0,
+            bottomRadius: housingCornerRadius
+        )
+    }
+
+    private var identityColor: Color {
+        guard let status = model.agentStatus, model.voiceState == .idle else { return model.themeColor }
+        switch status.phase {
+        case .needsUser: return DS.Colors.warning
+        case .failed: return .red
+        default: return Color(hue: status.hue, saturation: 0.62, brightness: 0.98)
+        }
+    }
+
     private var pillCore: some View {
         // GeometryReader rather than a fixed constant: the exposed width on
         // each side is whatever the window currently has beyond the physical
@@ -125,8 +117,6 @@ struct NotchPillView: View {
                 leadingSlot
                     .frame(width: exposedSideWidth, alignment: .center)
                     .opacity(slotOpacity(forExposedWidth: exposedSideWidth))
-                    .blur(radius: model.isYieldingToCard ? NotchLayoutMath.pillYieldBlur : 0)
-                    .opacity(model.isYieldingToCard ? 0 : 1)
                     .allowsHitTesting(false)
 
                 Spacer(minLength: 0)
@@ -134,8 +124,6 @@ struct NotchPillView: View {
                 trailingSlot
                     .frame(width: exposedSideWidth, alignment: .center)
                     .opacity(slotOpacity(forExposedWidth: exposedSideWidth))
-                    .blur(radius: model.isYieldingToCard ? NotchLayoutMath.pillYieldBlur : 0)
-                    .opacity(model.isYieldingToCard ? 0 : 1)
                     .allowsHitTesting(false)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
@@ -146,26 +134,12 @@ struct NotchPillView: View {
         .background(housingFill)
         .overlay { if model.isOutlineEnabled { outlineGlow } }
         .overlay {
-            UnevenRoundedRectangle(
-                topLeadingRadius: 0, bottomLeadingRadius: housingCornerRadius,
-                bottomTrailingRadius: housingCornerRadius, topTrailingRadius: 0,
-                style: .continuous
-            )
-            .strokeBorder(LinearGradient(colors: [.clear, .white.opacity(model.isHovered ? 0.14 : 0.035)], startPoint: .top, endPoint: .bottom), lineWidth: 0.5)
+            housingShape
+            .stroke(LinearGradient(colors: [.clear, .white.opacity(model.isHovered ? 0.18 : 0.08)], startPoint: .top, endPoint: .bottom), lineWidth: 0.5)
             .allowsHitTesting(false)
         }
-        .overlay(alignment: .bottom) {
-            AgentFilamentStrip(filaments: model.agentFilaments)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 2)
-        }
-        .overlay(alignment: .bottom) { bottomHairline }
         .overlay { closeEchoGlow }
         .animation(accessibilityReduceMotion ? nil : .easeOut(duration: 0.18), value: model.isHovered)
-        .animation(
-            accessibilityReduceMotion ? nil : .easeIn(duration: NotchLayoutMath.pillYieldDuration),
-            value: model.isYieldingToCard
-        )
         .animation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.22), value: model.voiceState)
         .animation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.22), value: model.activity)
         .animation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.2), value: model.isOutlineEnabled)
@@ -174,27 +148,21 @@ struct NotchPillView: View {
     // MARK: Chrome
 
     private var housingFill: some View {
-        UnevenRoundedRectangle(
-            topLeadingRadius: 0,
-            bottomLeadingRadius: housingCornerRadius,
-            bottomTrailingRadius: housingCornerRadius,
-            topTrailingRadius: 0,
-            style: .continuous
-        )
-        .fill(Color.black)
+        housingShape.fill(Color.black)
+            .overlay {
+                if model.voiceState == .responding && !model.isSilentModeEnabled {
+                    RadialGradient(colors: [.orange.opacity(0.38), .orange.opacity(0.12), .clear],
+                                   center: .trailing, startRadius: 0, endRadius: 48)
+                        .clipShape(housingShape)
+                }
+            }
     }
 
     /// After a deliberate close, the pill glows faintly twice with the
     /// close sound's echoes.
     private var closeEchoGlow: some View {
         CueMotionReader(sounds: [.panelClose], part: .prop) { frame in
-            UnevenRoundedRectangle(
-                topLeadingRadius: 0,
-                bottomLeadingRadius: housingCornerRadius,
-                bottomTrailingRadius: housingCornerRadius,
-                topTrailingRadius: 0,
-                style: .continuous
-            )
+            housingShape
             .stroke(Color.white.opacity(0.45 * frame.glow), lineWidth: 1)
             .shadow(color: Color.white.opacity(0.3 * frame.glow), radius: 4)
         }
@@ -202,31 +170,21 @@ struct NotchPillView: View {
     }
 
     private var outlineGlow: some View {
-        NotchOutlineGlow(color: model.themeColor, cornerRadius: housingCornerRadius)
-            .opacity(model.voiceState == .idle ? (model.isHovered ? 0.58 : 0.30) : 0.85)
-    }
-
-    /// One hairline under the housing, only while a voice interaction is
-    /// live. At rest the housing has no edge, so
-    /// it reads as the hardware notch rather than a line across the screen.
-    private var bottomHairline: some View {
-        Rectangle()
-            .fill(hairlineColor)
-            .frame(height: model.voiceState == .idle ? 0.5 : 1)
-    }
-
-    private var hairlineColor: Color {
-        if model.voiceState != .idle {
-            return model.themeColor.opacity(0.5)
-        }
-        return Color.white.opacity(model.isHovered ? 0.10 : 0)
+        housingShape
+            .stroke(LinearGradient(
+                colors: [.clear, identityColor.opacity(0.25), identityColor.opacity(0.8)],
+                startPoint: .top, endPoint: .bottom
+            ), lineWidth: 0.75)
+            .shadow(color: identityColor.opacity(model.showsStatusText ? 0.4 : 0.18), radius: 4)
+            .opacity(model.showsStatusText ? 0.85 : (model.isHovered ? 0.65 : 0.42))
+            .allowsHitTesting(false)
     }
 
     /// Slots fade in only once there is real estate to draw them in, so a
     /// half-finished widen animation never clips a glyph against the camera.
     private func slotOpacity(forExposedWidth exposedSideWidth: CGFloat) -> Double {
         let fadeInThreshold: CGFloat = 10
-        let fullyVisibleWidth: CGFloat = 26
+        let fullyVisibleWidth: CGFloat = 20
         guard exposedSideWidth > fadeInThreshold else { return 0 }
         let progress = (exposedSideWidth - fadeInThreshold) / (fullyVisibleWidth - fadeInThreshold)
         return Double(min(max(progress, 0), 1))
@@ -234,58 +192,99 @@ struct NotchPillView: View {
 
     // MARK: Compact leading
 
-    /// Left of the camera: what the companion IS doing. Voice state always
-    /// wins; an ambient activity fills in while idle.
+    /// Small state glyphs appear only while there is something to report.
     @ViewBuilder
     private var leadingSlot: some View {
-        switch model.voiceState {
-        case .idle:
-            if let activity = model.activity {
-                NotchActivityGlyph(activity: activity, themeColor: model.themeColor)
-            } else if model.isSilentModeEnabled {
-                Image(systemName: "speaker.slash.fill")
-                    .font(DS.Glyph.small)
-                    .foregroundColor(DS.Colors.textPrimary.opacity(model.isHovered ? 0.9 : 0.6))
-            } else {
-                NotchReadyDot(isHovered: model.isHovered)
+        if let cue = model.openingCue {
+            NotchOpenRing(cue: cue, reduceMotion: accessibilityReduceMotion || model.reducesMotion)
+                .frame(width: 16, height: 16)
+                .accessibilityHidden(true)
+        } else {
+            switch model.voiceState {
+            case .listening:
+                Circle().fill(model.themeColor).frame(width: 6, height: 6)
+            case .processing:
+                NotchBrandMark()
+            case .responding:
+                Text(model.isSilentModeEnabled ? "Replying" : "Speaking")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+            case .idle:
+                if let status = model.agentStatus {
+                    HStack(spacing: 6) {
+                        if status.phase == .working || status.phase == .planning {
+                            NotchBrandMark()
+                        } else {
+                            Image(systemName: statusSymbol(for: status.phase))
+                                .font(.system(size: 12, weight: .medium))
+                        }
+                        if model.activeAgentCount > 1 {
+                            Text("\(model.activeAgentCount)").font(.system(size: 10, weight: .medium)).monospacedDigit()
+                        }
+                    }
+                    .foregroundStyle(identityColor)
+                } else if let activity = model.activity {
+                    Image(systemName: activity.symbolName)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(activity.tintColor)
+                }
             }
-        case .listening:
-            NotchListeningDot(themeColor: model.themeColor)
-        case .processing:
-            NotchThinkingDot()
-        case .responding:
-            NotchSpeakingRings(themeColor: model.themeColor)
+        }
+    }
+
+    private func statusSymbol(for phase: NotchCompactStatus.Phase) -> String {
+        switch phase {
+        case .needsUser: return "exclamationmark.circle.fill"
+        case .succeeded: return "checkmark.circle.fill"
+        case .failed, .cancelled: return "xmark.circle.fill"
+        case .queued: return "clock"
+        case .planning: return "ellipsis"
+        case .working: return "sparkle"
         }
     }
 
     // MARK: Compact trailing
 
-    /// Right of the camera: the shortest possible words for what is going
-    /// on. Live meter while listening, a typing "…" while busy, the
-    /// activity's own label while idle, and a shortcut hint on bare hover.
+    /// Live voice, task or ambient status outranks usage. Usage returns as
+    /// soon as the task completion expires.
     @ViewBuilder
     private var trailingSlot: some View {
-        if model.hasUsage && model.voiceState == .idle {
-            NotchCompactUsage()
-        } else {
-            switch model.voiceState {
+        switch model.voiceState {
             case .listening:
                 NotchLiveWaveform(
                     audioPowerLevel: model.audioPowerLevel,
                     themeColor: model.themeColor
                 )
-            case .processing, .responding:
-                NotchTypingDots()
+            case .processing:
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.8))
+            case .responding:
+                if model.isSilentModeEnabled {
+                    Image(systemName: "text.bubble")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(model.themeColor)
+                } else {
+                    NotchSpeakingWaveform(reduceMotion: accessibilityReduceMotion || model.reducesMotion)
+                }
             case .idle:
-                if let activity = model.activity {
+                if let status = model.agentStatus {
+                    Text(status.phase == .needsUser ? "Needs you" : status.displayText)
+                        .font(.system(size: 10, weight: .medium))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .truncationMode(.tail)
+                        .contentTransition(.opacity)
+                        .foregroundStyle(identityColor)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 6)
+                } else if let activity = model.activity {
                     pillLabel(activity.trailingText)
                         .foregroundColor(activity.tintColor.opacity(0.92))
-                } else if model.isHovered {
-                    pillLabel(model.isSilentModeEnabled ? "silent" : "ready")
-                } else {
-                    EmptyView()
+                } else if model.hasUsage {
+                    NotchCompactUsage()
                 }
-            }
         }
     }
 
@@ -297,10 +296,14 @@ struct NotchPillView: View {
             .minimumScaleFactor(0.8)
             .foregroundColor(DS.Colors.textPrimary.opacity(0.92))
             .contentTransition(.opacity)
-            .padding(.horizontal, 4)
+            .padding(.horizontal, 3)
     }
 
     private var accessibilitySummary: String {
+        if model.openingCue != nil { return "HeyMate, opening" }
+        if model.voiceState == .idle, let status = model.agentStatus {
+            return "HeyMate, \(status.title), \(status.phase.label), \(status.displayText), \(model.activeAgentCount) active tasks"
+        }
         if model.isAgentActive { return "HeyMate, agent running" }
         switch model.voiceState {
         case .idle:
@@ -315,148 +318,29 @@ struct NotchPillView: View {
     }
 }
 
-/// Thin breathing lines: ambient evidence, not another status slot.
-private struct AgentFilamentStrip: View {
-    let filaments: [AgentFilament]
+struct NotchSpeakingWaveform: View {
+    let reduceMotion: Bool
 
     var body: some View {
-        HStack(spacing: 3) {
-            ForEach(filaments) { filament in
-                AgentFilamentLine(filament: filament)
+        TimelineView(.animation(minimumInterval: 1.0 / 15.0, paused: reduceMotion)) { context in
+            let time = context.date.timeIntervalSinceReferenceDate
+            HStack(spacing: 2) {
+                ForEach(0..<4) { index in
+                    let wave = reduceMotion ? 0.5 : (sin(time * 7 + Double(index) * 1.6) + 1) / 2
+                    Capsule()
+                        .fill(Color(red: 1, green: 0.61, blue: 0.27))
+                        .frame(width: 2, height: 4 + 9 * wave)
+                }
             }
+            .shadow(color: .orange.opacity(0.55), radius: 4)
+            .accessibilityHidden(true)
         }
-        .frame(maxWidth: 120)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-}
-
-private struct AgentFilamentLine: View {
-    let filament: AgentFilament
-    @State private var isBreathing = false
-    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
-
-    var body: some View {
-        let color = Color(hue: filament.hue, saturation: 0.78, brightness: 0.98)
-        Capsule(style: .continuous)
-            .fill(color)
-            .frame(maxWidth: 24)
-            .frame(height: 1.5)
-            .opacity(accessibilityReduceMotion ? 0.9 : (isBreathing ? 0.95 : 0.38))
-            .shadow(color: color.opacity(0.6), radius: isBreathing ? 3 : 1)
-            .onAppear {
-                guard !accessibilityReduceMotion else { return }
-                let duration = 1.45 + filament.hue * 0.65
-                withAnimation(.easeInOut(duration: duration).repeatForever(autoreverses: true)) {
-                    isBreathing = true
-                }
-            }
-    }
-}
-
-// MARK: - Indicators
-//
-// Active indicators own their own animation. Idle stays static so a companion
-// that sits in the menu bar all day does not keep SwiftUI rendering.
-
-/// Idle: steady green. Hover adds emphasis with a spring so the dot
-/// feels like it's acknowledging your presence — a tiny living thing
-/// in the notch. No animation while truly idle (rule #2).
-private struct NotchReadyDot: View {
-    let isHovered: Bool
-    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
-
-    var body: some View {
-        Circle()
-            .fill(DS.Colors.success)
-            .frame(width: 6, height: 6)
-            .scaleEffect(isHovered ? 1.12 : 1.0)
-            .opacity(isHovered ? 1.0 : 0.82)
-            .shadow(
-                color: DS.Colors.success.opacity(isHovered ? 0.75 : 0.55),
-                radius: isHovered ? 5 : 2
-            )
-            .animation(
-                accessibilityReduceMotion ? nil :
-                    .spring(response: 0.35, dampingFraction: 0.65, blendDuration: 0),
-                value: isHovered
-            )
-    }
-}
-
-/// Listening: steady, saturated, no motion — the waveform beside it is
-/// already carrying all the movement the eye needs.
-private struct NotchListeningDot: View {
-    let themeColor: Color
-
-    var body: some View {
-        Circle()
-            .fill(themeColor)
-            .frame(width: 6, height: 6)
-            .shadow(color: themeColor.opacity(0.9), radius: 3)
-            .cueMotion(.listenStart)
-    }
-}
-
-/// Thinking: a fast amber blink. Exists only while processing.
-private struct NotchThinkingDot: View {
-    @State private var isDim = false
-    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
-
-    var body: some View {
-        Circle()
-            .fill(DS.Colors.warning)
-            .frame(width: 6, height: 6)
-            .opacity(accessibilityReduceMotion ? 1.0 : (isDim ? 0.3 : 1.0))
-            .onAppear {
-                guard !accessibilityReduceMotion else { return }
-                withAnimation(.easeInOut(duration: 0.42).repeatForever(autoreverses: true)) {
-                    isDim = true
-                }
-            }
-    }
-}
-
-/// Busy: a quiet "…" — three dots that hop in turn, like someone typing.
-/// Each dot runs its own repeatForever animation, so nothing re-renders
-/// SwiftUI while it plays, and it only exists while HeyMate is working.
-private struct NotchTypingDots: View {
-    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
-
-    var body: some View {
-        HStack(spacing: 3.5) {
-            ForEach(0..<3, id: \.self) { index in
-                NotchTypingDot(delay: Double(index) * 0.15, isStill: accessibilityReduceMotion)
-            }
-        }
-        .padding(.horizontal, 4)
-        .accessibilityHidden(true)
-    }
-}
-
-private struct NotchTypingDot: View {
-    let delay: Double
-    let isStill: Bool
-    @State private var isUp = false
-
-    var body: some View {
-        Circle()
-            .fill(DS.Colors.textPrimary)
-            .frame(width: 4, height: 4)
-            .opacity(isStill ? 0.8 : (isUp ? 1 : 0.4))
-            .offset(y: isStill ? 0 : (isUp ? -2 : 0.5))
-            .onAppear {
-                guard !isStill else { return }
-                withAnimation(.easeInOut(duration: 0.4).repeatForever(autoreverses: true).delay(delay)) {
-                    isUp = true
-                }
-            }
     }
 }
 
 /// Speaking: a solid core with one expanding ring, matching the cursor
 /// overlay's speaking treatment.
-private struct NotchSpeakingRings: View {
+struct NotchSpeakingRings: View {
     let themeColor: Color
     @State private var isExpanded = false
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
@@ -480,36 +364,11 @@ private struct NotchSpeakingRings: View {
     }
 }
 
-/// Micro-app glyph with an optional progress ring (timer countdown, file
-/// copy, download). Static unless the producer moves `progress`.
-private struct NotchActivityGlyph: View {
-    let activity: NotchActivity
-    let themeColor: Color
-
-    var body: some View {
-        ZStack {
-            if let progress = activity.progress {
-                Circle()
-                    .trim(from: 0, to: min(max(progress, 0), 1))
-                    .stroke(
-                        activity.tintColor,
-                        style: StrokeStyle(lineWidth: 1.5, lineCap: .round)
-                    )
-                    .rotationEffect(.degrees(-90))
-                    .frame(width: 13, height: 13)
-                    .animation(.linear(duration: 0.25), value: progress)
-            }
-            Image(systemName: activity.symbolName)
-                .font(.system(size: 8, weight: .bold))
-                .foregroundColor(activity.tintColor)
-        }
-    }
-}
-
 /// Five-bar mic meter. Heights come straight from the published power
 /// level with a per-bar weighting, so the bars move because audio moved —
 /// not because a 24fps clock ticked. Only instantiated while listening.
-private struct NotchLiveWaveform: View {
+struct NotchLiveWaveform: View {
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     let audioPowerLevel: CGFloat
     let themeColor: Color
 
@@ -529,7 +388,7 @@ private struct NotchLiveWaveform: View {
                     .cueMotion(.listenStart, part: .item(barIndex))
             }
         }
-        .animation(.easeOut(duration: 0.09), value: audioPowerLevel)
+        .animation(accessibilityReduceMotion ? nil : .easeOut(duration: 0.09), value: audioPowerLevel)
     }
 
     private func height(forWeight weight: CGFloat) -> CGFloat {

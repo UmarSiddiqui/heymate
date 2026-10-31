@@ -134,14 +134,14 @@ final class OverlayWindowManager {
         }
         let drag = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged]) { [weak self] event in
             guard let self, event.window === window, self.spatialCapture != nil else { return event }
-            self.spatialCapture?.points.append(local(event.locationInWindow))
+            self.spatialCapture?.points.append(local(window.convertPoint(toScreen: event.locationInWindow)))
             if let capture = self.spatialCapture { capture.draftChanged(capture.points) }
             return event
         }
         let release = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
             guard let self, event.window === window, let capture = self.spatialCapture else { return event }
             if !capture.points.isEmpty {
-                self.spatialCapture?.points.append(local(event.locationInWindow))
+                self.spatialCapture?.points.append(local(window.convertPoint(toScreen: event.locationInWindow)))
             }
             self.finishSpatialCapture()
             return event

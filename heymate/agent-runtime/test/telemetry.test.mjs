@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
-import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { createTelemetry } from '../src/telemetry.mjs';
 
@@ -43,7 +42,7 @@ test('H1 telemetry preserves unknown network timing, retries, compaction and int
   assert.doesNotMatch(JSON.stringify(rows), /PRIVATE_SECRET/);
 });
 
-test('recovered H1 compact logger and full timing log persist privately', async () => {
+test('compact logger and full timing log persist privately', async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), 'heymate-telemetry-'));
   try {
     const t = createTelemetry({ home, sessionID: 'chat', model: 'fixture', provider: 'fixture', effort: 'medium' });
@@ -55,11 +54,4 @@ test('recovered H1 compact logger and full timing log persist privately', async 
     assert.equal((await stat(path.join(home, 'logs/request-stats.jsonl'))).mode & 0o777, 0o600);
     assert.equal((await stat(path.join(home, 'logs/h1-rounds.jsonl'))).mode & 0o777, 0o600);
   } finally { await rm(home, { recursive: true, force: true }); }
-});
-
-// Pin the port itself, independent of the ignored private research tree.
-test('recovered telemetry module retains its pinned original bodies', async () => {
-  const pin = JSON.parse(await readFile(new URL('../../scripts/recovered-telemetry-hashes.json', import.meta.url), 'utf8'));
-  const bytes = await readFile(new URL('../src/recovered-h1-telemetry.mjs', import.meta.url));
-  assert.equal(createHash('sha256').update(bytes).digest('hex'), pin.moduleSHA256);
 });

@@ -32,19 +32,28 @@ struct LiveMateFaceView: View {
     /// expression ends so the face's inbox can still deliver it once shown.
     @State private var finishEvent: MateReactionEvent?
 
+    private var expression: MateFaceExpression {
+        guard manager.state.isIdle else { return .live(manager.state) }
+        if let reaction { return reaction.expression }
+        let run = manager.agentRuns.filter {
+            $0.chatOwner?.mateID == mate.id && !$0.status.isTerminal
+        }.max { $0.createdAt < $1.createdAt }
+        return run.map { .agent($0) } ?? .idle
+    }
+
     var body: some View {
         Group {
             if isComposerCompanion && BlobatarCharacter.contains(MateFace.selectionToken(for: mate)) {
                 BlobatarLiveView(mate: mate, token: MateFace.selectionToken(for: mate), size: size,
-                                 expression: manager.state.isIdle ? reaction?.expression ?? .idle : .live(manager.state),
+                                 expression: expression,
                                  reactionEvent: finishEvent, interactive: true, restsOnSurface: true)
             } else if isComposerCompanion {
                 MiloCompanionView(mate: mate, size: size,
-                                  expression: manager.state.isIdle ? reaction?.expression ?? .idle : .live(manager.state),
+                                  expression: expression,
                                   reactionEvent: finishEvent, interactive: true)
             } else {
                 MateFaceView(mate: mate, size: size,
-                             expression: manager.state.isIdle ? reaction?.expression ?? .idle : .live(manager.state),
+                             expression: expression,
                              reactionEvent: finishEvent, interactive: true)
             }
         }

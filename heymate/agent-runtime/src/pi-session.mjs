@@ -42,7 +42,7 @@ const workingFast = 'Work fast: when several independent reads, searches or look
   + 'In exec, await tools.NAME(args), run independent reads with Promise.all, and print only needed results with text(...). '
   + 'Actions that change things still go one at a time and retain their normal approvals.';
 
-// When to keep a note, then ReferenceRenderer's own note instructions.
+// When to keep a note, then how its tools are used (notes.mjs).
 const notesGuide = 'NOTES: for work worth keeping (research, a plan, a comparison, a list, a trip, a decision), keep a note the user watches fill in. '
   + 'Your first call starts it: note with a # title, ## In short and the plan as boxes ("- [ ] step"). Then use the small edits as you learn. '
   + 'Small talk and quick answers get no note. Before continuing a saved note, or after compaction, call note_read to see its current contents.\n' + noteInstructions;
