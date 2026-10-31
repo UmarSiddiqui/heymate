@@ -4,10 +4,6 @@
   "reason": "Known recovered implementations remain. Naming cleanup does not establish independent authorship or distribution rights.",
   "unresolved": [
     {
-      "path": "HeyMate/mate-draw-engine.js",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
       "path": "HeyMate/DaVinciShaders.txt",
       "status": "requires-reviewed-replacement-or-documented-permission"
     },
@@ -25,10 +21,6 @@
     },
     {
       "path": "HeyMate/mate-stage3d.js",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
-      "path": "HeyMate/mate-host.js",
       "status": "requires-reviewed-replacement-or-documented-permission"
     }
   ],
@@ -80,6 +72,18 @@
       "path": "agent-runtime/src/notes.mjs",
       "status": "independently-reimplemented-awaiting-source-and-behavior-review",
       "replaces": "agent-runtime/src/notes.mjs (recovered 2026-10-29 snapshot)"
+    },
+    {
+      "path": "HeyMate/mate-draw-engine.js",
+      "status": "rewritten-section-by-section-awaiting-source-and-behavior-review",
+      "replaces": "HeyMate/mate-draw-engine.js (recovered 2026-10-29 snapshot)",
+      "note": "Every section rewritten 2026-10-31 (docs/publication-source-review.md). 48% of substantive lines still match the original: mostly design values, the text formats a model reads, and host-facing method and export names."
+    },
+    {
+      "path": "HeyMate/mate-host.js",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "HeyMate/mate-host.js (2026-10-29, with a direct port of the original app's screen sampler)",
+      "note": "Screen sampling, host hooks, painter, gestures and buttons rewritten 2026-10-31; the ported sampler is gone."
     }
   ]
 }

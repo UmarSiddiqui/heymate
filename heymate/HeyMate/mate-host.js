@@ -1,13 +1,16 @@
-// HeyMate's host for ReferenceRenderer's native drawing canvas (mate-draw-native.js). In ReferenceRenderer the canvas runs in
-// JavaScriptCore and the app paints what it records with Core Animation (ScreenDrawingNativePainter); neither the app
-// nor that painter is in the copied sources. Here the canvas runs unchanged in a sandbox object on this page, this file
-// answers its __host calls (clock, timers, Core Text-style measuring through the page's own SVG) and paints the render
-// ops it drains into one SVG over the screen: the engine's own elements as they are, and the ones ReferenceRenderer's app
-// draws itself (window chrome, photos) drawn here. 3D stages go to mate-stage3d.js.
+// The page HeyMate's drawing window shows (Explainer.swift loads it in a transparent WKWebView over the screen).
+// It runs the drawing canvas (mate-draw-native.js with mate-draw-engine.js and the pieces) in a global of its own,
+// answers the canvas's host calls (clock, timers, text and path measuring through this page's SVG, and what the
+// screen under an area looks like, from the screenshot the model saw), paints the render ops the canvas records
+// into one SVG over the screen, and lets the user drag, zoom and close the cards it draws and press their buttons.
+// The things the canvas leaves to the app to draw (window chrome, photos, buttons) are drawn here. 3D stages go to
+// mate-stage3d.js. Anything the user or the drawing asks of the app (pointing, sounds, photos, button presses)
+// goes to Swift as a message on the 'heymate' handler.
 //
 // Needs, loaded first: three-r159.min.js, mate-three.js, mate-three-parts.js, mate-stage3d.js, and the sources
 // in window.__mateSources = {native, engine, pieces} (text).
-// API: HeyMateCanvas.begin({w, h, ink}), feed(code, done), line(k), lineLength(k, seconds), finish(), clear().
+// API: HeyMateCanvas.begin({w, h, width, ink}), feed(code, done), line(k), lineLength(k, seconds), continue(),
+// finish(), screenChanged(), photoFound(query, url), state(), clear(), screenSampling.
 (function () {
   'use strict';
   const NS = 'http://www.w3.org/2000/svg';
@@ -400,10 +403,10 @@
       root.addEventListener('pointerdown', onDown);
       root.addEventListener('pointermove', onMove);
       root.addEventListener('pointerup', onUp);
-      root.addEventListener('pointercancel', onUp);
+      root.addEventListener('pointercancel', onCancel);
     }
     if (globalThis.MateStage3D) MateStage3D.reset();
-    cardList = []; zoomed.clear(); gesture = null; lastRects = '';
+    cardList = []; gesture = null; lastRects = '';
     root.textContent = '';
     nodes.clear();
     svg = el('svg', { viewBox: `0 0 ${w} ${h}` });
@@ -419,47 +422,54 @@
   function call(fn) { try { return fn(); } finally { paint(); } }
 
   // ---------------------------------------------------------------- the user's hands on the drawing
-  // ReferenceRenderer's app lets cards be dragged (ScreenDrawingCardDragHandles), closed with their red button and made full
-  // screen with their green one, and 3D figures turned and clicked. The canvas says what the cards are (cards()); the
-  // app moves their elements while the pointer drags and tells the canvas where they were dropped (moveCard).
-  let cardList = [], zoomed = new Map(), lastRects = '';
+  // Cards can be dragged, closed with their red button and made full screen with their green one, and 3D figures
+  // turned and clicked. The canvas says what the cards are and where (cards()); this page moves a card's elements while
+  // the pointer drags, and tells the canvas where it was dropped (moveCard), closed (closeCard) or zoomed (zoomCard).
+  let cardList = [], lastRects = '';
   // The canvas is the screenshot (its pixels are the model's coordinates); the page is the screen in points.
   let canvasW = 1, canvasH = 1;
   const unit = () => globalThis.__mateUnitPx || 1;
+  const toPage = b => b.map(v => v * unit());
+  const boxOf = card => (card.window ? card.window.box : card.box);
+  const keyOf = card => (card.window ? 'w' + card.window.mark : card.marks.join(','));
+  const within = (b, outer, slack = 4) => b[0] >= outer[0] - slack && b[1] >= outer[1] - slack &&
+    b[0] + b[2] <= outer[0] + outer[2] + slack && b[1] + b[3] <= outer[1] + outer[3] + slack;
   // A 3D part starts growing: HeyMate's cursor flies to it and names it, so it looks like it builds the model.
   function buildAt(x, y, name) { post('pointAt', { x: x / unit(), y: y / unit(), label: name, role: 'build', w: canvasW, h: canvasH }); }
-  const toPage = b => b.map(v => v * unit());
+  function readCards() {
+    try { cardList = JSON.parse((G.mateCanvas && G.mateCanvas.cards()) || '[]'); } catch (_) { cardList = []; }
+    return cardList;
+  }
+  // Where HeyMate's window should take clicks (cards, 3D stages, buttons): the rest of the screen stays the user's.
   function refreshHits() {
     if (!G.mateCanvas) return;
-    try { cardList = JSON.parse(G.mateCanvas.cards() || '[]'); } catch (_) { cardList = []; }
-    const rects = cardList.map(c => toPage(c.window ? c.window.box : c.box)).concat(globalThis.MateStage3D ? MateStage3D.rects : [])
+    readCards();
+    placeButtons();
+    const rects = cardList.map(c => toPage(boxOf(c))).concat(globalThis.MateStage3D ? MateStage3D.rects : [])
       .concat([...buttons.values()].map(({ el }) => { const r = el.getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; }));
     const key = JSON.stringify(rects.map(r => r.map(Math.round)));
     if (key !== lastRects) { lastRects = key; post('hitRects', rects); }
   }
   setInterval(refreshHits, 250);
-
   function cardAt(x, y) {
-    for (let i = cardList.length - 1; i >= 0; i--) {
-      const c = cardList[i], b = c.window ? c.window.box : c.box;
-      if (x >= b[0] && x <= b[0] + b[2] && y >= b[1] && y <= b[1] + b[3]) return c;
-    }
+    for (let i = cardList.length - 1; i >= 0; i--) if (within([x, y, 0, 0], boxOf(cardList[i]), 0)) return cardList[i];
     return null;
   }
-  // The window's red and green buttons, where paintWindow drew them.
-  function buttonAt(card, x, y) {
-    const w = card.window; if (!w) return null;
-    const s = w.scale || 1, head = (w.header || 28) * s, cy = w.box[1] + head / 2;
-    for (const [name, cx] of [['close', w.box[0] + 16 * s], ['zoom', w.box[0] + 36 * s]]) if (Math.hypot(x - cx, y - cy) <= 9 * s) return name;
+  // A window's red and green buttons, where paintWindow drew them. cards() gives the window's box and header as they
+  // are now, zoomed or not; the buttons' offsets and size scale with it.
+  function windowButtonAt(card, x, y) {
+    const w = card.window;
+    if (!w) return null;
+    const s = w.scale || 1, cy = w.box[1] + (w.header || 28 * s) / 2;
+    for (const [name, offset] of [['close', 16], ['zoom', 36]]) if (Math.hypot(x - (w.box[0] + offset * s), y - cy) <= 9 * s) return name;
     return null;
   }
+  // Full screen, with a 60 point margin, and back.
   function zoom(card) {
-    const key = card.marks.join(',');
-    if (zoomed.has(key)) { zoomed.delete(key); return call(() => G.mateCanvas.zoomCard({ marks: card.marks, to: null })); }
-    const [x, y, w, h] = card.window.box, W = canvasW, H = canvasH;
-    const k = Math.min((W - 120 / unit()) / w, (H - 120 / unit()) / h);
-    zoomed.set(key, true);
-    call(() => G.mateCanvas.zoomCard({ marks: card.marks, to: [k, (W - k * w) / 2 - k * x, (H - k * h) / 2 - k * y] }));
+    if (card.window.zoomed) return call(() => G.mateCanvas.zoomCard({ marks: card.marks, to: null }));
+    const [x, y, w, h] = card.window.box, margin = 120 / unit();
+    const k = Math.min((canvasW - margin) / w, (canvasH - margin) / h);
+    return call(() => G.mateCanvas.zoomCard({ marks: card.marks, to: [k, (canvasW - k * w) / 2 - k * x, (canvasH - k * h) / 2 - k * y] }));
   }
 
   let gesture = null, analysis = null, heardLine = -1, pointed = new Set(), lineOffset = 0;
@@ -477,84 +487,121 @@
     }
   }
 
-  // ---------------------------------------------------------------- buttons (ScreenDrawingActionButtons in the app)
-  // button() leaves a spot with its box and {text, kind, value}; the canvas says when its beat is drawn and it can go up.
-  const buttons = new Map();             // mark index -> {el, box (canvas units), payload}
+  // ---------------------------------------------------------------- buttons
+  // button() leaves a spot with its box and {text, kind, value}; the canvas says when its beat is drawn and it can go
+  // up. A button drawn on a window belongs to it: it is placed from where the window is now (dragged, dropped, moved by
+  // an edit, zoomed), scaled with it, and closed with it. A window's box is fixed while it draws; other cards (a photo
+  // and its label) grow as their marks arrive, so a button on one keeps its own box, moved when the card is dropped.
+  const buttons = new Map();             // mark index -> {el, box (canvas units), payload, card: {key, home, scale} | null}
   function showButton(i, seconds, tries = 0) {
     const a = ((analysis && analysis.actions) || []).find(x => x.i === i && x.role === 'button');
     if (!a) { if (tries < 20) setTimeout(() => showButton(i, seconds, tries + 1), 100); return; }
     if (buttons.has(i)) return;
-    let payload = {};
+    let payload;
     try { payload = JSON.parse(a.text || '{}'); } catch (_) { return; }
     const box = a.box || [a.x, a.y, 120, 30];
     const el = document.createElement('button');
     el.dataset.mateButton = String(i);
-    el.textContent = payload.text + (payload.kind === 'open' ? '  ↗' : '');
+    el.textContent = String(payload.text || '') + (payload.kind === 'open' ? '  ↗' : '');
     const ink = G.__mateInk || '#3380FF';
     Object.assign(el.style, { position: 'absolute', font: '600 13px -apple-system, system-ui, sans-serif', color: '#15171C', whiteSpace: 'nowrap',
       background: `linear-gradient(#FFFFFF, ${ink}33)`, border: `1px solid ${ink}66`, borderRadius: '999px', padding: '0 14px',
       boxShadow: '0 2px 8px rgba(0,0,0,.25)', cursor: 'pointer', opacity: '0', transform: 'scale(.85)', transition: 'opacity .25s, transform .25s' });
-    placeButton(el, box);
     el.addEventListener('click', ev => { ev.stopPropagation(); post('button', payload); el.style.transform = 'scale(.94)'; setTimeout(() => { el.style.transform = 'none'; }, 120); });
     root.appendChild(el);
-    buttons.set(i, { el, box: box.slice(), payload });
+    const card = readCards().slice().reverse().find(c => c.window && within(box, boxOf(c)));
+    const b = { el, box: box.slice(), payload, card: card ? { key: keyOf(card), home: boxOf(card).slice(), scale: (card.window && card.window.scale) || 1 } : null };
+    buttons.set(i, b);
+    placeButton(b);
     setTimeout(() => { el.style.opacity = '1'; el.style.transform = 'none'; refreshHits(); }, Math.max(0, seconds) * 1000);
   }
-  function placeButton(el, box) {
+  // A button where it is now: on a card, at the same place relative to the card's box and scaled with it.
+  function placeButton(b, drag = [0, 0]) {
+    let [x, y, w, h] = b.box, s = 1;
+    const card = b.card && cardList.find(c => keyOf(c) === b.card.key);
+    if (card) {
+      const now = boxOf(card), from = b.card.home;
+      s = ((card.window && card.window.scale) || 1) / b.card.scale;
+      x = now[0] + (x - from[0]) * s; y = now[1] + (y - from[1]) * s;
+    }
     const u = unit();
-    Object.assign(el.style, { left: box[0] * u + 'px', top: box[1] * u + 'px', minWidth: box[2] * u + 'px', height: box[3] * u + 'px' });
+    Object.assign(b.el.style, { left: (x + drag[0]) * u + 'px', top: (y + drag[1]) * u + 'px', minWidth: w * u + 'px', height: h * u + 'px',
+      scale: s === 1 ? '' : String(s), transformOrigin: s === 1 ? '' : '0 0' });
   }
-  const inside = (b, card) => b[0] >= card[0] - 4 && b[1] >= card[1] - 4 && b[0] + b[2] <= card[0] + card[2] + 4 && b[1] + b[3] <= card[1] + card[3] + 4;
-  // A card's buttons ride with it when it is dropped, and go with it when it is closed.
-  function buttonsOn(card) { const b = card.window ? card.window.box : card.box; return [...buttons.entries()].filter(([, v]) => inside(v.box, b)); }
+  function placeButtons() { for (const b of buttons.values()) placeButton(b); }
+  const buttonsOn = card => [...buttons.entries()].filter(([, b]) => (b.card ? b.card.key === keyOf(card) : within(b.box, boxOf(card))));
   function clearButtons() { for (const { el } of buttons.values()) el.remove(); buttons.clear(); }
+
+  // ---------------------------------------------------------------- pointer gestures
+  // Down on a card starts a drag (once the pointer has moved 3 points), on a 3D stage a turn; up without a drag is a
+  // click: a window button, or a 3D part to ask about. A gesture the system cancels puts everything back.
   function onDown(ev) {
     if (ev.target && ev.target.closest && ev.target.closest('[data-mate-button]')) return;
     const x = ev.clientX, y = ev.clientY;
     refreshHits();
     post('touched', null);
-    const st = globalThis.MateStage3D && MateStage3D.stageAt(x, y);
-    const card = st ? null : cardAt(x / unit(), y / unit());
-    if (!st && !card) return;
-    gesture = { x, y, st, card, moved: false, lx: x, ly: y };
+    const stage = globalThis.MateStage3D && MateStage3D.stageAt(x, y);
+    const card = stage ? null : cardAt(x / unit(), y / unit());
+    if (!stage && !card) return;
+    gesture = { x, y, stage, card, moved: false, lx: x, ly: y };
     try { root.setPointerCapture(ev.pointerId); } catch (_) {}
     ev.preventDefault();
   }
+  const dragOf = (g, ev) => [(ev.clientX - g.x) / unit(), (ev.clientY - g.y) / unit()];
   function onMove(ev) {
     if (!gesture) return;
-    const dx = (ev.clientX - gesture.x) / unit(), dy = (ev.clientY - gesture.y) / unit();
     if (Math.hypot(ev.clientX - gesture.x, ev.clientY - gesture.y) > 3) gesture.moved = true;
-    if (gesture.st) { MateStage3D.turn(gesture.st, ev.clientX - gesture.lx, ev.clientY - gesture.ly); gesture.lx = ev.clientX; gesture.ly = ev.clientY; }
-    else if (gesture.moved) for (const n of gesture.card.units) {
-      const e = nodes.get(n); if (!e) continue;
+    if (gesture.stage) {
+      MateStage3D.turn(gesture.stage, ev.clientX - gesture.lx, ev.clientY - gesture.ly);
+      gesture.lx = ev.clientX; gesture.ly = ev.clientY;
+    } else if (gesture.moved) dragCard(gesture.card, dragOf(gesture, ev));
+  }
+  // While a card is dragged its elements and buttons ride along on top of whatever transform they have.
+  function dragCard(card, [dx, dy]) {
+    for (const n of card.units) {
+      const e = nodes.get(n);
+      if (!e) continue;
       if (e.__dragBase === undefined) e.__dragBase = e.getAttribute('transform') || '';
       e.setAttribute('transform', `translate(${dx} ${dy}) ${e.__dragBase}`.trim());
+    }
+    for (const [, b] of buttonsOn(card)) placeButton(b, [dx, dy]);
+  }
+  function endDrag(card) {
+    for (const n of card.units) {
+      const e = nodes.get(n);
+      if (!e || e.__dragBase === undefined) continue;
+      if (e.__dragBase) e.setAttribute('transform', e.__dragBase); else e.removeAttribute('transform');
+      delete e.__dragBase;
     }
   }
   function onUp(ev) {
     const g = gesture; gesture = null;
     if (!g) return;
-    const dx = (ev.clientX - g.x) / unit(), dy = (ev.clientY - g.y) / unit();
-    if (g.st) {
-      if (!g.moved) { const part = MateStage3D.pick(g.st, ev.clientX, ev.clientY); if (part) post('askPart', part); }
+    if (g.stage) {
+      if (!g.moved) { const part = MateStage3D.pick(g.stage, ev.clientX, ev.clientY); if (part) post('askPart', part); }
       return;
     }
-    for (const n of g.card.units) {
-      const e = nodes.get(n); if (!e || e.__dragBase === undefined) continue;
-      if (e.__dragBase) e.setAttribute('transform', e.__dragBase); else e.removeAttribute('transform');
-      delete e.__dragBase;
-    }
-    if (g.moved) {
-      for (const [, b] of buttonsOn(g.card)) { b.box[0] += dx; b.box[1] += dy; placeButton(b.el, b.box); }
-      call(() => G.mateCanvas.moveCard({ marks: g.card.marks, dx, dy })); refreshHits(); return;
-    }
-    const button = buttonAt(g.card, ev.clientX / unit(), ev.clientY / unit());
-    if (button === 'close') {
-      for (const [i, b] of buttonsOn(g.card)) { b.el.remove(); buttons.delete(i); }
-      const result = JSON.parse(call(() => G.mateCanvas.closeCard({ marks: g.card.marks })) || '{}');
-      refreshHits();
-      if (!result.left) setTimeout(() => post('empty', null), 600);
-    } else if (button === 'zoom') { zoom(g.card); setTimeout(refreshHits, 600); }
+    endDrag(g.card);
+    if (g.moved) { const [dx, dy] = dragOf(g, ev); dropCard(g.card, dx, dy); return; }
+    const button = windowButtonAt(g.card, ev.clientX / unit(), ev.clientY / unit());
+    if (button === 'close') closeCard(g.card);
+    else if (button === 'zoom') { zoom(g.card); refreshHits(); setTimeout(refreshHits, 600); }
+  }
+  function onCancel() {
+    const g = gesture; gesture = null;
+    if (g && g.card) { endDrag(g.card); refreshHits(); }
+  }
+  function dropCard(card, dx, dy) {
+    for (const [, b] of buttonsOn(card)) if (!b.card) { b.box[0] += dx; b.box[1] += dy; }
+    call(() => G.mateCanvas.moveCard({ marks: card.marks, dx, dy }));
+    refreshHits();
+  }
+  function closeCard(card) {
+    for (const [i, b] of buttonsOn(card)) { b.el.remove(); buttons.delete(i); }
+    let result = {};
+    try { result = JSON.parse(call(() => G.mateCanvas.closeCard({ marks: card.marks })) || '{}') || {}; } catch (_) {}
+    refreshHits();
+    if (!result.left) setTimeout(() => post('empty', null), 600);
   }
   (function loop() { paint(); requestAnimationFrame(loop); })();
 
