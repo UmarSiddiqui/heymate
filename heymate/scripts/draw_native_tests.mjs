@@ -165,3 +165,15 @@ test('sessions paint what they did', () => {
   if (process.env.UPDATE_GOLDEN) fs.writeFileSync(file, JSON.stringify(actual, null, 2) + '\n');
   else assert.deepEqual(actual, JSON.parse(fs.readFileSync(file, 'utf8')));
 });
+
+test('caps keep an emoji whole when they space out the letters', () => {
+  const c = canvas();
+  c.call('renderWhole', { w: 800, h: 600, width: 800, code: "text(40, 60, 'go 🚀 now', {style: 'caps'})" });
+  c.advance(2);
+  const painted = JSON.stringify(c.log.filter(e => e[0] === 'drain'));
+  assert.ok(painted.includes('G\\u200aO') || painted.includes('G O'), 'the caps were spaced out');
+  // no half of an emoji standing alone (a lone surrogate)
+  const drained = c.log.filter(e => e[0] === 'drain').map(e => typeof e[2] === 'string' ? e[2] : JSON.stringify(e[2])).join('');
+  assert.ok(drained.includes('🚀'));
+  assert.doesNotMatch(drained, /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+});

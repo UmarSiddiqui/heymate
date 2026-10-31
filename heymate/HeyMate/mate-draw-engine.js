@@ -2136,6 +2136,8 @@
 
   // ================================================================ render
   let SURFACES = 0;
+  // label nudges: down, up, right, left, then the diagonals
+  const AROUND_LABEL = [[0, 1], [0, -1], [1, 0], [-1, 0], [1, 1], [-1, 1], [1, -1], [-1, -1]];
   function surfaceFor(spec, host, opts = {}) {
     const uid = 'cd' + (++SURFACES) + '_';            // ids unique per card, so several cards can share a page
     const W = spec.w || 400, H = spec.h || 300, surface = spec.surface || 'card', t0 = performance.now();
@@ -2143,232 +2145,241 @@
     const NS = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(NS, 'svg');
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('width', opts.width || W * 2); svg.setAttribute('height', (opts.width || W * 2) * H / W);
+    // wash: a watercolour edge for fills; grain: pencil tooth. Then the layers, bottom to top: a hidden probe for
+    // measuring, fills under everything, strokes, highlights, words.
     svg.innerHTML = `<defs><filter id="wash" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="3"/><feDisplacementMap in="SourceGraphic" scale="3.5"/></filter>
       <filter id="grain"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="1" seed="7" result="n"/><feColorMatrix in="n" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.2 1.1" result="a"/><feComposite in="SourceGraphic" in2="a" operator="in"/></filter></defs>
       <g id="__probe" style="visibility:hidden"></g><g id="under"></g><g id="main"></g><g id="hl"></g><g id="words"></g>`;
     host.appendChild(svg);
-    const under = svg.querySelector('#under'), main = svg.querySelector('#main'), hlLayer = svg.querySelector('#hl'), words = svg.querySelector('#words');
-    let clock = 0.15, lastStep = null, maskN = 0, delayBase = 0, pace = 1, total = 0, report = { marks: 0, errors: [], warnings: [], engine: VERSION };
+    const defs = svg.querySelector('defs'), under = svg.querySelector('#under'), main = svg.querySelector('#main'), hlLayer = svg.querySelector('#hl'), words = svg.querySelector('#words');
+    let clock = 0.15, lastStep = null, maskCount = 0, delayBase = 0, pace = 1, total = 0, report = { marks: 0, errors: [], warnings: [], engine: VERSION };
     const placed = [];                                     // placed[i] = [start, end] of mark i, seconds since the card was created
-    // 1.6: the nodes each mark drew (per layer, in paint order) and its pen masks, so edits can find them again.
-    // Only JS references are kept: the SVG itself is exactly what 1.5 drew.
+    // What each mark drew (per layer, in paint order), its pen masks and the mark itself, so edits find them again.
+    // Only references are kept: the SVG is exactly what a card without edits draws.
     const NODES = {}, MASKS = {}, MK = {};
     let cap = null, capM = null, capKey = 0, editing = false;
-    // ReferenceRenderer: hooks.edit(m, i, startsAt, pace) runs a program's edit mark ({do: 'edit'}) through the card's editor and
-    // returns how long it takes (s); set by live() and render()
+    // hooks.edit(m, i, startsAt, pace) runs a program's edit mark ({do: 'edit'}) through the card's editor and returns
+    // how long it takes (s); live() and render() set it
     const hooks = {};
-    // ReferenceRenderer: the role of the mark being painted, kept on each element it makes (label placement ignores the
-    // arrows that tie a row to its photo: they cross the card, and the card's words must not move for them)
+    // the role of the mark being painted, kept on each element it makes (label placement ignores the arrows that tie a
+    // row to its photo: they cross the card, and the card's words must not move for them)
     let paintingRole = null;
+    const LAYERS = new Set([main, under, hlLayer, words]);
     const el = (tag, attrs, parent) => {
-      const e = document.createElementNS(NS, tag); for (const k in attrs) if (attrs[k] != null) e.setAttribute(k, attrs[k]);
+      const e = document.createElementNS(NS, tag);
+      for (const k in attrs) if (attrs[k] != null) e.setAttribute(k, attrs[k]);
       if (paintingRole) e.__role = paintingRole;
-      const p = parent || main; p.appendChild(e);
-      if (cap && (p === main || p === under || p === hlLayer || p === words)) { e.__k = capKey; cap.push(e); }
+      const p = parent || main;
+      p.appendChild(e);
+      if (cap && LAYERS.has(p)) { e.__k = capKey; cap.push(e); }
       return e;
     };
-    const anim = (e, name, dur, delay) => { dur = dur * Math.max(pace, 0.35); e.style.animation = `${name} ${dur.toFixed(2)}s ${name === 'pen' ? (PEN.ease || 'cubic-bezier(.4,.1,.3,1)') : 'ease-out'} ${(delay - delayBase).toFixed(2)}s both`; };
+    // a CSS animation at the card's pace: dur seconds, starting at `delay` on the card's clock
+    const anim = (e, name, dur, delay) => {
+      const curve = name === 'pen' ? (PEN.ease || 'cubic-bezier(.4,.1,.3,1)') : 'ease-out';
+      e.style.animation = `${name} ${(dur * Math.max(pace, 0.35)).toFixed(2)}s ${curve} ${(delay - delayBase).toFixed(2)}s both`;
+    };
 
+    // A pen stroke along a centreline: the felt-pen outline, revealed by a mask whose own stroke is drawn on over the
+    // pen's time. Returns that time.
     function stroke(centre, m, colour, size, parent, extra = {}) {
       const d = outline(centre, size, m.taper == null ? 1 : m.taper);
       if (!d) return 0;
-      const id = uid + 'm' + (maskN++), dur = penDur(plen(centre));
-      const mask = el('mask', { id, maskUnits: 'userSpaceOnUse', x: -W, y: -H, width: W * 3, height: H * 3 }, svg.querySelector('defs'));
-      const mp = el('path', { d: poly(centre), fill: 'none', stroke: '#fff', 'stroke-width': size * 2 + 4, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', pathLength: 1, 'stroke-dasharray': '1 1' }, mask);
-      anim(mp, 'pen', dur, clock);
-      if (capM) capM.push(mp);
-      const b = BRUSH[m.brush] || BRUSH.pen;
-      // halo: one [colour, opacity, width] or several, widest first (a soft glow without a blur)
-      // ReferenceRenderer (2026-10-19): a screen mark's glow, [opacity, radius], is a real blurred shadow in its own colour, like
-      // the old walkthrough's SwiftUI .shadow (the app paints it: data-glow). Ink turned white or near-black for contrast
-      // keeps the pen's contrast halo instead.
+      const id = uid + 'm' + (maskCount++), dur = penDur(plen(centre));
+      const mask = el('mask', { id, maskUnits: 'userSpaceOnUse', x: -W, y: -H, width: W * 3, height: H * 3 }, defs);
+      const reveal = el('path', { d: poly(centre), fill: 'none', stroke: '#fff', 'stroke-width': size * 2 + 4, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', pathLength: 1, 'stroke-dasharray': '1 1' }, mask);
+      anim(reveal, 'pen', dur, clock);
+      if (capM) capM.push(reveal);
+      const brush = BRUSH[m.brush] || BRUSH.pen;
+      // The pen's halo for this ink (PEN.halo: one [colour, opacity, width] or several, widest first): a soft edge
+      // without a blur. Otherwise a mark's own glow, [opacity, radius], which the app paints as a real shadow in the
+      // mark's colour (data-glow).
       const halo = PEN.halo && PEN.halo[String(colour).toUpperCase()];
       const glow = !halo && Array.isArray(m.glow) && m.glow.length === 2 && isFinite(+m.glow[0]) && isFinite(+m.glow[1]) ? m.glow : null;
       for (const h of !halo ? [] : Array.isArray(halo[0]) ? halo : [halo])
         el('path', { d, fill: h[0], 'fill-opacity': h[1], stroke: h[0], 'stroke-opacity': h[1], 'stroke-width': h[2], 'stroke-linejoin': 'round', mask: `url(#${id})`, 'data-halo': '1' }, parent);
-      el('path', Object.assign({ d, fill: colour, 'fill-opacity': m.alpha != null ? m.alpha : b.alpha, mask: `url(#${id})`, filter: m.brush === 'pencil' ? 'url(#grain)' : null,
+      el('path', Object.assign({ d, fill: colour, 'fill-opacity': m.alpha != null ? m.alpha : brush.alpha, mask: `url(#${id})`, filter: m.brush === 'pencil' ? 'url(#grain)' : null,
         'data-glow': glow ? `${(+glow[0]).toFixed(3)} ${(+glow[1]).toFixed(2)}` : null }, extra), parent);
       return dur;
     }
-    // rough area of a fill, for PEN.washMaxArea (big sheets skip the watercolour filter: costly to animate)
+    // a fill's rough area, for PEN.washMaxArea (big sheets skip the watercolour filter: it is costly to animate)
     function fillArea(m) {
       if (Array.isArray(m.pts) && m.pts.length) {
-        const P = m.pts.filter(p => Array.isArray(p)); if (!P.length) return 0;
-        const xs = P.map(p => +p[0] || 0), ys = P.map(p => +p[1] || 0);
-        return (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
+        const P = m.pts.filter(Array.isArray).map(p => [+p[0] || 0, +p[1] || 0]);
+        if (!P.length) return 0;
+        const b = boxOf(P);
+        return (b[2] - b[0]) * (b[3] - b[1]);
       }
       if (m.w && m.h) return Math.abs(m.w * m.h);
       if (m.r) return 4 * m.r * m.r;
       if (m.rx && m.ry) return 4 * m.rx * m.ry;
       return 0;
     }
+    // A shape's fill, fading in under its outline (or opening with it, for a marquee's tint). `wash: false` keeps a
+    // fill crisp (label pills, number badges).
     function wash(dPath, m, parent, extra) {
       if (!m.fill) return;
-      // ReferenceRenderer: `wash: false` on a mark keeps its fill crisp (label pills, number badges)
-      const filtered = PEN.wash && m.wash !== false && fillArea(m) <= PEN.washMaxArea;
       const marquee = Array.isArray(m.marquee) && m.outline === false;
-      const e = el('path', Object.assign({ d: dPath, fill: tone(m.fill), 'fill-opacity': m.fillAlpha != null ? m.fillAlpha : 1, filter: filtered && !marquee ? 'url(#wash)' : null,
+      const washed = PEN.wash && m.wash !== false && !marquee && fillArea(m) <= PEN.washMaxArea;
+      const e = el('path', Object.assign({ d: dPath, fill: tone(m.fill), 'fill-opacity': m.fillAlpha != null ? m.fillAlpha : 1, filter: washed ? 'url(#wash)' : null,
         'data-marquee': marquee ? m.marquee.map(v => (+v || 0).toFixed(2)).join(' ') : null }, extra || {}), parent || under);
       if (marquee) anim(e, 'marquee', MARQUEE_DUR, clock);
       else anim(e, 'fadein', 0.35, clock + (m.outline === false ? 0 : 0.18));
     }
 
+    // ---------------------------------------------------------------- labels keep clear of each other and of shapes
+    // an element's box on the card, with any nudge and edit move; a shape's box is kept once it has one (the app
+    // measures paths)
+    function cardBox(e, cache) {
+      let r;
+      if (cache) {
+        if (!e.__bb) { try { const q = e.getBBox(); e.__bb = q && (q.width || q.height) ? { x: q.x, y: q.y, w: q.width, h: q.height } : null; } catch (_) { e.__bb = null; } }
+        r = e.__bb;
+      } else { try { const q = e.getBBox(), n = e.__nudge || [0, 0]; r = { x: q.x + n[0], y: q.y + n[1], w: q.width, h: q.height }; } catch (_) { r = null; } }
+      const xf = r && e.__wrap && e.__wrap.__xf;
+      return xf ? { x: r.x * xf[0] + xf[1], y: r.y * xf[0] + xf[2], w: r.w * xf[0], h: r.h * xf[0] } : r;
+    }
+    // how far to shift a span [start, start + size] to bring it within [lo, hi] (a span too big for it keeps to lo)
+    const intoRange = (start, size, lo, hi) => Math.min(Math.max(0, lo - start), hi - start - size) || Math.max(lo - start, Math.min(0, hi - start - size));
+    // Moves a short label to the nearest spot where it neither sits on another label nor is crossed by shapes.
     function placeLabel(t) {
-      let b; try { b = t.getBBox(); } catch (_) { return; }
+      let b;
+      try { b = t.getBBox(); } catch (_) { return; }
       if (!b.width) return;
-      const others = [...words.querySelectorAll('text')].filter(e => e !== t && !e.__gone && e.ownerSVGElement === svg).map(e => { try { const r = e.getBBox(), tr = e.__nudge || [0, 0], xf = e.__wrap && e.__wrap.__xf; const b = { x: r.x + tr[0], y: r.y + tr[1], w: r.width, h: r.height }; return xf ? { x: b.x * xf[0] + xf[1], y: b.y * xf[0] + xf[2], w: b.w * xf[0], h: b.h * xf[0] } : b; } catch (_) { return null; } }).filter(Boolean);
-      // compared by the letters' middle bands: a text box carries its whole line height, so a title and the subtitle
-      // 22 units under it "overlapped" by a few units with no letter touching, the subtitle moved down onto the next
-      // row, and every row of a list card cascaded after it
+      const live = e => e.ownerSVGElement === svg && !e.__gone;
+      const others = [...words.querySelectorAll('text')].filter(e => e !== t && live(e)).map(e => cardBox(e, false)).filter(Boolean);
+      // Labels are compared by their letters' middle bands: a text box carries its whole line height, so a title and
+      // the subtitle 22 units under it "overlapped" by a few units with no letter touching, and a list cascaded down.
       const textHits = (dx, dy) => others.some(o => Math.min(b.x + dx + b.width, o.x + o.w) - Math.max(b.x + dx, o.x) > 3
         && Math.min(b.y + dy + b.height * 0.8, o.y + o.h * 0.8) - Math.max(b.y + dy + b.height * 0.2, o.y + o.h * 0.2) > 1);
-      // ReferenceRenderer: drawn shapes are in the way too (a caption written across two little figures). A shape that encloses
-      // the label is its container ("User" in its circle, a word in its box) and never pushes it; shapes that only
-      // cross it do, once together they cover a fifth of it. Boxes are cached on the element (the app measures paths).
-      const shapes = [...main.querySelectorAll('path,circle,ellipse,rect,line,polyline,polygon')].filter(e => !e.__gone && e.ownerSVGElement === svg && !e.getAttribute('data-halo') && e.__role !== 'tie' && e.__role !== 'paper').map(e => {
-        if (!e.__bb) { try { const r = e.getBBox(); e.__bb = r && (r.width || r.height) ? { x: r.x, y: r.y, w: r.width, h: r.height } : null; } catch (_) { e.__bb = null; } }
-        const o = e.__bb, xf = e.__wrap && e.__wrap.__xf;
-        return o && xf ? { x: o.x * xf[0] + xf[1], y: o.y * xf[0] + xf[2], w: o.w * xf[0], h: o.h * xf[0] } : o;
-      }).filter(Boolean);
+      // Drawn shapes are in the way too (a caption written across two little figures). A shape around the label is its
+      // container ("User" in its circle) and never pushes it; shapes that cross it do, once together they cover a fifth
+      // of its middle band. Halos, ties to a photo and paper cards are not in the way.
+      const shapes = [...main.querySelectorAll('path,circle,ellipse,rect,line,polyline,polygon')]
+        .filter(e => live(e) && !e.getAttribute('data-halo') && e.__role !== 'tie' && e.__role !== 'paper').map(e => cardBox(e, true)).filter(Boolean);
       const shapeCover = (dx, dy) => {
-        // the words' middle band: a line that only grazes the label's edge (a heading just above a grid) is not in the way
         const x0 = b.x + dx + b.width * 0.1, y0 = b.y + dy + b.height * 0.25, x1 = b.x + dx + b.width * 0.9, y1 = b.y + dy + b.height * 0.75;
         let area = 0;
         for (const o of shapes) {
-          // a shape around the label is its container, not in its way
-          if (o.x <= x0 + 2 && o.y <= y0 + 2 && o.x + o.w >= x1 - 2 && o.y + o.h >= y1 - 2) continue;
-          // a pen line is a couple of pixels thin but crosses the words all the same: pad it to a legible band
-          const pad = 4, ox = o.x - pad, oy = o.y - pad, ow = o.w + 2 * pad, oh = o.h + 2 * pad;
-          const ix = Math.min(x1, ox + ow) - Math.max(x0, ox), iy = Math.min(y1, oy + oh) - Math.max(y0, oy);
+          if (o.x <= x0 + 2 && o.y <= y0 + 2 && o.x + o.w >= x1 - 2 && o.y + o.h >= y1 - 2) continue;   // its container
+          // a pen line is a couple of pixels thin but crosses the words all the same: padded to a legible band
+          const pad = 4, ix = Math.min(x1, o.x + o.w + pad) - Math.max(x0, o.x - pad), iy = Math.min(y1, o.y + o.h + pad) - Math.max(y0, o.y - pad);
           if (ix > 2 && iy > 2) area += ix * iy;
         }
         return area / Math.max(1, (x1 - x0) * (y1 - y0));
       };
       const hits = (dx, dy) => textHits(dx, dy) || shapeCover(dx, dy) > 0.2;
       const inside = (dx, dy) => b.x + dx >= 4 && b.y + dy >= 4 && b.x + dx + b.width <= W - 4 && b.y + dy + b.height <= H - 4;
-      let best = [0, 0];
-      if (!inside(0, 0)) best = [Math.min(Math.max(0, 4 - b.x), W - 4 - b.x - b.width) || Math.max(4 - b.x, Math.min(0, W - 4 - b.x - b.width)), Math.min(Math.max(0, 4 - b.y), H - 4 - b.y - b.height) || Math.max(4 - b.y, Math.min(0, H - 4 - b.y - b.height))];
-      // ReferenceRenderer: only short labels dodge each other; a paragraph or list stays where it was written (shoving a
-      // 13-line ingredient list sideways to clear its own card's title put it off the card).
+      let best = inside(0, 0) ? [0, 0] : [intoRange(b.x, b.width, 4, W - 4), intoRange(b.y, b.height, 4, H - 4)];
+      // only short labels dodge: a paragraph or a list stays where it was written (shoving a 13-line ingredient list
+      // sideways to clear its own card's title put it off the card)
       if (!t.querySelector('tspan') && hits(best[0], best[1])) {
-        const step = Math.max(10, b.height * 0.9), cands = [];
-        for (let k = 1; k <= 5; k++) for (const [ux, uy] of [[0, 1], [0, -1], [1, 0], [-1, 0], [1, 1], [-1, 1], [1, -1], [-1, -1]]) cands.push([best[0] + ux * k * (b.width * 0.35 + 6), best[1] + uy * k * step]);
-        cands.sort((p, q) => Math.hypot(p[0] - best[0], (p[1] - best[1]) * 1.6) - Math.hypot(q[0] - best[0], (q[1] - best[1]) * 1.6));
-        const free = cands.find(([dx, dy]) => inside(dx, dy) && !hits(dx, dy));
+        const rowStep = Math.max(10, b.height * 0.9), colStep = b.width * 0.35 + 6, tries = [];
+        for (let k = 1; k <= 5; k++) for (const [ux, uy] of AROUND_LABEL) tries.push([best[0] + ux * k * colStep, best[1] + uy * k * rowStep]);
+        // nearest first, a step up or down counting more than one aside
+        const far = p => Math.hypot(p[0] - best[0], (p[1] - best[1]) * 1.6);
+        tries.sort((p, q) => far(p) - far(q));
+        const free = tries.find(([dx, dy]) => inside(dx, dy) && !hits(dx, dy));
         if (free) { best = free; report.warnings.push(`moved label "${t.textContent.slice(0, 20)}" off another label or shape`); }
       }
       if (best[0] || best[1]) { t.__nudge = best; t.setAttribute('transform', `translate(${best[0].toFixed(1)} ${best[1].toFixed(1)}) ` + (t.getAttribute('transform') || '')); }
     }
-    const est = m => m.do === 'dot' ? 0.05 : m.do === 'text' || m.do === 'label3d' ? 0.3 + String(m.text).length * 0.01 : m.do === 'molecule' ? 0.6 : m.do === 'part3d' || m.do === 'stage3d' ? 0.12 : m.do === 'motion3d' || m.do === 'camera3d' || m.do === 'tick3d' ? 0 : m.do === 'edit' ? (m.__est != null ? m.__est : 0.3) : 0.3;
+    // a mark's rough time, for fitting a step into its budget when render() draws a whole program
+    const ZERO_TIME = { motion3d: 1, camera3d: 1, tick3d: 1 };
+    const est = m => m.do === 'dot' ? 0.05 : m.do === 'text' || m.do === 'label3d' ? 0.3 + String(m.text).length * 0.01 : m.do === 'molecule' ? 0.6
+      : m.do === 'part3d' || m.do === 'stage3d' ? 0.12 : ZERO_TIME[m.do] ? 0 : m.do === 'edit' ? (m.__est != null ? m.__est : 0.3) : 0.3;
     const BUDGET = spec.stepBudget || 2.6;
-    // 1.6: an edit can dash a closed outline (m.__dash). Programs cannot set it, so they draw exactly as in 1.5, where
-    // dash only applies to lines and arrows.
-    function edge(c, m, colour, size, layer) {
-      if (!m.__dash) return stroke(c, m, colour, size, layer);
-      const on = typeof m.__dash === 'number' ? m.__dash : Math.max(8, size * 3), pieces = dashes(c, on, on * 0.75), c0 = clock, span = Math.min(0.9, 0.2 + plen(c) / 900);
-      pieces.forEach((pc, k) => { clock = c0 + span * k / Math.max(1, pieces.length); stroke(pc, Object.assign({}, m, { taper: m.taper === 0 ? 0 : 0.3 }), colour, size, layer); });
-      clock = c0; return span;
-    }
-    // one mark at the current clock and pace; returns how long its pen takes (1.6: shared by draw() and edits)
-    // ReferenceRenderer: ink that would vanish into what is under it (the user's blue cursor colour on a blue sky) is drawn
-    // in white or near-black there instead. "Under it" is the last filled shape or card drawn beneath the mark when
-    // there is one (a paper card, a pill, a cat's face), else the screen itself (the host's __lumFor).
-    const grounds = [];
-    const lumaOf = c => { const h = /^#?([0-9a-f]{6})$/i.exec(String(TONES[c] || c || '').trim()); if (!h) return null; const v = parseInt(h[1], 16); return (0.2126 * (v >> 16 & 255) + 0.7152 * (v >> 8 & 255) + 0.0722 * (v & 255)) / 255; };
+    // ---------------------------------------------------------------- ink that stays readable on what is under it
+    // Ink that would vanish into what is under it (a blue cursor colour on a blue sky) is drawn lighter or darker
+    // there. "Under it" is the last filled shape or card drawn beneath the mark when there is one (a paper card, a
+    // pill, a cat's face), else the screen itself (the host's __lumFor).
+    // grounds: [x0, y0, x1, y1, luma, colour (cards only), order, window mark (windows only)]
+    // surfaces: every filled shape, [x0, y0, x1, y1, colour, alpha, order], for the colour actually under words
+    const grounds = [], surfaces = [];
+    let drawOrder = 0;
+    const rgbOf = c => { const h = /^#?([0-9a-f]{6})$/i.exec(String(c == null ? '' : c).trim()); if (!h) return null; const v = parseInt(h[1], 16); return [v >> 16 & 255, v >> 8 & 255, v & 255]; };
+    const hexOf = c => String(TONES[c] || c || '');
+    const lumaOf = c => { const p = rgbOf(hexOf(c)); return p ? (0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]) / 255 : null; };
+    const isChromatic = hex => { const p = rgbOf(hex); return !!p && Math.max(...p) - Math.min(...p) > 40; };
+    const mixHex = (a, b, k) => { const p = rgbOf(a), q = rgbOf(b); if (!p || !q) return a; return '#' + p.map((v, j) => Math.round(v * (1 - k) + q[j] * k).toString(16).padStart(2, '0')).join(''); };
     const NO_INK_CHECK = { image: 1, window: 1, stage3d: 1, part3d: 1, label3d: 1, highlight: 1, molecule: 1, edit: 1, motion3d: 1, camera3d: 1, tick3d: 1 };
-    // The brightness the ink is seen against: a strip around the mark's box,
-    // not its inside. Inside a ring is the thing ringed (a dark swatch made a
-    // ring around it white on the white page), and a thin line's own box is the
-    // line it sits on (a ray on a black axis turned white and vanished).
+    const FILLABLE = { poly: 1, rect: 1, circle: 1, ellipse: 1, path: 1 };
+    // The brightness the ink is seen against: a strip around the mark's box, not its inside. Inside a ring is the
+    // thing ringed (a dark swatch made its ring white on a white page), and a thin line's own box is the line it sits
+    // on (a ray on a black axis turned white and vanished).
     function bandLuma(b) {
       if (typeof global.__lumFor !== 'function') return -1;
       const pad = 8, w = Math.max(1, b[2] - b[0]), h = Math.max(1, b[3] - b[1]);
-      const strips = [[b[0] - pad, b[1] - pad, w + 2 * pad, pad], [b[0] - pad, b[3], w + 2 * pad, pad], [b[0] - pad, b[1], pad, h], [b[2], b[1], pad, h]];
       let sum = 0, area = 0;
-      for (const [x, y, sw, sh] of strips) { const l = global.__lumFor(x, y, sw, sh); if (l >= 0) { sum += l * sw * sh; area += sw * sh; } }
+      for (const [x, y, sw, sh] of [[b[0] - pad, b[1] - pad, w + 2 * pad, pad], [b[0] - pad, b[3], w + 2 * pad, pad], [b[0] - pad, b[1], pad, h], [b[2], b[1], pad, h]]) {
+        const l = global.__lumFor(x, y, sw, sh);
+        if (l >= 0) { sum += l * sw * sh; area += sw * sh; }
+      }
       return area > 0 ? sum / area : -1;
     }
-    // the last card or filled shape drawn under a point: [x0, y0, x1, y1, luma, colour], or null
-    // A window's ground is its live box (g[7] is its mark): windows grow to hold what is drawn on them, and a box
-    // recorded at their first size left words in the grown part judged against the app behind (white words on a
-    // white card, 2026-10-09).
+    // A window's ground is its live box: windows grow to hold what is drawn on them, and a box kept at their first size
+    // judged words in the grown part against the app behind (white words on a white card).
     const liveBox = g => (g[7] && markBox(g[7])) || g;
-    function groundAt(px, py) {
-      for (let k = grounds.length - 1; k >= 0; k--) { const g = grounds[k], b = liveBox(g); if (px >= b[0] && px <= b[2] && py >= b[1] && py <= b[3]) return g; }
-      return null;
-    }
-    // The ground under a mark, counting a window the mark is about to grow (fitWindowsTo runs after the mark is
-    // painted, by the same rule: tagged for it, or mostly on it).
+    const taggedFor = (m, wm) => Array.isArray(m.onWindow) && Array.isArray(wm.inner) && Math.abs(m.onWindow[0] - wm.inner[0]) < 1 && Math.abs(m.onWindow[1] - wm.inner[1]) < 1;
+    // The ground under a mark (box b): the last one under its middle, else a window it is about to grow (fitWindowsTo
+    // grows it after the mark is painted, by the same rule).
     function groundFor(m, b) {
-      const g = groundAt((b[0] + b[2]) / 2, (b[1] + b[3]) / 2);
-      if (g) return g;
+      const cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
+      for (let k = grounds.length - 1; k >= 0; k--) { const g = liveBox(grounds[k]); if (cx >= g[0] && cx <= g[2] && cy >= g[1] && cy <= g[3]) return grounds[k]; }
       for (let k = grounds.length - 1; k >= 0; k--) {
-        const w = grounds[k][7]; if (!w || w.__erased) continue;
-        const tagged = Array.isArray(m.onWindow) && Array.isArray(w.inner) && Math.abs(m.onWindow[0] - w.inner[0]) < 1 && Math.abs(m.onWindow[1] - w.inner[1]) < 1;
-        const wb = liveBox(grounds[k]);
-        if (belongsToWindow(b, wb[0], wb[1], wb[2], wb[3], tagged)) return grounds[k];
+        const w = grounds[k][7];
+        if (!w || w.__erased) continue;
+        const g = liveBox(grounds[k]);
+        if (belongsToWindow(b, g[0], g[1], g[2], g[3], taggedFor(m, w))) return grounds[k];
       }
       return null;
     }
-    const isChromatic = hex => { const h = /^#?([0-9a-f]{6})$/i.exec(hex); if (!h) return false; const v = parseInt(h[1], 16), r = v >> 16 & 255, g = v >> 8 & 255, b = v & 255;
-      return Math.max(r, g, b) - Math.min(r, g, b) > 40; };
-    const mixHex = (a, b, k) => { const p = /^#?([0-9a-f]{6})$/i.exec(a), q = /^#?([0-9a-f]{6})$/i.exec(b); if (!p || !q) return a;
-      const x = parseInt(p[1], 16), y = parseInt(q[1], 16), c = sh => Math.round((x >> sh & 255) * (1 - k) + (y >> sh & 255) * k).toString(16).padStart(2, '0');
-      return '#' + c(16) + c(8) + c(0); };
-    // Words on a card or a filled shape wear a halo in that ground's own colour, so a line or an arrow passing behind
-    // them stops short of the letters instead of cutting through them (2026-10-09). Words loose on the screen keep the
-    // halo the pen gives white and near-black words.
-    // Every filled shape drawn so far, [x0, y0, x1, y1, colour, alpha], so a halo takes the colour actually under the
-    // words: a card's colour with any tinted box on it blended over it.
-    const surfaces = [];
-    let drawOrder = 0;
+    // Words on a card or a filled shape wear a halo in that ground's colour, so a line passing behind them stops short
+    // of the letters instead of cutting through them: the card's colour, with any tinted box on it blended over it.
+    // Words loose on the screen keep the pen's halo.
     function knockoutFor(m) {
       if (m.do !== 'text' || m.under || m.knockout === false || m.role === 'cheer') return null;
-      const b = markBox(m); if (!b) return null;
-      const px = (b[0] + b[2]) / 2, py = (b[1] + b[3]) / 2;
+      const b = markBox(m);
+      if (!b) return null;
       const ground = groundFor(m, b);
       if (!ground || !ground[5]) return null;
+      const px = (b[0] + b[2]) / 2, py = (b[1] + b[3]) / 2;
       let colour = ground[5];
-      // only what was drawn on top of that card
       for (const f of surfaces) if (f[6] > (ground[6] || 0) && px >= f[0] && px <= f[2] && py >= f[1] && py <= f[3]) colour = f[5] >= 0.99 ? f[4] : mixHex(colour, f[4], f[5]);
       return colour;
     }
     function readableColour(m, colour) {
-      // a legend's keys keep exactly the colours of what they stand for
+      // only on the bare screen; a legend's keys keep exactly the colours of what they stand for
       if (surface !== 'none' || NO_INK_CHECK[m.do] || m.role === 'paper' || m.role === 'key') return colour;
       const ink = lumaOf(colour), b = markBox(m);
       if (ink == null || !b) return colour;
-      let under = null;
       const ground = groundFor(m, b);
-      if (ground) under = ground[4];
+      let under = ground ? ground[4] : null;
       if (under == null) { const l = bandLuma(b); if (!(l >= 0)) return colour; under = l; }
-      // Words need more contrast than a line does: grey words (#7E838D) passed the line's 0.2 test on a dark app
-      // and read as dark-on-dark (2026-10-09, a note under a photo over a dark editor). Grey stays a quieter
-      // light grey there, so a card's two text tones keep their order.
-      const isWords = m.do === 'text', needed = !isWords ? 0.2 : under > 0.58 ? 0.3 : 0.45;
+      // Words need more contrast than a line: grey words passed a line's 0.2 on a dark app and read dark on dark.
+      const isWords = m.do === 'text', light = under > 0.58, needed = !isWords ? 0.2 : light ? 0.3 : 0.45;
       if (Math.abs(ink - under) >= needed) return colour;
-      // A colour that means something (a group's colour, the dots of a legend) keeps its hue: a deeper shade of it on
-      // a light ground, a lighter one on a dark ground, so "THE HILL" in mustard still matches its yellow dots instead
-      // of turning black (2026-10-09). Only greys and near-greys swap to the plain dark or light ink.
-      const hex = String(TONES[colour] || colour || '');
-      if (isChromatic(hex)) {
-        for (let k = 0.1; k <= 0.85; k += 0.05) {
-          const next = under > 0.58 ? shade(hex, k) : mixHex(hex, '#FFFFFF', k), l = lumaOf(next);
-          if (l != null && Math.abs(l - under) >= needed) return next;
-        }
+      // A colour that means something (a group's colour, a legend's dots) keeps its hue: a deeper shade of it on a
+      // light ground, a lighter one on a dark ground, so words in mustard still match their yellow dots. The search
+      // goes from 0.1 to 0.85 in twentieths (counted in whole steps: adding 0.05 at a time drifted and never tried 0.85).
+      const hex = hexOf(colour);
+      if (isChromatic(hex)) for (let s = 2; s <= 17; s++) {
+        const next = light ? shade(hex, s / 20) : mixHex(hex, '#FFFFFF', s / 20), l = lumaOf(next);
+        if (l != null && Math.abs(l - under) >= needed) return next;
       }
-      if (under > 0.58) return '#15171C';
+      // greys and near-greys swap to the plain dark or light ink (a light grey for quieter words, keeping their order)
+      if (light) return '#15171C';
       return isWords && ink > 0.35 ? '#C9CDD4' : '#FFFFFF';
     }
-    // ReferenceRenderer (2026-10-08): Mate's windows grow to hold what is drawn on them. A mark that is mostly on a window (or
-    // says it belongs to one: onWindow, the window's writing area origin) but reaches past its padding pushes that side
-    // out, keeping the padding around it (never up into the title bar's place: the top grows by the same rule above
-    // the title bar). The window's mark and element change, so the app redraws it and the card's box stays true.
+
+    // ---------------------------------------------------------------- windows grow to hold what is drawn on them
+    // A mark mostly on a window (or tagged for it with onWindow, the window's writing area origin) that reaches past
+    // its padding pushes that side out, keeping the padding (the top grows by the same rule, above the title bar). The
+    // window's mark and element change, so the app redraws it and the card's box stays true.
     const windowsDrawn = [];
     // Whether a mark (box b) belongs to a window (outer box x0..x1, y0..y1): tagged for it, mostly on it, its middle on
-    // it, or a row that ran just past its bottom edge (across the window, its top within a line below it): the model
-    // ran out of room, and that last row was left white and loose under the card, the sources line on top of it
-    // (2026-10-09).
+    // it, or a row that ran just past its bottom (across the window, its top within a line below): the model ran out of
+    // room, and that last row was left loose under the card with the sources line on top of it.
     function belongsToWindow(b, x0, y0, x1, y1, tagged) {
       if (tagged) return true;
       const ow = Math.min(b[2], x1) - Math.max(b[0], x0), oh = Math.min(b[3], y1) - Math.max(b[1], y0), bw = b[2] - b[0], bh = b[3] - b[1];
@@ -2377,29 +2388,32 @@
       if (cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1) return true;
       return ow >= 0.6 * bw && b[1] >= y0 && b[1] <= y1 + 48 && bh <= 120;
     }
+    // the box mark i drew (halos left out), on the card
+    function drawnBox(i, m) {
+      let box = null;
+      for (const n of NODES[i] || []) {
+        if (n.__gone || (n.getAttribute && n.getAttribute('data-halo'))) continue;
+        let r;
+        try { r = n.getBBox(); } catch (_) { continue; }
+        if (!r || (!r.width && !r.height)) continue;
+        const nu = n.__nudge || [0, 0], q = [r.x + nu[0], r.y + nu[1], r.x + nu[0] + r.width, r.y + nu[1] + r.height];
+        box = box ? [Math.min(box[0], q[0]), Math.min(box[1], q[1]), Math.max(box[2], q[2]), Math.max(box[3], q[3])] : q;
+      }
+      const a = m.__xf;
+      return box && a ? [box[0] * a[0] + a[1], box[1] * a[0] + a[2], box[2] * a[0] + a[1], box[3] * a[0] + a[2]] : box;
+    }
     function fitWindowsTo(m, i) {
       if (!windowsDrawn.length || !m || m.do === 'window' || m.do === 'edit' || m.role === 'tie' || m.role === 'photo' || m.role === 'paper'
         || m.stage != null || /3d$/.test(m.do || '') || pointsAtScreen(m)) return;
-      // its drawn box (halos left out, so not domBox), else its estimate
-      let raw = null;
-      for (const n of NODES[i] || []) {
-        if (n.__gone || n.getAttribute && n.getAttribute('data-halo')) continue;
-        let r; try { r = n.getBBox(); } catch (_) { continue; }
-        if (!r || (!r.width && !r.height)) continue;
-        const nu = n.__nudge || [0, 0];
-        const q = [r.x + nu[0], r.y + nu[1], r.x + nu[0] + r.width, r.y + nu[1] + r.height];
-        raw = raw ? [Math.min(raw[0], q[0]), Math.min(raw[1], q[1]), Math.max(raw[2], q[2]), Math.max(raw[3], q[3])] : q;
-      }
-      if (raw && m.__xf) { const a = m.__xf; raw = [raw[0] * a[0] + a[1], raw[1] * a[0] + a[2], raw[2] * a[0] + a[1], raw[3] * a[0] + a[2]]; }
-      if (!raw) raw = markBox(m);
+      const raw = drawnBox(i, m) || markBox(m);
       if (!raw || raw[2] <= raw[0] || raw[3] <= raw[1]) return;
       for (const w of windowsDrawn) {
-        const wm = w.m; if (wm.__erased || !w.e.parentNode) continue;
+        const wm = w.m;
+        if (wm.__erased || !w.e.parentNode) continue;
         const xf = wm.__xf || [1, 0, 0], k = xf[0] || 1;
-        // the mark in the window's own (undrawn-move) coordinates
-        const b = [(raw[0] - xf[1]) / k, (raw[1] - xf[2]) / k, (raw[2] - xf[1]) / k, (raw[3] - xf[2]) / k];
+        const b = [(raw[0] - xf[1]) / k, (raw[1] - xf[2]) / k, (raw[2] - xf[1]) / k, (raw[3] - xf[2]) / k];   // in the window's own coordinates
         const x0 = wm.at[0], y0 = wm.at[1], x1 = x0 + wm.w, y1 = y0 + wm.h, pad = +wm.pad || 0, head = +wm.header || 0;
-        const tagged = Array.isArray(m.onWindow) && Array.isArray(wm.inner) && Math.abs(m.onWindow[0] - wm.inner[0]) < 1 && Math.abs(m.onWindow[1] - wm.inner[1]) < 1;
+        const tagged = taggedFor(m, wm);
         if (!belongsToWindow(b, x0, y0, x1, y1, tagged)) continue;
         // where its content starts and ends (the sources line lines up with its left edge and goes under its bottom)
         if (!tagged) { w.contentLeft = Math.min(w.contentLeft == null ? Infinity : w.contentLeft, b[0]); w.contentBottom = Math.max(w.contentBottom == null ? -Infinity : w.contentBottom, b[3]); }
@@ -2411,246 +2425,292 @@
         break;
       }
     }
+    // what a mark puts under later ink: a window, a card or an opaque fill is a ground; any visible fill is a surface
     function noteGround(m) {
-      if (m.do === 'window') { const l = lumaOf(m.bg), b = markBox(m); if (l != null && b) { grounds.push([b[0], b[1], b[2], b[3], l, String(TONES[m.bg] || m.bg), ++drawOrder, m]); } return; }
-      if (m.fill && m.role !== 'paper' && { poly: 1, rect: 1, circle: 1, ellipse: 1, path: 1 }[m.do]) {
-        const b = markBox(m), hex = String(TONES[m.fill] || m.fill), alpha = m.fillAlpha != null ? +m.fillAlpha : 1;
+      if (m.do === 'window') { const l = lumaOf(m.bg), b = markBox(m); if (l != null && b) grounds.push([b[0], b[1], b[2], b[3], l, hexOf(m.bg), ++drawOrder, m]); return; }
+      if (!m.fill || !FILLABLE[m.do]) return;
+      if (m.role !== 'paper') {
+        const b = markBox(m), hex = hexOf(m.fill), alpha = m.fillAlpha != null ? +m.fillAlpha : 1;
         if (b && /^#[0-9a-f]{6}$/i.test(hex) && alpha >= 0.08) surfaces.push([b[0], b[1], b[2], b[3], hex, alpha, ++drawOrder]);
       }
-      if (!m.fill || (m.fillAlpha != null && m.fillAlpha < 0.8) || !{ poly: 1, rect: 1, circle: 1, ellipse: 1, path: 1 }[m.do]) return;
+      if (m.fillAlpha != null && m.fillAlpha < 0.8) return;
       const l = lumaOf(m.fill), b = markBox(m);
       // a card (paper's role) is a ground the words can match; a small filled shape only lends its brightness
       const isCard = m.role === 'paper' && (m.fillAlpha == null || m.fillAlpha >= 0.99);
-      if (l != null && b) grounds.push([b[0], b[1], b[2], b[3], l, isCard ? String(TONES[m.fill] || m.fill) : null, ++drawOrder]);
+      if (l != null && b) grounds.push([b[0], b[1], b[2], b[3], l, isCard ? hexOf(m.fill) : null, ++drawOrder]);
     }
+    // ---------------------------------------------------------------- painting one mark
+    // A dashed run: its dashes go on one after another over the time a dashed line takes (at most 0.9 s).
+    function dashedStroke(c, m, colour, size, layer, on, off) {
+      const pieces = dashes(c, on, off), start = clock, span = Math.min(0.9, 0.2 + plen(c) / 900);
+      const tapered = Object.assign({}, m, { taper: m.taper === 0 ? 0 : 0.3 });
+      pieces.forEach((piece, k) => { clock = start + span * k / Math.max(1, pieces.length); stroke(piece, tapered, colour, size, layer); });
+      clock = start;
+      return span;
+    }
+    // A closed outline, dashed when an edit asked for it (m.__dash; programs cannot set it, their dashes are for
+    // lines and arrows).
+    function edge(c, m, colour, size, layer) {
+      if (!m.__dash) return stroke(c, m, colour, size, layer);
+      const on = typeof m.__dash === 'number' ? m.__dash : Math.max(8, size * 3);
+      return dashedStroke(c, m, colour, size, layer, on, on * 0.75);
+    }
+    const sameOrigin = (a, b) => Array.isArray(a) && Array.isArray(b) && Math.abs(a[0] - b[0]) < 1 && Math.abs(a[1] - b[1]) < 1;
+    const windowAt = inner => windowsDrawn.find(v => sameOrigin(v.m.inner, inner));
+    // A window's sources line starts where the window's content starts (programs indent their words inside the box,
+    // and the credits were left hanging at its edge), and goes under everything drawn on the window with a clear gap (a
+    // last row that grew the window had the credits written on top of it). Every piece of the line shares sourceLine
+    // (its first baseline), so they move together. Done once per mark.
+    function alignToWindow(m) {
+      if (!Array.isArray(m.onWindow) || m.__aligned || !Array.isArray(m.at)) return;
+      const w = windowAt(m.onWindow);
+      if (w && isFinite(w.contentLeft) && w.contentLeft > w.m.inner[0] + 1) m.at = [m.at[0] + (w.contentLeft - w.m.inner[0]), m.at[1]];
+      if (w && isFinite(w.contentBottom) && isFinite(+m.sourceLine)) {
+        const size = +m.sourceSize || 13, gap = Math.max(24, +w.m.pad || 0), shift = w.contentBottom + gap - (+m.sourceLine - size * 0.82);
+        if (shift > 0) m.at = [m.at[0], m.at[1] + shift];
+      }
+      m.__aligned = true;
+    }
+    const OUTLINED = /^(rect|ellipse|circle|poly)$/;
+    // one mark at the current clock and pace; returns how long its pen takes (draw() and edits share it)
     function paint(m, i) {
-        paintingRole = m.role || null;
-        // ReferenceRenderer: a window's sources line starts where the window's content starts (programs indent their words
-        // inside the box, and the credits were left hanging at the box's edge)
-        if (Array.isArray(m.onWindow) && !m.__aligned && Array.isArray(m.at)) {
-          const w = windowsDrawn.find(v => Array.isArray(v.m.inner) && Math.abs(v.m.inner[0] - m.onWindow[0]) < 1 && Math.abs(v.m.inner[1] - m.onWindow[1]) < 1);
-          if (w && isFinite(w.contentLeft) && w.contentLeft > w.m.inner[0] + 1) m.at = [m.at[0] + (w.contentLeft - w.m.inner[0]), m.at[1]];
-          // The credits go under everything drawn on the card, a clear gap below it: they were placed under the card's
-          // first writing area, and a last row reaching past it (the window grew to hold it) had the credits written
-          // on top of it (2026-10-09). Every piece of the line shares sourceLine (its first baseline), so they move together.
-          if (w && isFinite(w.contentBottom) && isFinite(+m.sourceLine)) {
-            const size = +m.sourceSize || 13, gap = Math.max(24, +w.m.pad || 0), lineTop = +m.sourceLine - size * 0.82;
-            const shift = w.contentBottom + gap - lineTop;
-            if (shift > 0) m.at = [m.at[0], m.at[1] + shift];
-          }
-          m.__aligned = true;
-        }
-        // a filled shape with no outline colour of its own gets a thin edge in a deeper shade of its fill, not a black one
-        const fillEdge = m.fill && !m.tone && /^(rect|ellipse|circle|poly)$/.test(m.do) ? shade(tone(m.fill), 0.32) : null;
-        const r = rng((m.id || '') + i), colour = fillEdge || readableColour(m, tone(m.tone, TONES[defInk])), size = m.size || (fillEdge ? 1.6 : (BRUSH[m.brush] || BRUSH.pen).size);
-        noteGround(m);
-        const layer = m.under ? under : main;
-        let dur = 0.3;
-        switch (m.do) {
-          case 'line': case 'arrow': {
-            // wobble: 0 keeps a straight line straight (the dashed frames that mark the real screen stay crisp)
-            // bow 'pen' (Mate's screen pen): a smoothed line bends once per edge too, then stays smooth through its corners
-            let c = m.smooth === false ? handSegments(m.pts, false, r, m.wobble == null ? 0.6 : m.wobble, m.bow, m.jitter)
-              : m.bow === 'pen' ? catmull(handSegments(m.pts, false, r, m.wobble == null ? 1 : m.wobble, 'pen', m.jitter), false, 2) : catmull(m.pts, false);
-            if (m.do === 'arrow' && m.bend) {
-              const [a, b] = [m.pts[0], m.pts[m.pts.length - 1]], L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
-              let k = m.bend === true ? 0.15 : Number(m.bend) || 0;
-              if (Math.abs(k) > 1) k = k / L;                              // a bend given in canvas units, not as a fraction
-              if (Math.abs(k) > 0.6) { report.warnings.push(`${m.id || i}: bend ${m.bend} is too strong, used ${Math.sign(k) * 0.6}`); k = Math.sign(k) * 0.6; }
-              const mid = [(a[0] + b[0]) / 2 - (b[1] - a[1]) * k, (a[1] + b[1]) / 2 + (b[0] - a[0]) * k]; c = catmull([a, mid, b], false);
-            }
-            if (m.dash && Array.isArray(m.marquee)) {
-              // ReferenceRenderer (2026-10-19): a frame the app draws the old way, dragged open from its top-left corner like a
-              // selection by Mate's cursor; the element carries the box, the app animates it (painter's marquee).
-              const on = typeof m.dash === 'number' ? m.dash : Math.max(8, size * 3), off = +m.dashGap || on * 0.75;
-              const e = el('path', { d: poly(m.pts), fill: 'none', stroke: colour, 'stroke-width': size, 'stroke-linecap': 'round', 'stroke-linejoin': 'round',
-                'stroke-dasharray': `${on.toFixed(2)} ${off.toFixed(2)}`, 'data-marquee': m.marquee.map(v => (+v || 0).toFixed(2)).join(' '), 'data-marquee-handle': '1' }, layer);
-              anim(e, 'marquee', MARQUEE_DUR, clock); dur = MARQUEE_DUR;
-            } else if (m.dash) {
-              const on = typeof m.dash === 'number' ? m.dash : Math.max(8, size * 3), pieces = dashes(c, on, +m.dashGap || on * 0.75), c0 = clock, span = Math.min(0.9, 0.2 + plen(c) / 900);
-              pieces.forEach((pc, k) => { clock = c0 + span * k / Math.max(1, pieces.length); stroke(pc, Object.assign({}, m, { taper: m.taper === 0 ? 0 : 0.3 }), colour, size, layer); });
-              clock = c0; dur = span;
-            } else dur = stroke(c, m, colour, size, layer);
-            if (m.do === 'arrow') {
-              // ReferenceRenderer: headAngle is half the head's opening (the screen pen's is the old walkthrough's, π/7); taper 0
-              // keeps the barbs as heavy as the shaft
-              const e = c[c.length - 1], p = c[Math.max(0, c.length - 6)], a = Math.atan2(e[1] - p[1], e[0] - p[0]), hl = m.head || Math.max(9, size * 3), ha = +m.headAngle || 0.5;
-              clock += dur;
-              dur = stroke([[e[0] - hl * Math.cos(a - ha), e[1] - hl * Math.sin(a - ha)], e, [e[0] - hl * Math.cos(a + ha), e[1] - hl * Math.sin(a + ha)]], Object.assign({}, m, { taper: m.taper === 0 ? 0 : 0.4 }), colour, size, layer);
-              if (m.label) { const mid = c[Math.floor(c.length / 2)]; const t = el('text', { x: mid[0] + (m.labelDx || 0), y: mid[1] - 8 + (m.labelDy || 0), 'text-anchor': 'middle', fill: colour, 'font-family': faceFor('hand'), 'font-size': m.labelSize || 15 }, layer); t.textContent = m.label; anim(t, 'fadein', 0.3, clock + dur); }
-            }
-            break;
-          }
-          case 'path': {
-            // ReferenceRenderer: a path with several pieces ("M … M …": tick marks, window panes, brackets) is drawn
-            // piece by piece. Sampled as one line, every move became a stray stroke joining the pieces.
-            const sh = Array.isArray(m.shift) ? m.shift : null;
-            const moved = run => sh ? run.map(p => [p[0] + sh[0], p[1] + sh[1]]) : run;
-            const runs = [];
-            for (const piece of String(m.d || '').split(/(?=M)/).map(s => s.trim()).filter(Boolean)) {
-              const n = Math.max(40, Math.min(400, Math.round(piece.length / 2)));
-              const c = samplePath(piece, n), step = plen(c) / n;
-              if (plen(c) < 0.5) { const start = (piece.match(/-?\d*\.?\d+/g) || []).map(Number); if (start.length >= 2) runs.push([[start[0], start[1]]]); continue; }
-              // a relative "m" inside a piece: split where neighbouring samples jump (a chord is never longer than its arc)
-              let run = [c[0]];
-              for (let k = 1; k < c.length; k++) { if (dist(c[k - 1], c[k]) > step * 1.5 + 0.5) { runs.push(run); run = []; } run.push(c[k]); }
-              runs.push(run);
-            }
-            wash(m.d, m, layer, sh ? { transform: `translate(${sh[0] + 0.8} ${sh[1] + 1})` } : null);
-            if (m.outline !== false && runs.length) {
-              const c0 = clock; let total = 0;
-              for (const run of runs.map(moved)) {
-                clock = c0 + total;
-                if (run.length < 2 || plen(run) < 0.5) { const e = el('circle', { cx: run[0][0], cy: run[0][1], r: Math.max(1.5, size * 0.6), fill: colour }, layer); anim(e, 'pop', 0.2, clock); total += 0.04; }
-                else total += edge(run, m, colour, size, layer);
-              }
-              clock = c0; dur = total;
-            } else dur = 0.3;
-            break;
-          }
-          case 'circle': case 'ellipse': {
-            const [cx, cy] = m.at, rx = m.r || m.rx, ry = m.r || m.ry, rot = (m.rot || 0) * (typeof m.rot === 'number' && Math.abs(m.rot) > 6.3 ? Math.PI / 180 : 1);
-            const c = ellipsePts(cx, cy, rx, ry, rot, r, m.wobble == null ? 1 : m.wobble, m.outline !== false);
-            wash(poly(ellipsePts(cx, cy, rx, ry, rot, rng('f' + i), 0.5, false)) + ' Z', m, layer);
-            dur = m.outline === false ? 0.3 : edge(c, m, colour, size, layer);
-            break;
-          }
-          case 'rect': {
-            const [x, y] = m.at, w = m.w, h = m.h;
-            // {r}: rounded corners (a card, a bar's cap, a button-like box)
-            const cr = Math.max(0, Math.min(+m.r || 0, Math.abs(w) / 2, Math.abs(h) / 2));
-            const corner = (cx, cy, a0) => Array.from({ length: 7 }, (_, k) => { const a = a0 + k * Math.PI / 12; return [cx + Math.cos(a) * cr, cy + Math.sin(a) * cr]; });
-            const pts = cr ? [...corner(x + w - cr, y + cr, -Math.PI / 2), ...corner(x + w - cr, y + h - cr, 0), ...corner(x + cr, y + h - cr, Math.PI / 2), ...corner(x + cr, y + cr, Math.PI)]
-              : [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
-            wash(poly(pts) + ' Z', m, layer);
-            // a sharp box is closed by hand: the pen runs a little past where it started
-            dur = m.outline === false ? 0.3 : edge(cr ? handSegments(pts, true, r, 1) : handSegments(pts.concat([[x, y], [x + Math.min(6, Math.abs(w) * 0.06), y + 1]]), false, r, 1), m, colour, size, layer);
-            break;
-          }
-          case 'poly': {
-            const closed = m.close !== false;
-            wash(m.smooth ? poly(catmull(m.pts, true)) + ' Z' : poly(m.pts) + ' Z', m, layer);
-            const c = m.smooth ? catmull(m.pts, closed) : handSegments(m.pts, closed, r, m.wobble == null ? 0.7 : m.wobble, m.bow, m.jitter);
-            dur = m.outline === false ? 0.3 : edge(c, m, colour, size, layer);
-            break;
-          }
-          case 'dot': {
-            const e = el('circle', { cx: m.at[0], cy: m.at[1], r: m.r || 3, fill: colour }, layer); anim(e, 'pop', 0.25, clock); dur = 0.12; break;
-          }
-          case 'highlight': {
-            const [x, y] = m.at, e = el('path', { d: `M${x} ${y + 2} Q${x + m.w / 2} ${y - 1} ${x + m.w} ${y + 1} L${x + m.w - 1} ${y + m.h} Q${x + m.w / 2} ${y + m.h + 2} ${x + 1} ${y + m.h - 1} Z`, fill: tone(m.tone || 'butter'), 'fill-opacity': 0.72, style: surface === 'sky' ? null : 'mix-blend-mode:multiply' }, m.under ? under : hlLayer);
-            e.style.transformOrigin = `${x}px ${y}px`; e.style.transformBox = 'view-box'; anim(e, 'swipe', 0.35, clock); dur = 0.35; break;
-          }
-          case 'text': {
-            const style = m.style || 'hand'; let fs = m.size || (style === 'title' ? 24 : style === 'body' ? 17 : style === 'caps' ? 14 : 20);
-            // caps: upper case, semibold, tracked out with hair spaces (the native text shaper has no letter-spacing)
-            if (style === 'caps') m = Object.assign({}, m, { text: String(m.text).toUpperCase().split('').join('\u200A'), weight: m.weight || 600 });
-            // ui words (name pills, badges) are sized in screen POINTS: on a big display one canvas unit is ~2pt, so their
-            // floor is 8pt, not 8 units. A unit floor there drew a 12pt pill's words a third too big, wrapped onto two lines
-            // and spilling out of the pill it was measured for.
-            const unitPoints = +global.__canvasUnitPoints > 0 ? +global.__canvasUnitPoints : 1;
-            const minSize = style === 'ui' ? 8 / unitPoints : 13;
-            if (fs < minSize) { report.warnings.push(`${m.id || i}: text size ${fs} is too small to read, used ${Math.round(minSize)}`); fs = minSize; }
-            // ReferenceRenderer (2026-10-20): a tighter line for the morning paper's headlines (lineHeight on the mark)
-            const lineHeight = +m.lineHeight > 0.8 ? +m.lineHeight : LINE_HEIGHT;
-            const knockout = knockoutFor(m), haloWidth = Math.max(5, fs * 0.45);
-            const t = el('text', { x: m.at[0], y: m.at[1], fill: colour, 'font-family': faceFor(style), 'font-size': fs, 'font-weight': style === 'title' ? 600 : (m.weight || null), 'text-anchor': m.anchor || 'start', 'dominant-baseline': m.top ? 'alphabetic' : (m.baseline || 'auto'), transform: m.rot ? `rotate(${m.rot} ${m.at[0]} ${m.at[1]})` : null,
-              stroke: knockout, 'stroke-width': knockout ? haloWidth : null, 'stroke-linejoin': knockout ? 'round' : null, 'paint-order': knockout ? 'stroke' : null,
-              'data-knockout': knockout, 'data-knockout-width': knockout ? haloWidth.toFixed(2) : null }, m.under ? layer : words);
-            let lines = String(m.text).split('\n');
-            const maxW = m.wrap || (m.fit && m.fit[0]);
-            if (maxW && lines.length === 1) {           // greedy word wrap using real glyph widths
-              const probe = el('text', { 'font-family': faceFor(style), 'font-size': fs, 'font-weight': style === 'title' ? 600 : (m.weight || null) }, svg.querySelector('#__probe'));
-              const width = str => { probe.textContent = str; return probe.getComputedTextLength(); };
-              const out = []; let cur = '';
-              for (const w of lines[0].split(' ')) { const next = cur ? cur + ' ' + w : w; if (cur && width(next) > maxW) { out.push(cur); cur = w; } else cur = next; }
-              out.push(cur); probe.remove(); lines = out;
-            }
-            if (lines.length > 1 && (m.fit || m.wrap) && !m.top && (m.baseline || 'auto') === 'auto') t.setAttribute('y', m.at[1] - (lines.length - 1) * fs * lineHeight / 2);
-            if (lines.length > 1) lines.forEach((ln, k) => { const s = el('tspan', { x: m.at[0], dy: k ? fs * lineHeight : 0 }, t); s.textContent = ln; }); else t.textContent = m.text;
-            if (m.fit) {
-              let f = fs, bb = t.getBBox();
-              while ((bb.width > m.fit[0] || bb.height > m.fit[1]) && f > Math.min(8, minSize)) { f *= 0.92; t.setAttribute('font-size', f.toFixed(1)); t.querySelectorAll('tspan').forEach((ts, k) => k && ts.setAttribute('dy', f * lineHeight)); bb = t.getBBox(); }
-              if (f < fs * 0.7) report.warnings.push(`${m.id || i}: text shrank to ${Math.round(f)}px to fit, shorten it`);
-            }
-            if (m.place !== false && !m.under && !editing) placeLabel(t);
-            anim(t, 'write', 0.4 + String(m.text).length * 0.015, clock); dur = 0.35 + String(m.text).length * 0.012; break;
-          }
-          case 'edit': {                                     // ReferenceRenderer: an edit of what is on the card, at this point of the drawing
-            const took = hooks.edit ? hooks.edit(m, i, clock, pace) : 0;
-            dur = took / Math.max(pace, 0.35); break;
-          }
-          case 'molecule': {
-            const g = el('g', { transform: `translate(${m.at[0]} ${m.at[1]})` }, layer);
-            const s = el('svg', { width: m.w, height: m.h, viewBox: `0 0 ${m.w} ${m.h}`, overflow: 'visible' }, g);
-            s.setAttribute('data-smiles', m.smiles);
-            if (global.SmilesDrawer) {
-              const d = new global.SmilesDrawer.SvgDrawer({ width: m.w, height: m.h, bondThickness: 1.6, bondLength: m.bond || 22, shortBondLength: 0.82, fontSizeLarge: 9, fontSizeSmall: 6, padding: 4, compactDrawing: false, terminalCarbons: false, explicitHydrogens: false, themes: { mate: { C: TONES.ink, O: TONES.coral, N: TONES.blue, F: TONES.leaf, CL: TONES.leaf, BR: TONES.brown, I: TONES.violet, P: TONES.orange, S: TONES.sun, B: TONES.peach, SI: TONES.brown, H: TONES.ink, BACKGROUND: 'transparent' } } });
-              global.SmilesDrawer.parse(m.smiles, tree => { d.draw(tree, s, 'mate', null, false); }, err => report.errors.push('smiles: ' + err));
-              s.querySelectorAll('line').forEach(ln => { ln.setAttribute('stroke-linecap', 'round'); ln.setAttribute('stroke-width', '1.8'); });
-              try { const bb = s.getBBox(); if (bb.width > 0) { const k = Math.min(m.w / (bb.width + 10), m.h / (bb.height + 10), 1.9); const vw = m.w / k, vh = m.h / k;
-                s.setAttribute('viewBox', `${bb.x + bb.width / 2 - vw / 2} ${bb.y + bb.height / 2 - vh / 2} ${vw} ${vh}`); } } catch (_) {}
-              s.querySelectorAll('text').forEach(tx => { tx.setAttribute('font-family', FONT.body); tx.setAttribute('font-weight', '600'); });
-            } else report.errors.push('molecule piece needs SmilesDrawer');
-            anim(g, 'fadein', 0.6, clock); dur = 0.6; break;
-          }
-          case 'image': {                                    // ReferenceRenderer: a real photo; the app finds and paints it
-            const e = el('photo', { x: m.at[0], y: m.at[1], width: m.w, height: m.h, 'data-query': String(m.query || ''), 'data-radius': m.r || 0, 'data-rotate': m.rot || 0 }, layer);
-            anim(e, 'fadein', 0.5, clock); dur = 0.5; break;
-          }
-          case 'window': {                                   // ReferenceRenderer: a little window; the app paints its chrome and board
-            const e = el('window', { x: m.at[0], y: m.at[1], width: m.w, height: m.h, 'data-header': m.header, 'data-title': m.title || null,
-              'data-board': m.board || 'plain', 'data-bg': m.bg, 'data-tint': m.tint, 'data-tint-alpha': m.tintAlpha }, layer);
-            if (!windowsDrawn.some(w => w.m === m)) windowsDrawn.push({ m, e }); else windowsDrawn.find(w => w.m === m).e = e;
-            anim(e, 'fadein', 0.45, clock); dur = 0.45; break;
-          }
-          case 'stage3d': {                                  // ReferenceRenderer: a 3D object's stage, standing on the screen
-            // standing on a card the program drew: that card's board is plain under it (already on screen too: the
-            // app redraws a window whose attributes change)
-            if (Array.isArray(m.cardWindow)) {
-              const w = windowsDrawn.find(v => Array.isArray(v.m.inner) && Math.abs(v.m.inner[0] - m.cardWindow[0]) < 1 && Math.abs(v.m.inner[1] - m.cardWindow[1]) < 1);
-              if (w && w.e.getAttribute('data-board') !== 'plain') { w.m.board = 'plain'; w.e.setAttribute('data-board', 'plain'); }
-            }
-            const e = el('scene3d', { id: m.id, x: m.at[0], y: m.at[1], width: m.w, height: m.h, 'data-ink': m.ink, 'data-camera': JSON.stringify(m.camera || {}), 'data-card': m.card ? m.card.join(' ') : null, 'data-canvas': W + ' ' + H, 'data-look': m.look || null }, layer);
-            anim(e, 'fadein', 0.35, clock); dur = 0.12; break;
-          }
-          case 'part3d': {
-            const e = el('part3d', { 'data-stage': m.stage, 'data-part': JSON.stringify({ id: m.id, kind: m.kind, params: m.params, at: m.pos, rotate: m.rotate3, scale: m.scale3, material: m.material, parent: m.parent, three: m.three, recipe: m.recipe, name: m.name }) }, layer);
-            anim(e, 'grow', 0.65, clock); dur = 0.12; break;
-          }
-          case 'label3d': {
-            const e = el('label3d', { 'data-stage': m.stage, 'data-label': JSON.stringify({ id: m.id, point: m.point, follow: m.follow, text: m.text, side: m.side }), fill: tone(m.tone, colour), 'font-family': FONT.hand, 'font-size': m.size || 19 }, words);
-            anim(e, 'write', 0.4 + String(m.text).length * 0.015, clock); dur = 0.35 + String(m.text).length * 0.012; break;
-          }
-          case 'tick3d': {                                   // three-metal: a figure's tick() starts with this beat
-            const e = el('tick3d', { 'data-stage': m.stage, 'data-tick': m.id }, layer);
-            anim(e, 'set', 0.01, clock); dur = 0; break;
-          }
-          case 'motion3d': case 'camera3d': {
-            const e = el(m.do, { 'data-stage': m.stage, 'data-op': JSON.stringify(m.op || {}) }, layer);
-            anim(e, 'set', 0.01, clock); dur = 0; break;
-          }
-          default: report.errors.push(`unknown mark "${m.do}" (${m.id || i})`);
-        }
-        return dur;
+      paintingRole = m.role || null;
+      alignToWindow(m);
+      // a filled shape with no ink of its own gets a thin edge in a deeper shade of its fill, not a black one
+      const fillEdge = m.fill && !m.tone && OUTLINED.test(m.do) ? shade(tone(m.fill), 0.32) : null;
+      const ink = {
+        r: rng((m.id || '') + i),
+        colour: fillEdge || readableColour(m, tone(m.tone, TONES[defInk])),
+        size: m.size || (fillEdge ? 1.6 : (BRUSH[m.brush] || BRUSH.pen).size),
+        layer: m.under ? under : main,
+      };
+      noteGround(m);
+      const painter = PAINTERS[m.do];
+      if (!painter) { report.errors.push(`unknown mark "${m.do}" (${m.id || i})`); return 0.3; }
+      return painter(m, i, ink);
     }
-    // ReferenceRenderer: Mate's cursor flies to the next mark on an arc, like the old walkthrough's pointing flight. A
-    // mark far from the last one waits for it (its ink starts when the cursor lands) instead of drawing while the
-    // cursor is still across the screen; marks after it never start before it. The first mark waits for the
-    // flight from wherever the cursor is.
+    // the app paints these from their attributes: each is one element, faded or set in at its beat
+    const placeholder = (tag, attrs, layer, animation, animDur, dur) => { anim(el(tag, attrs, layer), animation, animDur, clock); return dur; };
+    const writeTime = text => 0.35 + letters(text) * 0.012;    // the time a written mark holds the pen (its own animation runs longer)
+    const writeAnim = text => 0.4 + letters(text) * 0.015;
+    const PAINTERS = {
+      line: paintLine, arrow: paintLine, path: paintPath, circle: paintEllipse, ellipse: paintEllipse, rect: paintRect, poly: paintPoly,
+      text: paintText, molecule: paintMolecule,
+      dot: (m, i, { colour, layer }) => { anim(el('circle', { cx: m.at[0], cy: m.at[1], r: m.r || 3, fill: colour }, layer), 'pop', 0.25, clock); return 0.12; },
+      highlight(m) {
+        const [x, y] = m.at, w = m.w, h = m.h;
+        const e = el('path', { d: `M${x} ${y + 2} Q${x + w / 2} ${y - 1} ${x + w} ${y + 1} L${x + w - 1} ${y + h} Q${x + w / 2} ${y + h + 2} ${x + 1} ${y + h - 1} Z`,
+          fill: tone(m.tone || 'butter'), 'fill-opacity': 0.72, style: surface === 'sky' ? null : 'mix-blend-mode:multiply' }, m.under ? under : hlLayer);
+        e.style.transformOrigin = `${x}px ${y}px`; e.style.transformBox = 'view-box';
+        anim(e, 'swipe', 0.35, clock);
+        return 0.35;
+      },
+      // an edit of what is on the card, at this point of the drawing
+      edit: (m, i) => (hooks.edit ? hooks.edit(m, i, clock, pace) : 0) / Math.max(pace, 0.35),
+      // a real photo: the app finds and paints it
+      image: (m, i, { layer }) => placeholder('photo', { x: m.at[0], y: m.at[1], width: m.w, height: m.h, 'data-query': String(m.query || ''), 'data-radius': m.r || 0, 'data-rotate': m.rot || 0 }, layer, 'fadein', 0.5, 0.5),
+      // a little window: the app paints its chrome and board
+      window(m, i, { layer }) {
+        const e = el('window', { x: m.at[0], y: m.at[1], width: m.w, height: m.h, 'data-header': m.header, 'data-title': m.title || null,
+          'data-board': m.board || 'plain', 'data-bg': m.bg, 'data-tint': m.tint, 'data-tint-alpha': m.tintAlpha }, layer);
+        const known = windowsDrawn.find(w => w.m === m);
+        if (known) known.e = e; else windowsDrawn.push({ m, e });
+        anim(e, 'fadein', 0.45, clock);
+        return 0.45;
+      },
+      // a 3D object's stage, standing on the screen; on a card the program drew, that card's board is plain under it
+      // (a window already on screen too: the app redraws a window whose attributes change)
+      stage3d(m, i, { layer }) {
+        const w = Array.isArray(m.cardWindow) ? windowAt(m.cardWindow) : null;
+        if (w && w.e.getAttribute('data-board') !== 'plain') { w.m.board = 'plain'; w.e.setAttribute('data-board', 'plain'); }
+        return placeholder('scene3d', { id: m.id, x: m.at[0], y: m.at[1], width: m.w, height: m.h, 'data-ink': m.ink, 'data-camera': JSON.stringify(m.camera || {}), 'data-card': m.card ? m.card.join(' ') : null, 'data-canvas': W + ' ' + H, 'data-look': m.look || null }, layer, 'fadein', 0.35, 0.12);
+      },
+      part3d: (m, i, { layer }) => placeholder('part3d', { 'data-stage': m.stage, 'data-part': JSON.stringify({ id: m.id, kind: m.kind, params: m.params, at: m.pos, rotate: m.rotate3, scale: m.scale3, material: m.material, parent: m.parent, three: m.three, recipe: m.recipe, name: m.name }) }, layer, 'grow', 0.65, 0.12),
+      label3d: (m, i, { colour }) => placeholder('label3d', { 'data-stage': m.stage, 'data-label': JSON.stringify({ id: m.id, point: m.point, follow: m.follow, text: m.text, side: m.side }), fill: tone(m.tone, colour), 'font-family': FONT.hand, 'font-size': m.size || 19 }, words, 'write', writeAnim(m.text), writeTime(m.text)),
+      // a figure's tick() starts with this beat
+      tick3d: (m, i, { layer }) => placeholder('tick3d', { 'data-stage': m.stage, 'data-tick': m.id }, layer, 'set', 0.01, 0),
+      motion3d: (m, i, { layer }) => placeholder(m.do, { 'data-stage': m.stage, 'data-op': JSON.stringify(m.op || {}) }, layer, 'set', 0.01, 0),
+      camera3d: (m, i, { layer }) => placeholder(m.do, { 'data-stage': m.stage, 'data-op': JSON.stringify(m.op || {}) }, layer, 'set', 0.01, 0),
+    };
+    function paintLine(m, i, { r, colour, size, layer }) {
+      // wobble 0 keeps a straight line straight (the dashed frames that mark the real screen stay crisp); bow 'pen' (the
+      // screen pen): a smoothed line bends once per edge too, then stays smooth through its corners
+      let c = m.smooth === false ? handSegments(m.pts, false, r, m.wobble == null ? 0.6 : m.wobble, m.bow, m.jitter)
+        : m.bow === 'pen' ? catmull(handSegments(m.pts, false, r, m.wobble == null ? 1 : m.wobble, 'pen', m.jitter), false, 2) : catmull(m.pts, false);
+      if (m.do === 'arrow' && m.bend) {
+        const a = m.pts[0], b = m.pts[m.pts.length - 1], L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+        let k = m.bend === true ? 0.15 : Number(m.bend) || 0;
+        if (Math.abs(k) > 1) k = k / L;                    // a bend given in canvas units, not as a fraction
+        if (Math.abs(k) > 0.6) { report.warnings.push(`${m.id || i}: bend ${m.bend} is too strong, used ${Math.sign(k) * 0.6}`); k = Math.sign(k) * 0.6; }
+        c = catmull([a, [(a[0] + b[0]) / 2 - (b[1] - a[1]) * k, (a[1] + b[1]) / 2 + (b[0] - a[0]) * k], b], false);
+      }
+      const on = typeof m.dash === 'number' ? m.dash : Math.max(8, size * 3), off = +m.dashGap || on * 0.75;
+      let dur;
+      if (m.dash && Array.isArray(m.marquee)) {
+        // a frame the app draws itself, dragged open from its top-left corner like a selection by the cursor: the
+        // element carries the box and the app animates it
+        const e = el('path', { d: poly(m.pts), fill: 'none', stroke: colour, 'stroke-width': size, 'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+          'stroke-dasharray': `${on.toFixed(2)} ${off.toFixed(2)}`, 'data-marquee': m.marquee.map(v => (+v || 0).toFixed(2)).join(' '), 'data-marquee-handle': '1' }, layer);
+        anim(e, 'marquee', MARQUEE_DUR, clock);
+        dur = MARQUEE_DUR;
+      } else dur = m.dash ? dashedStroke(c, m, colour, size, layer, on, off) : stroke(c, m, colour, size, layer);
+      if (m.do !== 'arrow') return dur;
+      // the head after the shaft: headAngle is half its opening; taper 0 keeps the barbs as heavy as the shaft
+      const tip = c[c.length - 1], from = c[Math.max(0, c.length - 6)], a = Math.atan2(tip[1] - from[1], tip[0] - from[0]), hl = m.head || Math.max(9, size * 3), ha = +m.headAngle || 0.5;
+      const barb = s => [tip[0] - hl * Math.cos(a + s * ha), tip[1] - hl * Math.sin(a + s * ha)];
+      clock += dur;
+      dur = stroke([barb(-1), tip, barb(1)], Object.assign({}, m, { taper: m.taper === 0 ? 0 : 0.4 }), colour, size, layer);
+      if (m.label) {
+        const mid = c[Math.floor(c.length / 2)];
+        const t = el('text', { x: mid[0] + (m.labelDx || 0), y: mid[1] - 8 + (m.labelDy || 0), 'text-anchor': 'middle', fill: colour, 'font-family': faceFor('hand'), 'font-size': m.labelSize || 15 }, layer);
+        t.textContent = m.label;
+        anim(t, 'fadein', 0.3, clock + dur);
+      }
+      return dur;
+    }
+    // A path with several pieces ("M … M …": tick marks, window panes, brackets) is drawn piece by piece (sampled as
+    // one line, every move was a stray stroke joining the pieces); a lone point is a dot.
+    function paintPath(m, i, { colour, size, layer }) {
+      const sh = Array.isArray(m.shift) ? m.shift : null, runs = [];
+      for (const piece of String(m.d || '').split(/(?=M)/).map(s => s.trim()).filter(Boolean)) {
+        const n = Math.max(40, Math.min(400, Math.round(piece.length / 2))), c = samplePath(piece, n), step = plen(c) / n;
+        if (plen(c) < 0.5) { const start = (piece.match(/-?\d*\.?\d+/g) || []).map(Number); if (start.length >= 2) runs.push([[start[0], start[1]]]); continue; }
+        // a relative "m" inside a piece: split where neighbouring samples jump (a chord is never longer than its arc)
+        let run = [c[0]];
+        for (let k = 1; k < c.length; k++) { if (dist(c[k - 1], c[k]) > step * 1.5 + 0.5) { runs.push(run); run = []; } run.push(c[k]); }
+        runs.push(run);
+      }
+      wash(m.d, m, layer, sh ? { transform: `translate(${sh[0] + 0.8} ${sh[1] + 1})` } : null);
+      if (m.outline === false || !runs.length) return 0.3;
+      const start = clock;
+      let total = 0;
+      for (const run0 of runs) {
+        const run = sh ? run0.map(p => [p[0] + sh[0], p[1] + sh[1]]) : run0;
+        clock = start + total;
+        if (run.length < 2 || plen(run) < 0.5) { anim(el('circle', { cx: run[0][0], cy: run[0][1], r: Math.max(1.5, size * 0.6), fill: colour }, layer), 'pop', 0.2, clock); total += 0.04; }
+        else total += edge(run, m, colour, size, layer);
+      }
+      clock = start;
+      return total;
+    }
+    function paintEllipse(m, i, { r, colour, size, layer }) {
+      // rot in radians, or in degrees when it could not be radians
+      const [cx, cy] = m.at, rx = m.r || m.rx, ry = m.r || m.ry, rot = (m.rot || 0) * (typeof m.rot === 'number' && Math.abs(m.rot) > 6.3 ? Math.PI / 180 : 1);
+      const c = ellipsePts(cx, cy, rx, ry, rot, r, m.wobble == null ? 1 : m.wobble, m.outline !== false);
+      wash(poly(ellipsePts(cx, cy, rx, ry, rot, rng('f' + i), 0.5, false)) + ' Z', m, layer);
+      return m.outline === false ? 0.3 : edge(c, m, colour, size, layer);
+    }
+    function paintRect(m, i, { r, colour, size, layer }) {
+      const [x, y] = m.at, w = m.w, h = m.h;
+      // {r}: rounded corners (a card, a bar's cap, a button-like box), each a quarter circle in 6 steps
+      const cr = Math.max(0, Math.min(+m.r || 0, Math.abs(w) / 2, Math.abs(h) / 2));
+      const corner = (cx, cy, a0) => Array.from({ length: 7 }, (_, k) => { const a = a0 + k * Math.PI / 12; return [cx + Math.cos(a) * cr, cy + Math.sin(a) * cr]; });
+      const pts = cr ? [...corner(x + w - cr, y + cr, -Math.PI / 2), ...corner(x + w - cr, y + h - cr, 0), ...corner(x + cr, y + h - cr, Math.PI / 2), ...corner(x + cr, y + cr, Math.PI)]
+        : [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+      wash(poly(pts) + ' Z', m, layer);
+      if (m.outline === false) return 0.3;
+      // a sharp box is closed by hand: the pen runs a little past where it started
+      return edge(cr ? handSegments(pts, true, r, 1) : handSegments(pts.concat([[x, y], [x + Math.min(6, Math.abs(w) * 0.06), y + 1]]), false, r, 1), m, colour, size, layer);
+    }
+    function paintPoly(m, i, { r, colour, size, layer }) {
+      wash((m.smooth ? poly(catmull(m.pts, true)) : poly(m.pts)) + ' Z', m, layer);
+      if (m.outline === false) return 0.3;
+      const closed = m.close !== false;
+      return edge(m.smooth ? catmull(m.pts, closed) : handSegments(m.pts, closed, r, m.wobble == null ? 0.7 : m.wobble, m.bow, m.jitter), m, colour, size, layer);
+    }
+    const probe = svg.querySelector('#__probe');
+    function paintText(m, i, { colour, layer }) {
+      const style = m.style || 'hand';
+      let fs = m.size || (style === 'title' ? 24 : style === 'body' ? 17 : style === 'caps' ? 14 : 20);
+      // caps: upper case, semibold, tracked out with hair spaces between letters (the native text shaper has no
+      // letter-spacing). Letters, not UTF-16 halves: an emoji split in two by a hair space drew as two broken glyphs.
+      if (style === 'caps') m = Object.assign({}, m, { text: [...String(m.text).toUpperCase()].join(' '), weight: m.weight || 600 });
+      // ui words (name pills, badges) are sized in screen points: on a big display one canvas unit is about 2pt, so
+      // their floor is 8pt, not 8 units (a unit floor drew a 12pt pill's words a third too big, spilling out of it)
+      const unitPoints = +global.__canvasUnitPoints > 0 ? +global.__canvasUnitPoints : 1;
+      const minSize = style === 'ui' ? 8 / unitPoints : 13;
+      if (fs < minSize) { report.warnings.push(`${m.id || i}: text size ${fs} is too small to read, used ${Math.round(minSize)}`); fs = minSize; }
+      const lineHeight = +m.lineHeight > 0.8 ? +m.lineHeight : LINE_HEIGHT;   // a tighter line for headlines
+      const weight = style === 'title' ? 600 : (m.weight || null);
+      const knockout = knockoutFor(m), haloWidth = Math.max(5, fs * 0.45);
+      const t = el('text', { x: m.at[0], y: m.at[1], fill: colour, 'font-family': faceFor(style), 'font-size': fs, 'font-weight': weight, 'text-anchor': m.anchor || 'start', 'dominant-baseline': m.top ? 'alphabetic' : (m.baseline || 'auto'), transform: m.rot ? `rotate(${m.rot} ${m.at[0]} ${m.at[1]})` : null,
+        stroke: knockout, 'stroke-width': knockout ? haloWidth : null, 'stroke-linejoin': knockout ? 'round' : null, 'paint-order': knockout ? 'stroke' : null,
+        'data-knockout': knockout, 'data-knockout-width': knockout ? haloWidth.toFixed(2) : null }, m.under ? layer : words);
+      let lines = String(m.text).split('\n');
+      const maxW = m.wrap || (m.fit && m.fit[0]);
+      if (maxW && lines.length === 1) lines = wrapWords(lines[0], maxW, { 'font-family': faceFor(style), 'font-size': fs, 'font-weight': weight });
+      // a wrapped block is centred on its point, unless it hangs from it or names its own baseline
+      if (lines.length > 1 && (m.fit || m.wrap) && !m.top && (m.baseline || 'auto') === 'auto') t.setAttribute('y', m.at[1] - (lines.length - 1) * fs * lineHeight / 2);
+      if (lines.length > 1) lines.forEach((ln, k) => { el('tspan', { x: m.at[0], dy: k ? fs * lineHeight : 0 }, t).textContent = ln; });
+      else t.textContent = m.text;
+      if (m.fit) {
+        // shrinks in 8% steps until it fits its box (not below 8)
+        let f = fs, bb = t.getBBox();
+        while ((bb.width > m.fit[0] || bb.height > m.fit[1]) && f > Math.min(8, minSize)) {
+          f *= 0.92;
+          t.setAttribute('font-size', f.toFixed(1));
+          t.querySelectorAll('tspan').forEach((ts, k) => k && ts.setAttribute('dy', f * lineHeight));
+          bb = t.getBBox();
+        }
+        if (f < fs * 0.7) report.warnings.push(`${m.id || i}: text shrank to ${Math.round(f)}px to fit, shorten it`);
+      }
+      if (m.place !== false && !m.under && !editing) placeLabel(t);
+      anim(t, 'write', writeAnim(m.text), clock);
+      return writeTime(m.text);
+    }
+    // greedy word wrap with the real glyph widths, measured on a hidden probe
+    function wrapWords(text, maxW, font) {
+      const p = el('text', font, probe), out = [];
+      const width = s => { p.textContent = s; return p.getComputedTextLength(); };
+      let cur = '';
+      for (const w of text.split(' ')) { const next = cur ? cur + ' ' + w : w; if (cur && width(next) > maxW) { out.push(cur); cur = w; } else cur = next; }
+      out.push(cur);
+      p.remove();
+      return out;
+    }
+    // a molecule from its SMILES, drawn by SmilesDrawer in the card's tones and fitted to its box
+    function paintMolecule(m, i, { layer }) {
+      const g = el('g', { transform: `translate(${m.at[0]} ${m.at[1]})` }, layer);
+      const s = el('svg', { width: m.w, height: m.h, viewBox: `0 0 ${m.w} ${m.h}`, overflow: 'visible' }, g);
+      s.setAttribute('data-smiles', m.smiles);
+      if (global.SmilesDrawer) {
+        const d = new global.SmilesDrawer.SvgDrawer({ width: m.w, height: m.h, bondThickness: 1.6, bondLength: m.bond || 22, shortBondLength: 0.82, fontSizeLarge: 9, fontSizeSmall: 6, padding: 4, compactDrawing: false, terminalCarbons: false, explicitHydrogens: false,
+          themes: { mate: { C: TONES.ink, O: TONES.coral, N: TONES.blue, F: TONES.leaf, CL: TONES.leaf, BR: TONES.brown, I: TONES.violet, P: TONES.orange, S: TONES.sun, B: TONES.peach, SI: TONES.brown, H: TONES.ink, BACKGROUND: 'transparent' } } });
+        global.SmilesDrawer.parse(m.smiles, tree => { d.draw(tree, s, 'mate', null, false); }, err => report.errors.push('smiles: ' + err));
+        s.querySelectorAll('line').forEach(ln => { ln.setAttribute('stroke-linecap', 'round'); ln.setAttribute('stroke-width', '1.8'); });
+        try {
+          const bb = s.getBBox();
+          if (bb.width > 0) {
+            const k = Math.min(m.w / (bb.width + 10), m.h / (bb.height + 10), 1.9), vw = m.w / k, vh = m.h / k;
+            s.setAttribute('viewBox', `${bb.x + bb.width / 2 - vw / 2} ${bb.y + bb.height / 2 - vh / 2} ${vw} ${vh}`);
+          }
+        } catch (_) {}
+        s.querySelectorAll('text').forEach(tx => { tx.setAttribute('font-family', FONT.body); tx.setAttribute('font-weight', '600'); });
+      } else report.errors.push('molecule piece needs SmilesDrawer');
+      anim(g, 'fadein', 0.6, clock);
+      return 0.6;
+    }
+    // ---------------------------------------------------------------- the drawing, mark by mark
+    // The cursor flies to the next mark on an arc. A mark far from the last one waits for it (its ink starts when the
+    // cursor lands) instead of drawing while the cursor is still across the screen, and marks after it never start
+    // before it. The first mark waits for the flight from wherever the cursor is. Typing, copying and buttons, and
+    // invisible dots, are done where the cursor already is.
+    const NO_FLIGHT = new Set(['type', 'copy', 'open', 'handoff']);
     let penAt = null, penLandsAt = 0;
     function penFlightBefore(m) {
-      if (m.role === 'type' || m.role === 'copy' || m.role === 'open' || m.role === 'handoff' || (m.role === 'button' && m.do === 'dot') || (m.do === 'dot' && (+m.r || 3) < 1)) return 0;
-      const b = markBox(m); if (!b) return 0;
-      const c = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2], from = penAt; penAt = c;
+      if (NO_FLIGHT.has(m.role) || (m.role === 'button' && m.do === 'dot') || (m.do === 'dot' && (+m.r || 3) < 1)) return 0;
+      const b = markBox(m);
+      if (!b) return 0;
+      const c = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2], from = penAt;
+      penAt = c;
       if (!from) return 0.45;
       const far = Math.hypot(c[0] - from[0], c[1] - from[1]);
       return far < 110 ? 0 : Math.min(0.55, 0.2 + far / 2400);
     }
-    // ReferenceRenderer: a tie arrow (tie() in Mate's pieces, {tieTo: [x, y, w, h, gap, pad]}) starts where its row's words
-    // really end. The model can only guess how long a line is, so its arrows started far past short rows or inside
-    // long ones. The row is the words beside the start the model gave (their middle within a line of it, starting
-    // left of it); the arrow leaves the end of the longest of them, at that line's height, toward the photo.
+    // A tie arrow (tie() in Mate's pieces, {tieTo: [x, y, w, h, gap, pad]}) starts where its row's words really end:
+    // the model can only guess how long a line is, so its arrows started far past short rows or inside long ones. The
+    // row is the words beside the start the model gave (their middle within a line of it, on the near side); the
+    // arrow leaves the end of the longest of them, at that line's height, and stops at the photo's edge plus the gap.
     function snapTie(m) {
       const t = m.tieTo, from = m.pts[0];
       if (!Array.isArray(t) || !Array.isArray(from)) return;
@@ -2660,8 +2720,8 @@
       let best = null;
       for (const e of words.querySelectorAll('text')) {
         if (e.__gone || e.ownerSVGElement !== svg || e.__role === 'photo' || e.__role === 'tie' || e.__role === 'source') continue;
-        let o; try { const r = e.getBBox(), tr = e.__nudge || [0, 0], xf = e.__wrap && e.__wrap.__xf; o = { x: r.x + tr[0], y: r.y + tr[1], w: r.width, h: r.height }; if (xf) o = { x: o.x * xf[0] + xf[1], y: o.y * xf[0] + xf[2], w: o.w * xf[0], h: o.h * xf[0] }; } catch (_) { continue; }
-        if (!o.w || Math.abs(o.y + o.h / 2 - from[1]) > Math.max(o.h, 20)) continue;
+        const o = cardBox(e, false);
+        if (!o || !o.w || Math.abs(o.y + o.h / 2 - from[1]) > Math.max(o.h, 20)) continue;
         if (toRight ? (o.x > from[0] + 20 || o.x + o.w > bx - gap) : (o.x + o.w < from[0] - 20 || o.x < bx + bw + gap)) continue;
         if (!best || (toRight ? o.x + o.w > best.x + best.w : o.x < best.x)) best = o;
       }
@@ -2673,84 +2733,99 @@
       if (reach >= 1) return;
       m.pts = [s, [cx + dx * reach, cy + dy * reach]];
     }
-    // d.paced: the pacer already chose when this mark starts (now) and how fast it goes (d.pace)
+    const stepOf = m => m.step != null ? stepKey(m) : 0;
+    const farOut = p => Array.isArray(p) && (p[0] < -W * 0.1 || p[0] > W * 1.1 || p[1] < -H * 0.1 || p[1] > H * 1.1);
+    // Paints marks on the card's clock. Unpaced, each step fits its budget (its strokes speed up when there are many)
+    // and a new step waits 0.3 s. live: the clock follows the real time; d.paced: the pacer already chose when this
+    // mark starts (now) and how fast it goes (d.pace), and d.i is its index (a new turn's dropped marks leave gaps).
     function draw(marks, live = false, d = {}) {
-    if (live) { const now = (performance.now() - t0) / 1000; clock = d.paced ? now + 0.02 : Math.max(clock, now + 0.05); delayBase = now; }
-    const stepTotal = {}; marks.forEach((m, i) => { const k = m.step != null ? stepKey(m) : 0; stepTotal[k] = (stepTotal[k] || 0) + est(m); });
-    let top = total - 1;
-    for (const [j, m] of marks.entries()) {
-      // ReferenceRenderer: a paced mark comes with its own index (marks a new turn dropped are never drawn, so draw order has gaps)
-      const i = marks.length === 1 && d.i != null ? d.i : total + j;
-      top = Math.max(top, i);
-      try {
-        if (m.__skip) { m.__passed = true; continue; }                                    // 1.6: erased by an edit before it was drawn
-        if (m._t != null) { clock = m._t; pace = m._pace != null ? m._pace : 1; }          // a precomputed schedule (paced replays, frames)
-        else if (d.paced) pace = d.pace != null ? d.pace : 1;
-        else {
-          pace = Math.min(1, BUDGET / (stepTotal[m.step != null ? stepKey(m) : 0] || 1));
-          if (m.step != null && lastStep != null && stepKey(m) !== lastStep) clock += 0.3;
-        }
-        lastStep = m.step != null ? stepKey(m) : lastStep;
-        if (m.tieTo && Array.isArray(m.pts) && m.pts.length >= 2 && !m.__tied) { m.__tied = true; snapTie(m); }
-        if (live && d.paced) { const flight = penFlightBefore(m); clock = Math.max(clock, penLandsAt); if (flight) penLandsAt = clock = clock + flight; }
-        const st0 = clock;
-        if (m.pts && Array.isArray(m.pts) && m.pts.some(p => Array.isArray(p) && (p[0] < -W * 0.1 || p[0] > W * 1.1 || p[1] < -H * 0.1 || p[1] > H * 1.1)))
-          report.warnings.push(`${m.id || i}: a point of this ${m.do} is far outside the card`);
-        cap = NODES[i] = []; capM = MASKS[i] = []; capKey = i; MK[i] = m;
-        let dur;
-        try { dur = paint(m, i); } finally { cap = capM = null; }
-        if (m.__xf) NODES[i].forEach(n => setXf(wrap(n), m.__xf));                        // 1.6: moved or scaled by an edit before it was drawn
-        try { fitWindowsTo(m, i); } catch (_) {}
-        placed[i] = [+st0.toFixed(3), +(st0 + dur * Math.max(pace, 0.35)).toFixed(3)];
-        clock += dur * (m.do === 'dot' ? 0.5 : 0.7) * pace;
-      } catch (e) { report.errors.push(`${m.id || i}: ${e.message}`); }
+      if (live) { const now = nowS(); clock = d.paced ? now + 0.02 : Math.max(clock, now + 0.05); delayBase = now; }
+      const stepTotal = {};
+      for (const m of marks) stepTotal[stepOf(m)] = (stepTotal[stepOf(m)] || 0) + est(m);
+      const own = marks.length === 1 && d.i != null;
+      let top = total - 1;
+      marks.forEach((m, j) => {
+        const i = own ? d.i : total + j;
+        top = Math.max(top, i);
+        try {
+          if (m.__skip) { m.__passed = true; return; }   // erased by an edit before it was drawn
+          if (m._t != null) { clock = m._t; pace = m._pace != null ? m._pace : 1; }   // a precomputed schedule (paced replays, frames)
+          else if (d.paced) pace = d.pace != null ? d.pace : 1;
+          else {
+            pace = Math.min(1, BUDGET / (stepTotal[stepOf(m)] || 1));
+            if (m.step != null && lastStep != null && stepKey(m) !== lastStep) clock += 0.3;
+          }
+          if (m.step != null) lastStep = stepKey(m);
+          if (m.tieTo && Array.isArray(m.pts) && m.pts.length >= 2 && !m.__tied) { m.__tied = true; snapTie(m); }
+          if (live && d.paced) { const flight = penFlightBefore(m); clock = Math.max(clock, penLandsAt); if (flight) penLandsAt = clock = clock + flight; }
+          const start = clock;
+          if (Array.isArray(m.pts) && m.pts.some(farOut)) report.warnings.push(`${m.id || i}: a point of this ${m.do} is far outside the card`);
+          cap = NODES[i] = []; capM = MASKS[i] = []; capKey = i; MK[i] = m;
+          let dur;
+          try { dur = paint(m, i); } finally { cap = capM = null; }
+          if (m.__xf) NODES[i].forEach(n => setXf(wrap(n), m.__xf));   // moved or scaled by an edit before it was drawn
+          try { fitWindowsTo(m, i); } catch (_) {}
+          placed[i] = [+start.toFixed(3), +(start + dur * Math.max(pace, 0.35)).toFixed(3)];
+          clock += dur * (m.do === 'dot' ? 0.5 : 0.7) * pace;
+        } catch (e) { report.errors.push(`${m.id || i}: ${e.message}`); }
+      });
+      total = Math.max(total + (own ? 0 : marks.length), top + 1);
+      report.marks = total;
     }
-    total = Math.max(total + (marks.length === 1 && d.i != null ? 0 : marks.length), top + 1); report.marks = total;
-    }
+    // The finished card's report: what runs off the card and which words overlap (where they are now: nudged, moved
+    // and scaled by edits; erased ones left out), at most 14 warnings, and how long the drawing takes.
     function finish() {
-    [...main.querySelectorAll('text,path'), ...words.querySelectorAll('text')].filter(e => e.ownerSVGElement === svg).forEach(e => { try { const r = e.getBBox(), n = e.__nudge || [0, 0], b = { x: r.x + n[0], y: r.y + n[1], width: r.width, height: r.height }; if (b.width && (b.x < -2 || b.y < -2 || b.x + b.width > W + 2 || b.y + b.height > H + 2)) report.warnings.push(`${e.tagName} at ${Math.round(b.x)},${Math.round(b.y)} runs off the canvas`); } catch (_) {} });
-    const boxes = [...words.querySelectorAll('text')].filter(e => e.ownerSVGElement === svg && !e.__gone).map(e => { try { const r = e.getBBox(), n = e.__nudge || [0, 0]; return { b: { x: r.x + n[0], y: r.y + n[1], width: r.width, height: r.height }, t: e.textContent.slice(0, 24) }; } catch (_) { return null; } }).filter(x => x && x.b.width);
-    let overlaps = 0;
-    for (let a = 0; a < boxes.length; a++) for (let c = a + 1; c < boxes.length; c++) {
-      const A = boxes[a].b, B = boxes[c].b, ix = Math.min(A.x + A.width, B.x + B.width) - Math.max(A.x, B.x), iy = Math.min(A.y + A.height, B.y + B.height) - Math.max(A.y, B.y);
-      if (ix > 3 && iy > 4) { overlaps++; report.warnings.push(`text "${boxes[a].t}" overlaps text "${boxes[c].t}"`); }
-    }
-    report.overlaps = overlaps;
-    report.warnings = [...new Set(report.warnings)].slice(0, 14);
-    report.duration = +clock.toFixed(2);
-    host.dataset.report = JSON.stringify(report);
-    return report;
+      const live = e => e.ownerSVGElement === svg && !e.__gone;
+      for (const e of [...main.querySelectorAll('text,path'), ...words.querySelectorAll('text')].filter(live)) {
+        const b = cardBox(e, false);
+        if (b && b.w && (b.x < -2 || b.y < -2 || b.x + b.w > W + 2 || b.y + b.h > H + 2)) report.warnings.push(`${e.tagName} at ${Math.round(b.x)},${Math.round(b.y)} runs off the canvas`);
+      }
+      const boxes = [...words.querySelectorAll('text')].filter(live).map(e => ({ b: cardBox(e, false), t: e.textContent.slice(0, 24) })).filter(x => x.b && x.b.w);
+      let overlaps = 0;
+      for (let a = 0; a < boxes.length; a++) for (let c = a + 1; c < boxes.length; c++) {
+        const A = boxes[a].b, B = boxes[c].b, ix = Math.min(A.x + A.w, B.x + B.w) - Math.max(A.x, B.x), iy = Math.min(A.y + A.h, B.y + B.h) - Math.max(A.y, B.y);
+        if (ix > 3 && iy > 4) { overlaps++; report.warnings.push(`text "${boxes[a].t}" overlaps text "${boxes[c].t}"`); }
+      }
+      report.overlaps = overlaps;
+      report.warnings = [...new Set(report.warnings)].slice(0, 14);
+      report.duration = +clock.toFixed(2);
+      host.dataset.report = JSON.stringify(report);
+      return report;
     }
 
-    // ---------------------------------------------------------------- 1.6: changing what is already on the card
+    // ---------------------------------------------------------------- changing what is already on the card
     // A mark's nodes sit in several layers (wash under, pen strokes, words). An edit repaints a mark with its own seed
     // (so it wobbles exactly as before) at its own depth, moves or scales its nodes inside wrapper groups, or runs its
-    // pen backwards. Tweens run on requestAnimationFrame; settle() jumps every running edit to its end (an interruption).
+    // pen backwards. Tweens run on animation frames only while something changes each frame, else one wake-up at the
+    // next start or end; settle() jumps every running edit to its end (an interruption).
     const TW = new Set(), fresh = new Set();
     const ease = p => p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
     const EASE_CSS = 'cubic-bezier(.455,.03,.515,.955)';     // the same curve for hosts that animate a motion themselves
-    // ReferenceRenderer: a host that animates on its own (the native canvas: Core Animation) takes each edit's property changes
-    // declared once (global.__mateMotion(items, at, dur, ease)) instead of a style change on every frame
+    // A host that animates on its own (the native canvas: Core Animation) takes each edit's changes declared once
+    // (global.__mateMotion(items, at, dur, ease)) instead of a style change on every frame.
     const motionHost = () => typeof global.__mateMotion === 'function' ? global.__mateMotion : null;
-    // frames run only while a tween changes something each frame; otherwise one wake-up at the next start or end
     const hasRaf = typeof requestAnimationFrame === 'function';
+    const nowS = () => (performance.now() - t0) / 1000;
     let wake = 0, wakeRaf = false, wakeAt = Infinity;
     function arm(ms) {
       const t = performance.now(), at = t + Math.max(0, ms);
-      if (wake && at >= wakeAt - 1) return;
+      if (wake && at >= wakeAt - 1) return;                // already waking up in time
       if (wake) { if (wakeRaf) cancelAnimationFrame(wake); else clearTimeout(wake); }
       if (ms <= 0 && hasRaf) { wakeRaf = true; wake = requestAnimationFrame(frame); wakeAt = t; }
       else { wakeRaf = false; wake = setTimeout(frame, ms <= 0 ? 16 : ms); wakeAt = at; }
     }
     function frame() {
-      wake = 0; wakeAt = Infinity; const t = performance.now(); let next = Infinity, perFrame = false;
+      wake = 0; wakeAt = Infinity;
+      const t = performance.now();
+      let next = Infinity, perFrame = false;
       for (const tw of [...TW]) {
-        if (!TW.has(tw)) continue;
+        if (!TW.has(tw)) continue;                         // settled by an earlier tween's done()
         if (t < tw.s) { next = Math.min(next, tw.f ? tw.s : tw.s + tw.d); continue; }
         const p = Math.min(1, (t - tw.s) / tw.d);
         if (tw.f) tw.f(ease(p));
         if (p >= 1) { TW.delete(tw); if (tw.done) tw.done(); }
-        else if (tw.f) perFrame = true; else next = Math.min(next, tw.s + tw.d);
+        else if (tw.f) perFrame = true;
+        else next = Math.min(next, tw.s + tw.d);
       }
       if (!TW.size) return;
       if (perFrame) arm(0); else if (next < Infinity) arm(next - performance.now());
@@ -2758,33 +2833,40 @@
     // f(p) each frame (null: nothing changes per frame, done() at the end); decl: nodes a host is animating (settle stops them)
     function tween(delay, dur, f, done, decl) {
       const tw = { s: performance.now() + delay * 1000, d: Math.max(1, dur * 1000), f, done, decl };
-      TW.add(tw); arm(Math.max(0, (f ? tw.s : tw.s + tw.d) - performance.now()));
+      TW.add(tw);
+      arm(Math.max(0, (f ? tw.s : tw.s + tw.d) - performance.now()));
       return tw;
     }
     function settle() {
       for (const tw of [...TW]) { TW.delete(tw); if (tw.f) tw.f(1); if (tw.decl) for (const n of tw.decl) n.style.animation = 'none'; if (tw.done) tw.done(); }
-      for (const n of fresh) n.style.animation = 'none'; fresh.clear();
+      for (const n of fresh) n.style.animation = 'none';
+      fresh.clear();
     }
+    // the group a node moves in (made on first use, at the node's depth)
     function wrap(n) {
       if (n.__wrap) return n.__wrap;
-      const g = document.createElementNS(NS, 'g'); g.__k = n.__k; g.__xf = [1, 0, 0];
-      n.parentNode.insertBefore(g, n); g.appendChild(n); n.__wrap = g; return g;
+      const g = document.createElementNS(NS, 'g');
+      g.__k = n.__k; g.__xf = [1, 0, 0];
+      n.parentNode.insertBefore(g, n); g.appendChild(n);
+      return (n.__wrap = g);
     }
     function setXf(g, xf) { g.__xf = xf; g.setAttribute('transform', `matrix(${+xf[0].toFixed(4)} 0 0 ${+xf[0].toFixed(4)} ${+xf[1].toFixed(2)} ${+xf[2].toFixed(2)})`); }
-    function placeByKey(n) {                          // keep z-order: before the first node of a later mark
-      const par = n.parentNode; if (!par) return;
+    // a repainted node keeps its mark's depth: before the first node of a later mark
+    function placeByKey(n) {
+      const par = n.parentNode;
+      if (!par) return;
       for (const c of par.childNodes) if (c !== n && c.__k != null && c.__k > n.__k) { par.insertBefore(n, c); return; }
     }
-    const nowS = () => (performance.now() - t0) / 1000;
-    // paint mark m (seed i) at depth `key`, starting `at` s from now at pace p; the drawing's own clock is left alone
+    // paints mark m (seed i) at depth `key`, starting `at` s from now at pace p; the drawing's own clock is left alone
     function paintAt(m, i, key, at, p, repaint) {
-      const sv = [clock, pace, delayBase], tn = nowS();
-      delayBase = tn; clock = tn + at; pace = p;
+      const saved = [clock, pace, delayBase], now = nowS();
+      delayBase = now; clock = now + at; pace = p;
       cap = []; capM = []; capKey = key; editing = !!repaint;
       let dur = 0.3;
       try { dur = paint(m, i); } catch (e) { report.errors.push(`edit ${i}: ${e.message}`); }
-      const nodes = cap, masks = capM; cap = capM = null; editing = false;
-      [clock, pace, delayBase] = sv;
+      const nodes = cap, masks = capM;
+      cap = capM = null; editing = false;
+      [clock, pace, delayBase] = saved;
       for (const n of nodes) { placeByKey(n); fresh.add(n); }
       for (const mp of masks) fresh.add(mp);
       if (m.__xf) nodes.forEach(n => setXf(wrap(n), m.__xf));
@@ -2794,54 +2876,57 @@
       tween(at + d + 0.1, 0.001, null, () => { nodes.forEach(n => fresh.delete(n)); masks.forEach(n => fresh.delete(n)); });
       return { nodes, masks, dur: d, adv: dur * (m.do === 'dot' ? 0.5 : 0.7) * p };
     }
-    // take nodes off the card: the pen runs backwards over strokes, everything else fades; then they are removed
+    // takes nodes off the card: the pen runs backwards over strokes, everything else fades; then they are removed
     function unpaint(nodes, masks, at, dur) {
-      const byMask = {}; for (const mp of masks || []) { const mk = mp.parentNode; if (mk && mk.id) byMask[mk.id] = mp; }
+      const byMask = {};
+      for (const mp of masks || []) { const mk = mp.parentNode; if (mk && mk.id) byMask[mk.id] = mp; }
       const pen = [], fade = [];
       for (const n of nodes) {
         n.__gone = true;
         const id = /url\(#([^)]+)\)/.exec(n.getAttribute('mask') || '');
         if (id && byMask[id[1]]) pen.push(byMask[id[1]]); else fade.push(n);
       }
-      const off = () => { for (const n of nodes) { const w = n.__wrap; (w && w.parentNode ? w : n).remove(); } for (const mp of masks || []) { const mk = mp.parentNode; if (mk) mk.remove(); } };
-      const host = motionHost();
-      if (host) {
-        host(pen.map(mp => ({ node: mp, prop: 'dash', from: 0, to: 1 })).concat(fade.map(n => ({ node: n, prop: 'opacity', from: 1, to: 0 }))), at, dur, EASE_CSS);
+      const off = () => {
+        for (const n of nodes) { const w = n.__wrap; (w && w.parentNode ? w : n).remove(); }
+        for (const mp of masks || []) { const mk = mp.parentNode; if (mk) mk.remove(); }
+      };
+      const motion = motionHost();
+      if (motion) {
+        motion(pen.map(mp => ({ node: mp, prop: 'dash', from: 0, to: 1 })).concat(fade.map(n => ({ node: n, prop: 'opacity', from: 1, to: 0 }))), at, dur, EASE_CSS);
         return tween(at, dur, null, off, pen.concat(fade));
       }
-      return tween(at, dur, p => { for (const mp of pen) { mp.style.animation = 'none'; mp.style.strokeDashoffset = String(p); } for (const n of fade) { n.style.animation = 'none'; n.style.opacity = String(1 - p); } }, off);
+      return tween(at, dur, p => {
+        for (const mp of pen) { mp.style.animation = 'none'; mp.style.strokeDashoffset = String(p); }
+        for (const n of fade) { n.style.animation = 'none'; n.style.opacity = String(1 - p); }
+      }, off);
     }
-    // glide nodes to a new transform [scale, tx, ty] (linear in the matrix, so a scale keeps its centre fixed)
+    // glides nodes to a new transform [scale, tx, ty] (linear in the matrix, so a scale keeps its centre fixed)
     function moveNodes(nodes, to, at, dur) {
       const gs = nodes.filter(n => !n.__gone && n.parentNode).map(wrap), from = gs.map(g => g.__xf.slice());
-      const host = motionHost();
-      if (host) {
-        gs.forEach(g => setXf(g, to));                   // where it ends up; the host glides it there
-        host(gs.map((g, j) => ({ node: g, prop: 'xf', from: from[j], to: to.slice() })), at, dur, EASE_CSS);
+      const motion = motionHost();
+      if (motion) {
+        gs.forEach(g => setXf(g, to));                     // where it ends up; the host glides it there
+        motion(gs.map((g, j) => ({ node: g, prop: 'xf', from: from[j], to: to.slice() })), at, dur, EASE_CSS);
         return tween(at, dur, null, null, gs);
       }
       return tween(at, dur, p => gs.forEach((g, j) => { const a = from[j]; setXf(g, [a[0] + (to[0] - a[0]) * p, a[1] + (to[1] - a[1]) * p, a[2] + (to[2] - a[2]) * p]); }));
     }
-    // where a drawn mark really is on the card (text measured with its real font), or null
+    // Where a drawn mark really is on the card (text measured in its real font), or null. The app's DOM has no
+    // isConnected (a node on the canvas has its <svg> above it): without that fallback every box in the app was the
+    // program's estimate, and a mark with none never rode with its card when the card moved.
     function domBox(i) {
-      const ns = NODES[i]; if (!ns) return null;
       let b = null;
-      for (const n of ns) {
-        // ReferenceRenderer: the app's virtual DOM has no isConnected (an element on the canvas has its <svg> above it). Without
-        // this every box in the app was the program's estimate, and a mark with none (a path in relative commands: the
-        // lines of a little document icon) never rode with its card when it was moved or shown full screen.
+      for (const n of NODES[i] || []) {
         if (n.__gone || !(n.isConnected !== undefined ? n.isConnected : !!n.ownerSVGElement)) continue;
-        let r; try { r = n.getBBox(); } catch (_) { continue; }
-        if (!r || (!r.width && !r.height)) continue;
-        const nu = n.__nudge || [0, 0], xf = (n.__wrap && n.__wrap.__xf) || [1, 0, 0];
-        const x0 = (r.x + nu[0]) * xf[0] + xf[1], y0 = (r.y + nu[1]) * xf[0] + xf[2], x1 = x0 + r.width * xf[0], y1 = y0 + r.height * xf[0];
-        b = b ? [Math.min(b[0], x0), Math.min(b[1], y0), Math.max(b[2], x1), Math.max(b[3], y1)] : [x0, y0, x1, y1];
+        const r = cardBox(n, false);
+        if (!r || (!r.w && !r.h)) continue;
+        b = b ? [Math.min(b[0], r.x), Math.min(b[1], r.y), Math.max(b[2], r.x + r.w), Math.max(b[3], r.y + r.h)] : [r.x, r.y, r.x + r.w, r.y + r.h];
       }
       return b;
     }
     const edit = { NODES, MASKS, MK, paintAt, unpaint, moveNodes, settle, tween, domBox, now: nowS, get busy() { return TW.size > 0; } };
-    // ReferenceRenderer: when mark i starts drawing, in seconds from now, and for how long (the drawing's sounds land on its ink)
-    const startsIn = i => placed[i] ? [placed[i][0] - (performance.now() - t0) / 1000, placed[i][1] - placed[i][0]] : null;
+    // when mark i starts drawing, in seconds from now, and for how long (the drawing's sounds land on its ink)
+    const startsIn = i => placed[i] ? [placed[i][0] - nowS(), placed[i][1] - placed[i][0]] : null;
     return { draw, finish, report, svg, placed, edit, hooks, startsIn };
   }
 
