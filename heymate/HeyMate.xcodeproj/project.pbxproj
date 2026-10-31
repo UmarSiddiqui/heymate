@@ -951,6 +951,11 @@ A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */,
 		AA00BB072F6500070039DA55 /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
+			traits = (
+				TTS,
+				Diarizer,
+				NemoTextProcessing,
+			);
 			requirement = {
 				kind = upToNextMinorVersion;
 				minimumVersion = 0.18.0;
