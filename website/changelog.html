@@ -5,14 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Changelog — HeyMate</title>
   <meta name="description" content="Every HeyMate release and what it changed, newest first.">
-  <meta name="theme-color" content="#f5f5f7">
+  <meta name="theme-color" content="#f7f8fa">
   <link rel="canonical" href="https://getheymate.vercel.app/changelog">
   <link rel="icon" href="assets/img/icon/favicon-mischief-32.png?v=blue-1" type="image/png">
-  <link rel="stylesheet" href="css/tokens.css">
-  <link rel="stylesheet" href="css/base.css">
-  <link rel="stylesheet" href="css/components.css">
-  <link rel="stylesheet" href="css/sections.css">
-  <link rel="stylesheet" href="css/motion.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/site.css?v=14">
+  <link rel="stylesheet" href="css/home.css?v=23">
+  <link rel="stylesheet" href="css/documents.css?v=1">
   <script>document.documentElement.classList.add("js")</script>
   <!-- Vercel Web Analytics: cookieless page counts (disclosed on privacy.html) -->
   <script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
@@ -29,39 +30,16 @@
     })(window,document,'https://static.hotjar.com/c/hotjar-','.js?sv=');
   </script>
 </head>
-<body>
-  <header class="nav scrolled">
-    <a class="brand" href="index.html">
-      <img src="assets/img/icon/favicon-mischief-32.png?v=blue-1" alt="" width="20" height="20">
-      HeyMate
-    </a>
-    <nav class="nav-links" aria-label="Primary">
-      <a href="index.html#overview">Overview</a>
-      <a href="index.html#mates">Mates</a>
-      <a href="index.html#agents">Agents</a>
-      <a href="privacy.html">Privacy</a>
-      <a href="changelog.html" aria-current="page">What's new</a>
-      <a data-github href="https://github.com/UmarSiddiqui/heymate">GitHub</a>
-    </nav>
-    <a class="btn btn-pill nav-cta" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download free</a>
-    <button class="menu-btn" type="button" aria-expanded="false">Menu</button>
-    <div class="nav-sheet">
-      <a href="index.html#overview">Overview</a>
-      <a href="index.html#mates">Mates</a>
-      <a href="index.html#agents">Agents</a>
-      <a href="privacy.html">Privacy</a>
-      <a href="changelog.html">What's new</a>
-      <a data-github href="https://github.com/UmarSiddiqui/heymate">GitHub</a>
-      <a data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download free</a>
-    </div>
-  </header>
+<body class="home document-page">
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="home-nav document-nav"><a class="brand" href="index.html"><img src="assets/img/icon/favicon-mischief-32.png?v=blue-1" alt="" width="24" height="24">HeyMate</a><nav aria-label="Primary"><a href="index.html#possibilities">What it does</a><a class="nav-download" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Get HeyMate <span aria-hidden="true">↓</span></a></nav></header>
+  <nav class="document-links" aria-label="Resources"><a href="how-to-use-heymate.html">Get started</a><a href="changelog.html" aria-current="page">Changelog</a><a href="privacy.html">Privacy</a><a href="permissions.html">Permissions</a></nav>
 
-  <main class="prose">
-    <div class="wrap-narrow">
-      <p class="eyebrow">Changelog</p>
+  <main class="document-main content-width" id="main">
+    <header class="document-hero"><p class="eyebrow">Changelog</p>
       <h1>What's new.</h1>
-      <p>Every HeyMate release, newest first. HeyMate checks for new releases on its own. Commit-level notes are on <a href="https://github.com/UmarSiddiqui/heymate/releases">GitHub Releases</a>.</p>
-      <section id="website-october-2026" aria-labelledby="website-update-title">
+      <p>Every HeyMate release, newest first. HeyMate checks for new releases on its own. Commit-level notes are on <a href="https://github.com/UmarSiddiqui/heymate/releases">GitHub Releases</a>.</p></header>
+    <div class="document-layout"><aside class="document-contents"><nav aria-label="On this page"><p>On this page</p><a href="#website-update-title">Website update</a><a href="#v1-0-76">Version 1.0.76</a><a href="#v1-0-75">Version 1.0.75</a><a href="#v1-0-74">Version 1.0.74</a><a href="#v1-0-72">Version 1.0.72</a><a href="#v1-0-70">Version 1.0.70</a><a href="#v1-0-69">Version 1.0.69</a><a href="#v1-0-68">Version 1.0.68</a></nav></aside><article class="document-body"><section id="website-october-2026" aria-labelledby="website-update-title">
         <h2 id="website-update-title">Website &amp; contributor update</h2>
         <p><time datetime="2026-10-11">October 11, 2026</time> · This update changes the website and project documentation, not the downloaded app.</p>
         <ul>
@@ -80,7 +58,7 @@
               <li><strong>Follow the work.</strong> Floating job bubbles show what a task is doing and let you reply in place. <a href="https://github.com/UmarSiddiqui/heymate/releases/tag/v1.0.76">Full release notes</a>.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-75">
             <div class="release-meta"><span class="release-version">1.0.75</span><time class="release-date" datetime="2026-10-27">Oct 27, 2026</time></div>
             <ul>
               <li><strong>The agent sees what you mean.</strong> Your screen selection, saved memories for the mate you’re talking to, the current walkthrough step and attached images now reach the agent every turn.</li>
@@ -88,7 +66,7 @@
               <li><strong>No false failures.</strong> If your Mac’s voice can’t play a reply, the answer stays in the chat without a “could not finish” error under it.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-74">
             <div class="release-meta"><span class="release-version">1.0.74</span><time class="release-date" datetime="2026-10-27">Oct 27, 2026</time></div>
             <ul>
               <li><strong>HeyMate’s own agent.</strong> The agent now runs on HeyMate’s built-in Pi harness. Pick a subscription or API key, model and effort in Brain, or change them right from the chat.</li>
@@ -97,7 +75,7 @@
               <li><strong>A seamless notch.</strong> The notch gradient now flows across the whole workspace and the active chat’s neck.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-72">
             <div class="release-meta"><span class="release-version">1.0.72</span><time class="release-date" datetime="2026-10-26">Oct 26, 2026</time></div>
             <ul>
               <li><strong>A clearer usage notch.</strong> Codex, Claude Code and Cursor usage now fits in a compact row of provider logos and rings, with more detail behind a chevron.</li>
@@ -105,7 +83,7 @@
               <li><strong>A smoother notch edge.</strong> The attached panel blends from black at the notch into its gray background, without a hard line across the neck.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-70">
             <div class="release-meta"><span class="release-version">1.0.70</span><time class="release-date" datetime="2026-10-24">Oct 24, 2026</time></div>
             <ul>
               <li><strong>Coding usage at a glance.</strong> Connect Codex, Claude Code and Cursor in Settings → Notch to see usage rings and reset times. The notch also shows activity and approval requests for agents running through HeyMate.</li>
@@ -113,19 +91,19 @@
               <li><strong>Optional usage analytics.</strong> Analytics stays off until you enable Share usage analytics. Events exclude messages, screenshots, file names, file paths and provider credentials; turning sharing off clears the local analytics ID.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-69">
             <div class="release-meta"><span class="release-version">1.0.69</span><time class="release-date" datetime="2026-10-19">Oct 19, 2026</time></div>
             <ul>
               <li><strong>More reliable release signing.</strong> Release checks preserve the app’s signature before packaging updates.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-68">
             <div class="release-meta"><span class="release-version">1.0.68</span><time class="release-date" datetime="2026-10-18">Oct 18, 2026</time></div>
             <ul>
               <li>Maintenance build.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-67">
             <div class="release-meta"><span class="release-version">1.0.67</span><time class="release-date" datetime="2026-10-18">Oct 18, 2026</time></div>
             <ul>
               <li><strong>Blobatar characters.</strong> Every new agent gets its own Blobatar, a soft character that breathes, blinks and follows your pointer with its eyes. Pick one of six looks, tap “New look” for a fresh one, or keep a face or your own picture. Blobatar is by Alain, MIT licensed.</li>
@@ -133,21 +111,21 @@
               <li><strong>Approvals in plain words.</strong> An approval card now names the app and the action, like “Gmail: Fetch message by thread ID”, with the raw tool details tucked behind Details. Reading a Gmail thread no longer asks for approval as if it were sending something; replying, posting and sending still do.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-66">
             <div class="release-meta"><span class="release-version">1.0.66</span><time class="release-date" datetime="2026-10-17">Oct 17, 2026</time></div>
             <ul>
               <li><strong>Hermes, built in.</strong> HeyMate now ships its own Hermes runtime for Apple silicon and Intel, so you can connect Hermes as an engine without installing it yourself. Each chat keeps its context, and connected apps are offered to Hermes only for the turn that needs them.</li>
               <li><strong>Gmail you can trust.</strong> When an agent says it drafted, sent or changed something in Gmail, HeyMate checks that the action really succeeded before showing the reply. Gmail tools now run on HeyMate's own signed copy of Node.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-64">
             <div class="release-meta"><span class="release-version">1.0.64</span><time class="release-date" datetime="2026-10-16">Oct 16, 2026</time></div>
             <ul>
               <li><strong>Meet Milo and Nova.</strong> Two new characters to give HeyMate and your agents a face, with hairstyles, hair and skin colors, eye colors and outfits to choose from.</li>
               <li><strong>Smoother setup.</strong> Voice setup and OpenCode onboarding are clearer, and agent pages got a round of polish.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-63">
             <div class="release-meta"><span class="release-version">1.0.63</span><time class="release-date" datetime="2026-10-14">Oct 14, 2026</time></div>
             <ul>
               <li><strong>A snappier notch.</strong> The notch opens in about a quarter of a second and closes faster, with no zoom or blur.</li>
@@ -155,7 +133,7 @@
               <li><strong>Fixes.</strong> Settings reopens after you change where HeyMate sits, and the ready dot keeps its gentle hover bounce.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-62">
             <div class="release-meta"><span class="release-version">1.0.62</span><time class="release-date" datetime="2026-10-14">Oct 14, 2026</time></div>
             <ul>
               <li><strong>Faces that react.</strong> Agent faces follow your pointer, blink and breathe, and drawn faces move too. Click one for a wink or a boop, or double-click for a giggle. When a job finishes its agent hops; when one fails it wobbles. Reduce Motion, or turning off idle animations, keeps them still.</li>
@@ -168,7 +146,7 @@
               <li><strong>Fixes.</strong> A failed Composio connect can be retried, and the chat box stays open while its menus are showing.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-59">
             <div class="release-meta"><span class="release-version">1.0.59</span><time class="release-date" datetime="2026-10-14">Oct 14, 2026</time></div>
             <ul>
               <li><strong>A welcome tour.</strong> HeyMate's first launch opens a short tour. Pick how it sounds: the Mac voice, typing only, or the on-device voice, which you can hear before downloading. Then turn on permissions one at a time, choose your AI, check your mic, and try talking. Answer three quick questions so HeyMate learns your name and suggests agents, and practice asking about something on screen. You can pick up where you left off, or replay it from Settings.</li>
@@ -178,26 +156,26 @@
               <li><strong>Fixes.</strong> Contacts and Calendar permission requests now go through.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-55">
             <div class="release-meta"><span class="release-version">1.0.55</span><time class="release-date" datetime="2026-10-13">Oct 13, 2026</time></div>
             <ul>
               <li>Maintenance build.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-51">
             <div class="release-meta"><span class="release-version">1.0.51</span><time class="release-date" datetime="2026-10-12">Oct 12, 2026</time></div>
             <ul>
               <li><strong>Typing dots in the notch.</strong> While HeyMate is thinking or replying, three small dots hop beside the camera instead of a status word.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-50">
             <div class="release-meta"><span class="release-version">1.0.50</span><time class="release-date" datetime="2026-10-12">Oct 12, 2026</time></div>
             <ul>
               <li><strong>HeyMate stays.</strong> The main HeyMate agent can no longer be deleted by accident. Delete only shows for the agents you made.</li>
               <li><strong>Plain agent pictures.</strong> Pick a picture for an agent, or use your own. The color, hair, and outfit add-ons and the blinking face are gone.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-48">
             <div class="release-meta"><span class="release-version">1.0.48</span><time class="release-date" datetime="2026-10-12">Oct 12, 2026</time></div>
             <ul>
               <li><strong>Make an agent from one sentence.</strong> Say what it should do, and your own AI drafts its name, personality, the habits it keeps, what it must ask you before doing, a first task, and the apps it needs. Change anything before you create it. The old “Meet a cast” templates are gone.</li>
@@ -210,14 +188,14 @@
               <li><strong>Fixes.</strong> A question that mentions an account or password gets an answer instead of a confirm card. Chimes no longer go quiet while HeyMate itself is listening. The notch's shortcut row can't be pushed out of view by a long agent list.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-46">
             <div class="release-meta"><span class="release-version">1.0.46</span><time class="release-date" datetime="2026-10-12">Oct 12, 2026</time></div>
             <ul>
               <li><strong>Safer on the web.</strong> Web pages you visit can no longer reach HeyMate's built-in local server, so a site can't make HeyMate speak, take a screenshot, or add a mate behind your back.</li>
               <li><strong>Every release is checked by hand.</strong> New versions are now approved before they're signed and published, and the build signs HeyMate before running any outside tools.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-44">
             <div class="release-meta"><span class="release-version">1.0.44</span><time class="release-date" datetime="2026-10-12">Oct 12, 2026</time></div>
             <ul>
               <li><strong>Chats and Agents, side by side.</strong> The window's sidebar now has two tabs: Chats for your own conversations with HeyMate, and Agents for everyone else. New chat always starts fresh with HeyMate.</li>
@@ -225,7 +203,7 @@
               <li><strong>Talk to a working agent from the notch.</strong> Mates are now called agents everywhere, and you can send one a follow-up from the notch while it's still working.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-42">
             <div class="release-meta"><span class="release-version">1.0.42</span><time class="release-date" datetime="2026-10-12">Oct 12, 2026</time></div>
             <ul>
               <li><strong>The window hangs from the notch.</strong> HeyMate's window now drops out of the notch on a narrow neck and folds away when you switch apps. Detach it to get a normal window, and attach it back with one click.</li>
@@ -235,13 +213,13 @@
               <li><strong>Small things that add up.</strong> Esc stops a reply, talking keeps working when you switch microphones or AirPods connect, screenshots no longer pick HeyMate's invisible overlay, jobs play a sound when they start, need you, or finish, and shortcuts show as key caps.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-41">
             <div class="release-meta"><span class="release-version">1.0.41</span><time class="release-date" datetime="2026-10-11">Oct 11, 2026</time></div>
             <ul>
               <li><strong>Ctrl + Option works again.</strong> HeyMate now asks for Input Monitoring, which newer macOS needs before an app can hear a shortcut. Once you allow it, the shortcuts start working right away, no restart needed.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-40">
             <div class="release-meta"><span class="release-version">1.0.40</span><time class="release-date" datetime="2026-10-11">Oct 11, 2026</time></div>
             <ul>
               <li><strong>Talk is always HeyMate.</strong> Push-to-talk and the notch now always reach HeyMate itself, never whichever mate's chat is open. Saying a mate's name out loud no longer switches who answers.</li>
@@ -249,7 +227,7 @@
               <li><strong>Talk keeps its own memory.</strong> HeyMate remembers your conversations separately from your mates, and your mates' chats stay out of its replies.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-39">
             <div class="release-meta"><span class="release-version">1.0.39</span><time class="release-date" datetime="2026-10-11">Oct 11, 2026</time></div>
             <ul>
               <li><strong>Create a mate in chat.</strong> An explicit request to create a named mate now happens locally, with its own greeting and editable starter, without starting a coding job.</li>
@@ -258,21 +236,21 @@
               <li><strong>Get the job's actual answer.</strong> Successful agent jobs return their answer to the conversation that started them. Missing results are reported as unverified instead of a generic success.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-38">
             <div class="release-meta"><span class="release-version">1.0.38</span><time class="release-date" datetime="2026-10-11">Oct 11, 2026</time></div>
             <ul>
               <li><strong>A lighter app.</strong> HeyMate now ships without leftover test instrumentation, so it does a little less work while it runs.</li>
               <li><strong>Jobs leave nothing behind.</strong> A job that finishes cleanly no longer leaves an error line in its log, so the log is removed as soon as the job ends.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-37">
             <div class="release-meta"><span class="release-version">1.0.37</span><time class="release-date" datetime="2026-10-10">Oct 10, 2026</time></div>
             <ul>
               <li><strong>Save a chat as a PDF.</strong> In chat history, PDF… sits next to Save… and writes the whole conversation as a printable PDF.</li>
               <li><strong>A tidier Logs folder.</strong> Background job logs that were left empty are removed when the job ends, and logs older than a week are cleared out when HeyMate starts.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-36">
             <div class="release-meta"><span class="release-version">1.0.36</span><time class="release-date" datetime="2026-10-10">Oct 10, 2026</time></div>
             <ul>
               <li><strong>Replies start sooner.</strong> HeyMate keeps its connections warm and does the heavy lifting off the main thread, so the window stays responsive while an answer streams in.</li>
@@ -282,7 +260,7 @@
               <li><strong>HeyMate is fully its own.</strong> New license and names throughout, with open-source credits listed in Settings.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-35">
             <div class="release-meta"><span class="release-version">1.0.35</span><time class="release-date" datetime="2026-10-10">Oct 10, 2026</time></div>
             <ul>
               <li><strong>A chat window that makes sense.</strong> Click a mate anywhere on its row to open the chat, and use the pencil to edit it. Apps and Settings are labeled in the sidebar, and the chat header sits up beside the window buttons.</li>
@@ -292,14 +270,14 @@
               <li><strong>Calmer messages, easier buttons.</strong> Copy, edit, regenerate, and delete appear as icons when you point at a message. Buttons are easier to hit, and headings in replies read cleanly.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-33">
             <div class="release-meta"><span class="release-version">1.0.33</span><time class="release-date" datetime="2026-10-10">Oct 10, 2026</time></div>
             <ul>
               <li><strong>Settings titles tuck away as you scroll.</strong> On long Settings pages the section name moves into a slim bar at the top.</li>
               <li><strong>Reduce Motion is respected.</strong> With Reduce Motion on, Settings fades between pages instead of jumping.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-32">
             <div class="release-meta"><span class="release-version">1.0.32</span><time class="release-date" datetime="2026-10-10">Oct 10, 2026</time></div>
             <ul>
               <li><strong>A calmer Settings.</strong> Eight clear sections, from General to Privacy & Data, in a sidebar that works in light and dark.</li>
@@ -308,7 +286,7 @@
               <li><strong>Nothing is erased without asking.</strong> Signing out, removing keys, and erasing data always ask first.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-31">
             <div class="release-meta"><span class="release-version">1.0.31</span><time class="release-date" datetime="2026-10-10">Oct 10, 2026</time></div>
             <ul>
               <li><strong>HeyMate points one step at a time.</strong> Ask how something works and the cursor flies to each part in turn, saying and showing that step before it moves on.</li>
@@ -317,21 +295,21 @@
               <li><strong>"How do I…" questions see your screen.</strong> HeyMate now looks at your screen for how-to questions, so it can point at the right button.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-30">
             <div class="release-meta"><span class="release-version">1.0.30</span><time class="release-date" datetime="2026-10-10">Oct 10, 2026</time></div>
             <ul>
               <li><strong>A smoother on-device voice.</strong> Replies no longer pause for nearly a second between sentences, so HeyMate sounds like it's talking, not reading a list.</li>
               <li><strong>No wait on the first reply.</strong> The on-device voice now gets ready when HeyMate opens, so your first answer starts speaking right away instead of after several seconds.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-29">
             <div class="release-meta"><span class="release-version">1.0.29</span><time class="release-date" datetime="2026-10-10">Oct 10, 2026</time></div>
             <ul>
               <li><strong>Talk starts the instant you press.</strong> The mic turns on the moment the shortcut goes down, so your first words are no longer cut off while HeyMate connects.</li>
               <li><strong>Your installed app stays put.</strong> Opening the Permissions card no longer replaces the HeyMate in your Applications folder.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-28">
             <div class="release-meta"><span class="release-version">1.0.28</span><time class="release-date" datetime="2026-10-09">Oct 9, 2026</time></div>
             <ul>
               <li><strong>"What am I looking at?" just works.</strong> Questions about what's in front of you now always include your screen, and a quick "hi" no longer drags the chat back to your last topic.</li>
@@ -340,40 +318,40 @@
               <li><strong>A smoother notch.</strong> The card opens with a softer, liquid motion, connector suggestions show each app's real logo, and Quit now sits in the top-right corner.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-27">
             <div class="release-meta"><span class="release-version">1.0.27</span><time class="release-date" datetime="2026-10-09">Oct 9, 2026</time></div>
             <ul>
               <li><strong>Connected apps come back on their own.</strong> If HeyMate's link to Composio was lost while your key and connected apps were still saved, it reconnects at launch, so mates can read your Gmail and Calendar again instead of starting a job that opens the Mail app.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-26">
             <div class="release-meta"><span class="release-version">1.0.26</span><time class="release-date" datetime="2026-10-09">Oct 9, 2026</time></div>
             <ul>
               <li><strong>Email questions answered in chat.</strong> Ask a mate about your inbox or calendar and it uses your connected Gmail and Google Calendar right away, instead of starting a slow job that opens the Mail app.</li>
               <li><strong>No duplicate jobs.</strong> If a mate's plan is waiting for your approval and you ask again, it reminds you to approve it instead of starting a second job.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-25">
             <div class="release-meta"><span class="release-version">1.0.25</span><time class="release-date" datetime="2026-10-09">Oct 9, 2026</time></div>
             <ul>
               <li><strong>No more password prompts after updates.</strong> Saved keys (Composio, ElevenLabs, custom API, app connectors) now live in a private file only your Mac account can read, instead of the Keychain. The first launch moves your existing keys over, which may ask one last time.</li>
               <li><strong>A quieter notch.</strong> The shortcut labels and unread-count badges are gone. Mates with something new show a small dot instead.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-23">
             <div class="release-meta"><span class="release-version">1.0.23</span><time class="release-date" datetime="2026-10-09">Oct 9, 2026</time></div>
             <ul>
               <li><strong>Mates use app control.</strong> With Computer control on and the Cua driver installed, asking a mate to do something in another app now starts a job for it, instead of the mate saying it can't.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-22">
             <div class="release-meta"><span class="release-version">1.0.22</span><time class="release-date" datetime="2026-10-09">Oct 9, 2026</time></div>
             <ul>
               <li><strong>Talk no longer gets stuck.</strong> A press that heard nothing, or that you let go of too quickly, could leave HeyMate showing Listening until you restarted it. It now goes straight back to ready.</li>
               <li><strong>Steadier status.</strong> The notch no longer flickers while the microphone starts, and keeps showing that it's working while your words are being transcribed.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-20">
             <div class="release-meta"><span class="release-version">1.0.20</span><time class="release-date" datetime="2026-10-09">Oct 9, 2026</time></div>
             <ul>
               <li><strong>Conversations that flow.</strong> With Claude or Codex answering, a chat now keeps one live session, so follow-ups pick up where you left off instead of starting cold. Replies appear word by word as they're written.</li>
@@ -381,7 +359,7 @@
               <li><strong>Still your call.</strong> App control only runs inside a plan you approved. Jobs can never read or change your clipboard, reconfigure the driver, or install anything.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-19">
             <div class="release-meta"><span class="release-version">1.0.19</span><time class="release-date" datetime="2026-10-09">Oct 9, 2026</time></div>
             <ul>
               <li><strong>A private voice, on your Mac.</strong> Download the on-device voice once (about 600 MB) and HeyMate listens with Parakeet and talks with Kokoro, all on your Mac, offline and free. It's offered during setup and in Settings, and needs an Apple Silicon Mac.</li>
@@ -390,73 +368,73 @@
               <li><strong>Simpler voice options.</strong> AssemblyAI and OpenAI transcription are gone. If you had picked one, HeyMate moves you to ElevenLabs, or to your Mac if you haven't added a key.</li>
             </ul>
           </li>
-          <li class="release">
+          <li class="release" id="v1-0-18">
             <div class="release-meta"><span class="release-version">1.0.18</span><time class="release-date" datetime="2026-10-06">Oct 6, 2026</time></div>
             <ul>
               <li><strong>One friendly ask.</strong> After HeyMate has answered five of your questions, it offers once to open the GitHub page so you can star it. Say "Not now" and it never asks again.</li>
             </ul>
           </li>
-        <li class="release">
-          <div class="release-meta"><span class="release-version">1.0.17</span><time class="release-date" datetime="2026-10-03">Oct 3, 2026</time></div>
+        <li class="release" id="v1-0-17">
+            <div class="release-meta"><span class="release-version">1.0.17</span><time class="release-date" datetime="2026-10-03">Oct 3, 2026</time></div>
           <ul>
             <li><strong>Agents can add mates.</strong> When a plan you approve calls for new mates, the job now creates them, each with its own chat and folder.</li>
             <li><strong>Honest results.</strong> A job that couldn't finish now shows as Failed with a reason, not "Work completed".</li>
             <li><strong>Approve plan works in big projects.</strong> Build and dependency folders no longer count toward the undo size limit, and if approval can't start you'll see why next to the button.</li>
           </ul>
         </li>
-        <li class="release">
-          <div class="release-meta"><span class="release-version">1.0.16</span><time class="release-date" datetime="2026-10-03">Oct 3, 2026</time></div>
+        <li class="release" id="v1-0-16">
+            <div class="release-meta"><span class="release-version">1.0.16</span><time class="release-date" datetime="2026-10-03">Oct 3, 2026</time></div>
           <ul>
             <li>Maintenance build. No visible changes.</li>
           </ul>
         </li>
-        <li class="release">
-          <div class="release-meta"><span class="release-version">1.0.15</span><time class="release-date" datetime="2026-10-03">Oct 3, 2026</time></div>
+        <li class="release" id="v1-0-15">
+            <div class="release-meta"><span class="release-version">1.0.15</span><time class="release-date" datetime="2026-10-03">Oct 3, 2026</time></div>
           <ul>
             <li><strong>Faster Talk with Codex.</strong> HeyMate keeps Codex warm, so spoken answers start sooner.</li>
           </ul>
         </li>
-        <li class="release">
-          <div class="release-meta"><span class="release-version">1.0.14</span><time class="release-date" datetime="2026-10-02">Oct 2, 2026</time></div>
+        <li class="release" id="v1-0-14">
+            <div class="release-meta"><span class="release-version">1.0.14</span><time class="release-date" datetime="2026-10-02">Oct 2, 2026</time></div>
           <ul>
             <li><strong>Gmail and Google Calendar, no extra sign-in.</strong> HeyMate reads them through the accounts already on your Mac.</li>
             <li><strong>Faster Talk with Claude.</strong> Answers come from a Claude Code process that's already running.</li>
           </ul>
         </li>
-        <li class="release">
-          <div class="release-meta"><span class="release-version">1.0.13</span><time class="release-date" datetime="2026-10-02">Oct 2, 2026</time></div>
+        <li class="release" id="v1-0-13">
+            <div class="release-meta"><span class="release-version">1.0.13</span><time class="release-date" datetime="2026-10-02">Oct 2, 2026</time></div>
           <ul>
             <li><strong>One-click sign-in.</strong> Connect Claude or ChatGPT during setup without opening Terminal.</li>
             <li><strong>Simpler layout.</strong> The app comes down to three places: Chat, Apps, and Settings.</li>
             <li>Settings is split into General, Accounts, Notch, Privacy, and Advanced tabs.</li>
           </ul>
         </li>
-        <li class="release">
-          <div class="release-meta"><span class="release-version">1.0.12</span><time class="release-date" datetime="2026-10-02">Oct 2, 2026</time></div>
+        <li class="release" id="v1-0-12">
+            <div class="release-meta"><span class="release-version">1.0.12</span><time class="release-date" datetime="2026-10-02">Oct 2, 2026</time></div>
           <ul>
             <li>Silent mode is easier to reach, and its replies read better on screen.</li>
           </ul>
         </li>
-        <li class="release">
-          <div class="release-meta"><span class="release-version">1.0.11</span><time class="release-date" datetime="2026-10-02">Oct 2, 2026</time></div>
+        <li class="release" id="v1-0-11">
+            <div class="release-meta"><span class="release-version">1.0.11</span><time class="release-date" datetime="2026-10-02">Oct 2, 2026</time></div>
           <ul>
             <li><strong>Silent mode.</strong> Type to HeyMate instead of talking, and read the answer instead of hearing it.</li>
           </ul>
         </li>
-        <li class="release">
-          <div class="release-meta"><span class="release-version">1.0.10</span><time class="release-date" datetime="2026-10-01">Oct 1, 2026</time></div>
+        <li class="release" id="v1-0-10">
+            <div class="release-meta"><span class="release-version">1.0.10</span><time class="release-date" datetime="2026-10-01">Oct 1, 2026</time></div>
           <ul>
             <li>Mates now reliably start agent work when you ask them to.</li>
           </ul>
         </li>
-        <li class="release">
-          <div class="release-meta"><span class="release-version">1.0.9</span><time class="release-date" datetime="2026-10-01">Oct 1, 2026</time></div>
+        <li class="release" id="v1-0-9">
+            <div class="release-meta"><span class="release-version">1.0.9</span><time class="release-date" datetime="2026-10-01">Oct 1, 2026</time></div>
           <ul>
             <li><strong>Every mate can run agents.</strong> Any mate can plan and do real work in its folder, not just First Mate.</li>
           </ul>
         </li>
-        <li class="release">
-          <div class="release-meta"><span class="release-version">1.0.8</span><time class="release-date" datetime="2026-10-01">Oct 1, 2026</time></div>
+        <li class="release" id="v1-0-8">
+            <div class="release-meta"><span class="release-version">1.0.8</span><time class="release-date" datetime="2026-10-01">Oct 1, 2026</time></div>
           <ul>
             <li>Fixed a crash on launch in release builds.</li>
             <li>An expired Claude or ChatGPT sign-in is now explained instead of shown as a raw error.</li>
@@ -465,35 +443,30 @@
             <li>Background agents work with Codex installed through npm.</li>
           </ul>
         </li>
-        <li class="release">
-          <div class="release-meta"><span class="release-version">1.0.6</span><time class="release-date" datetime="2026-09-30">Sep 30, 2026</time></div>
+        <li class="release" id="v1-0-6">
+            <div class="release-meta"><span class="release-version">1.0.6</span><time class="release-date" datetime="2026-09-30">Sep 30, 2026</time></div>
           <ul>
             <li>Send feedback by email with your version details attached, and find a link explaining every permission.</li>
           </ul>
         </li>
-        <li class="release">
-          <div class="release-meta"><span class="release-version">1.0.5</span><time class="release-date" datetime="2026-09-30">Sep 30, 2026</time></div>
+        <li class="release" id="v1-0-5">
+            <div class="release-meta"><span class="release-version">1.0.5</span><time class="release-date" datetime="2026-09-30">Sep 30, 2026</time></div>
           <ul>
             <li><strong>Works on Macs without a notch.</strong> HeyMate lives in a menu bar home instead.</li>
             <li><strong>Built-in updates.</strong> HeyMate tells you when a new release is out and installs it for you.</li>
           </ul>
         </li>
-        <li class="release">
-          <div class="release-meta"><span class="release-version">1.0.4</span><time class="release-date" datetime="2026-09-29">Sep 29, 2026</time></div>
+        <li class="release" id="v1-0-4">
+            <div class="release-meta"><span class="release-version">1.0.4</span><time class="release-date" datetime="2026-09-29">Sep 29, 2026</time></div>
           <ul>
             <li><strong>First public release.</strong> The notch home, mates with their own faces, memory and folders, coding agents with plan approval and undo, connected apps, and chat history.</li>
             <li>Install with one Terminal command that skips the macOS malware warning.</li>
           </ul>
         </li>
-      </ol>
-    </div>
+      </ol></article></div>
   </main>
 
-  <footer class="footer">
-    <div class="wrap">
-      <p class="legal">© 2026 HeyMate. Not affiliated with Apple, Anthropic, or OpenAI.</p>
-    </div>
-  </footer>
+  <footer class="home-footer content-width"><a class="brand" href="index.html"><img src="assets/img/icon/favicon-mischief-32.png?v=blue-1" alt="" width="24" height="24">HeyMate</a><nav aria-label="Footer"><a href="how-to-use-heymate.html">Get started</a><a href="changelog.html" aria-current="page">Changelog</a><a href="privacy.html">Privacy</a><a href="permissions.html">Permissions</a><a href="https://github.com/UmarSiddiqui/heymate">Source ↗</a></nav><p>© 2026 HeyMate</p></footer>
   <script src="js/config.js"></script>
   <script src="js/main.js"></script>
 </body>

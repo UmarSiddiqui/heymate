@@ -161,14 +161,9 @@
       if (next !== null) { e.preventDefault(); selectNotchTab(notchTabs[next]); notchTabs[next].focus(); }
     });
   });
-  function openTour() {
-    setNotch(false, false);
-    var film = $("#tour video");
-    $("#tour").scrollIntoView({ behavior: reduce.matches ? "instant" : "smooth", block: "center" });
-    film.focus({ preventScroll: true });
-    guide.classList.add("quiet");
-  }
-  $$("[data-open-tour]").forEach(function (button) { button.addEventListener("click", openTour); });
+  $$("[data-open-setup]").forEach(function (button) {
+    button.addEventListener("click", function () { window.location.href = "how-to-use-heymate.html"; });
+  });
   $$("[data-select-mate]").forEach(function (button) {
     button.addEventListener("click", function () {
       activeMate = button.dataset.selectMate;
@@ -177,7 +172,8 @@
         other.classList.toggle("selected", selected);
         if (other.hasAttribute("aria-pressed")) other.setAttribute("aria-pressed", String(selected));
       });
-      setContext(activeMate.toLowerCase() + " it is. give your mates their own jobs and personalities in the mac app.");
+      var personality = document.querySelector('.desktop-mates [data-select-mate="' + (activeMate === "Emily" ? "Nova" : activeMate === "HeyMate" ? "Tide" : activeMate) + '"]');
+      if (personality) setContext(personality.dataset.guide);
     });
   });
   document.addEventListener("keydown", function (event) {
@@ -305,9 +301,8 @@
   }, { passive: true });
   document.documentElement.addEventListener("pointerleave", function () { guide.classList.add("away"); clearTimeout(restTimer); glyph.classList.remove("breathing"); });
   function updateDock() {
-    var r = $("#tour").getBoundingClientRect();
     var f = $(".home-footer").getBoundingClientRect();
-    $(".desktop-mates").classList.toggle("dock-hidden", compact.matches && (r.top < innerHeight && r.bottom > 0 || f.top < innerHeight));
+    $(".desktop-mates").classList.toggle("dock-hidden", compact.matches && (f.top < innerHeight));
   }
   function contextFor(node) {
     var target = node && node.closest("[data-guide]");

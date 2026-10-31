@@ -5,14 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>How to use HeyMate as a developer, designer, or learner — HeyMate</title>
   <meta name="description" content="A practical guide to using HeyMate, the AI buddy in your Mac notch, for development, design work, and learning something new: real prompts, real workflows, and how to set up mates.">
-  <meta name="theme-color" content="#f5f5f7">
+  <meta name="theme-color" content="#f7f8fa">
   <link rel="canonical" href="https://getheymate.vercel.app/how-to-use-heymate">
   <link rel="icon" href="assets/img/icon/favicon-mischief-32.png?v=blue-1" type="image/png">
-  <link rel="stylesheet" href="css/tokens.css">
-  <link rel="stylesheet" href="css/base.css">
-  <link rel="stylesheet" href="css/components.css">
-  <link rel="stylesheet" href="css/sections.css">
-  <link rel="stylesheet" href="css/motion.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/site.css?v=14">
+  <link rel="stylesheet" href="css/home.css?v=23">
+  <link rel="stylesheet" href="css/documents.css?v=1">
   <script>document.documentElement.classList.add("js")</script>
   <!-- Vercel Web Analytics: cookieless page counts (disclosed on privacy.html) -->
   <script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
@@ -29,43 +30,21 @@
     })(window,document,'https://static.hotjar.com/c/hotjar-','.js?sv=');
   </script>
 </head>
-<body>
-  <header class="nav scrolled">
-    <a class="brand" href="index.html">
-      <img src="assets/img/icon/favicon-mischief-32.png?v=blue-1" alt="" width="20" height="20">
-      HeyMate
-    </a>
-    <nav class="nav-links" aria-label="Primary">
-      <a href="index.html#overview">Overview</a>
-      <a href="index.html#mates">Mates</a>
-      <a href="index.html#agents">Agents</a>
-      <a href="privacy.html">Privacy</a>
-      <a data-github href="https://github.com/UmarSiddiqui/heymate">GitHub</a>
-    </nav>
-    <a class="btn btn-pill nav-cta" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download free</a>
-    <button class="menu-btn" type="button" aria-expanded="false">Menu</button>
-    <div class="nav-sheet">
-      <a href="index.html#overview">Overview</a>
-      <a href="index.html#mates">Mates</a>
-      <a href="index.html#agents">Agents</a>
-      <a href="privacy.html">Privacy</a>
-      <a data-github href="https://github.com/UmarSiddiqui/heymate">GitHub</a>
-      <a data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download free</a>
-    </div>
-  </header>
+<body class="home document-page">
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="home-nav document-nav"><a class="brand" href="index.html"><img src="assets/img/icon/favicon-mischief-32.png?v=blue-1" alt="" width="24" height="24">HeyMate</a><nav aria-label="Primary"><a href="index.html#possibilities">What it does</a><a class="nav-download" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Get HeyMate <span aria-hidden="true">↓</span></a></nav></header>
+  <nav class="document-links" aria-label="Resources"><a href="how-to-use-heymate.html" aria-current="page">Get started</a><a href="changelog.html">Changelog</a><a href="privacy.html">Privacy</a><a href="permissions.html">Permissions</a></nav>
 
-  <main class="prose">
-    <div class="wrap-narrow">
-      <p class="eyebrow">Guide · 9 min read</p>
+  <main class="document-main content-width" id="main">
+    <header class="document-hero"><p class="eyebrow">Guide · 9 min read</p>
       <h1>How to use HeyMate as a developer, designer, or learner.</h1>
       <p>HeyMate is a free, open-source AI buddy for learning desktop apps and websites, currently available for macOS. It lives in your Mac's notch. Hold <kbd>⌃</kbd> <kbd>⌥</kbd>, ask about anything on your screen, and it answers out loud while its cursor points at what it means. It can also hand real work to Claude Code, Codex, or OpenCode, on the subscription you already pay for.</p>
-      <p>That is the whole pitch. This guide is about what to do with it on a normal working day, whether you write code, push pixels, or are trying to learn something you know nothing about yet.</p>
-
-      <h2>The one habit that matters</h2>
+      <p>That is the whole pitch. This guide is about what to do with it on a normal working day, whether you write code, push pixels, or are trying to learn something you know nothing about yet.</p></header>
+    <div class="document-layout"><aside class="document-contents"><nav aria-label="On this page"><p>On this page</p><a href="#the-one-habit-that-matters">The one habit that matters</a><a href="#set-up-in-five-minutes">Set up in five minutes</a><a href="#for-developers">For developers</a><a href="#for-designers">For designers</a><a href="#for-learning-something-new">For learning something new</a><a href="#what-heymate-will-not-do">What HeyMate will not do</a><a href="#start-small">Start small</a></nav></aside><article class="document-body"><h2 id="the-one-habit-that-matters">The one habit that matters</h2>
       <p>Stop copying things into a chat box. Keep working, hold the hotkey, and ask the question out loud while the thing is on your screen. HeyMate captures relevant screen context during interactions that need it and sends it with your words to the provider you choose. A walkthrough can capture again between steps. Some CLI integrations write temporary image files; see the <a href="privacy.html">privacy details</a> for storage and cleanup. Text-only questions do not need a screenshot.</p>
       <p>Everything below is a variation on that habit. Ask first, and only then decide whether the answer should turn into work.</p>
 
-      <h2>Set up in five minutes</h2>
+      <h2 id="set-up-in-five-minutes">Set up in five minutes</h2>
       <ol>
         <li>Install: <code>curl -fsSL https://getheymate.vercel.app/install.sh | bash</code></li>
         <li>Grant Microphone, Accessibility, and Screen Recording. <a href="permissions.html">Here is why each one is needed.</a></li>
@@ -73,7 +52,7 @@
         <li>Hold <kbd>⌃</kbd> <kbd>⌥</kbd> and say hey.</li>
       </ol>
 
-      <h2>For developers</h2>
+      <h2 id="for-developers">For developers</h2>
 
       <h3>1. Ask about the thing you are staring at</h3>
       <p>A stack trace in the terminal, a failing CI page, an unfamiliar function in a PR. Hold the hotkey and ask:</p>
@@ -118,7 +97,7 @@
       <h3>6. Plug in the tools you already use</h3>
       <p>Connectors cover Apple Calendar, Reminders, Notes, Mail, Messages, and Shortcuts, plus local CLIs such as <code>gh</code>, <code>git</code>, <code>docker</code>, <code>kubectl</code>, <code>vercel</code>, <code>supabase</code>, and <code>stripe</code> using your own logins, any MCP server, and 1,400+ toolkits through Composio with your own free key. Reads run quietly. Anything that sends, deletes, or pays asks first.</p>
 
-      <h2>For designers</h2>
+      <h2 id="for-designers">For designers</h2>
 
       <h3>1. Get a critique without leaving the canvas</h3>
       <p>Open your Figma frame or a live page and ask "what would you change about the hierarchy here?" or "is this contrast readable?". The built-in <em>UI design critique</em> skill gives structured feedback, and the cursor points at the exact element it is talking about, which is faster than reading a paragraph of description.</p>
@@ -132,7 +111,7 @@
       <h3>4. Keep the boring writing off your plate</h3>
       <p>Microcopy, alt text, release notes for a design system. Dictation puts your spoken words into the field you are typing in, and a writer mate can polish them with your voice guidelines in its memory.</p>
 
-      <h2>For learning something new</h2>
+      <h2 id="for-learning-something-new">For learning something new</h2>
 
       <h3>1. Point at what confuses you</h3>
       <p>Reading a tutorial, a paper, a spreadsheet, or a settings screen you do not understand? Hold the hotkey and ask "explain this like I have never seen it before", then "what should I learn first?". It answers about the page in front of you, not a generic version of the topic.</p>
@@ -146,7 +125,7 @@
       <h3>4. Put a review on a schedule</h3>
       <p>A daily routine like "at 8am, give me three questions on what I studied yesterday" turns one-off reading into something that sticks.</p>
 
-      <h2>What HeyMate will not do</h2>
+      <h2 id="what-heymate-will-not-do">What HeyMate will not do</h2>
       <ul>
         <li>It will not write, send, click, or delete anything without your approval.</li>
         <li>It will not run in the background watching you. It takes a screenshot only when you press the hotkey and the question needs it, and never stores it.</li>
@@ -154,19 +133,14 @@
         <li>It is not a sandbox. Coding CLIs run as your macOS user, and plan mode limits writes, not reads. Read the <a href="permissions.html">permissions page</a> and the <a href="privacy.html">privacy notes</a>.</li>
       </ul>
 
-      <h2>Start small</h2>
+      <h2 id="start-small">Start small</h2>
       <p>Install it, ask one question about whatever is on your screen right now, and see whether the answer saved you a context switch. Then create one mate for the job you repeat most. That is enough to know if it fits.</p>
-      <p><a class="btn btn-pill" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download free</a></p>
+      <p><a class="download-button" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download free</a></p>
       <p>Questions, bugs, or ideas? <a href="https://github.com/UmarSiddiqui/heymate/issues/new/choose">Open an issue</a> or email <a href="mailto:umarsiddiqui3037+heymate@gmail.com?subject=HeyMate">umarsiddiqui3037+heymate@gmail.com</a>.</p>
-      <p><a href="index.html">Back to HeyMate</a></p>
-    </div>
+      <p><a href="index.html">Back to HeyMate</a></p></article></div>
   </main>
 
-  <footer class="footer">
-    <div class="wrap">
-      <p class="legal">© 2026 HeyMate. Not affiliated with Apple, Anthropic, or OpenAI.</p>
-    </div>
-  </footer>
+  <footer class="home-footer content-width"><a class="brand" href="index.html"><img src="assets/img/icon/favicon-mischief-32.png?v=blue-1" alt="" width="24" height="24">HeyMate</a><nav aria-label="Footer"><a href="how-to-use-heymate.html" aria-current="page">Get started</a><a href="changelog.html">Changelog</a><a href="privacy.html">Privacy</a><a href="permissions.html">Permissions</a><a href="https://github.com/UmarSiddiqui/heymate">Source ↗</a></nav><p>© 2026 HeyMate</p></footer>
   <script src="js/config.js"></script>
   <script src="js/main.js"></script>
 </body>
