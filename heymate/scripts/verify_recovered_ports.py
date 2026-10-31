@@ -23,10 +23,11 @@ for name, expected in pins['files'].items():
         installed = resources / ('BrowserExtension/mate-core.mjs' if name.startswith('browser/') else Path(name).name)
         assert installed.read_bytes() == local.read_bytes(), f'Installed engine differs: {name}'
     print('PASS', name)
-notes = (root / 'agent-runtime/src/notes.mjs').read_text()
-block = notes[notes.index('function la(e)'):notes.index('\n\n\nvar ns')]
-assert hashlib.sha256(block.encode()).hexdigest() == pins['noteEditingFunctions'], 'Recovered note functions changed'
-print('PASS recovered note-editing functions')
+if 'agent-runtime/src/notes.mjs' not in pins.get('replaced', {}):
+    notes = (root / 'agent-runtime/src/notes.mjs').read_text()
+    block = notes[notes.index('function la(e)'):notes.index('\n\n\nvar ns')]
+    assert hashlib.sha256(block.encode()).hexdigest() == pins['noteEditingFunctions'], 'Recovered note functions changed'
+    print('PASS recovered note-editing functions')
 # Additional H1 ports have separate range manifests; preserve the original six
 # engine pins and note block rather than silently repinning changed sources.
 orchestration = json.loads((root / 'scripts/recovered-h1-orchestration-hashes.json').read_text())
@@ -35,17 +36,14 @@ original = source.read_bytes() if source.exists() else None
 if original is not None:
     assert hashlib.sha256(original).hexdigest() == orchestration['sourceSHA256'], 'Original H1 bundle changed'
 for entry in orchestration['modules']:
+    if entry['module'] == 'agent-runtime/src/recovered-h1-early-reads.mjs':
+        continue  # Historical manifest entry; independently replaced.
     data = (root / entry['module']).read_bytes()
     assert hashlib.sha256(data).hexdigest() == entry['moduleSHA256'], 'Recovered H1 orchestration module changed'
     if original is not None:
         block = original[entry['startByte']:entry['endByte']]
         assert hashlib.sha256(block).hexdigest() == entry['sourceSHA256'] and block in data, 'Original H1 orchestration bytes missing'
-print('PASS recovered H1 script and early-read source ranges')
-telemetry = json.loads((root / 'scripts/recovered-telemetry-hashes.json').read_text())
-assert hashlib.sha256((root / telemetry['module']).read_bytes()).hexdigest() == telemetry['moduleSHA256'], 'Recovered telemetry module changed'
-journal = json.loads((root / 'scripts/recovered-journal-provenance.json').read_text())
-assert hashlib.sha256((root.parent / journal['target']).read_bytes()).hexdigest() == journal['targetSHA256'], 'Recovered journal module changed'
-print('PASS recovered H1 journal and telemetry module hashes')
+print('PASS recovered H1 script source range')
 shader_pins = json.loads((root / 'scripts/native-shaders/provenance.json').read_text())
 assert hashlib.sha256((root / 'scripts/native-shaders/davinci.metal').read_bytes()).hexdigest() == shader_pins['sourceSHA256'], 'Recovered native shader source changed'
 assert (root / 'HeyMate/DaVinciShaders.txt').read_bytes() == (root / 'scripts/native-shaders/davinci.metal').read_bytes(), 'Bundled Metal source differs'
@@ -54,8 +52,8 @@ if inspect_bundle:
     for name in ['mate-host.js', 'mate-stage3d.js', 'mate-metal-bridge.js', 'DaVinciShaders.txt', 'three-r159.min.js']:
         assert (resources / name).read_bytes() == (root / 'HeyMate' / name).read_bytes(), f'Installed wrapper differs: {name}'
     for name in ['harness.mjs', 'notes.mjs', 'pi-session.mjs', 'batch-reads.mjs', 'note-workflow.mjs',
-                 'early-reads.mjs', 'recovered-h1-early-reads.mjs', 'recovered-h1-script.mjs', 'script-tools.mjs',
-                 'recovered-h1-telemetry.mjs', 'telemetry.mjs', 'recovered-step-journal.mjs', 'step-journal.mjs']:
+                 'early-reads.mjs', 'recovered-h1-script.mjs', 'script-tools.mjs',
+                 'telemetry.mjs', 'step-journal.mjs']:
         assert (resources / 'MateAgent/src' / name).read_bytes() == (root / 'agent-runtime/src' / name).read_bytes(), f'Installed runtime differs: {name}'
     for name in ['background.js', 'manifest.json']:
         assert (resources / 'BrowserExtension' / name).read_bytes() == (root / 'browser/extension' / name).read_bytes(), f'Installed browser wrapper differs: {name}'

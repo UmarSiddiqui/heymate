@@ -1,10 +1,8 @@
-// HeyMate storage/tool adapter for the recovered H1 Workflow journal.
-// The retry/replay implementation itself lives unchanged in recovered-step-journal.mjs.
+// Durable tool and model result journal.
 import { mkdirSync, openSync, readFileSync, writeSync, fsyncSync, ftruncateSync, closeSync, constants } from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { validID } from './store.mjs';
-import { RecoveredWorkflowJournal, NonRetryableError } from './recovered-step-journal.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const redact = value => String(value ?? '').replace(/(sk-|xox[a-z]-|ghp_|Bearer\s+)[A-Za-z0-9._-]{8,}/gi, '$1[redacted]');
@@ -73,7 +71,7 @@ export class StepJournal {
   }
 
   // Pi owns model execution and its transcript. This stores the complete model
-  // outcome through the recovered step journal before native UI completion,
+  // outcome in the step journal before native UI completion,
   // closing the crash window between those two persistence paths.
   checkpointModel({ id, turnID, message }) {
     if (typeof turnID !== 'string' || !turnID || message?.role !== 'assistant') throw new Error('Invalid model checkpoint.');
@@ -113,8 +111,7 @@ export class StepJournal {
     if (prior && prior.fingerprint !== fingerprint) throw new Error('Journal call identity reused with different arguments.');
     const active = this.active.get(key);
     if (active) return active;
-    // H1 records completed step outcomes. The before-start marker preserves
-    // HeyMate's stricter rule for writes whose outcome was lost in a crash.
+    // Before-start markers preserve uncertain writes across a crash.
     if (kind === 'write' && prior && !this.done.has(key)) {
       throw new Error('This action may already have run; its outcome is unknown. Check before trying again.');
     }
@@ -123,24 +120,45 @@ export class StepJournal {
       this.disk.append('started.jsonl', marker);
       this.started.set(key, marker);
     }
-    const job = { disk: this.disk, get interrupted() { return signal?.aborted === true; } };
-    // New recovered instance per stable call keeps keyFor's attempt ordinal at
-    // zero when Pi asks for the same call again, including after a restart.
-    const recovered = new RecoveredWorkflowJournal(job);
-    const run = recovered.step().do(step, kind === 'write' ? { retries: { limit: 0 } } : policy, async () => {
-      signal?.throwIfAborted();
-      try { return await operation(); }
-      catch (error) {
-        // Preserve the original retry classifier; keep secret-like provider text
-        // out of both the completed on-disk record and later replayed errors.
-        const safe = error?.name === 'NonRetryableError'
-          ? new NonRetryableError(redact(error.message)) : new Error(redact(error?.message ?? error));
-        throw safe;
+    const run = (async () => {
+      const previous = this.done.get(key);
+      if (previous) {
+        if ('error' in previous) throw new Error(previous.error);
+        return previous.value;
       }
-    });
+      const limit = kind === 'write' ? 0 : Math.max(0, Math.min(10, Number(policy?.retries?.limit) || 0));
+      for (let attempt = 0; ; attempt++) {
+        signal?.throwIfAborted();
+        let value;
+        try { value = await operation(); }
+        catch (error) {
+          const message = redact(error?.message ?? error);
+          if (!signal?.aborted && error?.name !== 'NonRetryableError' && attempt < limit) {
+            const delay = policy?.retries?.delay;
+            const match = typeof delay === 'string' && delay.match(/^(\d+(?:\.\d+)?)\s*(milliseconds?|seconds?|minutes?)$/i);
+            const ms = match ? Number(match[1]) * (/^minutes?/i.test(match[2]) ? 60000 : /^seconds?/i.test(match[2]) ? 1000 : 1) : 0;
+            if (ms) await new Promise((resolve, reject) => {
+              const abort = () => { clearTimeout(timer); reject(signal.reason ?? new Error('Aborted')); };
+              const timer = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve(); }, Math.min(ms, 60000));
+              signal?.addEventListener('abort', abort, { once: true });
+              if (signal?.aborted) abort();
+            });
+            continue;
+          }
+          // An interrupted call without a durable result must not become a
+          // completed failure: writes remain uncertain and reads can retry.
+          if (signal?.aborted) throw error;
+          this.disk.append('steps.jsonl', { key, error: message });
+          throw new Error(message);
+        }
+        if (value === undefined) throw new Error('Journal operation returned no serializable result.');
+        this.disk.append('steps.jsonl', { key, value });
+        return value;
+      }
+    })();
     const result = run.finally(() => {
       this.active.delete(key);
-      // Only publish source journal records actually written successfully.
+      // Only publish journal records actually written successfully.
       this.done = new Map(this.disk.readLines('steps.jsonl').map(row => [row.key, row]));
     });
     this.active.set(key, result);

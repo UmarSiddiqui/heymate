@@ -42,6 +42,10 @@
     sky: '#8AAFCC', blue: '#2F5689', mint: '#94BCA2', leaf: '#53794A', brown: '#6D4A2F', tan: '#B9946F', cream: '#E4D9C2'
   };
   const realTone = (t, fallback) => REAL_TONES[t] || t || fallback || REAL_TONES.ink;
+  // Colour names a program uses besides the tone list ('green', 'gold', 'teal'). Passed into the runner so the
+  // worker sandbox resolves them the same way; it has no closure over this file.
+  const COLOR_WORDS = { yellow: 'sun', gold: 'sun', golden: 'sun', purple: 'violet', lavender: 'lilac', green: 'leaf', lightgreen: 'mint', darkgreen: 'leaf', lightblue: 'sky', darkblue: 'blue', navy: 'blue',
+    black: 'ink', gray: 'grey', lightgrey: 'grey', lightgray: 'grey', beige: 'cream', rose: 'pink', magenta: 'pink', salmon: 'peach', skyblue: 'sky', lime: 'mint', teal: '#2A9D8F', turquoise: '#2EC4B6' };
   // a hex colour mixed toward black by k (0..1); anything else passes through
   const shade = (hex, k) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(hex)); if (!m) return hex; const n = parseInt(m[1], 16);
     const c = v => Math.round(v * (1 - k)).toString(16).padStart(2, '0'); return '#' + c(n >> 16) + c((n >> 8) & 255) + c(n & 255); };
@@ -72,186 +76,381 @@
   const faceFor = style => usesCardType() && style !== 'ui' ? CARD_FACE : (FONT[style] || FONT.hand);
 
   // ---------------------------------------------------------------- seeded noise, so the same drawing always wobbles the same way
-  function rng(seed) { let s = 0; for (const c of String(seed)) s = (s * 31 + c.charCodeAt(0)) >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
+  // A string hash seeds a 32-bit linear congruential generator; each call gives the next number in [0, 1).
+  function rng(seed) {
+    let state = 0;
+    for (const ch of String(seed)) state = (Math.imul(state, 31) + ch.charCodeAt(0)) >>> 0;
+    return () => (state = (Math.imul(state, 1664525) + 1013904223) >>> 0) / 4294967296;
+  }
   const dist = (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1]);
+  const lerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  // one decimal, and never "-0.0"
+  const num1 = v => { const s = v.toFixed(1); return s === '-0.0' ? '0.0' : s; };
+  const joined = pts => pts.map(p => num1(p[0]) + ' ' + num1(p[1])).join(' L');
+  // the same points without repeats (a repeated point has no direction, and would pinch a stroke or stall a curve)
+  function distinct(pts) {
+    const out = [];
+    for (const p of pts) if (!out.length || dist(out[out.length - 1], p) > 1e-6) out.push(p);
+    return out;
+  }
 
   // ---------------------------------------------------------------- geometry
+  // A smooth curve through the points: centripetal Catmull-Rom, so unevenly spaced points never loop or overshoot
+  // (the plain, uniform kind kinks wherever a short span sits next to a long one). Each span gets one sample every 4
+  // units, at least 2 and at most 3 * seg.
   function catmull(pts, closed, seg = 10) {
+    pts = distinct(pts);
+    if (closed && pts.length > 2 && dist(pts[0], pts[pts.length - 1]) < 1e-6) pts.pop();
     if (pts.length < 2) return pts.slice();
     if (pts.length === 2 && !closed) return densify(pts, 12);
-    const P = closed ? [pts[pts.length - 1], ...pts, pts[0], pts[1]] : [pts[0], ...pts, pts[pts.length - 1]];
+    const n = pts.length, at = i => pts[(i + n) % n];
+    // an open curve's ends continue straight on, mirrored from their neighbours
+    const before = closed ? at(-1) : lerp(pts[1], pts[0], 2), after = closed ? at(n) : lerp(pts[n - 2], pts[n - 1], 2);
+    const P = closed ? [before, ...pts, pts[0], at(1)] : [before, ...pts, after];
     const out = [];
     for (let i = 1; i < P.length - 2; i++) {
       const [p0, p1, p2, p3] = [P[i - 1], P[i], P[i + 1], P[i + 2]];
-      const n = Math.max(2, Math.min(seg * 3, Math.ceil(dist(p1, p2) / 4)));
-      for (let s = 0; s < n; s++) {
-        const t = s / n, t2 = t * t, t3 = t2 * t;
-        out.push([0, 1].map(k => 0.5 * (2 * p1[k] + (-p0[k] + p2[k]) * t + (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * t2 + (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * t3)));
+      const knot = (a, b) => Math.max(Math.sqrt(dist(a, b)), 1e-4);
+      const t1 = knot(p0, p1), t2 = t1 + knot(p1, p2), t3 = t2 + knot(p2, p3);
+      const steps = Math.max(2, Math.min(seg * 3, Math.ceil(dist(p1, p2) / 4)));
+      for (let s = 0; s < steps; s++) {
+        // Barry and Goldman's pyramid: three linear blends, then two, then one
+        const t = t1 + (t2 - t1) * s / steps;
+        const a1 = lerp(p0, p1, t / t1), a2 = lerp(p1, p2, (t - t1) / (t2 - t1)), a3 = lerp(p2, p3, (t - t2) / (t3 - t2));
+        const b1 = lerp(a1, a2, t / t2), b2 = lerp(a2, a3, (t - t1) / (t3 - t1));
+        out.push(lerp(b1, b2, (t - t1) / (t2 - t1)));
       }
     }
-    out.push(closed ? pts[0] : pts[pts.length - 1]);
+    out.push(closed ? pts[0] : pts[n - 1]);
     return out;
   }
+  // the polyline with extra points so no span is longer than `step`
   function densify(pts, step = 6) {
     const out = [pts[0]];
     for (let i = 1; i < pts.length; i++) {
-      const a = pts[i - 1], b = pts[i], n = Math.max(1, Math.ceil(dist(a, b) / step));
-      for (let s = 1; s <= n; s++) out.push([a[0] + (b[0] - a[0]) * s / n, a[1] + (b[1] - a[1]) * s / n]);
+      const pieces = Math.max(1, Math.ceil(dist(pts[i - 1], pts[i]) / step));
+      for (let s = 1; s <= pieces; s++) out.push(lerp(pts[i - 1], pts[i], s / pieces));
     }
     return out;
   }
-  // cut a centreline into hand-drawn dashes
+  // a centreline cut into dashes `on` long with `off` between them, cut exactly where the lengths run out
   function dashes(pts, on, off) {
-    const d = densify(pts, 2), out = []; let acc = 0, cur = [d[0]], pen = true;
-    for (let i = 1; i < d.length; i++) {
-      acc += dist(d[i - 1], d[i]);
-      if (pen) { cur.push(d[i]); if (acc >= on) { out.push(cur); pen = false; acc = 0; } }
-      else if (acc >= off) { pen = true; acc = 0; cur = [d[i]]; }
+    const line = densify(pts, 2), out = [];
+    if (!(on > 0) || !(off >= 0) || line.length < 2) return line.length > 1 ? [line] : [];
+    let inked = true, left = on, cur = [line[0]];
+    for (let i = 1; i < line.length; i++) {
+      let a = line[i - 1];
+      const b = line[i];
+      let span = dist(a, b);
+      while (span >= left) {
+        const cut = lerp(a, b, left / span);
+        if (inked) { cur.push(cut); out.push(cur); } else cur = [cut];
+        span -= left; a = cut; inked = !inked; left = inked ? on : off;
+      }
+      left -= span;
+      if (inked) cur.push(b);
     }
-    if (pen && cur.length > 1) out.push(cur);
+    if (inked && cur.length > 1 && plen(cur) > 0.5) out.push(cur);
     return out;
   }
-  // a straight segment drawn by hand bows a little
-  // ReferenceRenderer (2026-10-19): bow 'pen' is the old walkthrough's hand: each edge bends once, clearly, to one side
-  // (3% of its length, 2 to 7 points, a short edge barely), and with jitter its corners land up to that many points
-  // off. The default bow is the paper look's small random bend.
+  // A straight run drawn by hand bows a little. bow 'pen' bends each edge once, clearly, to one side: 3% of its length
+  // in points, between 2 and 7 (a short edge barely), and `jitter` moves its corners up to that many points. Any other
+  // bow is a small random bend. Points are canvas units; __canvasUnitPoints says how many points one unit is.
   function handSegments(pts, closed, r, amt = 1, bowStyle, jitter = 0) {
     const unit = +global.__canvasUnitPoints > 0 ? +global.__canvasUnitPoints : 1;
-    if (jitter) { pts = pts.map(p => [p[0] + (r() * 2 - 1) * jitter / unit, p[1] + (r() * 2 - 1) * jitter / unit]); }
-    const src = closed ? [...pts, pts[0]] : pts, out = [src[0]];
-    for (let i = 1; i < src.length; i++) {
-      const a = src[i - 1], b = src[i], L = dist(a, b), n = Math.max(2, Math.ceil(L / 5));
-      const Lpt = L * unit, penBow = Lpt < 24 ? Lpt * 0.03 : Math.min(Math.max(Lpt * 0.03, 2), 7);
-      const bow = bowStyle === 'pen' ? (r() < 0.5 ? -1 : 1) * penBow * (0.6 + 0.4 * r()) / unit * amt
-        : (r() - 0.5) * Math.min(3.2, L * 0.03) * amt * HAND, nx = -(b[1] - a[1]) / (L || 1), ny = (b[0] - a[0]) / (L || 1);
-      for (let s = 1; s <= n; s++) { const t = s / n, k = Math.sin(Math.PI * t) * bow; out.push([a[0] + (b[0] - a[0]) * t + nx * k, a[1] + (b[1] - a[1]) * t + ny * k]); }
+    if (jitter) pts = pts.map(p => [p[0] + (r() * 2 - 1) * jitter / unit, p[1] + (r() * 2 - 1) * jitter / unit]);
+    const corners = closed ? [...pts, pts[0]] : pts, out = [corners[0]];
+    for (let i = 1; i < corners.length; i++) {
+      const a = corners[i - 1], b = corners[i], len = dist(a, b) || 1, inPoints = len * unit;
+      let bend;
+      if (bowStyle === 'pen') {
+        const side = r() < 0.5 ? -1 : 1, size = inPoints < 24 ? inPoints * 0.03 : Math.min(Math.max(inPoints * 0.03, 2), 7);
+        bend = side * size * (0.6 + 0.4 * r()) / unit * amt;
+      } else bend = (r() - 0.5) * Math.min(3.2, len * 0.03) * amt * HAND;
+      const nx = -(b[1] - a[1]) / len, ny = (b[0] - a[0]) / len, pieces = Math.max(2, Math.ceil(len / 5));
+      for (let s = 1; s <= pieces; s++) {
+        const t = s / pieces, k = Math.sin(Math.PI * t) * bend, p = lerp(a, b, t);
+        out.push([p[0] + nx * k, p[1] + ny * k]);
+      }
     }
     return out;
   }
+  // An ellipse drawn by hand: its radius breathes with two slow waves, and the pen runs 6% past the start and drifts
+  // out by 2% as it closes (overshoot), the way a quick circle round something is drawn.
   function ellipsePts(cx, cy, rx, ry, rot, r, wobble = 1, overshoot = true) {
-    const n = Math.max(28, Math.round((rx + ry) / 2.2)), start = r() * Math.PI * 2, span = Math.PI * 2 * (overshoot ? 1.06 : 1);
-    const p1 = r() * 6, p2 = r() * 6, out = [];
-    for (let i = 0; i <= n; i++) {
-      const a = start + span * i / n, k = 1 + wobble * HAND * (0.018 * Math.sin(a * 2 + p1) + 0.012 * Math.sin(a * 3 + p2)) + (overshoot ? 0.02 * wobble * i / n : 0);
+    const count = Math.max(28, Math.round((rx + ry) / 2.2)), from = r() * Math.PI * 2, sweep = Math.PI * 2 * (overshoot ? 1.06 : 1);
+    const phase2 = r() * 6, phase3 = r() * 6, cos = Math.cos(rot), sin = Math.sin(rot), out = [];
+    for (let i = 0; i <= count; i++) {
+      const a = from + sweep * i / count;
+      const k = 1 + wobble * HAND * (0.018 * Math.sin(a * 2 + phase2) + 0.012 * Math.sin(a * 3 + phase3)) + (overshoot ? 0.02 * wobble * i / count : 0);
       const x = Math.cos(a) * rx * k, y = Math.sin(a) * ry * k;
-      out.push([cx + x * Math.cos(rot) - y * Math.sin(rot), cy + x * Math.sin(rot) + y * Math.cos(rot)]);
+      out.push([cx + x * cos - y * sin, cy + x * sin + y * cos]);
     }
     return out;
   }
-  // tapered outline around a centreline (a small cousin of perfect-freehand)
+  // The two edges of a stroke of half-width width(i) along a centreline. A corner is joined properly: the outer edge is
+  // mitred out so the stroke keeps its width round the bend, and a bend over 100 degrees gets a rounded outer edge,
+  // the way a round pen nib leaves it. Without it a box's corners thinned to 70% of the line and a tick's point to a hair.
+  function strokeEdges(pts, width) {
+    const n = pts.length, left = [], right = [];
+    const dir = (a, b) => { const d = dist(a, b) || 1; return [(b[0] - a[0]) / d, (b[1] - a[1]) / d]; };
+    for (let i = 0; i < n; i++) {
+      const p = pts[i], w = width(i);
+      const din = dir(pts[Math.max(0, i - 1)], pts[i === 0 ? 1 : i]), dout = dir(pts[i === n - 1 ? n - 2 : i], pts[Math.min(n - 1, i + 1)]);
+      const nin = [-din[1], din[0]], nout = [-dout[1], dout[0]];
+      let mx = nin[0] + nout[0], my = nin[1] + nout[1];
+      const ml = Math.hypot(mx, my);
+      if (ml < 1e-6) { mx = nin[0]; my = nin[1]; } else { mx /= ml; my /= ml; }
+      const cosHalf = Math.max(1e-6, mx * nin[0] + my * nin[1]);
+      const at = (nx, ny, k) => [p[0] + nx * k, p[1] + ny * k];
+      if (cosHalf >= 0.643) {                               // up to a 100 degree bend: one mitred point a side
+        const k = w / cosHalf;
+        left.push(at(mx, my, k)); right.push(at(mx, my, -k));
+        continue;
+      }
+      // sharper: the inner edge meets at the centreline's half-width, the outer edge goes round the corner
+      const turnsLeft = din[0] * dout[1] - din[1] * dout[0] > 0, outer = turnsLeft ? -1 : 1;
+      const arc = [], a0 = Math.atan2(outer * nin[1], outer * nin[0]);
+      let sweep = Math.atan2(outer * nout[1], outer * nout[0]) - a0;
+      while (sweep > Math.PI) sweep -= 2 * Math.PI;
+      while (sweep < -Math.PI) sweep += 2 * Math.PI;
+      const steps = Math.max(2, Math.ceil(Math.abs(sweep) / 0.35));
+      for (let s = 0; s <= steps; s++) { const a = a0 + sweep * s / steps; arc.push([p[0] + Math.cos(a) * w, p[1] + Math.sin(a) * w]); }
+      const inner = at(mx, my, -outer * w);
+      if (outer > 0) { left.push(...arc); right.push(inner); } else { right.push(...arc); left.push(inner); }
+    }
+    let widest = 0;
+    for (let i = 0; i < n; i++) widest = Math.max(widest, width(i));
+    return [untangle(left, widest * 6), untangle(right, widest * 6)];
+  }
+  // An edge without the small loops it ties where the centreline bends tighter than the pen is wide (the inside of a
+  // hairpin, a box's inner corner): each loop is cut at its crossing. Left in, a loop shows as a spike or a notch.
+  // Only loops shorter than `reach` go, so a curve that really crosses itself (a circle's overshoot) keeps its shape.
+  function untangle(edge, reach) {
+    const out = [], along = [];
+    const cross = (a, b, c, d) => {
+      const rx = b[0] - a[0], ry = b[1] - a[1], sx = d[0] - c[0], sy = d[1] - c[1], den = rx * sy - ry * sx;
+      if (Math.abs(den) < 1e-9) return null;
+      const t = ((c[0] - a[0]) * sy - (c[1] - a[1]) * sx) / den, u = ((c[0] - a[0]) * ry - (c[1] - a[1]) * rx) / den;
+      return t > 0 && t < 1 && u > 0 && u < 1 ? [a[0] + rx * t, a[1] + ry * t] : null;
+    };
+    for (const p of edge) {
+      // the run to p may cross an earlier segment; once that loop is cut, what is left of the run may cross another
+      for (let cut = true; cut && out.length >= 3;) {
+        cut = false;
+        const k = out.length, a = out[k - 1];
+        for (let j = k - 3; j >= 0 && along[k - 1] - along[j + 1] <= reach; j--) {
+          const hit = cross(out[j], out[j + 1], a, p);
+          if (!hit) continue;
+          out.length = along.length = j + 1;
+          out.push(hit); along.push(along[j] + dist(out[j], hit));
+          cut = true;
+          break;
+        }
+      }
+      along.push(out.length ? along[out.length - 1] + dist(out[out.length - 1], p) : 0);
+      out.push(p);
+    }
+    return out;
+  }
+  // A stroke's filled outline around its centreline, like a felt pen: it tapers in and out of each end (over 30% of
+  // the stroke, at most five widths) and swells a little along the way. taper 0 is the screen pen instead: one even
+  // width with round ends, which reads surer next to the marks it sits on.
   function outline(pts, size, taper = 1) {
-    const n = pts.length; if (n < 2) return null;
-    // ReferenceRenderer (2026-10-19): taper 0 is the screen pen, the old walkthrough's line: one even width end to end with
-    // round ends, no felt-pen swell (Farza missed how sure those marks looked next to the tapered ones).
+    pts = distinct(pts);
+    if (pts.length < 2) return null;
     if (taper === 0) return evenOutline(pts, size / 2);
-    const L = [0]; for (let i = 1; i < n; i++) L.push(L[i - 1] + dist(pts[i - 1], pts[i]));
-    const total = L[n - 1] || 1, ramp = Math.min(total * 0.3, size * 5) * taper || 1e-6;
-    const left = [], right = [];
-    for (let i = 0; i < n; i++) {
-      const a = pts[Math.max(0, i - 1)], b = pts[Math.min(n - 1, i + 1)], d = dist(a, b) || 1;
-      const nx = -(b[1] - a[1]) / d, ny = (b[0] - a[0]) / d, u = L[i];
-      // a light taper into and out of each stroke, and a slight swell along it, like a felt pen
-      const press = Math.min(1, 0.35 + 0.65 * Math.min(u, total - u) / ramp);
-      const w = size / 2 * press * (0.94 + 0.06 * Math.sin(u / 7));
-      left.push([pts[i][0] + nx * w, pts[i][1] + ny * w]); right.push([pts[i][0] - nx * w, pts[i][1] - ny * w]);
-    }
-    const f = v => v.toFixed(1);
-    return 'M' + left.map(p => f(p[0]) + ' ' + f(p[1])).join(' L') + ' L' + right.reverse().map(p => f(p[0]) + ' ' + f(p[1])).join(' L') + ' Z';
+    const along = [0];
+    for (let i = 1; i < pts.length; i++) along.push(along[i - 1] + dist(pts[i - 1], pts[i]));
+    const total = along[along.length - 1] || 1, ramp = Math.min(total * 0.3, size * 5) * taper || 1e-6;
+    const [left, right] = strokeEdges(pts, i => {
+      const u = along[i], press = Math.min(1, 0.35 + 0.65 * Math.min(u, total - u) / ramp);
+      return size / 2 * press * (0.94 + 0.06 * Math.sin(u / 7));
+    });
+    return 'M' + joined(left) + ' L' + joined(right.reverse()) + ' Z';
   }
-  // an even-width outline with round caps around a centreline (half-width w)
+  // an even-width outline (half-width w) with a round cap at each end
   function evenOutline(pts, w) {
-    const n = pts.length, left = [], right = [], normal = [];
-    for (let i = 0; i < n; i++) {
-      const a = pts[Math.max(0, i - 1)], b = pts[Math.min(n - 1, i + 1)], d = dist(a, b) || 1;
-      const nx = -(b[1] - a[1]) / d, ny = (b[0] - a[0]) / d;
-      normal.push([nx, ny]);
-      left.push([pts[i][0] + nx * w, pts[i][1] + ny * w]); right.push([pts[i][0] - nx * w, pts[i][1] - ny * w]);
-    }
-    // half a circle around an end, from one side of the line to the other, through the outside of the end
-    const cap = (p, nrm, from) => { const out = [], a0 = Math.atan2(nrm[1], nrm[0]) + from; for (let k = 1; k < 8; k++) { const a = a0 - Math.PI * k / 8; out.push([p[0] + Math.cos(a) * w, p[1] + Math.sin(a) * w]); } return out; };
-    const ring = [...left, ...cap(pts[n - 1], normal[n - 1], 0), ...right.reverse(), ...cap(pts[0], normal[0], Math.PI)];
-    const f = v => v.toFixed(1);
-    return 'M' + ring.map(p => f(p[0]) + ' ' + f(p[1])).join(' L') + ' Z';
+    pts = distinct(pts);
+    if (pts.length < 2) return null;
+    const [left, right] = strokeEdges(pts, () => w), n = pts.length;
+    // half a circle round an end, from one edge to the other through the outside of the end
+    const cap = (p, from, to) => {
+      const out = [], a0 = Math.atan2(from[1] - p[1], from[0] - p[0]);
+      let sweep = Math.atan2(to[1] - p[1], to[0] - p[0]) - a0;
+      if (sweep > 0) sweep -= 2 * Math.PI;                   // always the clockwise way round, through the outside
+      for (let k = 1; k < 8; k++) { const a = a0 + sweep * k / 8; out.push([p[0] + Math.cos(a) * w, p[1] + Math.sin(a) * w]); }
+      return out;
+    };
+    const endCap = cap(pts[n - 1], left[left.length - 1], right[right.length - 1]), startCap = cap(pts[0], right[0], left[0]);
+    return 'M' + joined([...left, ...endCap, ...right.reverse(), ...startCap]) + ' Z';
   }
-  const poly = pts => 'M' + pts.map(p => p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' L');
-  const plen = pts => pts.reduce((s, p, i) => i ? s + dist(pts[i - 1], p) : 0, 0);
+  const poly = pts => 'M' + joined(pts);
+  const plen = pts => { let total = 0; for (let i = 1; i < pts.length; i++) total += dist(pts[i - 1], pts[i]); return total; };
 
+  // n + 1 evenly spaced points along an SVG path, measured by the browser
   function samplePath(d, n = 120) {
-    const el = document.createElementNS('http://www.w3.org/2000/svg', 'path'); el.setAttribute('d', d);
-    const tmp = document.getElementById('__probe'); tmp.appendChild(el);
-    const L = el.getTotalLength(), out = [];
-    for (let i = 0; i <= n; i++) { const p = el.getPointAtLength(L * i / n); out.push([p.x, p.y]); }
-    el.remove(); return out;
+    const probe = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    probe.setAttribute('d', d);
+    document.getElementById('__probe').appendChild(probe);
+    const length = probe.getTotalLength(), out = [];
+    for (let i = 0; i <= n; i++) { const p = probe.getPointAtLength(length * i / n); out.push([p.x, p.y]); }
+    probe.remove();
+    return out;
   }
 
   // ================================================================ the program runner
   // Everything in makeRunner is self-contained (no outer variables), so the same source also runs inside a Web Worker.
-  function makeRunner(TONE_NAMES) {
-    const LIMIT = 2000;
-    // (ReferenceRenderer: the same rule as 1.6, without slicing the rest of the program at every candidate end, which made it
-    // quadratic: 5 ms per call on a 12 KB program with Mate's pieces, 200 ms for attribute())
-    const WS = ch => ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || /\s/.test(ch);
+  function makeRunner(TONE_NAMES, MATE_HEX, REAL_HEX, COLOR_ALIASES) {
+    // Everything here is self-contained (no outer names): workerSource() posts this function's own text to a Worker.
+    // The colour tables are arguments so a sandboxed drawing can name 'red' or 'green'; the worker has no closure.
+    const LIMIT = 2000;                                  // marks one program may make
+    // The app runs drawings inside a canvas global it passes in. This function's worker copy has no closure, so a
+    // missing `global` must not throw (that used to stop every 3D figure in the sandbox before it drew anything).
+    const hostGlobal = () => (typeof global !== 'undefined' && global) || globalThis;
+    const hostCall = name => { const g = hostGlobal(), fn = g && g[name]; return typeof fn === 'function' ? fn : null; };
+    const colorName = c => { const k = String(c).toLowerCase().replace(/[\s_-]+/g, ''); return k in MATE_HEX ? k : (COLOR_ALIASES && COLOR_ALIASES[k]) || String(c).trim(); };
+    const paintOf = (table, c) => { if (typeof c !== 'string') return c; const name = colorName(c); return table[name] || name || table.ink; };
+    const mateColor = c => paintOf(MATE_HEX, c), realColor = c => paintOf(REAL_HEX, c);
+
+    // ---------------------------------------------------------------- where statements end
+    // A program arrives a few characters at a time, and each complete statement is run the moment it is whole. A
+    // statement ends at a ';', a line break or a closing '}' outside any brackets, unless the code plainly goes on: the
+    // statement so far ends in an operator or an opening bracket, the next line starts with one (.map, + 1, ? a : b),
+    // or a '}' is followed by else, catch or finally. Strings, template literals (with ${} inside them, nested to any
+    // depth), regular expressions and comments are skipped whole; one left open stops the scan, since what follows
+    // is still inside it. Returns the offset just after each end, from `start` on.
+    const ENDS_STATEMENT = ';\n}';
+    const GOES_ON_AFTER = '=+-*/%&|^~!<>,([{:?';         // a statement ending in one of these is not done
+    const GOES_ON_BEFORE = '.?:+-*/%&|^=<>,)]';           // nor is one whose next line starts with one of these
+    const JOINED_AFTER_BRACE = /^(?:else|catch|finally)\b/;
+    // after these a '/' starts a regular expression; after anything else it divides
+    const REGEX_AFTER = '(,=:[!&|?{};+-*%<>~^';
+    const REGEX_WORDS = /(?:^|[^\w$])(?:return|typeof|instanceof|in|of|new|delete|void|throw|case|do|else|yield|await)$/;
+    const isSpace = ch => ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || /\s/.test(ch);
+
     function statementEnds(code, start = 0) {
-      const out = []; let depth = 0, i = start; const n = code.length;
+      const n = code.length, out = [], open = [];         // open: the brackets we are inside; '$' is a template's ${
+      let i = start, lastSignificant = start;            // lastSignificant: just after the last code that is not blank or a comment
+      // skip a quoted string, a template literal's text, or a regular expression; false when it never closes
+      const skipQuoted = q => { for (let j = i + 1; j < n; j++) { if (code[j] === '\\') j++; else if (code[j] === q) { i = j + 1; return true; } } return false; };
+      const skipTemplate = () => {                        // from just after ` or }: to the closing ` (true) or a ${ (pushes '$')
+        for (let j = i; j < n; j++) {
+          if (code[j] === '\\') j++;
+          else if (code[j] === '`') { i = j + 1; return true; }
+          else if (code[j] === '$' && code[j + 1] === '{') { open.push('$'); i = j + 2; return true; }
+        }
+        return false;
+      };
+      const skipRegex = () => {
+        let inClass = false;
+        for (let j = i + 1; j < n && code[j] !== '\n'; j++) {
+          if (code[j] === '\\') j++;
+          else if (code[j] === '[') inClass = true;
+          else if (code[j] === ']') inClass = false;
+          else if (code[j] === '/' && !inClass) { j++; while (j < n && /[a-z]/i.test(code[j])) j++; i = j; return true; }
+        }
+        return false;
+      };
+      const regexHere = () => {
+        let k = lastSignificant - 1;
+        if (k < start) return true;
+        const before = code[k];
+        if (REGEX_AFTER.includes(before)) return true;
+        return /[\w$]/.test(before) && REGEX_WORDS.test(code.slice(Math.max(0, k - 11), k + 1));
+      };
       while (i < n) {
         const c = code[i];
-        if (code.startsWith('//', i)) { const j = code.indexOf('\n', i); i = j < 0 ? n : j; continue; }
-        if (code.startsWith('/*', i)) { const j = code.indexOf('*/', i + 2); i = j < 0 ? n : j + 2; continue; }
-        if (c === '"' || c === "'" || c === '`') { let j = i + 1; while (j < n && code[j] !== c) j += code[j] === '\\' ? 2 : 1; if (j >= n) break; i = j + 1; continue; }
-        if ('([{'.includes(c)) depth++; else if (')]}'.includes(c)) depth--;
-        if (depth === 0 && ';\n}'.includes(c)) {
-          let j = i + 1; while (j < n && (code[j] === ' ' || code[j] === '\t')) j++;       // the next code: nxt = code.slice(j)
-          let bs = start, be = i + 1; while (bs < be && WS(code[bs])) bs++; while (be > bs && WS(code[be - 1])) be--;   // body = code.slice(bs, be)
-          if (j < n && be > bs) {
-            let te = be; if (code[te - 1] === ';') te--; while (te > bs && WS(code[te - 1])) te--;
-            const lastc = te > bs ? code[te - 1] : '';
-            if (!'.?:+-*/&|,)]'.includes(code[j]) && !(lastc && '=+-*/&|,([{:?'.includes(lastc)) && !(c === '}' && code.startsWith('else', j))) { out.push(i + 1); start = i + 1; }
-          }
+        if (c === '/' && code[i + 1] === '/') { const j = code.indexOf('\n', i); i = j < 0 ? n : j; continue; }
+        if (c === '/' && code[i + 1] === '*') { const j = code.indexOf('*/', i + 2); if (j < 0) break; i = j + 2; continue; }
+        if (c === '"' || c === "'") { if (!skipQuoted(c)) break; lastSignificant = i; continue; }
+        if (c === '`') { i++; if (!skipTemplate()) break; lastSignificant = i; continue; }
+        if (c === '/' && regexHere()) { if (!skipRegex()) break; lastSignificant = i; continue; }
+        if (c === '(' || c === '[' || c === '{') open.push(c);
+        else if (c === ')' || c === ']' || c === '}') {
+          // a '}' that closes a template's ${ goes back into the template's text
+          if (c === '}' && open[open.length - 1] === '$') { open.pop(); i++; if (!skipTemplate()) break; lastSignificant = i; continue; }
+          open.pop();                                      // (a stray closer is a syntax error the run reports; scanning goes on)
         }
+        if (!open.length && ENDS_STATEMENT.includes(c) && endsHere(code, start, i, c === '}' ? i + 1 : lastSignificant)) { out.push(i + 1); start = i + 1; lastSignificant = start; }
+        else if (!isSpace(c)) lastSignificant = i + 1;
         i++;
       }
       return out;
     }
-    // A stream sends its whole prefix every time. Keep the boundaries already scanned, but recheck the last one:
-    // a trailing "} e" can still become "} else". Earlier boundaries cannot change when more code is appended.
+    // Whether the statement from `start` ends at the ';', line break or '}' at i (`last`: just after its last real code).
+    function endsHere(code, start, i, last) {
+      const n = code.length;
+      let next = i + 1;
+      while (next < n && (code[next] === ' ' || code[next] === '\t')) next++;
+      if (next >= n) return false;                        // nothing after it yet: the statement may still go on
+      let first = start;
+      while (first < i + 1 && isSpace(code[first])) first++;
+      if (first >= i + 1) return false;                   // nothing but blanks
+      let end = last;
+      while (end > first && isSpace(code[end - 1])) end--;
+      if (code[i] === ';' && end === i + 1) { end--; while (end > first && isSpace(code[end - 1])) end--; }
+      const lastChar = end > first ? code[end - 1] : '';
+      if (GOES_ON_BEFORE.includes(code[next])) return false;
+      if (lastChar && GOES_ON_AFTER.includes(lastChar)) return false;
+      return !(code[i] === '}' && JOINED_AFTER_BRACE.test(code.slice(next, next + 8)));
+    }
+    // A stream sends its whole prefix every time. The ends already found stay, except the last one: a trailing
+    // "} e" may still become "} else". Ends before it cannot change when more code is appended.
     function statementScanner() {
-      let previous = '', ends = [];
+      let seen = '', ends = [];
       return code => {
-        if (code === previous) return ends;
-        const keep = code.startsWith(previous) ? Math.max(0, ends.length - 1) : 0;
-        const start = keep ? ends[keep - 1] : 0;
-        ends = ends.slice(0, keep).concat(statementEnds(code, start));
-        previous = code;
+        if (code === seen) return ends;
+        const keep = code.startsWith(seen) ? Math.max(0, ends.length - 1) : 0;
+        ends = ends.slice(0, keep).concat(statementEnds(code, keep ? ends[keep - 1] : 0));
+        seen = code;
         return ends;
       };
     }
-    const textW = (s, size, style) => String(s).length * (size || 20) * (style === 'title' ? 0.56 : 0.47);
+
+    // ---------------------------------------------------------------- small helpers for the drawing calls
+    // A rough width before the page measures the real glyphs. Latin letters stay at the font's average; East Asian
+    // characters and emoji are about an em wide (they used to be counted as one Latin letter and ran out of their box).
+    const WIDE_GLYPH = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]|[\u{1F300}-\u{1FAFF}\u{20000}-\u{3FFFD}]/u;
+    const glyphs = (s, px, average) => { let narrow = 0, wide = 0; for (const ch of String(s)) WIDE_GLYPH.test(ch) ? wide++ : narrow++; return narrow * px * average + wide * px; };
+    const textW = (s, size, style) => glyphs(s, size || 20, style === 'title' ? 0.56 : 0.47);
+    // round tick values from a to b, about n of them: steps of 1, 2, 2.5 or 5 times a power of ten
     function niceTicks(a, b, n) {
-      n = n || 5; const lo = Math.min(a, b), hi = Math.max(a, b), span = hi - lo || 1, mag = Math.pow(10, Math.floor(Math.log10(span / n)));
-      let st = mag; for (const k of [1, 2, 2.5, 5, 10]) { st = k * mag; if (span / st <= n) break; }
-      const out = []; for (let v = Math.ceil(lo / st - 1e-9) * st; v <= hi + 1e-9; v += st) out.push(+v.toFixed(10));
+      n = n || 5;
+      const lo = Math.min(a, b), hi = Math.max(a, b), span = hi - lo || 1, unit = Math.pow(10, Math.floor(Math.log10(span / n)));
+      let step = unit;
+      for (const k of [1, 2, 2.5, 5, 10]) { step = k * unit; if (span / step <= n) break; }
+      const out = [];
+      // each tick from its own index, so a long axis does not gather rounding error tick by tick
+      for (let k = Math.ceil(lo / step - 1e-9), last = Math.floor(hi / step + 1e-9); k <= last; k++) out.push(+(k * step).toFixed(10));
       return out;
     }
-    // big tick values read short ("80k", "1.5M"), so a $ axis doesn't run past the card's edge
-    const short = (v, d, u) => String(+(v / d).toFixed(Math.abs(v / d) < 10 && v % d ? 1 : 0)) + u;
-    const fmt = v => Math.abs(v) >= 1e6 ? short(v, 1e6, 'M') : Math.abs(v) >= 10000 ? short(v, 1000, 'k') : Number.isInteger(v) || Math.abs(v) >= 100 ? String(Math.round(v)) : String(+v.toFixed(2));
+    // A tick value as an axis shows it. Big ones read short ("80k", "1.5M") so a $ axis stays on the card.
+    const shortened = (v, unit, suffix) => String(+(v / unit).toFixed(Math.abs(v / unit) < 10 && v % unit ? 1 : 0)) + suffix;
+    const fmt = v => Math.abs(v) >= 1e6 ? shortened(v, 1e6, 'M')
+      : Math.abs(v) >= 10000 ? shortened(v, 1000, 'k')
+      : Number.isInteger(v) || Math.abs(v) >= 100 ? String(Math.round(v)) : String(+v.toFixed(2));
     const finite = p => Array.isArray(p) && isFinite(p[0]) && isFinite(p[1]);
 
-    // ReferenceRenderer: a web link written into card text (a web-search citation "([bestbuy.com](https://…))", a long bare
-    // URL) is shown as its short name, and the text keeps the link (m.link) for the app to make clickable: a product
-    // card's whole listing URL ran far off the card (2026-10-07).
-    const LONG_URL = 32;
-    const hostOf = url => url.replace(/^https?:\/\//i, '').split(/[/?#]/)[0].replace(/^www\./i, '');
+    // A web link in card text (a citation "([bestbuy.com](https://…))", a long bare URL) shows as a short name and the
+    // text keeps the first link (m.link) for the app to make clickable; a product page's whole URL ran off the card.
+    const SHORT_URL = 32;
+    const siteOf = url => url.replace(/^https?:\/\//i, '').split(/[/?#]/)[0].replace(/^www\./i, '');
+    // Sentence punctuation stuck to a URL is not part of the link. It stays in the words; the click target used to
+    // include the period, so the page it opened was wrong.
+    const peelTail = url => { const m = /^(.*?)([.,;:!?]+)$/.exec(url); return m && m[1].length > 10 ? [m[1], m[2]] : [url, '']; };
     function linkedText(value) {
       if (typeof value !== 'string' || !/https?:\/\//i.test(value)) return { text: value };
       let link = null;
-      let shown = value.replace(/\[([^\]\n]{1,80})\]\((https?:\/\/[^\s)]+)\)/gi, (_, label, url) => { link = link || url; return label; });
-      shown = shown.replace(/https?:\/\/[^\s)\]]+/gi, url => {
-        link = link || url;
-        if (url.length <= LONG_URL) return url;
-        const path = url.replace(/^https?:\/\/[^/?#]+/i, '');
-        return hostOf(url) + (path.length > 1 ? '/…' : '');
-      });
+      const shown = value
+        .replace(/\[([^\]\n]{1,80})\]\((https?:\/\/[^\s)]+)\)/gi, (_, label, url) => { const [clean] = peelTail(url); link = link || clean; return label; })
+        .replace(/https?:\/\/[^\s)\]]+/gi, url => {
+          const [clean, tail] = peelTail(url);
+          link = link || clean;
+          if (clean.length <= SHORT_URL) return clean + tail;
+          const rest = clean.replace(/^https?:\/\/[^/?#]+/i, '');
+          return siteOf(clean) + (rest.length > 1 ? '/…' : '') + tail;
+        });
       return link ? { text: shown, link } : { text: value };
     }
 
@@ -266,15 +465,13 @@
         if (mk.step == null) mk.step = curStep;
         if (curTurn && mk.turn == null) mk.turn = curTurn;
         if (cue && !mk.say && mk.do !== 'edit') { mk.say = cue; cue = null; }
-        marks.push(mk); return mk;
+        marks.push(mk);
+        return mk;
       };
       const api = {
-        // ReferenceRenderer: set by Mate's pieces when the app draws windows: a 3D figure that would stand on paper stands in
-        // a window instead (the pieces draw it: __card3d(x, y, w, h, o))
+        // Set by the pieces when the app draws windows: a 3D figure that would stand on paper stands in a window instead.
         __card3d: null,
         W: w, H: h, PI: Math.PI, sin: Math.sin, cos: Math.cos, abs: Math.abs, min: Math.min, max: Math.max, sqrt: Math.sqrt, round: Math.round,
-        // ReferenceRenderer (2026-10-12): the rest of Math's deterministic functions too; a car engine answer called floor()
-        // bare, as 3D code often does, and stopped there.
         floor: Math.floor, ceil: Math.ceil, trunc: Math.trunc, sign: Math.sign, pow: Math.pow, exp: Math.exp, log: Math.log,
         log2: Math.log2, log10: Math.log10, hypot: Math.hypot, atan2: Math.atan2, atan: Math.atan, asin: Math.asin, acos: Math.acos,
         tan: Math.tan, sinh: Math.sinh, cosh: Math.cosh, tanh: Math.tanh, cbrt: Math.cbrt,
@@ -285,101 +482,105 @@
         dist: (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1]), angle: (a, b) => Math.atan2(b[1] - a[1], b[0] - a[0]),
         perp: (a, b) => { const d = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; return [-(b[1] - a[1]) / d, (b[0] - a[0]) / d]; },
         rotate: (p, c, a) => [c[0] + (p[0] - c[0]) * Math.cos(a) - (p[1] - c[1]) * Math.sin(a), c[1] + (p[0] - c[0]) * Math.sin(a) + (p[1] - c[1]) * Math.cos(a)],
-        step: n => { curStep = n; }, say: s => { cue = s; says.push(curTurn ? { text: String(s), at: marks.length, step: curStep, turn: curTurn } : { text: String(s), at: marks.length, step: curStep }); },
-        // One brain: seen("…") (what the screen shows them doing) and noted("…") (a fact about the user) are read
-        // from the program by the Worker and the app; they draw nothing and say nothing.
+        step: n => { curStep = n; },
+        say: s => { const line = { text: String(s), at: marks.length, step: curStep }; if (curTurn) line.turn = curTurn; says.push(line); cue = s; },
         seen: () => {}, noted: () => {},
-        line: (pts, o) => push({ do: 'line', pts }, o), curve: (pts, o) => push({ do: 'line', pts, smooth: true }, o),
-        circle: (x, y, r, o) => push({ do: 'circle', at: [x, y], r }, o), ellipse: (x, y, rx, ry, o) => push({ do: 'ellipse', at: [x, y], rx, ry }, o),
-        rect: (x, y, w_, h_, o) => push({ do: 'rect', at: [x, y], w: w_, h: h_ }, o), poly: (pts, o) => push({ do: 'poly', pts }, o),
-        path: (d, o) => push({ do: 'path', d }, o), text: (x, y, text, o) => push(Object.assign({ do: 'text', at: [x, y] }, linkedText(text)), o),
-        arrow: (pts, o) => push({ do: 'arrow', pts }, o), highlight: (x, y, w_, h_, o) => push({ do: 'highlight', at: [x, y], w: w_, h: h_ }, o),
+        line: (pts, o) => push({ do: 'line', pts }, o),
+        curve: (pts, o) => push({ do: 'line', pts, smooth: true }, o),
+        circle: (x, y, r, o) => push({ do: 'circle', at: [x, y], r }, o),
+        ellipse: (x, y, rx, ry, o) => push({ do: 'ellipse', at: [x, y], rx, ry }, o),
+        rect: (x, y, w_, h_, o) => push({ do: 'rect', at: [x, y], w: w_, h: h_ }, o),
+        poly: (pts, o) => push({ do: 'poly', pts }, o),
+        path: (d, o) => push({ do: 'path', d }, o),
+        text: (x, y, text, o) => push(Object.assign({ do: 'text', at: [x, y] }, linkedText(text)), o),
+        arrow: (pts, o) => push({ do: 'arrow', pts }, o),
         dot: (x, y, r, o) => push({ do: 'dot', at: [x, y], r }, o),
-        // ReferenceRenderer: a real photo found by the app's image search for `o.query`, filling that box
         image: (x, y, w_, h_, o) => push({ do: 'image', at: [x, y], w: w_, h: h_ }, o),
-        // ReferenceRenderer: a little window (title bar with its three buttons, a board to draw on) the app paints for that whole
-        // box; Mate's pieces (paper, receipt, clipping) call it, never a program directly
-        __window: (x, y, w_, h_, o) => push({ do: 'window', at: [x, y], w: w_, h: h_ }, o), molecule: (smiles, x, y, w_, h_, o) => push({ do: 'molecule', smiles, at: [x, y], w: w_, h: h_ }, o)
+        // A little window (title bar, board). The pieces call it; a program is not taught to.
+        __window: (x, y, w_, h_, o) => push({ do: 'window', at: [x, y], w: w_, h: h_ }, o),
+        molecule: (smiles, x, y, w_, h_, o) => push({ do: 'molecule', smiles, at: [x, y], w: w_, h: h_ }, o),
       };
-      // ReferenceRenderer (2026-10-09): rough [x, y, w, h] boxes of the ink drawn so far (shapes, words, photos; not the cards
-      // they sit on), so a piece placed later (a button) can step off them instead of landing on the drawing.
+
+      // Rough boxes of the ink so far (not the cards it sits on), so a later piece can step off it.
       api.__inkBoxes = () => {
         const out = [];
-        for (const m of marks) {
-          if (!m || m.do === 'window' || m.do === 'edit' || /3d$/.test(m.do || '') && m.do !== 'stage3d') continue;
-          if (m.role === 'paper' || m.role === 'button' || m.role === 'handoff' || m.role === 'open') continue;
-          if (m.do === 'dot' && m.fillAlpha === 0 && (+m.r || 0) <= 0.5) continue;
+        const boxOf = m => {
+          if (!m || m.do === 'window' || m.do === 'edit' || (/3d$/.test(m.do || '') && m.do !== 'stage3d')) return null;
+          if (m.role === 'paper' || m.role === 'button' || m.role === 'handoff' || m.role === 'open') return null;
+          if (m.do === 'dot' && m.fillAlpha === 0 && (+m.r || 0) <= 0.5) return null;
           const pad = (+m.size || 3) / 2, at = Array.isArray(m.at) ? m.at : null;
-          let b = null;
           if (Array.isArray(m.pts) && m.pts.length) {
-            const P = m.pts.filter(q => Array.isArray(q) && isFinite(q[0]) && isFinite(q[1]));
-            if (P.length) { const xs = P.map(q => q[0]), ys = P.map(q => q[1]); b = [Math.min(...xs) - pad, Math.min(...ys) - pad, Math.max(...xs) - Math.min(...xs) + 2 * pad, Math.max(...ys) - Math.min(...ys) + 2 * pad]; }
-          } else if (at) {
-            if (m.do === 'circle' || m.do === 'dot') { const r = (+m.r || 3) + pad; b = [at[0] - r, at[1] - r, 2 * r, 2 * r]; }
-            else if (m.do === 'ellipse') { const rx = (+m.rx || 0) + pad, ry = (+m.ry || 0) + pad; b = [at[0] - rx, at[1] - ry, 2 * rx, 2 * ry]; }
-            else if (m.do === 'text') {
-              const size = +m.size || 20, ls = String(m.text == null ? '' : m.text).split('\n'), tw = Math.max(...ls.map(t => t.length)) * size * 0.5;
-              const ww = m.fit ? Math.min(+m.fit[0] || tw, tw) : tw;
-              b = [at[0] - (m.anchor === 'middle' ? ww / 2 : m.anchor === 'end' ? ww : 0), m.top ? at[1] - size * 0.8 : at[1] - size * 0.8, ww, size * 1.05 * ls.length];
-            } else if (isFinite(+m.w) && isFinite(+m.h)) b = [Math.min(at[0], at[0] + +m.w), Math.min(at[1], at[1] + +m.h), Math.abs(+m.w), Math.abs(+m.h)];
+            let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, n = 0;
+            for (const q of m.pts) if (Array.isArray(q) && isFinite(q[0]) && isFinite(q[1])) { n++; x0 = Math.min(x0, q[0]); y0 = Math.min(y0, q[1]); x1 = Math.max(x1, q[0]); y1 = Math.max(y1, q[1]); }
+            return n ? [x0 - pad, y0 - pad, x1 - x0 + 2 * pad, y1 - y0 + 2 * pad] : null;
           }
+          if (!at) return null;
+          if (m.do === 'circle' || m.do === 'dot') { const r = (+m.r || 3) + pad; return [at[0] - r, at[1] - r, 2 * r, 2 * r]; }
+          if (m.do === 'ellipse') { const rx = (+m.rx || 0) + pad, ry = (+m.ry || 0) + pad; return [at[0] - rx, at[1] - ry, 2 * rx, 2 * ry]; }
+          if (m.do === 'text') {
+            const size = +m.size || 20, lines = String(m.text == null ? '' : m.text).split('\n');
+            const tw = Math.max(...lines.map(t => glyphs(t, size, 0.5)));
+            const ww = m.fit ? Math.min(+m.fit[0] || tw, tw) : tw;
+            const x = at[0] - (m.anchor === 'middle' ? ww / 2 : m.anchor === 'end' ? ww : 0);
+            // `top` still sits on the alphabetic line (that is how the renderer reads it), so the box starts where a normal line does.
+            return [x, at[1] - size * 0.8, ww, size * 1.05 * lines.length];
+          }
+          if (isFinite(+m.w) && isFinite(+m.h)) return [Math.min(at[0], at[0] + +m.w), Math.min(at[1], at[1] + +m.h), Math.abs(+m.w), Math.abs(+m.h)];
+          return null;
+        };
+        for (const m of marks) {
+          const b = boxOf(m);
           if (b && b.every(v => isFinite(v)) && b[2] > 0 && b[3] > 0) out.push(b);
         }
         return out;
       };
 
-      // ------------------------------------------------ 3D: an object standing on the screen (ReferenceRenderer)
-      // scene3d(x, y, w, h, build, o) stands a 3D object in that rectangle of the screen (pixels, like paper). Every part
-      // is its own mark, so parts grow in with the pen, beat by beat, and stage.label() writes a word in Mate's ink that
-      // follows a point of the object. The native canvas draws the stage with Metal among the 2D marks. The part
-      // ops are the ones the Metal renderer (native Metal renderer) reads.
+      // ------------------------------------------------ a 3D figure's rectangle
       let stageCount = 0;
-      // Every 3D figure's rectangle: Mate's paper pieces step aside from them (clearOfFigures).
       const stageBoxes = [];
-      api.clearOfFigures = (px, py, pw, ph) => {
-        const gap = 10, overlaps = (ax, ay) => stageBoxes.some(b => ax < b[0] + b[2] + gap && ax + pw + gap > b[0] && ay < b[1] + b[3] + gap && ay + ph + gap > b[1]);
-        if (!overlaps(px, py)) return [px, py];
-        const fits = (ax, ay) => ax >= 4 && ay >= 4 && ax + pw <= w - 4 && ay + ph <= h - 4 && !overlaps(ax, ay);
-        const options = [];
-        for (const b of stageBoxes) {
-          options.push([b[0] + b[2] + gap, py], [b[0] - pw - gap, py], [px, b[1] + b[3] + gap], [px, b[1] - ph - gap]);
-          options.push([b[0] + b[2] + gap, Math.min(Math.max(4, py), h - ph - 4)], [b[0] - pw - gap, Math.min(Math.max(4, py), h - ph - 4)]);
+      const fin = v => typeof v === 'number' && isFinite(v);
+      const r3 = v => Math.round(v * 1000) / 1000;
+      const v3 = (v, fallback) => Array.isArray(v) && v.length >= 3 && fin(v[0]) && fin(v[1]) && fin(v[2]) ? [v[0], v[1], v[2]] : fallback;
+      // An axis is 'x' or '-z' as often as [1, 0, 0]. A string the old reader dropped became "up", so a fan spun on the wrong axis.
+      const axis3 = (v, fallback) => {
+        if (typeof v === 'string') {
+          const m = /^\s*([+-]?)\s*([xyz])\s*$/i.exec(v);
+          if (m) { const a = [0, 0, 0]; a['xyz'.indexOf(m[2].toLowerCase())] = m[1] === '-' ? -1 : 1; return a; }
         }
-        const busyHere = typeof global.__busyFor === 'function' ? (ax, ay) => global.__busyFor(ax, ay, pw, ph) : () => 0;
-        const limit = busyHere(px, py) + 0.006;
-        const free = options.filter(([ax, ay]) => fits(ax, ay) && busyHere(ax, ay) <= limit)
-          .sort((a, b2) => Math.hypot(a[0] - px, a[1] - py) - Math.hypot(b2[0] - px, b2[1] - py));
+        return v3(v, fallback);
+      };
+      const pickKeys = (object, keys) => {
+        const out = {};
+        if (object && typeof object === 'object') for (const k of keys) if (object[k] !== undefined) out[k] = object[k];
+        return out;
+      };
+      const tintMaterial = (material, colorOf, glowOf) => {
+        if (material.color != null) material.color = colorOf(material.color);
+        if (material.emissive != null) material.emissive = (glowOf || colorOf)(material.emissive);
+        for (const k of ['bands', 'colors']) if (Array.isArray(material[k])) material[k] = material[k].map(colorOf);
+        return material;
+      };
+      // Paper steps off every figure. The nearest calm spot on the card wins; covering the figure is the last resort.
+      api.clearOfFigures = (px, py, pw, ph) => {
+        const gap = 10;
+        const hits = (ax, ay) => stageBoxes.some(b => ax < b[0] + b[2] + gap && ax + pw + gap > b[0] && ay < b[1] + b[3] + gap && ay + ph + gap > b[1]);
+        if (!hits(px, py)) return [px, py];
+        const onCard = (ax, ay) => ax >= 4 && ay >= 4 && ax + pw <= w - 4 && ay + ph <= h - 4 && !hits(ax, ay);
+        const spots = [];
+        for (const b of stageBoxes) {
+          const yClamp = Math.min(Math.max(4, py), h - ph - 4);
+          spots.push([b[0] + b[2] + gap, py], [b[0] - pw - gap, py], [px, b[1] + b[3] + gap], [px, b[1] - ph - gap], [b[0] + b[2] + gap, yClamp], [b[0] - pw - gap, yClamp]);
+        }
+        const busy = hostCall('__busyFor');
+        const score = (ax, ay) => busy ? busy(ax, ay, pw, ph) : 0;
+        const limit = score(px, py) + 0.006;
+        const free = spots.filter(([ax, ay]) => onCard(ax, ay) && score(ax, ay) <= limit)
+          .sort((a, b) => Math.hypot(a[0] - px, a[1] - py) - Math.hypot(b[0] - px, b[1] - py));
         if (!free.length) { warn('a paper piece covers a 3D figure (no calm spot beside it)'); return [px, py]; }
         warn('moved a paper piece off a 3D figure');
         return free[0];
       };
-      const MATERIAL_KEYS = ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity', 'opacity', 'double', 'flat', 'bands', 'colors', 'glow'];
-      const fin = v => typeof v === 'number' && isFinite(v);
-      const v3 = (v, fallback) => Array.isArray(v) && v.length >= 3 && fin(v[0]) && fin(v[1]) && fin(v[2]) ? [v[0], v[1], v[2]] : fallback;
-      // ReferenceRenderer (2026-10-09): models write an axis as 'x' or '-z' as often as [1, 0, 0]; v3 dropped those to the
-      // default [0, 1, 0], so a jet engine's fan or a plane's propeller swung round the vertical instead of turning.
-      const axis3 = (v, fallback) => {
-        if (typeof v === 'string') { const m = /^\s*([+-]?)\s*([xyz])\s*$/i.exec(v); if (m) { const a = [0, 0, 0]; a['xyz'.indexOf(m[2].toLowerCase())] = m[1] === '-' ? -1 : 1; return a; } }
-        return v3(v, fallback);
-      };
-      const pickKeys = (object, keys) => { const out = {}; if (object && typeof object === 'object') for (const k of keys) if (object[k] !== undefined) out[k] = object[k]; return out; };
-      const r3 = v => Math.round(v * 1000) / 1000;
-      // A part's colours are Mate's colours, as in 2D: 'butter', 'cream', 'yellow' (sun), 'green' (leaf) are its tones.
-      const colorLikeMate = c => typeof c === 'string' ? tone(normColor(c)) : c;
-      const colorsLikeMate = material => {
-        for (const k of ['color', 'emissive']) if (material[k] != null) material[k] = colorLikeMate(material[k]);
-        for (const k of ['bands', 'colors']) if (Array.isArray(material[k])) material[k] = material[k].map(colorLikeMate);
-        return material;
-      };
-      // figure(): the same names in real colours (REAL_TONES).
-      const colorLikeReal = c => typeof c === 'string' ? realTone(normColor(c)) : c;
-      const colorsLikeReal = material => {
-        if (material.color != null) material.color = colorLikeReal(material.color);
-        if (material.emissive != null) material.emissive = colorLikeMate(material.emissive);   // light stays vivid
-        for (const k of ['bands', 'colors']) if (Array.isArray(material[k])) material[k] = material[k].map(colorLikeReal);
-        return material;
-      };
-      // The window a figure's rectangle is placed on (most of the rectangle inside it), the smallest when cards overlap.
+      // The window a figure's rectangle is mostly inside, the smallest when cards overlap.
       const hostCardFor = (x, y, w_, h_) => {
         let best = null;
         for (const m of marks) {
@@ -390,76 +591,81 @@
         }
         return best;
       };
-      // Stands a figure's stage in its rectangle (on paper, on a card the program drew, or floating) and pushes its
-      // stage3d mark: shared by scene3d() and figure(), so both place a figure the same way. `look` marks a figure()
-      // stage (absent for scene3d, whose marks stay exactly as they were).
+      // One placement for scene3d() and figure(): the stage mark, its card, and which ink the labels use.
       const standStage = (x, y, w_, h_, o, look) => {
         const sid = 'st' + (++stageCount);
-        // The rectangle is the whole figure: the object framed in its middle, its labels in the margins beside it. On busy
-        // screen (text, controls) the figure stands on a card of Mate's paper and everything on it is in paper ink; on
-        // calm space it floats, in the ink that reads there.
         const pad = 10;
         const card = [Math.max(4, x - pad), Math.max(4, y - pad), 0, 0];
-        card[2] = Math.min(w - 4, x + w_ + pad) - card[0]; card[3] = Math.min(h - 4, y + h_ + pad) - card[1];
-        // Words or controls under the figure (in 8% of its 64-pixel tiles or more): it stands on paper. A few words read
-        // through a large calm area, so the average misses them; tiles do not.
-        const busyAt = (bx, by, bw, bh) => typeof global.__busyFor === 'function' ? global.__busyFor(bx, by, bw, bh) : 0;
+        card[2] = Math.min(w - 4, x + w_ + pad) - card[0];
+        card[3] = Math.min(h - 4, y + h_ + pad) - card[1];
+        const busyAt = hostCall('__busyFor');
         let tiles = 0, busyTiles = 0;
         for (let ty = y; ty < y + h_; ty += 64) for (let tx = x; tx < x + w_; tx += 64) {
-          tiles++; if (busyAt(tx, ty, Math.min(64, x + w_ - tx), Math.min(64, y + h_ - ty)) > 0.02) busyTiles++;
+          tiles++;
+          if (busyAt && busyAt(tx, ty, Math.min(64, x + w_ - tx), Math.min(64, y + h_ - ty)) > 0.02) busyTiles++;
         }
-        // ReferenceRenderer (2026-10-10, Nilesh: one kind of card): a figure placed on a card the program drew (paper()) stands on
-        // that card like any other picture, with the card's heading, words and sources around it, and the card's board
-        // turns plain under it. Before, it drew a second window inside that card, and a figure on its own card had no
-        // room for words, so the model put a second card over it.
-        // ReferenceRenderer (2026-10-22, Farza): in the app's Stream mode a figure always floats with a clear background: no card
-        // of its own and none it was placed on, whatever is under it.
-        const floats = typeof global.__figuresFloat === 'function' && global.__figuresFloat() === true;
+        const floatNow = hostCall('__figuresFloat');
+        const floats = floatNow ? floatNow() === true : false;
         const onCard = floats ? null : hostCardFor(x, y, w_, h_);
         if (onCard) onCard.board = 'plain';
         const busy = !floats && !onCard && (o.card === true || (o.card !== false && tiles > 0 && busyTiles / tiles >= 0.08));
         stageBoxes.push([x, y, w_, h_]);
-        // ReferenceRenderer (2026-10-08): its card is one of Mate's windows when the app draws them (behind the figure, before
-        // it); the stage then draws no paper of its own
         const windowed = busy && typeof api.__card3d === 'function';
         if (windowed) api.__card3d(x, y, w_, h_, o);
-        // The stage draws the paper itself (Mate's sheet, shadow and tape), hugging the object and its labels
-        // inside `card` as they arrive, so it is never mostly empty and goes wherever the figure goes.
-        const ink = busy || onCard ? TONES.ink : typeof global.__inkFor === 'function' ? global.__inkFor(x, y, w_, h_) : '#FFFFFF';
-        // ReferenceRenderer (2026-10-09, Nilesh: a figure sitting still doesn't feel 3D): every figure turns on its own, never
-        // still (a program's spin 0 or a crawl is raised) and livelier than the old 0.3 (about 80 s a turn).
-        const stageMark = push({ do: 'stage3d', id: sid, at: [x, y], w: w_, h: h_, ink, card: busy && !windowed ? card : null, cardWindow: onCard ? onCard.inner : undefined, camera: { tilt: fin(o.tilt) ? Math.max(-80, Math.min(80, o.tilt)) : 15, fov: fin(o.fov) ? o.fov : 35, spin: fin(o.spin) ? Math.min(2, Math.max(0.5, o.spin)) : 0.7 } });
+        const inkFor = hostCall('__inkFor');
+        const ink = busy || onCard ? MATE_HEX.ink : inkFor ? inkFor(x, y, w_, h_) : '#FFFFFF';
+        // A figure that was asked to sit still, or to crawl, still turns: a frozen model does not read as 3D.
+        const stageMark = push({
+          do: 'stage3d', id: sid, at: [x, y], w: w_, h: h_, ink, card: busy && !windowed ? card : null, cardWindow: onCard ? onCard.inner : undefined,
+          camera: { tilt: fin(o.tilt) ? Math.max(-80, Math.min(80, o.tilt)) : 15, fov: fin(o.fov) ? o.fov : 35, spin: fin(o.spin) ? Math.min(2, Math.max(0.5, o.spin)) : 0.7 },
+        });
         if (look) stageMark.look = look;
         return { sid, ink };
       };
+      const MATERIAL_KEYS = ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity', 'opacity', 'double', 'flat', 'bands', 'colors', 'glow'];
+      const bindMotions = (handle, target, sid) => {
+        const motion = (kind, fields) => push({ do: 'motion3d', stage: sid, op: Object.assign({ target: target.id, kind }, fields) });
+        handle.spin = function (op) { op = op || {}; motion('spin', { axis: axis3(op.axis, [0, 1, 0]), period: fin(op.period) ? op.period : 6 }); return this; };
+        handle.bob = function (op) { op = op || {}; motion('bob', { axis: axis3(op.axis, [0, 1, 0]), amount: fin(op.amount) ? op.amount : 0.1, period: fin(op.period) ? op.period : 3 }); return this; };
+        handle.orbit = function (op) { op = op || {}; motion('orbit', { axis: axis3(op.axis, [0, 1, 0]), center: v3(op.center, [0, 0, 0]), period: fin(op.period) ? op.period : 8 }); return this; };
+        handle.path = function (points, op) {
+          op = op || {};
+          const pts = (points || []).map(p => v3(p, null)).filter(Boolean), once = op.once === true;
+          if (pts.length >= 2) motion('path', Object.assign({ points: pts, closed: !once && op.closed !== false, period: fin(op.period) ? op.period : 6 }, once ? { once: true } : {}));
+          return this;
+        };
+        handle.pulse = function (op) { op = op || {}; motion('pulse', { amount: fin(op.amount) ? Math.max(-0.5, Math.min(0.5, op.amount)) : 0.08, period: fin(op.period) ? op.period : 1 }); return this; };
+        return handle;
+      };
+      const surfaceGrid = (fn, op) => {
+        op = op || {};
+        const segments = Math.max(4, Math.min(160, op.segments || 80)), rowsN = Math.max(2, Math.min(80, op.rows || 16));
+        const u = op.u || [0, 1], v = op.v || [0, 1], grid = [];
+        for (let j = 0; j <= rowsN; j++) {
+          const row = [];
+          for (let i = 0; i <= segments; i++) row.push(v3(fn(u[0] + (u[1] - u[0]) * i / segments, v[0] + (v[1] - v[0]) * j / rowsN), [0, 0, 0]).map(r3));
+          grid.push(row);
+        }
+        const rest = Object.assign({}, op);
+        delete rest.segments; delete rest.rows; delete rest.u; delete rest.v;
+        return { rest, grid };
+      };
+
       api.scene3d = (x, y, w_, h_, build, o) => {
         o = o || {};
         if (![x, y, w_, h_].every(fin) || w_ < 24 || h_ < 24) { warn('scene3d() needs x, y, width and height in pixels'); return null; }
         const { sid, ink } = standStage(x, y, w_, h_, o);
         let partCount = 0, labelCount = 0, currentParent = null;
-        const motion = (target, kind, fields) => push({ do: 'motion3d', stage: sid, op: Object.assign({ target: target.id, kind }, fields) });
-        const handle = m => ({
-          id: m.id, kind: 'part',
-          spin(op) { op = op || {}; motion(m, 'spin', { axis: axis3(op.axis, [0, 1, 0]), period: fin(op.period) ? op.period : 6 }); return this; },
-          bob(op) { op = op || {}; motion(m, 'bob', { axis: axis3(op.axis, [0, 1, 0]), amount: fin(op.amount) ? op.amount : 0.1, period: fin(op.period) ? op.period : 3 }); return this; },
-          orbit(op) { op = op || {}; motion(m, 'orbit', { axis: axis3(op.axis, [0, 1, 0]), center: v3(op.center, [0, 0, 0]), period: fin(op.period) ? op.period : 8 }); return this; },
-          path(points, op) {
-            op = op || {}; const pts = (points || []).map(p => v3(p, null)).filter(Boolean), once = op.once === true;
-            // ReferenceRenderer: { once: true } travels the path once and stays at its end (a rocket lifting off).
-            if (pts.length >= 2) motion(m, 'path', Object.assign({ points: pts, closed: !once && op.closed !== false, period: fin(op.period) ? op.period : 6 }, once ? { once: true } : {}));
-            return this;
-          },
-          // ReferenceRenderer: swells and shrinks back (a heartbeat, breathing): amount 0.08 is 8% bigger at its fullest.
-          pulse(op) { op = op || {}; motion(m, 'pulse', { amount: fin(op.amount) ? Math.max(-0.5, Math.min(0.5, op.amount)) : 0.08, period: fin(op.period) ? op.period : 1 }); return this; },
-        });
         const part = (kind, params) => {
           const p = Object.assign({}, params);
-          const m = { do: 'part3d', id: sid + 'p' + (++partCount), stage: sid, kind, pos: v3(p.at, [0, 0, 0]), rotate3: v3(p.rotate, [0, 0, 0]),
-            scale3: fin(p.scale) ? p.scale : 1, material: colorsLikeMate(pickKeys(p, MATERIAL_KEYS)), parent: (p.parent && p.parent.id) || currentParent };
+          const m = {
+            do: 'part3d', id: sid + 'p' + (++partCount), stage: sid, kind, pos: v3(p.at, [0, 0, 0]), rotate3: v3(p.rotate, [0, 0, 0]),
+            scale3: fin(p.scale) ? p.scale : 1, material: tintMaterial(pickKeys(p, MATERIAL_KEYS), mateColor), parent: (p.parent && p.parent.id) || currentParent,
+          };
           for (const k of ['at', 'rotate', 'scale', 'parent'].concat(MATERIAL_KEYS)) delete p[k];
           m.params = p;
           push(m);
-          return handle(m);
+          return bindMotions({ id: m.id, kind: 'part' }, m, sid);
         };
         const s = {
           id: sid, kind: 'stage', box: [x, y, w_, h_],
@@ -473,83 +679,76 @@
           tube: (points, op) => part('tube', Object.assign({ r: 0.08, closed: false }, op, { points: (points || []).map(p => v3(p, null)).filter(Boolean) })),
           lathe: (profile, op) => part('lathe', Object.assign({}, op, { profile: (profile || []).filter(p => Array.isArray(p) && fin(p[0]) && fin(p[1])) })),
           extrude: (d, op) => part('extrude', Object.assign({ depth: 0.3, unit: 0.01 }, op, { d: String(d || '') })),
-          surface: (fn, op) => {
-            op = op || {};
-            const segments = Math.max(4, Math.min(160, op.segments || 80)), rows = Math.max(2, Math.min(80, op.rows || 16)), u = op.u || [0, 1], v = op.v || [0, 1], grid = [];
-            try { for (let j = 0; j <= rows; j++) { const row = []; for (let i = 0; i <= segments; i++) row.push(v3(fn(u[0] + (u[1] - u[0]) * i / segments, v[0] + (v[1] - v[0]) * j / rows), [0, 0, 0]).map(r3)); grid.push(row); } }
+          surface(fn, op) {
+            let built;
+            try { built = surfaceGrid(fn, op); }
             catch (e) { warn('surface() function failed: ' + e.message); return null; }
-            const rest = Object.assign({}, op); delete rest.segments; delete rest.rows; delete rest.u; delete rest.v;
-            return part('surface', Object.assign(rest, { grid }));
+            return part('surface', Object.assign(built.rest, { grid: built.grid }));
           },
-          group: (fn, op) => {
+          group(fn, op) {
             const g = part('group', Object.assign({}, op));
             if (typeof fn === 'function') { const saved = currentParent; currentParent = g.id; try { fn(s); } finally { currentParent = saved; } }
             return g;
           },
-          // ReferenceRenderer: turn (degrees) shows it from another side: 180 its back, 90 and -90 its sides.
-          camera: op => { op = op || {}; push({ do: 'camera3d', stage: sid, op: { tilt: fin(op.tilt) ? Math.max(-80, Math.min(80, op.tilt)) : undefined, fov: fin(op.fov) ? op.fov : undefined, spin: fin(op.spin) ? op.spin : undefined, target: v3(op.target, undefined), turn: fin(op.turn) ? Math.max(-180, Math.min(180, op.turn)) : undefined } }); },
-          label: (point, text, op) => {
+          camera(op) {
             op = op || {};
-            const t = String(text == null ? '' : text).trim(); if (!t) return null;
-            return push({ do: 'label3d', id: sid + 'l' + (++labelCount), stage: sid, point: point && point.id ? null : v3(point, [0, 0, 0]), follow: point && point.id ? point.id : null,
-              text: t.slice(0, 60), side: op.side === 'left' || op.side === 'right' ? op.side : null, size: fin(op.size) ? Math.max(15, Math.min(28, op.size)) : 19, tone: op.tone || ink });
+            push({ do: 'camera3d', stage: sid, op: { tilt: fin(op.tilt) ? Math.max(-80, Math.min(80, op.tilt)) : undefined, fov: fin(op.fov) ? op.fov : undefined, spin: fin(op.spin) ? op.spin : undefined, target: v3(op.target, undefined), turn: fin(op.turn) ? Math.max(-180, Math.min(180, op.turn)) : undefined } });
           },
-          // ReferenceRenderer: build(fn, { parent: part }) puts everything it builds onto that part (it moves with it).
-          build: (fn, op) => {
+          label(point, text, op) {
+            op = op || {};
+            const t = String(text == null ? '' : text).trim();
+            if (!t) return null;
+            return push({
+              do: 'label3d', id: sid + 'l' + (++labelCount), stage: sid, point: point && point.id ? null : v3(point, [0, 0, 0]), follow: point && point.id ? point.id : null,
+              text: t.slice(0, 60), side: op.side === 'left' || op.side === 'right' ? op.side : null, size: fin(op.size) ? Math.max(15, Math.min(28, op.size)) : 19, tone: op.tone || ink,
+            });
+          },
+          build(fn, op) {
             if (typeof fn !== 'function') return s;
             const saved = currentParent;
             if (op && op.parent && op.parent.id) currentParent = op.parent.id;
             try { fn(s); } finally { currentParent = saved; }
             return s;
           },
-          // ReferenceRenderer: a part made earlier (another turn, another build()), by its id on the card: 'st1p3' (or 'p3', 3).
-          part: id => { const t = String(id == null ? '' : id).trim(); const n = /^(?:st\d+)?p?(\d+)$/.exec(t); return n ? handle({ id: sid + 'p' + n[1] }) : null; },
+          part: id => { const n = /^(?:st\d+)?p?(\d+)$/.exec(String(id == null ? '' : id).trim()); return n ? bindMotions({ id: sid + 'p' + n[1] }, { id: sid + 'p' + n[1] }, sid) : null; },
         };
         if (typeof build === 'function') build(s);
         return s;
       };
 
-      // ------------------------------------------------ figure(): a 3D model built one part per statement (three-metal)
-      // const f = figure(x, y, w, h, o) stands a figure like scene3d() (same placement, paper and labels) and returns it;
-      // every part is then its own statement (const piston = f.cyl({ r, h, at, mat: 'steel' })), so each one draws the
-      // moment its statement ends instead of waiting for a whole build callback. Its shapes are three.js's, built by the
-      // app's 3D kernel (mate-three-parts.js) from the recipe each part mark carries; f.tick((t) => ...) moves parts
-      // every frame (piston.pos = [...], crank.rot = [...]). Parts are drawn in studio light ("look: studio": lit
-      // materials) where scene3d()'s are illustrated.
+      // ------------------------------------------------ figure(): one part per statement, studio lit
       const FIGURE_PARTS = ['box', 'cyl', 'cylinder', 'cone', 'tube', 'lathe', 'sphere', 'torus', 'capsule', 'pipe', 'spring', 'gear', 'extrude', 'blob', 'poly', 'arrow'];
-      // ReferenceRenderer (2026-10-12, Blender's tools): mirror, copies, around and cut place the part (and its copies) rather
-      // than shape it, so they stay out of its recipe.
       const FIGURE_PLACE_KEYS = ['at', 'pos', 'rot', 'rotate', 'scale', 'parent', 'name', 'mat', 'from', 'to', 'mirror', 'copies', 'around', 'cut'];
-      // Rotations as quaternions [x, y, z, w], for copies turned round an axis: three.js's Euler 'XYZ' both ways.
-      const quatFromEuler3 = degrees => {
+      const FIGURE_STANDS_ALONG = { gear: [0, 0, 1], extrude: [0, 0, 1] };
+      const FIGURE_ROUND_PARTS = ['cyl', 'cylinder', 'cone', 'tube', 'lathe', 'sphere', 'torus', 'capsule', 'spring', 'gear', 'poly'];
+      const FIGURE_MATERIALS = ['steel', 'alu', 'aluminum', 'aluminium', 'titanium', 'chrome', 'brass', 'copper', 'gold', 'iron', 'black', 'rubber', 'glass', 'water',
+        'wood', 'ceramic', 'paper', 'gloss', 'paint', 'plastic', 'soft', 'matte', 'metal', 'glow'];
+      // three.js Euler XYZ, as quaternions [x, y, z, w]. Copies around an axis need both directions.
+      const quatFromEuler = degrees => {
         const [x, y, z] = degrees.map(d => d * Math.PI / 360);
-        const c1 = Math.cos(x), c2 = Math.cos(y), c3 = Math.cos(z), s1 = Math.sin(x), s2 = Math.sin(y), s3 = Math.sin(z);
-        return [s1 * c2 * c3 + c1 * s2 * s3, c1 * s2 * c3 - s1 * c2 * s3, c1 * c2 * s3 + s1 * s2 * c3, c1 * c2 * c3 - s1 * s2 * s3];
+        const cx = Math.cos(x), sx = Math.sin(x), cy = Math.cos(y), sy = Math.sin(y), cz = Math.cos(z), sz = Math.sin(z);
+        return [sx * cy * cz + cx * sy * sz, cx * sy * cz - sx * cy * sz, cx * cy * sz + sx * sy * cz, cx * cy * cz - sx * sy * sz];
       };
       const quatAxisAngle = (axis, degrees) => {
         const length = Math.hypot(axis[0], axis[1], axis[2]) || 1, half = degrees * Math.PI / 360, s = Math.sin(half);
         return [axis[0] / length * s, axis[1] / length * s, axis[2] / length * s, Math.cos(half)];
       };
-      const quatMultiply = (a, b) => [
+      const quatMul = (a, b) => [
         a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1], a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
         a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3], a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]];
-      const euler3FromQuat = ([x, y, z, w]) => {
+      const eulerFromQuat = ([x, y, z, w]) => {
         const m11 = 1 - 2 * (y * y + z * z), m12 = 2 * (x * y - w * z), m13 = 2 * (x * z + w * y);
         const m22 = 1 - 2 * (x * x + z * z), m23 = 2 * (y * z - w * x), m32 = 2 * (y * z + w * x), m33 = 1 - 2 * (x * x + y * y);
         const ry = Math.asin(Math.max(-1, Math.min(1, m13)));
         const [rx, rz] = Math.abs(m13) < 0.9999999 ? [Math.atan2(-m23, m33), Math.atan2(-m12, m11)] : [Math.atan2(m32, m22), 0];
         return [rx, ry, rz].map(r => r3(r * 180 / Math.PI));
       };
-      const rotateAbout = (q, p) => {
-        const [x, y, z, w] = q, [px, py, pz] = p;
-        const ix = w * px + y * pz - z * py, iy = w * py + z * px - x * pz, iz = w * pz + x * py - y * px, iw = -x * px - y * py - z * pz;
-        return [ix * w + iw * -x + iy * -z - iz * -y, iy * w + iw * -y + iz * -x - ix * -z, iz * w + iw * -z + ix * -y - iy * -x];
+      const rotateByQuat = (q, v) => {
+        const [x, y, z, w] = q, [vx, vy, vz] = v;
+        const tx = 2 * (y * vz - z * vy), ty = 2 * (z * vx - x * vz), tz = 2 * (x * vy - y * vx);
+        return [vx + w * tx + (y * tz - z * ty), vy + w * ty + (z * tx - x * tz), vz + w * tz + (x * ty - y * tx)];
       };
-      // The way a part points before any axis or rot: most stand along y (a torus lies flat, its hole along y); a gear's
-      // axle and an extrusion's depth run along z.
-      const FIGURE_STANDS_ALONG = { gear: [0, 0, 1], extrude: [0, 0, 1] };
-      const FIGURE_ROUND_PARTS = ['cyl', 'cylinder', 'cone', 'tube', 'lathe', 'sphere', 'torus', 'capsule', 'spring', 'gear', 'poly'];
-      // A rot [x, y, z] in degrees applied to a vector the way the stage turns a part (three.js Euler 'XYZ': Rx · Ry · Rz).
+      // Rx · Ry · Rz, the same order the stage turns a part.
       const turn3 = (degrees, v) => {
         const [ax, ay, az] = degrees.map(d => d * Math.PI / 180);
         let [x, y, z] = v;
@@ -558,23 +757,18 @@
         [y, z] = [y * Math.cos(ax) - z * Math.sin(ax), y * Math.sin(ax) + z * Math.cos(ax)];
         return [x, y, z];
       };
-      const FIGURE_MATERIALS = ['steel', 'alu', 'aluminum', 'aluminium', 'titanium', 'chrome', 'brass', 'copper', 'gold', 'iron', 'black', 'rubber', 'glass', 'water',
-        'wood', 'ceramic', 'paper', 'gloss', 'paint', 'plastic', 'soft', 'matte', 'metal', 'glow'];
-      // A recipe as canonical JSON (sorted keys, numbers to 4 decimals, no functions): the 3D kernel's cache key, so the
-      // same part (twenty bolts, a re-run of the program) is built once.
       const canonical3 = v => {
         if (Array.isArray(v)) return v.map(canonical3).map(x => x === undefined ? null : x);
         if (v && typeof v === 'object') { const o = {}; for (const k of Object.keys(v).sort()) { const c = canonical3(v[k]); if (c !== undefined) o[k] = c; } return o; }
         if (typeof v === 'number') return isFinite(v) ? Math.round(v * 1e4) / 1e4 : undefined;
         return typeof v === 'string' || typeof v === 'boolean' ? v : undefined;
       };
-      // The variable a figure part is assigned to (const piston = f.cyl(...)) names it: transform() writes
-      // __name3d("piston") before such a statement, and the next part mark takes the name if nothing else came first.
+      // transform() writes __name3d("piston") before `const piston = f.cyl(...)`. The next part takes it.
       let pendingName3 = null;
       api.__name3d = name => { pendingName3 = typeof name === 'string' && name ? { name, at: marks.length } : null; };
       let figureTicks = 0;
       api.figure = (x, y, w_, h_, o) => {
-        if (x && typeof x === 'object' && !Array.isArray(x)) {             // figure({ ... }) with no rectangle: a calm default
+        if (x && typeof x === 'object' && !Array.isArray(x)) {
           o = x; x = Math.round(w * 0.5); y = Math.round(h * 0.14); w_ = Math.round(Math.min(620, w * 0.44)); h_ = Math.round(Math.min(480, h * 0.66));
           warn('figure() needs x, y, width and height in pixels; placed it on the right');
         }
@@ -583,26 +777,10 @@
         const { sid, ink } = standStage(x, y, w_, h_, o, 'studio');
         let partCount = 0, labelCount = 0, currentParent = null;
         const motion = (target, kind, fields) => push({ do: 'motion3d', stage: sid, op: Object.assign({ target: target.id, kind }, fields) });
-        // What tick() sets on a part (its pose this frame), by part id: read by the stage every frame (mateCanvas.tick3d).
         const anim = id => { const a = sink.anim || (sink.anim = {}); return a[id] || (a[id] = {}); };
-        const handle = m => {
-          const h3 = {
-            id: m.id, kind: 'part', name: m.name || null,
-            spin(op) { op = op || {}; motion(m, 'spin', { axis: axis3(op.axis, [0, 1, 0]), period: fin(op.period) ? op.period : 6 }); return this; },
-            bob(op) { op = op || {}; motion(m, 'bob', { axis: axis3(op.axis, [0, 1, 0]), amount: fin(op.amount) ? op.amount : 0.1, period: fin(op.period) ? op.period : 3 }); return this; },
-            orbit(op) { op = op || {}; motion(m, 'orbit', { axis: axis3(op.axis, [0, 1, 0]), center: v3(op.center, [0, 0, 0]), period: fin(op.period) ? op.period : 8 }); return this; },
-            path(points, op) {
-              op = op || {}; const pts = (points || []).map(p => v3(p, null)).filter(Boolean), once = op.once === true;
-              if (pts.length >= 2) motion(m, 'path', Object.assign({ points: pts, closed: !once && op.closed !== false, period: fin(op.period) ? op.period : 6 }, once ? { once: true } : {}));
-              return this;
-            },
-            pulse(op) { op = op || {}; motion(m, 'pulse', { amount: fin(op.amount) ? Math.max(-0.5, Math.min(0.5, op.amount)) : 0.08, period: fin(op.period) ? op.period : 1 }); return this; },
-          };
-          // Its pose: position, rotation in degrees, scale, shown or hidden, glow 0..1, colour. Inside tick() a write sets
-          // this frame's pose; anywhere else (models write piston.pos = [...] or spark.show = false in a beat too) it
-          // happens in its beat, as the line is heard: a quick glide for pos and rot, a switch for the rest. Without
-          // this it landed the moment the line was written (ahead of the voice), or, with no tick, never.
-          const inTick = () => typeof globalThis !== 'undefined' && globalThis.__mateInTick3d === true;
+        const handleOf = m => {
+          const h3 = bindMotions({ id: m.id, kind: 'part', name: m.name || null }, m, sid);
+          const inTick = () => hostGlobal().__mateInTick3d === true;
           const planned = {};
           const pose = (key, value, timed) => { if (inTick()) anim(m.id)[key] = value; else { planned[key] = value; timed(); } };
           const got = key => { const a = anim(m.id); return a[key] != null ? a[key] : planned[key]; };
@@ -617,7 +795,7 @@
             glow: { enumerable: true, get: () => got('glow') || 0,
               set: v => { if (fin(+v)) { const g = Math.max(0, Math.min(1, +v)); pose('glow', g, () => motion(m, 'set', { glow: g })); } } },
             color: { enumerable: true, get: () => got('color') || (m.material && m.material.color) || null,
-              set: v => { if (typeof v === 'string' && v) { const c = colorLikeReal(v); pose('color', c, () => motion(m, 'set', { color: c })); } } },
+              set: v => { if (typeof v === 'string' && v) { const c = realColor(v); pose('color', c, () => motion(m, 'set', { color: c })); } } },
           });
           return h3;
         };
@@ -629,32 +807,24 @@
           let pos = v3(p.at, null) || v3(p.pos, [0, 0, 0]);
           let rotate3 = v3(p.rot, null) || v3(p.rotate, [0, 0, 0]);
           const stretch = v3(p.scale, null);
-          const material = colorsLikeReal(pickKeys(p, MATERIAL_KEYS));
-          // mat: 'steel', 'glass', 'paint:red', 'glow:orange' or a bare colour ('red' = gloss red); its tint in Mate's
-          // colours. The stage turns the kind into a real material (DaVinci3DMaterial's studio presets).
+          const material = tintMaterial(pickKeys(p, MATERIAL_KEYS), realColor, mateColor);
           if (typeof p.mat === 'string' && p.mat.trim()) {
-            const [kind, tint] = p.mat.trim().toLowerCase().split(':').map(s => s.trim());
-            const known = FIGURE_MATERIALS.includes(kind);
-            material.mat = known ? kind : 'gloss';
-            const t = tint || (known ? null : kind);
-            if (t) material.tint = kind === 'glow' ? colorLikeMate(t) : colorLikeReal(t);   // a lamp, a flame, an LED stay vivid
+            const [matKind, tint] = p.mat.trim().toLowerCase().split(':').map(s => s.trim());
+            const known = FIGURE_MATERIALS.includes(matKind);
+            material.mat = known ? matKind : 'gloss';
+            const t = tint || (known ? null : matKind);
+            if (t) material.tint = matKind === 'glow' ? mateColor(t) : realColor(t);
           }
           const shape = {};
           for (const k of Object.keys(p)) if (!FIGURE_PLACE_KEYS.includes(k) && !MATERIAL_KEYS.includes(k)) shape[k] = p[k];
           const recipe = Object.assign({}, shape);
-          // cyl({ from, to }) stands between two points: its middle, its length and its direction.
           const from = v3(p.from, null), to = v3(p.to, null);
           if (from && to && (kind === 'cyl' || kind === 'cylinder' || kind === 'capsule' || kind === 'cone' || kind === 'tube')) {
             const d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]], len = Math.hypot(d[0], d[1], d[2]);
             if (len > 1e-6) { pos = [(from[0] + to[0]) / 2, (from[1] + to[1]) / 2, (from[2] + to[2]) / 2]; recipe.h = len; recipe.axis = d.map(c => c / len); }
             shape.from = from; shape.to = to;
           }
-          // ReferenceRenderer (2026-10-12, the first live figures): models often turn a part twice, with axis and again with a rot
-          // that lays it down the same way (axis: 'x', rot: [0, 0, -90]): a jet engine's casing stood upright, its nozzle
-          // pointed at the sky and its compressor wheels faced sideways. When the rot alone already points the part along
-          // its axis's line, it is drawn turned once: a round part takes the direction the rot gave it as its axis (a
-          // tick's rot then still turns it on top of its axis), an extrusion keeps the rot (it also sets which way the
-          // shape faces), and cyl({ from, to }) keeps its two points.
+          // axis and rot that aim the same way used to turn the part twice (a nozzle pointed at the sky).
           const along = recipe.axis != null && rotate3.some(d => Math.abs(d) > 1e-6) ? axis3(recipe.axis, null) : null;
           const alongLength = along ? Math.hypot(along[0], along[1], along[2]) : 0;
           if (alongLength > 1e-6 && (FIGURE_ROUND_PARTS.includes(kind) || kind === 'extrude')) {
@@ -667,9 +837,7 @@
               warn(`${name || kind}: turned the same way by axis and rot; drew it turned once`);
             }
           }
-          // A part turned by right angles stretches along the figure's own x, y, z: models flatten a fuselage laid along z
-          // with rot: [90, 0, 0] by scale: [1, 0.7, 1], and it shortened the body instead (a fighter lost its nose, its
-          // nose probe floating ahead of it). Any other turn keeps the scale in the part's own axes, as three.js does.
+          // A right-angle turn should stretch along the figure's own axes. Any other turn keeps the part's own axes.
           let stretchInPart = stretch;
           if (stretch && rotate3.some(d => Math.abs(d) > 1e-6) && rotate3.every(d => Math.abs(d / 90 - Math.round(d / 90)) < 1e-6)) {
             stretchInPart = [0, 1, 2].map(i => {
@@ -679,8 +847,6 @@
             });
           }
           if (stretchInPart) recipe.stretch = stretchInPart;
-          // An arrow or pipe given by points stands at their middle (the points become relative to it), so its label, its
-          // picking and the camera's framing find it where it is, not at the figure's origin.
           if ((kind === 'arrow' || kind === 'pipe') && !v3(p.at, null) && !v3(p.pos, null) && Array.isArray(recipe.points)) {
             const points = recipe.points.map(q => v3(q, null)).filter(Boolean);
             if (points.length >= 2) {
@@ -689,25 +855,15 @@
               pos = middle;
             }
           }
-          // ReferenceRenderer (2026-10-12, Blender's tools): cut: true (or 'x', '-y', { axis, at }) slices the part with a plane
-          // through the figure's middle, the way Blender's answers cut a casing open with a boolean. cut: true takes away
-          // the half toward the viewer whichever way the figure has turned (cutFacing: the stage turns the plane with
-          // the camera; +z until it does), a named axis that side for good. The stage paints the inside that shows
-          // through the opening as a hatched cut face (DaVinci3DMaterial.cutPlane).
           const cut = p.cut === true ? 'z' : p.cut && typeof p.cut === 'object' ? p.cut.axis || 'z' : p.cut;
           const cutNormal = cut ? axis3(cut, null) : null;
           if (cutNormal && Math.hypot(...cutNormal) > 1e-6) {
             const length = Math.hypot(...cutNormal), n = cutNormal.map(v => v / length);
             const at = p.cut && typeof p.cut === 'object' && fin(p.cut.at) ? p.cut.at : 0;
-            // The plane crosses the axis at `at` (a coordinate on it, whichever side is taken away).
             material.cut = [...n.map(r3), r3(at * (n[0] + n[1] + n[2] < 0 ? -1 : 1) * Math.max(...n.map(Math.abs)))];
             if (p.cut === true) material.cutFacing = true;
           }
-          // Its copies: copies: { count, step, turn } in a row and around: { count, axis, center, arc } round an axis (a
-          // fan's blades, a wheel's bolts), each count including the part itself; then mirror: 'x' (or ['x', 'z']) adds
-          // the mirror image of each across the figure's middle (a plane's other wing). Copies share their shape.
           const placements = [{ pos, rotate3, reflect: null }];
-          // (A group is only its own place: what hangs on it comes later, so it has nothing to copy yet.)
           const copies = kind !== 'group' && p.copies && typeof p.copies === 'object' ? p.copies : null;
           if (copies) {
             const count = Math.max(1, Math.min(200, Math.round(fin(copies.count) ? copies.count : 1)));
@@ -723,8 +879,8 @@
             for (let i = 1; i < count; i++) {
               const q = quatAxisAngle(axis, gap * i);
               for (const b of row) {
-                const offset = rotateAbout(q, [b.pos[0] - center[0], b.pos[1] - center[1], b.pos[2] - center[2]]);
-                placements.push({ pos: offset.map((v, k) => r3(v + center[k])), rotate3: euler3FromQuat(quatMultiply(q, quatFromEuler3(b.rotate3))), reflect: null });
+                const offset = rotateByQuat(q, [b.pos[0] - center[0], b.pos[1] - center[1], b.pos[2] - center[2]]);
+                placements.push({ pos: offset.map((v, k) => r3(v + center[k])), rotate3: eulerFromQuat(quatMul(q, quatFromEuler(b.rotate3))), reflect: null });
               }
             }
           }
@@ -738,7 +894,6 @@
               if (!reflections.some(r => r.every((v, k) => v === s[k]))) reflections.push(s);
             }
             const unmirrored = placements.slice();
-            // A reflection M of a part stands at M·pos, turned M·R·M: each Euler angle times the other two axes' signs.
             for (const s of reflections) for (const b of unmirrored) {
               placements.push({ pos: b.pos.map((v, k) => r3(v * s[k])), rotate3: [b.rotate3[0] * s[1] * s[2], b.rotate3[1] * s[0] * s[2], b.rotate3[2] * s[0] * s[1]].map(r3), reflect: s });
             }
@@ -747,31 +902,32 @@
           let first = null;
           placements.forEach((place, index) => {
             const own = place.reflect ? Object.assign({}, recipe, { mirror: place.reflect }) : recipe;
-            const recipeJSON = JSON.stringify(canonical3(own));
-            const m = { do: 'part3d', id: sid + 'p' + (++partCount), stage: sid, kind, three: true, recipe: recipeJSON, pos: place.pos, rotate3: place.rotate3,
-              scale3: fin(p.scale) ? p.scale : 1, material, parent };
+            const m = {
+              do: 'part3d', id: sid + 'p' + (++partCount), stage: sid, kind, three: true, recipe: JSON.stringify(canonical3(own)), pos: place.pos, rotate3: place.rotate3,
+              scale3: fin(p.scale) ? p.scale : 1, material, parent,
+            };
             if (name) m.name = index === 0 ? name : `${name} ${place.reflect ? 'mirror' : index + 1}`;
             m.params = shape;
             push(m);
-            // Start building its shape now: the kernel has until this part's beat is drawn.
-            if (kind !== 'group' && typeof global.__shape3d === 'function') global.__shape3d(kind, recipeJSON);
+            const shape3d = hostCall('__shape3d');
+            if (kind !== 'group' && shape3d) shape3d(kind, m.recipe);
             if (!first) first = m;
           });
-          return handle(first);
+          return handleOf(first);
         };
         const f = { id: sid, kind: 'figure' };
         for (const k of FIGURE_PARTS) f[k] = op => part(k === 'cylinder' ? 'cyl' : k, op);
-        // f.arrow(points, { r, mat }) or f.arrow({ points, ... }): a flow arrow through the points, head at the last.
         f.arrow = (a, b) => Array.isArray(a) ? part('arrow', Object.assign({}, b, { points: a })) : part('arrow', a || {});
         f.surface = (fn, op) => {
-          op = op || {};
-          const segments = Math.max(4, Math.min(160, op.segments || 80)), rows = Math.max(2, Math.min(80, op.rows || 16)), u = op.u || [0, 1], v = op.v || [0, 1], grid = [];
-          try { for (let j = 0; j <= rows; j++) { const row = []; for (let i = 0; i <= segments; i++) row.push(v3(fn(u[0] + (u[1] - u[0]) * i / segments, v[0] + (v[1] - v[0]) * j / rows), [0, 0, 0]).map(r3)); grid.push(row); } }
-          catch (e) { warn('surface() function failed: ' + e.message); return null; }
-          const rest = Object.assign({}, op); delete rest.segments; delete rest.rows; delete rest.u; delete rest.v;
-          return part('surface', Object.assign(rest, { grid }));
+          let built;
+          try { built = surfaceGrid(fn, op); }
+          catch (e) {
+            warn('surface() function failed: ' + e.message);
+            if (pendingName3 && pendingName3.at === marks.length) pendingName3 = null;
+            return null;
+          }
+          return part('surface', Object.assign(built.rest, { grid: built.grid }));
         };
-        // group(op) or group((f) => { ... }, op): parts made inside (or given { parent }) move with it.
         f.group = (a, b) => {
           const fn = typeof a === 'function' ? a : null, op = fn ? b : a;
           const g = part('group', Object.assign({}, op));
@@ -780,28 +936,25 @@
         };
         f.label = (point, text, op) => {
           op = op || {};
-          const t = String(text == null ? '' : text).trim(); if (!t) return null;
-          return push({ do: 'label3d', id: sid + 'l' + (++labelCount), stage: sid, point: point && point.id ? null : v3(point, [0, 0, 0]), follow: point && point.id ? point.id : null,
-            text: t.slice(0, 60), side: op.side === 'left' || op.side === 'right' ? op.side : null, size: fin(op.size) ? Math.max(15, Math.min(28, op.size)) : 19, tone: op.tone || ink });
+          const t = String(text == null ? '' : text).trim();
+          if (!t) return null;
+          return push({
+            do: 'label3d', id: sid + 'l' + (++labelCount), stage: sid, point: point && point.id ? null : v3(point, [0, 0, 0]), follow: point && point.id ? point.id : null,
+            text: t.slice(0, 60), side: op.side === 'left' || op.side === 'right' ? op.side : null, size: fin(op.size) ? Math.max(15, Math.min(28, op.size)) : 19, tone: op.tone || ink,
+          });
         };
-        // tick((t, dt) => { ... }) runs every frame once its beat is drawn (t: seconds since then): set parts' pos, rot,
-        // scale, show, glow and color to drive a mechanism. The function stays in this program's live run; its mark only
-        // says when it starts.
         f.tick = fn => {
           if (typeof fn !== 'function') { warn('tick() needs a function: tick((t) => { part.pos = [...] })'); return null; }
           const m = push({ do: 'tick3d', id: sid + 't' + (++figureTicks), stage: sid });
           (sink.ticks || (sink.ticks = {}))[m.id] = fn;
           return { id: m.id };
         };
-        // readout({ Stroke: 'Power', Angle: '400°' }): a few live numbers or words for the figure's card, usually set
-        // from tick() (the latest values win; kept for the stage, never a mark).
         f.readout = values => {
           if (!values || typeof values !== 'object') return f;
           const r = sink.readouts || (sink.readouts = {}), now = r[sid] || (r[sid] = {});
           for (const k of Object.keys(values).slice(0, 6)) { const v = values[k]; if (v == null) delete now[k]; else now[String(k).slice(0, 24)] = String(v).slice(0, 32); }
           return f;
         };
-        // move(part, { to, rot, secs }) glides a part to a new place or angle once, in this beat, and leaves it there.
         f.move = (target, op) => {
           op = op || {};
           if (!target || !target.id) { warn('move() needs a part'); return null; }
@@ -810,11 +963,14 @@
           motion(target, 'tween', Object.assign({ period: fin(op.secs) ? Math.max(0.05, op.secs) : 0.8 }, to ? { to } : {}, rot ? { rot } : {}));
           return target;
         };
-        // view({ turn, tilt, zoom, spin }): show it from another side, closer or turning faster (camera() is the same).
         f.view = f.camera = op => {
           op = op || {};
-          push({ do: 'camera3d', stage: sid, op: { tilt: fin(op.tilt) ? Math.max(-80, Math.min(80, op.tilt)) : undefined, fov: fin(op.fov) ? op.fov : undefined, spin: fin(op.spin) ? op.spin : undefined,
-            target: v3(op.target, undefined), turn: fin(op.turn) ? Math.max(-180, Math.min(180, op.turn)) : undefined, zoom: fin(op.zoom) ? Math.max(0.5, Math.min(3, op.zoom)) : undefined } });
+          push({
+            do: 'camera3d', stage: sid, op: {
+              tilt: fin(op.tilt) ? Math.max(-80, Math.min(80, op.tilt)) : undefined, fov: fin(op.fov) ? op.fov : undefined, spin: fin(op.spin) ? op.spin : undefined,
+              target: v3(op.target, undefined), turn: fin(op.turn) ? Math.max(-180, Math.min(180, op.turn)) : undefined, zoom: fin(op.zoom) ? Math.max(0.5, Math.min(3, op.zoom)) : undefined,
+            },
+          });
           return f;
         };
         f.build = (fn, op) => {
@@ -824,11 +980,11 @@
           try { fn(f); } finally { currentParent = saved; }
           return f;
         };
-        f.part = id => { const t = String(id == null ? '' : id).trim(); const n = /^(?:st\d+)?p?(\d+)$/.exec(t); return n ? handle({ id: sid + 'p' + n[1] }) : null; };
+        f.part = id => { const n = /^(?:st\d+)?p?(\d+)$/.exec(String(id == null ? '' : id).trim()); return n ? handleOf({ id: sid + 'p' + n[1] }) : null; };
         return f;
       };
 
-      // ------------------------------------------------ graph piece: axes in data units, with anchors
+      // ------------------------------------------------ graph: axes in data units
       api.graph = (gx, gy, gw, gh, o) => {
         o = o || {};
         const xr = Array.isArray(o.x) ? o.x : [0, 10], yr = Array.isArray(o.y) ? o.y : [0, 10];
@@ -848,28 +1004,65 @@
         if (o.xLabel) api.text(gx + gw + 12, ax + (xt.length ? 48 : 30), o.xLabel, { anchor: 'end', size: o.labelSize || 18, piece: 'graph' });
         if (o.yLabel) api.text(ay - 4, gy - 24, o.yLabel, { anchor: 'start', size: o.labelSize || 18, piece: 'graph' });
         const inRange = ([u, v]) => u >= xr[0] - 1e-9 && u <= xr[1] + 1e-9 && v >= Math.min(yr[0], yr[1]) - 1e-9 && v <= Math.max(yr[0], yr[1]) + 1e-9;
-        const clip = (a, b) => {                      // the point where segment a->b (a inside) leaves the data box
-          let lo = 0, hi = 1; for (let k = 0; k < 24; k++) { const m = (lo + hi) / 2, p = [a[0] + (b[0] - a[0]) * m, a[1] + (b[1] - a[1]) * m]; if (inRange(p)) lo = m; else hi = m; }
+        const clip = (a, b) => {
+          let lo = 0, hi = 1;
+          for (let k = 0; k < 24; k++) { const m = (lo + hi) / 2, p = [a[0] + (b[0] - a[0]) * m, a[1] + (b[1] - a[1]) * m]; if (inRange(p)) lo = m; else hi = m; }
           return [a[0] + (b[0] - a[0]) * lo, a[1] + (b[1] - a[1]) * lo];
         };
-        const yOf = data => u => {
-          for (let k = 1; k < data.length; k++) { const [a, b] = [data[k - 1], data[k]]; if ((u - a[0]) * (u - b[0]) <= 0 && a[0] !== b[0]) return a[1] + (b[1] - a[1]) * (u - a[0]) / (b[0] - a[0]); }
+        // The visible part of a segment whose ends are both outside the frame. The old walk only noticed a segment when one end was inside, so a chord across the frame drew nothing.
+        const rectCut = (a, b) => {
+          if (!(xr[0] <= xr[1])) return null;
+          const xMin = xr[0], xMax = xr[1], yMin = Math.min(yr[0], yr[1]), yMax = Math.max(yr[0], yr[1]);
+          let t0 = 0, t1 = 1;
+          const dx = b[0] - a[0], dy = b[1] - a[1];
+          const side = (p, q) => {
+            if (p === 0) return q >= -1e-9;
+            const t = q / p;
+            if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; }
+            else { if (t < t0) return false; if (t < t1) t1 = t; }
+            return true;
+          };
+          if (!side(-dx, a[0] - xMin) || !side(dx, xMax - a[0]) || !side(-dy, a[1] - yMin) || !side(dy, yMax - a[1]) || t1 - t0 < 1e-8) return null;
+          const atT = t => [a[0] + dx * t, a[1] + dy * t];
+          return [atT(t0), atT(t1)];
+        };
+        const yAt = rows => u => {
+          for (let k = 1; k < rows.length; k++) {
+            const a = rows[k - 1], b = rows[k];
+            if (!finite(a) || !finite(b) || a[0] === b[0]) continue;
+            if ((u - a[0]) * (u - b[0]) <= 0) return a[1] + (b[1] - a[1]) * (u - a[0]) / (b[0] - a[0]);
+          }
           return null;
         };
-        const midOf = data => {                          // the data point halfway along the drawn line
-          const P = data.map(p => at(p)); let L = 0; for (let k = 1; k < P.length; k++) L += Math.hypot(P[k][0] - P[k - 1][0], P[k][1] - P[k - 1][1]);
-          let acc = 0; for (let k = 1; k < P.length; k++) { const d = Math.hypot(P[k][0] - P[k - 1][0], P[k][1] - P[k - 1][1]); if (acc + d >= L / 2 && d) { const t = (L / 2 - acc) / d; return [data[k - 1][0] + (data[k][0] - data[k - 1][0]) * t, data[k - 1][1] + (data[k][1] - data[k - 1][1]) * t]; } acc += d; }
+        const midOf = data => {
+          const P = data.map(p => at(p));
+          let L = 0;
+          for (let k = 1; k < P.length; k++) L += Math.hypot(P[k][0] - P[k - 1][0], P[k][1] - P[k - 1][1]);
+          let acc = 0;
+          for (let k = 1; k < P.length; k++) {
+            const d = Math.hypot(P[k][0] - P[k - 1][0], P[k][1] - P[k - 1][1]);
+            if (acc + d >= L / 2 && d) { const t = (L / 2 - acc) / d; return [data[k - 1][0] + (data[k][0] - data[k - 1][0]) * t, data[k - 1][1] + (data[k][1] - data[k - 1][1]) * t]; }
+            acc += d;
+          }
           return data[0] || [0, 0];
         };
-        const series = (data, po, straight) => {
-          data = data.filter(finite);
-          const pieces = []; let cur = [];
-          for (let k = 0; k < data.length; k++) {
-            const p = data[k], ins = inRange(p);
-            if (ins) { if (!cur.length && k && !inRange(data[k - 1])) cur.push(clip(p, data[k - 1])); cur.push(p); }
-            else if (cur.length) { cur.push(clip(data[k - 1], p)); pieces.push(cur); cur = []; }
+        const series = (rows, po, straight) => {
+          rows = Array.isArray(rows) ? rows : [];
+          const pieces = [];
+          let cur = [];
+          const flush = () => { if (cur.length) pieces.push(cur); cur = []; };
+          for (let k = 0; k < rows.length; k++) {
+            const p = rows[k];
+            if (!finite(p)) { flush(); continue; }
+            const prev = k > 0 && finite(rows[k - 1]) ? rows[k - 1] : null;
+            if (inRange(p)) {
+              if (!cur.length && prev && !inRange(prev)) cur.push(clip(p, prev));
+              cur.push(p);
+            } else if (cur.length) { cur.push(clip(rows[k - 1], p)); flush(); }
+            else if (prev && !inRange(prev)) { const crossed = rectCut(prev, p); if (crossed) pieces.push(crossed); }
           }
-          if (cur.length) pieces.push(cur);
+          flush();
+          const data = rows.filter(finite);
           const tn = po.tone || 'blue', sz = po.size || 4;
           for (const pc of pieces) if (pc.length >= 2) api.line(pc.map(p => at(p)), { tone: tn, size: sz, smooth: straight ? false : undefined, dash: po.dash, piece: 'graph' });
           if (!pieces.length) warn('graph: a line lies completely outside the graph ranges');
@@ -880,10 +1073,10 @@
             let lx = p[0] + (atStart ? -8 : 8), ly = p[1] + 6, anchor = atStart ? 'end' : 'start';
             if (!atStart && lx + lw > w - 8) { lx = p[0] - 4; ly = p[1] - 14; anchor = 'end'; }
             if (atStart && lx - lw < 8) { lx = p[0] + 4; ly = p[1] - 14; anchor = 'start'; }
-            if (p[1] <= ax && ly > ax - 12) ly = p[1] - 12;          // keep a line's name off the x axis
+            if (p[1] <= ax && ly > ax - 12) ly = p[1] - 12;
             api.text(lx, Math.max(22, Math.min(h - 8, ly)), po.label, { anchor, size: po.labelSize || 18, tone: po.labelTone || tn, piece: 'graph' });
           }
-          const y = yOf(data), mid = midOf(data);
+          const y = yAt(rows), mid = midOf(data);
           return { data, tone: tn, size: sz, straight, label: po.label, start, end, mid: at(mid), midData: mid, pts: data.map(p => at(p)), y, at: u => { const v = y(u); return v == null ? null : at(u, v); } };
         };
         const g = { box: { x: gx, y: gy, w: gw, h: gh }, origin: [ay, ax], x: X, y: Y, at };
@@ -891,13 +1084,16 @@
           po = po || {};
           if (typeof f === 'function') {
             const a = po.from != null ? po.from : xr[0], b = po.to != null ? po.to : xr[1], n = po.samples || 64, data = [];
-            for (let k = 0; k <= n; k++) { const u = a + (b - a) * k / n; let v; try { v = f(u); } catch (_) { v = NaN; } if (isFinite(v)) data.push([u, v]); }
+            for (let k = 0; k <= n; k++) {
+              const u = a + (b - a) * k / n;
+              let v; try { v = f(u); } catch (_) { v = NaN; }
+              data.push(isFinite(v) ? [u, v] : null);
+            }
             return series(data, po, false);
           }
-          // ReferenceRenderer: data points are joined with straight lines (a speed-time graph is segments, smoothing bent it past its
-          // own points); a long list reads as a curve, and {smooth: true} / {straight: true} decide it outright
           if (Array.isArray(f)) return series(f, po, po.smooth === true ? false : po.straight != null ? !!po.straight : f.length <= 8);
-          warn('graph: plot() needs a function or a list of [x, y] points'); return null;
+          warn('graph: plot() needs a function or a list of [x, y] points');
+          return null;
         };
         g.line = (p1, p2, po) => g.plot([p1, p2], Object.assign({ straight: true }, po || {}));
         g.shift = (s, dx, dy, po) => {
@@ -916,12 +1112,13 @@
           const A = s1.data, B = s2.data;
           for (let i = 1; i < A.length; i++) for (let j = 1; j < B.length; j++) {
             const [p, p2] = [A[i - 1], A[i]], [q, q2] = [B[j - 1], B[j]];
-            const r = [p2[0] - p[0], p2[1] - p[1]], s = [q2[0] - q[0], q2[1] - q[1]], den = r[0] * s[1] - r[1] * s[0];
+            const rv = [p2[0] - p[0], p2[1] - p[1]], sv = [q2[0] - q[0], q2[1] - q[1]], den = rv[0] * sv[1] - rv[1] * sv[0];
             if (Math.abs(den) < 1e-12) continue;
-            const t = ((q[0] - p[0]) * s[1] - (q[1] - p[1]) * s[0]) / den, u = ((q[0] - p[0]) * r[1] - (q[1] - p[1]) * r[0]) / den;
-            if (t >= -1e-9 && t <= 1 + 1e-9 && u >= -1e-9 && u <= 1 + 1e-9) return [p[0] + r[0] * t, p[1] + r[1] * t];
+            const t = ((q[0] - p[0]) * sv[1] - (q[1] - p[1]) * sv[0]) / den, u = ((q[0] - p[0]) * rv[1] - (q[1] - p[1]) * rv[0]) / den;
+            if (t >= -1e-9 && t <= 1 + 1e-9 && u >= -1e-9 && u <= 1 + 1e-9) return [p[0] + rv[0] * t, p[1] + rv[1] * t];
           }
-          warn('graph: these two lines do not cross inside the graph'); return null;
+          warn('graph: these two lines do not cross inside the graph');
+          return null;
         };
         g.point = (a, b, po) => {
           if (Array.isArray(a)) { po = b; b = a[1]; a = a[0]; }
@@ -941,7 +1138,7 @@
         return g;
       };
 
-      // ------------------------------------------------ timeline piece: dated marks with picture slots
+      // ------------------------------------------------ timeline: dated marks, with room for a picture
       api.timeline = (tx, ty, tw, events, o) => {
         o = o || {};
         const ev = (Array.isArray(events) ? events : []).map((e, i) => Array.isArray(e) ? { date: e[0], label: e[1] == null ? '' : String(e[1]), show: e[2] }
@@ -961,36 +1158,33 @@
         for (let k = n - 1; k >= 0; k--) xs[order[k]] = Math.min(xs[order[k]], k === n - 1 ? tx + inset + span : xs[order[k + 1]] - minGap);
         if (num && !o.even && xs.some((x, i) => Math.abs(x - scale(ev[i].date)) > 12)) warn('timeline: some dates were too close, so their marks were spread apart');
         const room = i => { const sorted = order.map(k => xs[k]), k = sorted.indexOf(xs[i]); const l = k > 0 ? xs[i] - sorted[k - 1] : 1e9, r = k < n - 1 ? sorted[k + 1] - xs[i] : 1e9; const g = Math.min(l, r); return g > 1e8 ? tw / 2 : g; };
-        const marks = ev.map((e, i) => {
-          // above: picture above the line, words below; below: the other way round;
-          // alternate: each mark gets one side for its date, words and picture (in that order, away from the line)
+        const placed = ev.map((e, i) => {
           const x = xs[i], wordsBelow = o.slots === 'below' ? false : alt ? i % 2 === 0 : true, slotBelow = alt ? wordsBelow : o.slots === 'below';
           api.line([[x, ty - 9], [x, ty + 9]], { tone: tn, size: 3, smooth: false, piece: 'timeline' });
           api.dot(x, ty, 5.5, { tone: o.dotTone || 'coral', piece: 'timeline' });
           const ds = e.show != null ? String(e.show) : num ? fmt(e.date) : String(e.date), lw = Math.min(190, (alt ? 1.85 : 0.96) * room(i));
           const sw = o.slotW || Math.min(150, (alt ? 1.8 : 0.9) * room(i));
           const ls = o.labelSize || 17, dsz = o.dateSize || 18;
-          const two = e.label && textW(e.label, ls) > lw - 6;       // the label will wrap onto two lines
+          const two = e.label && textW(e.label, ls) > lw - 6;
           if (wordsBelow) { api.text(x, ty + 30, ds, { anchor: 'middle', size: dsz, tone: o.dateTone || tn, piece: 'timeline' }); if (e.label) api.text(x, ty + (two ? 64 : 56), e.label, { anchor: 'middle', size: ls, fit: [lw - 6, 44], piece: 'timeline' }); }
           else { api.text(x, ty - 18, ds, { anchor: 'middle', size: dsz, tone: o.dateTone || tn, piece: 'timeline' }); if (e.label) api.text(x, ty - (two ? 54 : 44), e.label, { anchor: 'middle', size: ls, fit: [lw - 6, 44], piece: 'timeline' }); }
-          const far = alt;                                      // slot beyond the words (alternate) or right next to the line
+          const far = alt;
           const space = slotBelow ? h - 10 - (ty + (far ? 90 : 16)) : ty - (far ? 92 : 16) - 60;
           const sh = o.slotH || Math.max(40, Math.min(far ? 110 : 150, space));
           const sy = slotBelow ? ty + (far ? 90 : 16) : ty - (far ? 92 : 16) - sh;
           return { date: e.date, label: e.label, x, y: ty, at: [x, ty], slot: { x: x - sw / 2, y: sy, w: sw, h: sh, cx: x, cy: sy + sh / 2 } };
         });
-        const at = d => {
+        const atDate = d => {
           if (!num || typeof d !== 'number') { const k = ev.findIndex(e => e.date === d); return k >= 0 ? [xs[k], ty] : [tx, ty]; }
           const s = order.map(i => [ev[i].date, xs[i]]);
           if (d <= s[0][0]) return [s[0][1] - (s[0][0] - d) / ((hi - lo) || 1) * span, ty];
           for (let k = 1; k < s.length; k++) if (d <= s[k][0]) return [s[k - 1][1] + (s[k][1] - s[k - 1][1]) * (d - s[k - 1][0]) / ((s[k][0] - s[k - 1][0]) || 1), ty];
           return [s[s.length - 1][1] + (d - s[s.length - 1][0]) / ((hi - lo) || 1) * span, ty];
         };
-        return { marks, events: marks, at, slot: i => marks[i] ? marks[i].slot : null, start: [tx, ty], end: [tx + tw, ty] };
+        return { marks: placed, events: placed, at: atDate, slot: i => placed[i] ? placed[i].slot : null, start: [tx, ty], end: [tx + tw, ty] };
       };
-      // ------------------------------------------------ ReferenceRenderer: edits on what is already on the card, as marks
-      // Each is a mark {do: 'edit', op} paced like a stroke: it belongs to the say() before it and happens while that line
-      // is heard. Ids are part ids from the card's state (p3, 'p3,p5', ['p3', 'p5']) or mark ids (m12, m12-m15).
+
+      // ------------------------------------------------ edits of what is already on the card
       const ids = id => Array.isArray(id) ? id.map(x => typeof x === 'number' ? 'p' + x : String(x)) : typeof id === 'number' ? 'p' + id : String(id == null ? '' : id);
       const edit = op => { if (!op.id && op.op !== 'startOver' && op.op !== 'turn') warn(op.op + '() needs a part id like "p3"'); return push({ do: 'edit', op }); };
       api.erase = id => edit({ op: 'erase', id: ids(id) });
@@ -999,132 +1193,185 @@
       api.move = (id, dx, dy) => edit({ op: 'move', id: ids(id), dx: +dx || 0, dy: +dy || 0 });
       api.moveTo = (id, x, y) => edit({ op: 'moveTo', id: ids(id), x: +x, y: +y });
       api.scale = (id, k) => edit({ op: 'scale', id: ids(id), k: +k });
-      // highlight(x, y, w, h) is still the marker band; highlight(id, color) marks a part that is already there
       api.highlight = (a, b, c, d, o) => typeof a === 'number' ? push({ do: 'highlight', at: [a, b], w: c, h: d }, o)
         : edit({ op: 'highlight', id: ids(a), color: b && typeof b === 'object' ? b.color : b });
-      // everything already on the card un-draws; the rest of the program is a fresh drawing
       api.startOver = () => edit({ op: 'startOver' });
-      // a new turn on the same card (written by the canvas, never by the model): its steps start again, and the
-      // previous turns' marks from index `keep` on that were never drawn (the user interrupted) are dropped
       api.__turn = (n, keep) => { curTurn = +n || curTurn + 1; curStep = 1; cue = null; return edit({ op: 'turn', turn: curTurn, keep: keep == null ? null : +keep }); };
       let seed = 20260925;
-      api.Math = Object.create(Math, { random: { value: () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296) } });   // seeded: the same program always draws the same picture
+      api.Math = Object.create(Math, { random: { value: () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296) } });
       api.random = api.Math.random;
-      for (const t of TONE_NAMES) if (!(t in api)) api[t] = t;   // forgiving: tone: leaf works like tone: 'leaf'
+      for (const t of TONE_NAMES) if (!(t in api)) api[t] = t;
       return api;
     }
-
     // a mark as plain data: no functions, so it can cross into the page or be posted from a worker
-    function clean(m) { const o = {}; for (const k in m) { const v = m[k]; if (typeof v !== 'function' && typeof v !== 'symbol') o[k] = v; } return o; }
+    function clean(m) {
+      const o = {};
+      for (const k in m) if (typeof m[k] !== 'function' && typeof m[k] !== 'symbol') o[k] = m[k];
+      return o;
+    }
 
-    const FIGURE_PART_NAME = /^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[A-Za-z_$][\w$]*\s*\.\s*(?:box|cyl|cylinder|cone|tube|lathe|sphere|torus|capsule|pipe|spring|gear|extrude|blob|poly|surface|group)\s*\(/;
-    // Top-level const/let become var so they survive between chunks of a live drawing (and a turn may declare a name an
-    // earlier turn declared); a helper named like a drawing call must shadow it.
+    // ---------------------------------------------------------------- the rewrite every program gets
+    // A drawing runs statement by statement as it streams in, each statement in the same scope as the ones before. So
+    // that names last from one statement to the next (and a later turn may declare a name an earlier one did), each
+    // top-level declaration becomes a var: const and let become var, and a class becomes a var holding the class. A
+    // function named like a drawing call is made a var too, so it shadows the call. A statement that opens with ( [ or `
+    // is a new statement, as the model means it (run whole, the line above would have taken it as its own call or index).
+    // Line breaks are never added or removed, so error lines stay the program's own.
+    const FIGURE_PART = /^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[A-Za-z_$][\w$]*\s*\.\s*(?:box|cyl|cylinder|cone|tube|lathe|sphere|torus|capsule|pipe|spring|gear|extrude|blob|poly|surface|group)\s*\(/;
     function transform(src, starts, api) {
-      let out = '', last = 0;
+      let out = '', copied = 0;
       for (const s of starts) {
         let i = s;
-        for (;;) {                                       // skip blanks and comments before the statement
+        for (;;) {                                         // past blanks and comments to the statement itself
           while (i < src.length && /\s/.test(src[i])) i++;
           if (src.startsWith('//', i)) { const j = src.indexOf('\n', i); i = j < 0 ? src.length : j; continue; }
           if (src.startsWith('/*', i)) { const j = src.indexOf('*/', i + 2); i = j < 0 ? src.length : j + 2; continue; }
           break;
         }
-        // ReferenceRenderer fix: two statement starts can skip comments/blanks to the same statement (a comment
-        // block before it); rewriting it twice gave "var  var x" and broke every streamed update.
-        if (i < last) continue;
-        const m = /^(const|let)(\s)/.exec(src.slice(i, i + 6)), f = /^function\s+([A-Za-z_$][\w$]*)/.exec(src.slice(i, i + 80));
-        // three-metal: a figure part assigned to a variable (const piston = f.cyl(...)) is named after it
-        const named = '__name3d' in api && FIGURE_PART_NAME.exec(src.slice(i, i + 160));
-        if (named) { out += src.slice(last, i) + '__name3d(' + JSON.stringify(named[1]) + ');'; last = i; }
-        if (m) { out += src.slice(last, i) + 'var' + (m[1] === 'const' ? '  ' : ''); last = i + m[1].length; }
-        else if (f && f[1] in api) { out += src.slice(last, i) + 'var ' + f[1] + ' = '; last = i; }   // a helper named like a drawing call must shadow it
+        if (i < copied || i >= src.length) continue;       // two starts can lead to the same statement (a comment block before it)
+        const head = src.slice(i, i + 160);
+        out += src.slice(copied, i);
+        copied = i;
+        // three-metal: a figure part kept in a variable (const piston = f.cyl(...)) is named after it
+        const part = '__name3d' in api && FIGURE_PART.exec(head);
+        if (part) out += '__name3d(' + JSON.stringify(part[1]) + ');';
+        let m;
+        if ((m = /^(const|let)(?=\s)/.exec(head))) { out += m[1] === 'const' ? 'var  ' : 'var'; copied = i + m[1].length; }
+        else if ((m = /^class\s+([A-Za-z_$][\w$]*)/.exec(head))) out += 'var ' + m[1] + ' = ';
+        else if ((m = /^(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)/.exec(head)) && m[1] in api) out += 'var ' + m[1] + ' = ';
+        else if (s > 0 && '([`'.includes(src[i])) out += ';';
       }
-      return out + src.slice(last);
+      return out + src.slice(copied);
     }
-    // ReferenceRenderer: a whole program runs with the same rewrite, so it draws exactly what streaming it statement by statement draws
-    const wholeProgram = (c, api, knownEnds) => transform(c, [0].concat((knownEnds || statementEnds(c + '\n;')).filter(e => e < c.length)), api);
+    // a whole program gets the same rewrite, so running it at once draws exactly what streaming it does
+    const wholeProgram = (code, api, knownEnds) => transform(code, [0].concat((knownEnds || statementEnds(code + '\n;')).filter(e => e < code.length)), api);
+    // the program's own code inside the function the runner makes: it starts on this line of the function's source
+    const FIRST_LINE = 4;                                // "function anonymous(api", ") {", "with (api) {", the program
+    // a name for the program's code, so a stack names its frames ("at eval (mate-drawing-program:7:3)")
+    const PROGRAM_URL = 'mate-drawing-program';
+    const compile = code => new Function('api', 'with (api) {\n' + code + '\n}\n//# sourceURL=' + PROGRAM_URL);
+    // The program line an error came from, or null when it is not known. V8 names the program's frames, so the first
+    // one is the program line that was running, even when a drawing call threw. JavaScriptCore (the app) ignores the
+    // name and gives its frames no places; its e.line is trusted only when the program's own top-level code threw
+    // (its unnamed frame comes first), since an error thrown inside a drawing call carries a line of the engine.
+    function errorLine(e) {
+      if (!e || typeof e !== 'object') return null;
+      const stack = String(e.stack || ''), named = new RegExp(PROGRAM_URL + ':(\\d+)').exec(stack);
+      if (named) return +named[1] - FIRST_LINE + 1;
+      if (typeof e.line === 'number' && /^(?:anonymous|eval)?@/.test(stack)) return e.line - FIRST_LINE + 1;
+      return null;
+    }
 
-    // run a whole program at once (render, and the fallback for live)
+    // ---------------------------------------------------------------- running a program
+    // A whole program at once (render(), and live() when a statement fails). A syntax error keeps the longest run of
+    // complete statements that compiles, the way streaming would have drawn them; a runtime error keeps the marks made
+    // before it. Either way the marks carry the error, with the program line it happened at when it is known.
     function runCode(code, w, h, ro) {
       ro = ro || {};
       const sink = { marks: [], says: [], warnings: [], deadline: ro.budgetMs ? Date.now() + ro.budgetMs : 0, ticks: {}, anim: {} };
       const api = makeApi(w, h, sink), marks = sink.marks;
       let error = null, fn = null;
-      try { fn = new Function('api', 'with (api) {\n' + wholeProgram(code, api, ro.knownEnds) + '\n}'); }
-      catch (e) {                      // a syntax error: keep the longest run of complete statements that parses, like live streaming would
+      try { fn = compile(wholeProgram(code, api, ro.knownEnds)); }
+      catch (e) {
         const ends = statementEnds(code + '\n');
-        for (let k = ends.length - 1; k >= 0 && !fn; k--) { try { fn = new Function('api', 'with (api) {\n' + wholeProgram(code.slice(0, ends[k]), api) + '\n}'); error = `syntax error after line ${code.slice(0, ends[k]).split('\n').length}: ${e.message}`; } catch (_) {} }
+        for (let k = ends.length - 1; k >= 0 && !fn; k--) {
+          const kept = code.slice(0, ends[k]);
+          try { fn = compile(wholeProgram(kept, api)); error = `syntax error after line ${kept.split('\n').length}: ${e.message}`; } catch (_) {}
+        }
         if (!fn) error = `syntax error: ${e.message}`;
       }
-      if (fn) try { fn(api); }
-      catch (e) {
-        const m = /<anonymous>:(\d+)/.exec(e.stack || '');
-        error = `code stopped${m ? ' at line ' + (m[1] - 2) : ''}: ${e.message}`;
+      if (fn) {
+        try { fn(api); }
+        catch (e) { const line = errorLine(e), known = line > 0 && line <= code.split('\n').length; error = `code stopped${known ? ' at line ' + line : ''}: ${e && e.message !== undefined ? e.message : e}`; }
       }
       if (error) error += ` (kept the ${marks.length} marks before it)`;
       marks.error = error; marks.says = sink.says; marks.warnings = sink.warnings;
-      // three-metal: figure() tick functions and the poses they set, for the run that keeps going (Session, full mode)
+      // three-metal: figure() tick functions and the poses they set, for a run that keeps going (Session, full mode)
       Object.defineProperty(marks, 'live3d', { value: { ticks: sink.ticks, anim: sink.anim }, enumerable: false });
       return marks;
     }
 
-    // incremental execution for live drawing: each complete statement runs once, in one persistent scope.
-    // Top-level const/let become var so they survive between chunks. Any error switches to re-running
-    // the whole prefix (1.4 behaviour), which gives exactly what render() would draw.
+    // A program run as it streams in: each new run of complete statements is evaluated once, in one scope that lasts
+    // (a generator paused inside `with (api)`, fed code to eval). A syntax error before the program is done only means
+    // more code is coming. Any other error switches to running the whole program so far from the start on every update
+    // ('full'), which draws exactly what render() would. update() returns what is new since the last call.
     function Session(w, h, so) {
       so = so || {};
       const budget = so.budgetMs || 0;
-      let sink, api, gen, mode, code, emitted, fellBack = null;
-      function reset() { sink = { marks: [], says: [], warnings: [], ticks: {}, anim: {} }; api = makeApi(w, h, sink); gen = null; mode = so.incremental === false ? 'full' : 'inc'; code = ''; emitted = { marks: 0, says: 0, warnings: 0 }; }
-      reset();
-      // knownEnds (optional): statementEnds() of a longer program `full` is the start of, when the caller has them
-      function update(full, done, knownEnds) {
-        if (!full.startsWith(code)) reset();              // not append-only: start again
-        const delta = full.slice(code.length);
-        if (mode === 'inc' && delta.trim()) {
-          if (!gen) { const G = new Function('__api', 'return function* () { with (__api) { let __r = null; for (;;) { const __c = yield __r; __r = null; try { eval(__c); } catch (e) { __r = e; } } } }')(api); gen = G(); gen.next(); }
-          const base = code.length, starts = [0].concat((knownEnds || statementEnds(full + '\n;')).filter(e => e > base && e < full.length).map(e => e - base));
-          sink.deadline = budget ? Date.now() + budget : 0;
-          let err = null;
-          try { err = gen.next(transform(delta, starts, api)).value; } catch (e) { err = e; }
-          if (err && err.name === 'SyntaxError' && !done) return { marks: [], says: [], warnings: [], error: null, mode };   // parse errors have no side effects: wait for more code
-          if (err) { mode = 'full'; fellBack = String(err && err.message || err); }
+      let sink, api, evaluator, mode, ran, sent, fellBack = null;
+      function reset() {
+        sink = { marks: [], says: [], warnings: [], ticks: {}, anim: {} };
+        api = makeApi(w, h, sink);
+        evaluator = null;
+        mode = so.incremental === false ? 'full' : 'inc';
+        ran = '';
+        sent = { marks: 0, says: 0, warnings: 0 };
+      }
+      function evaluate(chunk) {
+        if (!evaluator) {
+          evaluator = new Function('__api', 'return function* () { with (__api) { let __r = null; for (;;) { const __c = yield __r; __r = null; try { eval(__c); } catch (e) { __r = e; } } } }')(api)();
+          evaluator.next();
         }
-        code = full;
+        sink.deadline = budget ? Date.now() + budget : 0;
+        try { return evaluator.next(chunk).value; } catch (e) { return e; }
+      }
+      reset();
+      // knownEnds (optional): statementEnds() of a longer program that `full` is the start of, when the caller has them
+      function update(full, done, knownEnds) {
+        if (!full.startsWith(ran)) reset();                // not just more code: start again
+        const added = full.slice(ran.length);
+        if (mode === 'inc' && added.trim()) {
+          const base = ran.length;
+          const starts = [0].concat((knownEnds || statementEnds(full + '\n;')).filter(e => e > base && e < full.length).map(e => e - base));
+          const err = evaluate(transform(added, starts, api));
+          if (err && err.name === 'SyntaxError' && !done) return { marks: [], says: [], warnings: [], error: null, mode };
+          if (err) { mode = 'full'; fellBack = String(err && err.message !== undefined ? err.message : err); }
+        }
+        ran = full;
         let error = null;
-        if (mode === 'full') { const m = runCode(code, w, h, { budgetMs: budget }); sink = { marks: m, says: m.says, warnings: m.warnings, ticks: m.live3d.ticks, anim: m.live3d.anim }; error = m.error; }
-        const out = { marks: sink.marks.slice(emitted.marks).map(clean), says: sink.says.slice(emitted.says), warnings: sink.warnings.slice(emitted.warnings), error: done ? error : null, mode };
-        emitted = { marks: Math.max(emitted.marks, sink.marks.length), says: Math.max(emitted.says, sink.says.length), warnings: Math.max(emitted.warnings, sink.warnings.length) };
+        if (mode === 'full') {
+          const m = runCode(ran, w, h, { budgetMs: budget });
+          sink = { marks: m, says: m.says, warnings: m.warnings, ticks: m.live3d.ticks, anim: m.live3d.anim };
+          error = m.error;
+        }
+        const out = { marks: sink.marks.slice(sent.marks).map(clean), says: sink.says.slice(sent.says), warnings: sink.warnings.slice(sent.warnings), error: done ? error : null, mode };
+        sent = { marks: Math.max(sent.marks, sink.marks.length), says: Math.max(sent.says, sink.says.length), warnings: Math.max(sent.warnings, sink.warnings.length) };
         return out;
       }
-      // code: the program this session has run so far (ReferenceRenderer: a continued turn appends to exactly this)
+      // code: the program run so far (a continued turn appends to exactly this)
       // live3d: this run's figure() tick functions and the poses they set (three-metal; mateCanvas.tick3d runs them)
-      return { update, get mode() { return mode; }, get fellBack() { return fellBack; }, get code() { return code; }, get live3d() { return { ticks: sink.ticks, anim: sink.anim }; } };
+      return { update, get mode() { return mode; }, get fellBack() { return fellBack; }, get code() { return ran; }, get live3d() { return { ticks: sink.ticks, anim: sink.anim }; } };
     }
-    // 1.6: which top-level statement made which marks, run exactly like live() (statement by statement).
-    // Returns [{s, e, n0, n1}]: the statement's character span and the range of mark indices it drew.
+    // Which top-level statement made which marks, run the way live() runs them. [{s, e, n0, n1}]: each statement's
+    // character span and the indices of the marks it drew.
     function attribute(code, w, h) {
-      const S = Session(w, h), out = [], all = statementEnds(code + '\n;'); let n = 0, prev = 0;
-      for (const e of statementEnds(code)) { const r = S.update(code.slice(0, e), false, all); out.push({ s: prev, e, n0: n, n1: n + r.marks.length }); n += r.marks.length; prev = e; }
-      if (prev < code.length) { const r = S.update(code, true); out.push({ s: prev, e: code.length, n0: n, n1: n + r.marks.length }); }
+      const run = Session(w, h), all = statementEnds(code + '\n;'), out = [];
+      let made = 0, from = 0;
+      const take = (to, done) => {
+        const n = run.update(code.slice(0, to), done, done ? undefined : all).marks.length;
+        out.push({ s: from, e: to, n0: made, n1: made + n });
+        made += n; from = to;
+      };
+      for (const e of statementEnds(code)) take(e, false);
+      if (from < code.length) take(code.length, true);
       return out;
     }
-    // 1.6: run a code fragment (an edit's "add" or "redraw") after the drawing's own program, so its helpers and
-    // variables are in scope. Only the fragment's marks come back.
+    // A code fragment (an edit's "add" or "redraw") run after the drawing's own program, so its helpers and variables
+    // are in scope. Only the fragment's marks come back.
     function exec(base, frag, w, h, budgetMs) {
-      const S = Session(w, h, { budgetMs }); S.update(base, true);
-      return S.update(base + '\n;\n' + frag + '\n', true);
+      const run = Session(w, h, { budgetMs });
+      run.update(base, true);
+      return run.update(base + '\n;\n' + frag + '\n', true);
     }
     return { statementEnds, statementScanner, runCode, Session, clean, attribute, exec };
   }
-  const RUNNER = makeRunner(Object.keys(TONES));
+  const RUNNER = makeRunner(Object.keys(TONES), TONES, REAL_TONES, COLOR_WORDS);
   const { statementEnds } = RUNNER;
   const runCode = (code, w, h, o) => RUNNER.runCode(code, w, h, o);
 
   // ================================================================ the sandbox: the runner inside a Web Worker, no DOM, no network, a time limit
-  function workerMain(makeRunner, toneNames) {
-    const post = self.postMessage.bind(self), R = makeRunner(toneNames);
+  function workerMain(makeRunner, toneNames, mateTones, realTones, colorWords) {
+    const post = self.postMessage.bind(self), R = makeRunner(toneNames, mateTones, realTones, colorWords);
     let session = null;
     self.addEventListener('message', ev => {
       const q = ev.data || {};
@@ -1142,7 +1389,7 @@
     }
   }
   let WORKER_URL = null;
-  const workerSource = () => `(${workerMain.toString()})(${makeRunner.toString()}, ${JSON.stringify(Object.keys(TONES))});`;
+  const workerSource = () => `(${workerMain.toString()})(${makeRunner.toString()}, ${JSON.stringify(Object.keys(TONES))}, ${JSON.stringify(TONES)}, ${JSON.stringify(REAL_TONES)}, ${JSON.stringify(COLOR_WORDS)});`;
   function WorkerRunner(W, H, o, onResult) {
     let w;
     try {
@@ -2633,8 +2880,6 @@
   // ================================================================ 1.6: the editor behind live(): ops, undo and the model's view
   // Ops (one JSON object each): recolor, restyle, move, moveTo, scale, erase, redraw, add, highlight, undo.
   // say / new / none are for the host (the voice, or starting a new drawing); the editor just reports them.
-  const COLOR_WORDS = { yellow: 'sun', gold: 'sun', golden: 'sun', purple: 'violet', lavender: 'lilac', green: 'leaf', lightgreen: 'mint', darkgreen: 'leaf', lightblue: 'sky', darkblue: 'blue', navy: 'blue',
-    black: 'ink', gray: 'grey', lightgrey: 'grey', lightgray: 'grey', beige: 'cream', rose: 'pink', magenta: 'pink', salmon: 'peach', skyblue: 'sky', lime: 'mint', teal: '#2A9D8F', turquoise: '#2EC4B6' };
   const DARKER = { butter: 'orange', sun: 'orange', orange: 'brown', peach: 'coral', coral: 'red', red: '#A32A2E', pink: 'coral', lilac: 'violet', violet: '#4A3AA8', sky: 'blue', blue: '#173F8A',
     mint: 'leaf', leaf: '#2A6E40', brown: '#5E3A1F', tan: 'brown', cream: 'tan', white: 'grey', grey: 'ink', ink: 'ink' };
   const normColor = c => { if (c == null) return c; const k = String(c).toLowerCase().replace(/[\s_-]+/g, ''); return TONES[k] ? k : COLOR_WORDS[k] || String(c).trim(); };
@@ -3256,5 +3501,7 @@
   }
   global.MateDraw = { workerSource, version: VERSION, render, live, TONES, runCode, statementEnds, statementScanner: RUNNER.statementScanner, Stream, Pacer, Layout, layoutMarks, natural, setPen, Session: RUNNER.Session,
     attribute: RUNNER.attribute, exec: RUNNER.exec, describe, stateText, markBox, recolorMark, restyleMark, EDIT_BASE,
-    pointsAtScreen, isCardMark, onCardTest };
+    pointsAtScreen, isCardMark, onCardTest,
+    // the pen's geometry, for tests and tools
+    geometry: { rng, catmull, densify, dashes, handSegments, ellipsePts, outline, evenOutline } };
 })(typeof window !== 'undefined' ? window : globalThis);

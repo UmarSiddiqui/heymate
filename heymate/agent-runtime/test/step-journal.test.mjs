@@ -4,7 +4,6 @@ import { mkdtemp, rm, readFile, stat, appendFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { StepJournal } from '../src/step-journal.mjs';
 
 async function fixture(t) {
@@ -127,21 +126,30 @@ test('native answer recovery requires an explicit validated answer checkpoint', 
   assert.throws(() => journal.checkpointAnswer({ turnID: 'turn-two', answer: ' ' }), /Invalid final-answer/);
 });
 
-test('recovered journal module and retained original source ranges match provenance hashes', async () => {
-  const root = new URL('../../../', import.meta.url);
-  const manifest = JSON.parse(await readFile(new URL('scripts/recovered-journal-provenance.json', new URL('../../', import.meta.url)), 'utf8'));
-  const target = await readFile(new URL(manifest.target, root));
-  const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
-  assert.equal(sha256(target), manifest.targetSHA256);
-  let original;
-  try { original = await readFile(new URL(manifest.segments[0].source, root)); }
-  catch (error) { if (error.code !== 'ENOENT') throw error; }
-  if (original) {
-    assert.equal(sha256(original), manifest.sourceSHA256);
-    for (const segment of manifest.segments) {
-      const data = original.subarray(segment.startByte, segment.endByte);
-      assert.equal(sha256(data), segment.sha256);
-      assert.ok(target.includes(data), 'Original journal source range missing from port');
-    }
-  }
+test('non-retryable errors stop retries and survive restart', async t => {
+  const f = await fixture(t);
+  let attempts = 0;
+  const call = { name: 'read', id: 'non-retryable', policy: { retries: { limit: 2 } } };
+  await assert.rejects(f.open().run(call, async () => {
+    attempts++;
+    const error = new Error('cannot retry'); error.name = 'NonRetryableError'; throw error;
+  }), /cannot retry/);
+  await assert.rejects(f.open().run(call, async () => assert.fail('replayed')), /cannot retry/);
+  assert.equal(attempts, 1);
+});
+
+test('write without a serializable result remains uncertain across restart', async t => {
+  const f = await fixture(t);
+  const call = { name: 'write', id: 'empty', kind: 'write' };
+  await assert.rejects(f.open().run(call, async () => undefined), /no serializable result/);
+  assert.throws(() => f.open().run(call, async () => assert.fail('write repeated')), /outcome is unknown/);
+});
+
+test('cancellation during read retry does not record a completed result', async t => {
+  const f = await fixture(t), abort = new AbortController();
+  const call = { name: 'read', id: 'cancelled-retry', signal: abort.signal,
+    policy: { retries: { limit: 2, delay: '1 second' } } };
+  const promise = f.open().run(call, async () => { setTimeout(() => abort.abort(), 5); throw new Error('retry'); });
+  await assert.rejects(promise);
+  assert.equal(await f.open().run({ name: 'read', id: 'cancelled-retry' }, async () => 'recovered'), 'recovered');
 });

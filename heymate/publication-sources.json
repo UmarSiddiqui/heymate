@@ -20,23 +20,7 @@
       "status": "requires-reviewed-replacement-or-documented-permission"
     },
     {
-      "path": "agent-runtime/src/notes.mjs",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
       "path": "agent-runtime/src/recovered-h1-script.mjs",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
-      "path": "agent-runtime/src/recovered-h1-early-reads.mjs",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
-      "path": "agent-runtime/src/recovered-h1-telemetry.mjs",
-      "status": "requires-reviewed-replacement-or-documented-permission"
-    },
-    {
-      "path": "agent-runtime/src/recovered-step-journal.mjs",
       "status": "requires-reviewed-replacement-or-documented-permission"
     },
     {
@@ -57,6 +41,21 @@
   "releaseAuthorization": "User requested release on 2026-10-29 with source review unresolved.",
   "replacementReview": [
     {
+      "path": "agent-runtime/src/telemetry.mjs",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "agent-runtime/src/recovered-h1-telemetry.mjs"
+    },
+    {
+      "path": "agent-runtime/src/early-reads.mjs",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "agent-runtime/src/recovered-h1-early-reads.mjs"
+    },
+    {
+      "path": "agent-runtime/src/step-journal.mjs",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "agent-runtime/src/recovered-step-journal.mjs"
+    },
+    {
       "path": "HeyMate/mate-three-parts.js",
       "status": "independently-reimplemented-awaiting-source-and-behavior-review",
       "replaces": "HeyMate/mate-three-parts.js (recovered 2026-10-29 snapshot)"
@@ -76,6 +75,11 @@
       "path": "HeyMate/mate-draw-native.js",
       "status": "independently-reimplemented-awaiting-source-and-behavior-review",
       "replaces": "HeyMate/mate-draw-native.js (recovered 2026-10-29 snapshot)"
+    },
+    {
+      "path": "agent-runtime/src/notes.mjs",
+      "status": "independently-reimplemented-awaiting-source-and-behavior-review",
+      "replaces": "agent-runtime/src/notes.mjs (recovered 2026-10-29 snapshot)"
     }
   ]
 }
