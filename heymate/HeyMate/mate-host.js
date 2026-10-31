@@ -52,87 +52,88 @@
   }
   const textCanvas = document.createElement('canvas').getContext('2d');
 
-  // Direct algorithm port from ReferenceRenderer 1.1.1 arm64, SHA-256
-  // bb98afe140170240037589647cbfe00099079655e9223ec87f7f702db3fb7911.
-  // Host bindings: 0x101781e30; ink: 0x10178cce8; busy: 0x10178d124
-  // + 0x1017933b0; dominant luminance: 0x10178dff4; RGB: 0x101793d10.
-  // Native branches/weights/strides preserved; RGBA transport is HeyMate's adapter.
-  let screenPixels = null, screenWidth = 0, screenHeight = 0;
-  function setScreenPixels({ width, height, rgba } = {}) {
-    screenPixels = null; screenWidth = 0; screenHeight = 0;
-    // Adapter admission guards, not recovered native policy. Rejected/new
-    // captures never leave a previous screenshot available to a new turn.
-    if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1 ||
-        width * height > 16777216 || typeof rgba !== 'string') return false;
+  // ---------------------------------------------------------------- the screen under the drawing
+  // The screenshot the model saw, kept as one brightness per pixel (Rec. 709 luma of the sRGB values, 0..255), so
+  // the canvas can ask about any area of it: how bright its background is (lumFor), which ink reads on it (inkFor)
+  // and how busy it is (busyFor). A capture that is missing, malformed or too big leaves no screen at all: an earlier
+  // turn's screenshot never answers for a new one.
+  const MAX_SCREEN_PIXELS = 4096 * 4096;
+  const LIGHT_GROUND = 0.58;                 // a background brighter than this takes dark ink (the engine's check agrees)
+  const DARK_INK = '#15171C', LIGHT_INK = '#FFFFFF';
+  const BINS = 20, SAMPLES_PER_SIDE = 32;
+  let screen = null;                         // {w, h, luma, change}
+  function setScreenPixels({ width: w, height: h, rgba } = {}) {
+    screen = null;
+    if (!Number.isSafeInteger(w) || !Number.isSafeInteger(h) || w < 1 || h < 1 || w * h > MAX_SCREEN_PIXELS ||
+        typeof rgba !== 'string') return false;
     let raw;
     try { raw = atob(rgba); } catch (_) { return false; }
-    if (raw.length !== width * height * 4) return false;
-    screenPixels = Uint8Array.from(raw, c => c.charCodeAt(0));
-    screenWidth = width; screenHeight = height;
+    if (raw.length !== w * h * 4) return false;
+    const luma = new Uint8Array(w * h);
+    for (let p = 0, i = 0; p < luma.length; p++, i += 4) {
+      luma[p] = Math.round(0.2126 * raw.charCodeAt(i) + 0.7152 * raw.charCodeAt(i + 1) + 0.0722 * raw.charCodeAt(i + 2));
+    }
+    screen = { w, h, luma, change: changeTable(luma, w, h) };
     return true;
   }
-  function sampleBounds(x, y, w, h, edge) {
-    if (!screenPixels || ![x, y, w, h].every(Number.isFinite)) return null;
+  // How much brightness changes at each pixel, to its right and to the pixel below, as a summed-area table: entry
+  // (x, y) holds the total over every pixel left of x and above y, so the total over any area is four lookups. The
+  // last column and row have no neighbour and add nothing. Each pixel adds at most 510, so a 4096 x 4096 screen
+  // stays within 32 bits.
+  function changeTable(luma, w, h) {
+    const table = new Uint32Array(w * h);
+    for (let y = 1; y < h; y++) {
+      let row = 0;
+      for (let x = 1; x < w; x++) {
+        const p = (y - 1) * w + (x - 1);
+        row += Math.abs(luma[p + 1] - luma[p]) + Math.abs(luma[p + w] - luma[p]);
+        table[y * w + x] = table[(y - 1) * w + x] + row;
+      }
+    }
+    return table;
+  }
+  // The pixels an area covers, clipped to the screen ([left, top, right, bottom], inclusive), or null when it covers
+  // less than two pixels each way.
+  function area(x, y, w, h) {
+    if (!screen || ![x, y, w, h].every(Number.isFinite)) return null;
     const left = Math.max(0, Math.floor(x)), top = Math.max(0, Math.floor(y));
-    const right = Math.min(screenWidth - edge, Math.ceil(x + w));
-    const bottom = Math.min(screenHeight - edge, Math.ceil(y + h));
+    const right = Math.min(screen.w - 1, Math.ceil(x + w)), bottom = Math.min(screen.h - 1, Math.ceil(y + h));
     return left < right && top < bottom ? [left, top, right, bottom] : null;
   }
-  function screenLuminance(x, y) {
-    const i = (y * screenWidth + x) * 4;
-    return (0.2126 * screenPixels[i] + 0.7152 * screenPixels[i + 1] + 0.0722 * screenPixels[i + 2]) / 255;
-  }
-  function dominantLuminance(x, y, w, h) {
-    const box = sampleBounds(x, y, w, h, 1);
-    if (!box) return -1;
-    const [left, top, right, bottom] = box;
-    const stride = Math.max(1, Math.floor(Math.sqrt((right - left) * (bottom - top) / 400)));
-    const sums = new Float64Array(20), counts = new Uint32Array(20);
-    for (let row = top; row <= bottom; row += stride) {
-      for (let col = left; col <= right; col += stride) {
-        const value = screenLuminance(col, row), bin = Math.min(19, Math.trunc(value * 20));
-        sums[bin] += value; counts[bin]++;
+  // The background's brightness, 0..1 (-1: no screen there). Brightness is binned from up to 32 x 32 samples spread
+  // evenly over the area, and the fullest bin wins, so words and icons on a page don't pull its background towards
+  // them the way an average would. Equal bins go to the darker one.
+  function backgroundLuminance(x, y, w, h) {
+    const a = area(x, y, w, h);
+    if (!a) return -1;
+    const [left, top, right, bottom] = a, cols = Math.min(right - left + 1, SAMPLES_PER_SIDE), rows = Math.min(bottom - top + 1, SAMPLES_PER_SIDE);
+    const sums = new Float64Array(BINS), counts = new Uint32Array(BINS);
+    for (let r = 0; r < rows; r++) {
+      const row = (top + Math.floor((r + 0.5) * (bottom - top + 1) / rows)) * screen.w;
+      for (let c = 0; c < cols; c++) {
+        const v = screen.luma[row + left + Math.floor((c + 0.5) * (right - left + 1) / cols)], bin = Math.min(BINS - 1, Math.floor(v * BINS / 255));
+        sums[bin] += v; counts[bin]++;
       }
     }
-    // max(by:) uses strict comparison, so equally populated bins keep the
-    // first (darkest) index, not whichever pixel was visited first.
     let best = 0;
-    for (let i = 1; i < 20; i++) if (counts[i] > counts[best]) best = i;
-    return counts[best] > 0 ? sums[best] / counts[best] : -1;
+    for (let b = 1; b < BINS; b++) if (counts[b] > counts[best]) best = b;
+    return sums[best] / counts[best] / 255;
   }
-  function screenBusy(x, y, w, h) {
-    const box = sampleBounds(x, y, w, h, 2);
-    if (!box) return 0;
-    const [left, top, right, bottom] = box;
-    const rowStride = Math.max(1, Math.trunc((bottom - top) / 160));
-    const colStride = Math.max(1, Math.trunc((right - left) / 160));
-    let sum = 0, count = 0;
-    // Native samples selected scanlines, but every adjacent pixel on each
-    // selected scanline. It does not compare pixels separated by the stride.
-    for (let row = top; row <= bottom; row += rowStride) {
-      let previous = screenLuminance(left, row);
-      for (let col = left + 1; col <= right; col++) {
-        const value = screenLuminance(col, row);
-        sum += Math.abs(value - previous); previous = value;
-      }
-      count += right - left;
-    }
-    for (let col = left; col <= right; col += colStride) {
-      let previous = screenLuminance(col, top);
-      for (let row = top + 1; row <= bottom; row++) {
-        const value = screenLuminance(col, row);
-        sum += Math.abs(value - previous); previous = value;
-      }
-      count += bottom - top;
-    }
-    return count > 0 ? sum / count : 0;
+  // How busy an area is, 0..1: the average change in brightness between neighbouring pixels across all of it. A
+  // plain background is 0, text and controls raise it, a one-pixel checkerboard is 1.
+  function busyness(x, y, w, h) {
+    const a = area(x, y, w, h);
+    if (!a) return 0;
+    const [left, top, right, bottom] = a, t = screen.change, at = (cx, cy) => t[cy * screen.w + cx];
+    const total = at(right, bottom) - at(left, bottom) - at(right, top) + at(left, top);
+    return total / ((right - left) * (bottom - top) * 2 * 255);
   }
   const screenSampling = Object.freeze({
     set: setScreenPixels,
-    clear: () => { screenPixels = null; screenWidth = 0; screenHeight = 0; },
-    inkFor: (x, y, w, h) => dominantLuminance(x, y, w, h) > 0.58 ? '#15171C' : '#FFFFFF',
-    busyFor: screenBusy,
-    lumFor: dominantLuminance,
+    clear: () => { screen = null; },
+    inkFor: (x, y, w, h) => (backgroundLuminance(x, y, w, h) > LIGHT_GROUND ? DARK_INK : LIGHT_INK),
+    busyFor: busyness,
+    lumFor: backgroundLuminance,
   });
 
   const timers = new Map();
