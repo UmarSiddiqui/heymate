@@ -5,14 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Permissions — HeyMate</title>
   <meta name="description" content="Every macOS permission HeyMate can ask for, what it is used for, when it is used, and how to turn it off.">
-  <meta name="theme-color" content="#f5f5f7">
+  <meta name="theme-color" content="#f7f8fa">
   <link rel="canonical" href="https://getheymate.vercel.app/permissions">
   <link rel="icon" href="assets/img/icon/favicon-mischief-32.png?v=blue-1" type="image/png">
-  <link rel="stylesheet" href="css/tokens.css">
-  <link rel="stylesheet" href="css/base.css">
-  <link rel="stylesheet" href="css/components.css">
-  <link rel="stylesheet" href="css/sections.css">
-  <link rel="stylesheet" href="css/motion.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/site.css?v=14">
+  <link rel="stylesheet" href="css/home.css?v=23">
+  <link rel="stylesheet" href="css/documents.css?v=1">
   <script>document.documentElement.classList.add("js")</script>
   <!-- Vercel Web Analytics: cookieless page counts (disclosed on privacy.html) -->
   <script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
@@ -29,39 +30,17 @@
     })(window,document,'https://static.hotjar.com/c/hotjar-','.js?sv=');
   </script>
 </head>
-<body>
-  <header class="nav scrolled">
-    <a class="brand" href="index.html">
-      <img src="assets/img/icon/favicon-mischief-32.png?v=blue-1" alt="" width="20" height="20">
-      HeyMate
-    </a>
-    <nav class="nav-links" aria-label="Primary">
-      <a href="index.html#overview">Overview</a>
-      <a href="index.html#mates">Mates</a>
-      <a href="index.html#agents">Agents</a>
-      <a href="privacy.html">Privacy</a>
-      <a data-github href="https://github.com/UmarSiddiqui/heymate">GitHub</a>
-    </nav>
-    <a class="btn btn-pill nav-cta" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download free</a>
-    <button class="menu-btn" type="button" aria-expanded="false">Menu</button>
-    <div class="nav-sheet">
-      <a href="index.html#overview">Overview</a>
-      <a href="index.html#mates">Mates</a>
-      <a href="index.html#agents">Agents</a>
-      <a href="privacy.html">Privacy</a>
-      <a data-github href="https://github.com/UmarSiddiqui/heymate">GitHub</a>
-      <a data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Download free</a>
-    </div>
-  </header>
+<body class="home document-page">
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="home-nav document-nav"><a class="brand" href="index.html"><img src="assets/img/icon/favicon-mischief-32.png?v=blue-1" alt="" width="24" height="24">HeyMate</a><nav aria-label="Primary"><a href="index.html#possibilities">What it does</a><a class="nav-download" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Get HeyMate <span aria-hidden="true">↓</span></a></nav></header>
+  <nav class="document-links" aria-label="Resources"><a href="how-to-use-heymate.html">Get started</a><a href="changelog.html">Changelog</a><a href="privacy.html">Privacy</a><a href="permissions.html" aria-current="page">Permissions</a></nav>
 
-  <main class="prose">
-    <div class="wrap-narrow">
-      <p class="eyebrow">Permissions</p>
+  <main class="document-main content-width" id="main">
+    <header class="document-hero"><p class="eyebrow">Permissions</p>
       <h1>Every permission, explained.</h1>
       <p>HeyMate lives in your notch, hears you, sees your screen when you ask, and can act in other apps. That takes real access to your Mac, so here is every permission it can ask for, what each one is for, and what it never does with it.</p>
-      <p>Three are asked for at setup. The rest are asked only the first time you use the feature that needs them. You can turn any of them off in <strong>System Settings → Privacy &amp; Security</strong>, and HeyMate keeps working without the ones you decline. The code is <a href="https://github.com/UmarSiddiqui/heymate">open source</a> if you want to check.</p>
-
-      <table class="files perms">
+      <p>Three are asked for at setup. The rest are asked only the first time you use the feature that needs them. You can turn any of them off in <strong>System Settings → Privacy &amp; Security</strong>, and HeyMate keeps working without the ones you decline. The code is <a href="https://github.com/UmarSiddiqui/heymate">open source</a> if you want to check.</p></header>
+    <div class="document-layout"><aside class="document-contents"><nav aria-label="On this page"><p>On this page</p><a href="#microphone">Microphone</a><a href="#accessibility">Accessibility</a><a href="#screen-recording">Screen Recording</a><a href="#speech-recognition">Speech Recognition</a><a href="#automation">Automation</a><a href="#calendars">Calendars</a><a href="#reminders">Reminders</a><a href="#contacts">Contacts</a><a href="#camera">Camera</a><a href="#bluetooth">Bluetooth</a><a href="#notifications">Notifications</a><a href="#worth-knowing">Worth knowing</a><a href="#turning-a-permission-off">Turning a permission off</a></nav></aside><article class="document-body"><div class="document-table" role="region" aria-label="Reference table" tabindex="0"><table class="files perms">
         <thead><tr><th>Permission</th><th>Asked</th><th>Needed for</th></tr></thead>
         <tbody>
           <tr><td><a href="#microphone">Microphone</a></td><td>At setup</td><td>Talking to HeyMate</td></tr>
@@ -76,7 +55,7 @@
           <tr><td><a href="#bluetooth">Bluetooth</a></td><td>If you turn it on</td><td>Headphone connect alerts</td></tr>
           <tr><td><a href="#notifications">Notifications</a></td><td>First agent job</td><td>Telling you a job finished</td></tr>
         </tbody>
-      </table>
+      </table></div>
 
       <h2 id="microphone">Microphone</h2>
       <p>So you can talk to HeyMate. The microphone is only on while you hold the hotkey or dictate. There is no wake word and nothing listens in the background. Audio is not saved; only the text of what you said goes into chat history.</p>
@@ -125,7 +104,7 @@
       <h2 id="notifications">Notifications</h2>
       <p>Tells you when a coding agent finishes or needs your approval while you are in another app.</p>
 
-      <h2>Worth knowing</h2>
+      <h2 id="worth-knowing">Worth knowing</h2>
       <ul>
         <li><strong>Open at login</strong> is on by default, so the notch is there after a restart. Switch it off in HeyMate Settings; macOS also lists it under <strong>General → Login Items</strong>.</li>
         <li><strong>Keys.</strong> API keys and connector tokens are stored in a private file only your Mac account can read. HeyMate no longer uses the Keychain, so updates never ask for your password.</li>
@@ -134,18 +113,13 @@
         <li><strong>Not asked for:</strong> Full Disk Access, Location, or Photos.</li>
       </ul>
 
-      <h2>Turning a permission off</h2>
+      <h2 id="turning-a-permission-off">Turning a permission off</h2>
       <p>Open <strong>System Settings → Privacy &amp; Security</strong>, choose the permission, and switch HeyMate off. For Automation, open <strong>Automation</strong> and untick the app. HeyMate will ask again only if you use that feature again.</p>
       <p>Something here unclear, or something HeyMate did that this page does not cover? Email <a href="mailto:umarsiddiqui3037+heymate@gmail.com?subject=HeyMate%20permissions">umarsiddiqui3037+heymate@gmail.com</a> or <a href="https://github.com/UmarSiddiqui/heymate/issues/new/choose">open an issue</a>.</p>
-      <p><a href="privacy.html">Privacy notes</a> · <a href="index.html">Back to HeyMate</a></p>
-    </div>
+      <p><a href="privacy.html">Privacy notes</a> · <a href="index.html">Back to HeyMate</a></p></article></div>
   </main>
 
-  <footer class="footer">
-    <div class="wrap">
-      <p class="legal">© 2026 HeyMate. Not affiliated with Apple, Anthropic, or OpenAI.</p>
-    </div>
-  </footer>
+  <footer class="home-footer content-width"><a class="brand" href="index.html"><img src="assets/img/icon/favicon-mischief-32.png?v=blue-1" alt="" width="24" height="24">HeyMate</a><nav aria-label="Footer"><a href="how-to-use-heymate.html">Get started</a><a href="changelog.html">Changelog</a><a href="privacy.html">Privacy</a><a href="permissions.html" aria-current="page">Permissions</a><a href="https://github.com/UmarSiddiqui/heymate">Source ↗</a></nav><p>© 2026 HeyMate</p></footer>
   <script src="js/config.js"></script>
   <script src="js/main.js"></script>
 </body>
