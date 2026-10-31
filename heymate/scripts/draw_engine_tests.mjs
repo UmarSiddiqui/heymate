@@ -203,3 +203,61 @@ test('the sandbox gets a runner that stands on its own', () => {
   onMessage({ data: { type: 'run', id: 1, code: 'const k = 2\ndot(k, k, 1)\n', done: true } });
   assert.deepEqual(posted.map(p => [p.type, (p.marks || []).map(m => m.do).join()]), [['ready', ''], ['result', 'dot']]);
 });
+
+test('nothing outside the page is reachable from the sandbox, even through the global\'s prototypes', () => {
+  // as in a real worker: fetch and friends live on the global's prototype, not on the global itself
+  const posted = [];
+  let onMessage = null;
+  const scope = { fetch() {}, importScripts() {}, setTimeout() {}, postMessage: m => posted.push(m), addEventListener: (_, f) => { onMessage = f; } };
+  const worker = vm.createContext({ Date, JSON, Math });
+  worker.self = vm.runInContext('o => Object.create(o)', worker)(scope);
+  vm.runInContext(M.workerSource(), worker);
+  onMessage({ data: { type: 'init', w: 100, h: 100 } });
+  const probe = "let o = self, seen = []\nwhile (o) { for (const k of ['fetch', 'importScripts', 'setTimeout']) if (Object.getOwnPropertyDescriptor(o, k) && typeof o[k] === 'function') seen.push(k); o = Object.getPrototypeOf(o) }\ntext(10, 20, seen.join(',') || 'none')\n";
+  onMessage({ data: { type: 'run', id: 1, code: probe, done: true } });
+  assert.equal(posted.at(-1).error, null);
+  assert.equal(posted.at(-1).marks[0].text, 'none');
+});
+
+test('a slow sandbox start does not count against the program\'s time limit', async () => {
+  // a worker that takes 80 ms to load (messages wait meanwhile, as in a real worker), then answers each run at once
+  class SlowWorker {
+    constructor() { this.queue = []; setTimeout(() => { const q = this.queue; this.queue = null; q.forEach(m => this.postMessage(m)); }, 80); }
+    postMessage(q) {
+      if (this.queue) { this.queue.push(q); return; }
+      if (q.type === 'init') this.onmessage({ data: { type: 'ready' } });
+      else if (q.type === 'run') setTimeout(() => this.onmessage({ data: { type: 'result', id: q.id, marks: [{ do: 'dot', at: [5, 5] }], says: [], warnings: [], error: null } }), 1);
+    }
+    terminate() { this.postMessage = () => {}; }
+  }
+  const page = vm.createContext({ Worker: SlowWorker, URL: { createObjectURL: () => 'blob:x' }, Blob: class {}, setTimeout, clearTimeout, performance });
+  vm.runInContext(engine, page);
+  const report = await new Promise(done => {
+    const stream = page.MateDraw.Stream({ w: 100, h: 100 }, { sandbox: 'worker', timeLimit: 30, onDone: done });
+    stream.update('dot(5, 5, 2)\n', true);
+  });
+  assert.deepEqual([...report.errors], []);
+});
+
+test('a path takes as long as the line its pen draws', () => {
+  const time = d => M.natural({ do: 'path', d }).dur;
+  // relative commands have a length (they used to take a flat 0.4 s)
+  assert.equal(time('M0 0 l300 0'), time('M0 0 L300 0'));
+  assert.ok(Math.abs(time('M0 0 l300 0') - 0.5) < 1e-9);
+  // an arc is measured along the arc (its radii and flags used to be read as points)
+  assert.ok(Math.abs(time('M0 0 A50 50 0 0 1 100 0') - Math.PI * 50 / 600) < 0.002);
+  // a curve along the curve, not along its control points
+  assert.ok(Math.abs(time('M0 0 C0 0 300 0 300 0') - 0.5) < 0.002);
+  // H and V take one number each
+  assert.ok(Math.abs(time('M0 0 H120 V120') - 240 / 600) < 1e-9);
+});
+
+test('the pen refuses settings that would stop it', () => {
+  const before = M.setPen();
+  try {
+    const after = M.setPen({ base: NaN, per: -5, min: 'fast' });
+    assert.equal(after.base, before.base);
+    assert.equal(after.per, before.per);
+    assert.equal(after.min, before.min);
+  } finally { M.setPen(before); }
+});

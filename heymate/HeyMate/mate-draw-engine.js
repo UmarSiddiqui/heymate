@@ -1363,131 +1363,241 @@
       run.update(base, true);
       return run.update(base + '\n;\n' + frag + '\n', true);
     }
-    return { statementEnds, statementScanner, runCode, Session, clean, attribute, exec };
+    return { statementEnds, statementScanner, runCode, Session, clean, attribute, exec, textW };
   }
   const RUNNER = makeRunner(Object.keys(TONES), TONES, REAL_TONES, COLOR_WORDS);
-  const { statementEnds } = RUNNER;
+  const { statementEnds, textW } = RUNNER;
   const runCode = (code, w, h, o) => RUNNER.runCode(code, w, h, o);
 
   // ================================================================ the sandbox: the runner inside a Web Worker, no DOM, no network, a time limit
+  // The worker builds its own runner from makeRunner's text, then takes away every way out of the page: network,
+  // storage, timers, more workers, messaging. Each name goes from the global and from every prototype above it (in a
+  // real worker fetch lives on WorkerGlobalScope.prototype, where taking it off the global alone left it reachable).
   function workerMain(makeRunner, toneNames, mateTones, realTones, colorWords) {
-    const post = self.postMessage.bind(self), R = makeRunner(toneNames, mateTones, realTones, colorWords);
+    const post = self.postMessage.bind(self), runner = makeRunner(toneNames, mateTones, realTones, colorWords);
     let session = null;
+    const jobs = {
+      init: q => { session = runner.Session(q.w, q.h, { budgetMs: q.budgetMs }); return { type: 'ready' }; },
+      run: q => Object.assign({ type: 'result', id: q.id }, session.update(q.code, q.done)),
+      exec: q => Object.assign({ type: 'exec', id: q.id }, runner.exec(q.base, q.code, q.w, q.h, q.budgetMs)),
+      attrib: q => ({ type: 'attrib', id: q.id, stmts: runner.attribute(q.code, q.w, q.h) }),
+    };
     self.addEventListener('message', ev => {
-      const q = ev.data || {};
-      try {
-        if (q.type === 'init') { session = R.Session(q.w, q.h, { budgetMs: q.budgetMs }); post({ type: 'ready' }); }
-        else if (q.type === 'run') post(Object.assign({ type: 'result', id: q.id }, session.update(q.code, q.done)));
-        else if (q.type === 'exec') post(Object.assign({ type: 'exec', id: q.id }, R.exec(q.base, q.code, q.w, q.h, q.budgetMs)));
-        else if (q.type === 'attrib') post({ type: 'attrib', id: q.id, stmts: R.attribute(q.code, q.w, q.h) });
-      } catch (e) { post({ type: 'result', id: q.id, marks: [], says: [], warnings: [], error: 'sandbox: ' + e.message }); }
+      const q = ev.data || {}, job = jobs[q.type];
+      if (!job) return;
+      try { post(job(q)); }
+      catch (e) {
+        // the reply the job would have sent, carrying the error ('failed' when the sandbox could not even start)
+        const type = q.type === 'init' ? 'failed' : q.type === 'run' ? 'result' : q.type;
+        post({ type, id: q.id, marks: [], says: [], warnings: [], error: 'sandbox: ' + (e && e.message !== undefined ? e.message : e) });
+      }
     });
-    for (const k of ['fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'WebTransport', 'importScripts', 'indexedDB', 'caches', 'BroadcastChannel',
-      'Worker', 'SharedWorker', 'postMessage', 'close', 'setTimeout', 'setInterval', 'navigator', 'location', 'Request', 'Response', 'Notification', 'FileReader', 'FileReaderSync']) {
-      try { delete self[k]; } catch (_) {}
-      try { Object.defineProperty(self, k, { value: undefined, writable: false, configurable: false }); } catch (_) {}
-    }
+    const OUTSIDE = ['fetch', 'XMLHttpRequest', 'WebSocket', 'WebSocketStream', 'EventSource', 'WebTransport', 'RTCPeerConnection', 'importScripts',
+      'indexedDB', 'caches', 'storage', 'BroadcastChannel', 'Worker', 'SharedWorker', 'postMessage', 'close', 'setTimeout', 'setInterval',
+      'navigator', 'location', 'Request', 'Response', 'Notification', 'FileReader', 'FileReaderSync', 'webkitRequestFileSystem', 'webkitResolveLocalFileSystemURL'];
+    for (let o = self; o && o !== Object.prototype; o = Object.getPrototypeOf(o))
+      for (const k of OUTSIDE) if (Object.prototype.hasOwnProperty.call(o, k)) try { delete o[k]; } catch (_) {}
+    for (const k of OUTSIDE) try { Object.defineProperty(self, k, { value: undefined, writable: false, configurable: false }); } catch (_) {}
   }
   let WORKER_URL = null;
   const workerSource = () => `(${workerMain.toString()})(${makeRunner.toString()}, ${JSON.stringify(Object.keys(TONES))}, ${JSON.stringify(TONES)}, ${JSON.stringify(REAL_TONES)}, ${JSON.stringify(COLOR_WORDS)});`;
-  function WorkerRunner(W, H, o, onResult) {
-    let w;
+  // a new sandbox worker, or null where the page cannot make one
+  function spawnWorker() {
     try {
       if (!WORKER_URL) WORKER_URL = URL.createObjectURL(new Blob([workerSource()], { type: 'text/javascript' }));
-      w = new Worker(WORKER_URL);
-    } catch (e) { return null; }
+      return new Worker(WORKER_URL);
+    } catch (_) { return null; }
+  }
+  // A new worker first builds its runner. A program's time limit starts only once the worker is ready (a cold start
+  // used to count against the first program, so a slow machine could stop a quick drawing), and the start has its own.
+  const START_LIMIT = 5000;
+  const budgetOf = limit => Math.round(limit * 0.8);   // the runner stops making marks a little before the hard stop
+  // The drawing's own worker: each run() sends the whole program so far, and a newer one replaces any still waiting.
+  function WorkerRunner(W, H, o, onResult) {
+    const w = spawnWorker();
+    if (!w) return null;
     const limit = o.timeLimit || 1500;
-    let inflight = null, pending = null, dead = false, timer = null, id = 0;
-    const kill = msg => { if (dead) return; dead = true; clearTimeout(timer); w.terminate(); onResult({ marks: [], says: [], warnings: [], error: msg }, true); };
-    function send(job) {
-      if (dead) return;
-      if (inflight) { pending = job; return; }            // a newer prefix supersedes a queued one
-      inflight = job; w.postMessage({ type: 'run', id: ++id, code: job.code, done: job.done });
-      timer = setTimeout(() => kill(`the drawing program ran longer than ${limit} ms and was stopped (kept what it drew before)`), limit);
+    let ready = false, inflight = null, waiting = null, dead = false, timer = null, id = 0;
+    const stop = () => { dead = true; clearTimeout(timer); w.terminate(); };
+    const kill = error => { if (dead) return; stop(); onResult({ marks: [], says: [], warnings: [], error }, true); };
+    const arm = (ms, error) => { clearTimeout(timer); timer = setTimeout(() => kill(error), ms); };
+    function next() {
+      if (dead || !ready || inflight || !waiting) return;
+      inflight = waiting; waiting = null;
+      w.postMessage({ type: 'run', id: ++id, code: inflight.code, done: inflight.done });
+      arm(limit, `the drawing program ran longer than ${limit} ms and was stopped (kept what it drew before)`);
     }
     w.onmessage = ev => {
       const r = ev.data || {};
-      if (r.type !== 'result' || dead) return;
-      clearTimeout(timer); const job = inflight; inflight = null;
-      onResult(r, job && job.done);
-      if (pending) { const p = pending; pending = null; send(p); }
+      if (dead) return;
+      if (r.type === 'ready') { ready = true; clearTimeout(timer); next(); }
+      else if (r.type === 'failed') kill(r.error);
+      else if (r.type === 'result') {
+        clearTimeout(timer);
+        const job = inflight; inflight = null;
+        onResult(r, !!(job && job.done));
+        next();
+      }
     };
     w.onerror = e => kill('sandbox error: ' + (e.message || 'unknown'));
-    w.postMessage({ type: 'init', w: W, h: H, budgetMs: Math.round(limit * 0.8) });
-    return { run: (code, done) => send({ code, done }), stop: () => { dead = true; clearTimeout(timer); w.terminate(); }, sandboxed: true };
+    w.postMessage({ type: 'init', w: W, h: H, budgetMs: budgetOf(limit) });
+    arm(START_LIMIT, `the drawing sandbox did not start within ${START_LIMIT} ms`);
+    return { run: (code, done) => { waiting = { code, done }; next(); }, stop, sandboxed: true };
   }
-  // 1.6: one job ('exec' or 'attrib') in a fresh throwaway worker, with the same limits as the drawing's own worker
+  // One job ('exec' or 'attrib') in a fresh throwaway worker, with the same limits as the drawing's own worker.
   function sandboxJob(msg, limit) {
     limit = limit || 1500;
-    return new Promise((res, rej) => {
-      let w;
-      try { if (!WORKER_URL) WORKER_URL = URL.createObjectURL(new Blob([workerSource()], { type: 'text/javascript' })); w = new Worker(WORKER_URL); }
-      catch (e) { rej(e); return; }
-      const timer = setTimeout(() => { w.terminate(); rej(new Error(`the edit's code ran longer than ${limit} ms and was stopped`)); }, limit);
-      w.onmessage = ev => { const r = ev.data || {}; if (r.type === 'ready') { w.postMessage(Object.assign({ budgetMs: Math.round(limit * 0.8) }, msg)); return; } clearTimeout(timer); w.terminate(); res(r); };
-      w.onerror = e => { clearTimeout(timer); w.terminate(); rej(new Error('sandbox error: ' + (e.message || 'unknown'))); };
-      w.postMessage({ type: 'init', w: msg.w, h: msg.h, budgetMs: Math.round(limit * 0.8) });
+    return new Promise((resolve, reject) => {
+      const w = spawnWorker();
+      if (!w) { reject(new Error('the sandbox is not available')); return; }
+      let timer = null;
+      const end = (settle, value) => { clearTimeout(timer); w.terminate(); settle(value); };
+      const arm = (ms, why) => { clearTimeout(timer); timer = setTimeout(() => end(reject, new Error(why)), ms); };
+      w.onmessage = ev => {
+        const r = ev.data || {};
+        if (r.type === 'ready') { w.postMessage(Object.assign({ budgetMs: budgetOf(limit) }, msg)); arm(limit, `the edit's code ran longer than ${limit} ms and was stopped`); }
+        else if (r.type === 'failed') end(reject, new Error(r.error));
+        else end(resolve, r);
+      };
+      w.onerror = e => end(reject, new Error('sandbox error: ' + (e.message || 'unknown')));
+      w.postMessage({ type: 'init', w: msg.w, h: msg.h, budgetMs: budgetOf(limit) });
+      arm(START_LIMIT, `the sandbox did not start within ${START_LIMIT} ms`);
     });
   }
 
-  // ================================================================ timing model: how long the pen takes for each mark (DOM-free)
-  // ReferenceRenderer screen canvas: pen speed is settable (MateDraw.setPen); the defaults are v2's.
-  // Also settable there: `ease` (the pen's CSS timing function), `halo` ({'#FFFFFF': [colour, opacity, width]}:
-  // an outline drawn under strokes of that ink, instead of the page's blurred CSS shadows) and `wash`
-  // (false drops the watercolour displacement filter on fills). Filters and blurs re-render every frame
-  // while a stroke animates, which is costly on a full-screen Retina canvas.
+  // ================================================================ timing: how long the pen takes over each mark (DOM-free)
+  // The pen's speed is settable (MateDraw.setPen): a stroke takes base + length / per seconds, held between min and
+  // max. Also settable: `ease` (the pen's CSS timing function), `halo` ({'#FFFFFF': [colour, opacity, width]}: an
+  // outline drawn under strokes of that ink, in place of the page's blurred shadows), `wash` (false drops the
+  // watercolour filter on fills) and `washMaxArea` (bigger fills skip it). Filters and blurs repaint every frame while a
+  // stroke animates, which is costly on a full-screen Retina canvas.
   const PEN = { per: 600, base: 0, min: 0.14, max: 0.7, ease: null, halo: null, wash: true, washMaxArea: Infinity };
   const penDur = len => Math.max(PEN.min, Math.min(PEN.max, PEN.base + len / PEN.per));
   function setPen(o) {
-    if (!o) return Object.assign({}, PEN);
-    for (const k of ['per', 'base', 'min', 'max', 'washMaxArea']) if (typeof o[k] === 'number' && (o[k] > 0 || k === 'base')) PEN[k] = o[k];
-    if ('ease' in o) PEN.ease = typeof o.ease === 'string' ? o.ease : null;
-    if ('halo' in o) PEN.halo = o.halo && typeof o.halo === 'object' ? o.halo : null;
-    if ('wash' in o) PEN.wash = o.wash !== false;
+    if (o) {
+      for (const k of ['per', 'min', 'max', 'washMaxArea']) if (typeof o[k] === 'number' && o[k] > 0) PEN[k] = o[k];
+      if (Number.isFinite(o.base)) PEN.base = o.base;     // (a NaN base used to get in and stop every stroke)
+      if ('ease' in o) PEN.ease = typeof o.ease === 'string' ? o.ease : null;
+      if ('halo' in o) PEN.halo = o.halo && typeof o.halo === 'object' ? Object.assign({}, o.halo) : null;
+      if ('wash' in o) PEN.wash = o.wash !== false;
+    }
     return Object.assign({}, PEN);
   }
-  // ReferenceRenderer: steps are counted per turn (a continued drawing starts its steps again), so a step is known by both
+  // Steps are counted per turn (a continued drawing starts its steps again), so a step is known by both.
   const stepKey = m => m && m.turn ? m.turn + '/' + m.step : m && m.step;
-  // ReferenceRenderer: a mark with `together: true` starts with the next one instead of before it (a gel pill's stacked
-  // fills appear as one piece, not layer by layer).
+
+  // An SVG path as the runs of points its pen draws: every command, absolute or relative, with curves sampled and arcs
+  // followed. (Paths used to be read as a flat list of number pairs, so a relative path had no length or place, and
+  // H, V and arc arguments were taken for points.)
+  const PATH_ARGS = { M: 2, L: 2, T: 2, H: 1, V: 1, C: 6, S: 4, Q: 4, A: 7 };
+  function pathRuns(d) {
+    const tok = String(d == null ? '' : d).match(/[A-Za-z]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g) || [];
+    const runs = [], isCmd = t => /^[A-Za-z]$/.test(t);
+    let run = null, x = 0, y = 0, sx = 0, sy = 0, cx = 0, cy = 0, cmd = '', last = '', k = 0;
+    const to = (nx, ny) => { run.push([nx, ny]); x = nx; y = ny; };
+    const bezier = (p) => {                              // p: the control points after the current one
+      const x0 = x, y0 = y, n = p.length / 2;
+      for (let s = 1; s <= 8; s++) {
+        const t = s / 8, u = 1 - t;
+        if (n === 2) to(u * u * x0 + 2 * u * t * p[0] + t * t * p[2], u * u * y0 + 2 * u * t * p[1] + t * t * p[3]);
+        else to(u * u * u * x0 + 3 * u * u * t * p[0] + 3 * u * t * t * p[2] + t * t * t * p[4], u * u * u * y0 + 3 * u * u * t * p[1] + 3 * u * t * t * p[3] + t * t * t * p[5]);
+      }
+    };
+    while (k < tok.length) {
+      if (isCmd(tok[k])) cmd = tok[k++];
+      else if (!cmd) { k++; continue; }
+      const C = cmd.toUpperCase(), rel = cmd !== C;
+      if (C === 'Z') { if (run) { to(sx, sy); run = null; } cmd = ''; last = 'Z'; continue; }
+      const n = PATH_ARGS[C];
+      if (!n) { cmd = ''; continue; }
+      const a = [];
+      while (a.length < n && k < tok.length && !isCmd(tok[k])) a.push(+tok[k++]);
+      if (a.length < n) break;                            // cut off mid-command: what came before stands
+      const ox = rel ? x : 0, oy = rel ? y : 0;
+      if (C === 'M') { run = [[ox + a[0], oy + a[1]]]; runs.push(run); x = sx = ox + a[0]; y = sy = oy + a[1]; cmd = rel ? 'l' : 'L'; last = 'M'; continue; }
+      if (!run) { run = [[x, y]]; runs.push(run); sx = x; sy = y; }
+      if (C === 'L') to(ox + a[0], oy + a[1]);
+      else if (C === 'H') to(ox + a[0], y);
+      else if (C === 'V') to(x, oy + a[0]);
+      else if (C === 'C') { bezier([ox + a[0], oy + a[1], ox + a[2], oy + a[3], ox + a[4], oy + a[5]]); cx = ox + a[2]; cy = oy + a[3]; }
+      else if (C === 'S') { const r = last === 'C' || last === 'S'; bezier([r ? 2 * x - cx : x, r ? 2 * y - cy : y, ox + a[0], oy + a[1], ox + a[2], oy + a[3]]); cx = ox + a[0]; cy = oy + a[1]; }
+      else if (C === 'Q') { bezier([ox + a[0], oy + a[1], ox + a[2], oy + a[3]]); cx = ox + a[0]; cy = oy + a[1]; }
+      else if (C === 'T') { const r = last === 'Q' || last === 'T'; const qx = r ? 2 * x - cx : x, qy = r ? 2 * y - cy : y; bezier([qx, qy, ox + a[0], oy + a[1]]); cx = qx; cy = qy; }
+      else if (C === 'A') for (const p of arcPoints(x, y, a[0], a[1], a[2], !!a[3], !!a[4], ox + a[5], oy + a[6])) to(p[0], p[1]);
+      last = C;
+    }
+    return runs.filter(r => r.every(p => isFinite(p[0]) && isFinite(p[1])));
+  }
+  // the points along an SVG arc from (x1, y1) to (x2, y2), every 15 degrees or less (SVG's endpoint parametrisation)
+  function arcPoints(x1, y1, rx, ry, turn, large, sweep, x2, y2) {
+    rx = Math.abs(rx); ry = Math.abs(ry);
+    if (!rx || !ry || (x1 === x2 && y1 === y2)) return [[x2, y2]];
+    const c = Math.cos(turn * Math.PI / 180), s = Math.sin(turn * Math.PI / 180);
+    const hx = (x1 - x2) / 2, hy = (y1 - y2) / 2, px = c * hx + s * hy, py = -s * hx + c * hy;
+    const grow = Math.sqrt(px * px / (rx * rx) + py * py / (ry * ry));
+    if (grow > 1) { rx *= grow; ry *= grow; }            // radii too small to reach: scaled up just enough, as SVG does
+    const num = rx * rx * ry * ry - rx * rx * py * py - ry * ry * px * px, den = rx * rx * py * py + ry * ry * px * px;
+    const f = (large === sweep ? -1 : 1) * Math.sqrt(Math.max(0, num / den));
+    const qx = f * rx * py / ry, qy = -f * ry * px / rx;
+    const ox = c * qx - s * qy + (x1 + x2) / 2, oy = s * qx + c * qy + (y1 + y2) / 2;
+    const from = Math.atan2((py - qy) / ry, (px - qx) / rx);
+    let span = Math.atan2((-py - qy) / ry, (-px - qx) / rx) - from;
+    if (!sweep && span > 0) span -= 2 * Math.PI; else if (sweep && span < 0) span += 2 * Math.PI;
+    const n = Math.max(2, Math.ceil(Math.abs(span) / (Math.PI / 12))), out = [];
+    for (let i = 1; i <= n; i++) {
+      const t = from + span * i / n, ex = rx * Math.cos(t), ey = ry * Math.sin(t);
+      out.push(i === n ? [x2, y2] : [ox + c * ex - s * ey, oy + s * ex + c * ey]);
+    }
+    return out;
+  }
+  // a stroke's length along its points (a missing point or a bad number adds nothing)
+  function strokeLength(pts) {
+    let s = 0;
+    if (Array.isArray(pts)) for (let i = 1; i < pts.length; i++) if (pts[i] && pts[i - 1]) s += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]) || 0;
+    return s;
+  }
+  const pathLength = d => pathRuns(d).reduce((s, run) => s + strokeLength(run), 0);
+  // letters as a reader counts them (an emoji is one, not its two UTF-16 halves)
+  const letters = s => [...String(s)].length;
+
+  // How long a mark takes to draw (dur) and how long until the next one starts (adv), at pace 1. A mark with
+  // `together: true` starts with the next one instead of before it (a gel pill's stacked fills appear as one piece).
   function natural(m) { const n = naturalAlone(m); return m && m.together ? { dur: n.dur, adv: 0 } : n; }
+  const MARK_TIME = { dot: [0.25, 0.06], stage3d: [0.35, 0.12], image: [0.5, 0.3], window: [0.45, 0.3], part3d: [0.65, 0.12], motion3d: [0, 0], camera3d: [0, 0], tick3d: [0, 0] };
+  const plainTime = dur => ({ dur, adv: dur * 0.7 });
+  const textTime = s => { const n = letters(s); return { dur: 0.4 + n * 0.015, adv: (0.35 + n * 0.012) * 0.7 }; };
   function naturalAlone(m) {
-    const L = pts => { let s = 0; if (!Array.isArray(pts)) return 0; for (let i = 1; i < pts.length; i++) if (pts[i] && pts[i - 1]) s += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]) || 0; return s; };
-    const sd = penDur;
-    let dur = 0.3;
+    if (!m || typeof m !== 'object') return plainTime(0.3);
+    const fixed = MARK_TIME[m.do], outlined = m.outline !== false;
+    if (fixed) return { dur: fixed[0], adv: fixed[1] };
     switch (m.do) {
       // an edit takes as long as its animation (estimated from what it touches when the stream planned it)
       case 'edit': { const e = m.__est != null ? m.__est : editEstimate(m.op, null); return { dur: e, adv: e }; }
-      case 'line': if (m.dash && Array.isArray(m.marquee)) return { dur: MARQUEE_DUR, adv: MARQUEE_DUR * 0.8 };
-        dur = m.dash ? Math.min(0.9, 0.2 + L(m.pts) / 900) : sd(L(m.pts)); break;
-      case 'arrow': { const d = sd(L(m.pts)); return { dur: d + 0.16, adv: d + 0.1 }; }
-      case 'circle': case 'ellipse': { const rx = +(m.r || m.rx) || 10, ry = +(m.r || m.ry) || 10; dur = m.outline === false ? 0.3 : sd(Math.PI * (rx + ry) * 1.06); break; }
-      case 'rect': dur = m.outline === false ? 0.3 : sd(2 * (Math.abs(+m.w || 0) + Math.abs(+m.h || 0))); break;
-      // a marquee frame's tint opens with its outline, which starts at the same moment
-      case 'poly': if (Array.isArray(m.marquee) && m.outline === false) return { dur: MARQUEE_DUR, adv: 0 };
-        dur = m.outline === false ? 0.3 : sd(L((m.pts || []).concat(m.pts && m.pts.length ? [m.pts[0]] : []))); break;
-      case 'path': { const nums = String(m.d || '').match(/-?\d*\.?\d+/g) || [], pts = []; for (let i = 0; i + 1 < nums.length; i += 2) pts.push([+nums[i], +nums[i + 1]]); dur = /[a-z]/.test(String(m.d).replace(/e-/g, '')) ? 0.4 : sd(L(pts)); break; }
-      case 'dot': return { dur: 0.25, adv: 0.06 };
-      case 'highlight': dur = 0.35; break;
-      case 'text': { const n = String(m.text).length; return { dur: 0.4 + n * 0.015, adv: (0.35 + n * 0.012) * 0.7 }; }
-      case 'molecule': dur = 0.6; break;
-      case 'stage3d': return { dur: 0.35, adv: 0.12 };
-      case 'image': return { dur: 0.5, adv: 0.3 };
-      case 'window': return { dur: 0.45, adv: 0.3 };
-      case 'part3d': return { dur: 0.65, adv: 0.12 };
-      case 'label3d': { const n = String(m.text).length; return { dur: 0.4 + n * 0.015, adv: (0.35 + n * 0.012) * 0.7 }; }
-      case 'motion3d': case 'camera3d': case 'tick3d': return { dur: 0, adv: 0 };
+      case 'text': case 'label3d': return textTime(m.text);
+      case 'line':
+        if (m.dash && Array.isArray(m.marquee)) return { dur: MARQUEE_DUR, adv: MARQUEE_DUR * 0.8 };
+        return plainTime(m.dash ? Math.min(0.9, 0.2 + strokeLength(m.pts) / 900) : penDur(strokeLength(m.pts)));
+      case 'arrow': { const d = penDur(strokeLength(m.pts)); return { dur: d + 0.16, adv: d + 0.1 }; }
+      case 'circle': case 'ellipse': { const rx = +(m.r || m.rx) || 10, ry = +(m.r || m.ry) || 10; return plainTime(outlined ? penDur(Math.PI * (rx + ry) * 1.06) : 0.3); }
+      case 'rect': return plainTime(outlined ? penDur(2 * (Math.abs(+m.w || 0) + Math.abs(+m.h || 0))) : 0.3);
+      case 'poly':
+        // a marquee frame's tint opens with its outline, which starts at the same moment
+        if (Array.isArray(m.marquee) && !outlined) return { dur: MARQUEE_DUR, adv: 0 };
+        return plainTime(outlined ? penDur(strokeLength(Array.isArray(m.pts) && m.pts.length ? m.pts.concat([m.pts[0]]) : m.pts)) : 0.3);
+      case 'path': return plainTime(penDur(pathLength(m.d)));
+      case 'highlight': return plainTime(0.35);
+      case 'molecule': return plainTime(0.6);
     }
-    return { dur, adv: dur * 0.7 };
+    return plainTime(0.3);
   }
-  // ReferenceRenderer: how long an edit op takes at pace 1, given the marks it touches (null: not known yet). The editor's ops
-  // run at these speeds: erasing runs each pen backwards in 0.4 s (staggered, capped), repainting redraws at 0.55 pace.
+  // How long an edit op takes at pace 1, given the marks it touches (null: not known yet). The editor runs its ops at
+  // these speeds: erasing runs each pen backwards in 0.4 s (staggered, capped), repainting redraws at 0.55 pace.
   const ERASE_DUR = 0.4, REPAINT_PACE = 0.55, GLIDE_DUR = 0.5, BRISK = { stagger: 0.03, spread: 0.3 };
   const eraseStagger = (n, brisk) => n > 1 ? Math.min(brisk ? BRISK.stagger : 0.05, (brisk ? BRISK.spread : 0.5) / (n - 1)) : 0;
   function editEstimate(op, touched) {
     const kind = op && op.op, n = touched ? touched.length : null;
     if (kind === 'turn') return 0;
-    if (n === 0) return kind === 'startOver' ? 0.02 : 0.05;      // nothing to change: it takes no time in its beat
+    if (n === 0) return kind === 'startOver' ? 0.02 : 0.05;   // nothing to change: it takes no time in its beat
     switch (kind) {
       case 'erase': return n == null ? 0.6 : ERASE_DUR + eraseStagger(n, false) * (n - 1);
       case 'startOver': return n == null ? 0.7 : ERASE_DUR + eraseStagger(n, true) * (n - 1);
@@ -1504,144 +1614,194 @@
   }
 
   // ================================================================ layout check for shapes (DOM-free, causal: decides as each mark arrives)
-  // Boxes that carry a label and partly overlap another labelled box (boxes piled on boxes) are warned about,
-  // and the later box with its contents is nudged to the nearest free spot when there is one nearby.
-  // Intentional overlaps are kept: one shape inside another (a face on a head, a box on a panel), small edge
-  // contacts, small badges on a big box, and shapes of different kinds.
+  // A labelled box that partly covers another labelled box (boxes piled on boxes) is moved, with what follows it in its
+  // step, to the nearest free spot nearby; when there is none it is reported. Overlaps that mean something are kept:
+  // one shape inside another (a face on a head, a box on a panel), edges that touch, a small badge on a big box,
+  // shapes of different kinds. An opaque shape over part of an earlier step's labelled shape is reported too.
+  const boxArea = b => Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]);
+  const boxOverlap = (a, b) => Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+  const nearBox = (p, b, pad) => p[0] >= b[0] - pad && p[0] <= b[2] + pad && p[1] >= b[1] - pad && p[1] <= b[3] + pad;
+  const boxOf = P => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const p of P) { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); } return [x0, y0, x1, y1]; };
+  const SAMPLES = 14;                                     // overlap is measured on a 14 x 14 grid over the boxes' overlap
+  const AROUND = [[0, 1], [1, 0], [-1, 0], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]];
+  // A closed shape: its kind, box, area and an inside test. Lines, dots, text and shapes drawn under others have none.
+  function shapeOf(m) {
+    if (m.under) return null;
+    const at = Array.isArray(m.at) ? m.at : null;
+    const card = (x, y, w, h, kind) => ({ kind, b: [x, y, x + w, y + h], area: w * h, inside: (px, py) => px >= x && px <= x + w && py >= y && py <= y + h });
+    if (m.do === 'rect' && at && isFinite(m.w) && isFinite(m.h)) {
+      let [x, y] = at, w = +m.w, h = +m.h;
+      if (w < 0) { x += w; w = -w; }
+      if (h < 0) { y += h; h = -h; }
+      return card(x, y, w, h, 'box');
+    }
+    if ((m.do === 'circle' || m.do === 'ellipse') && at) {
+      const [cx, cy] = at;
+      let rx = +(m.r || m.rx), ry = +(m.r || m.ry);
+      if (!(rx > 0 && ry > 0)) return null;
+      if (m.rot) rx = ry = Math.max(rx, ry);              // a turned ellipse: the circle it turns in
+      return { kind: 'round', b: [cx - rx, cy - ry, cx + rx, cy + ry], area: Math.PI * rx * ry, inside: (px, py) => ((px - cx) / rx) ** 2 + ((py - cy) / ry) ** 2 <= 1 };
+    }
+    // a window is a card, like the paper sheet it replaced: words go inside it, and it is never moved
+    if (m.do === 'window' && at && +m.w > 0 && +m.h > 0) return card(at[0], at[1], +m.w, +m.h, 'poly');
+    if (m.do === 'poly' && Array.isArray(m.pts) && m.pts.length >= 3 && m.close !== false && m.pts.every(Array.isArray)) {
+      const P = m.pts;
+      let twice = 0;
+      for (let i = 0; i < P.length; i++) { const p = P[i], q = P[(i + 1) % P.length]; twice += p[0] * q[1] - q[0] * p[1]; }
+      const inside = (px, py) => {
+        let c = false;
+        for (let i = 0, j = P.length - 1; i < P.length; j = i++)
+          if ((P[i][1] > py) !== (P[j][1] > py) && px < (P[j][0] - P[i][0]) * (py - P[i][1]) / ((P[j][1] - P[i][1]) || 1e-9) + P[i][0]) c = !c;
+        return c;
+      };
+      return { kind: 'poly', b: boxOf(P), area: Math.abs(twice) / 2, inside };
+    }
+    return null;
+  }
+  // the points that place a mark: a stroke's own points, or a shape's corners
+  function placePoints(m) {
+    if (Array.isArray(m.pts)) return m.pts.filter(Array.isArray);
+    if (!Array.isArray(m.at)) return [];
+    switch (m.do) {
+      case 'rect': case 'highlight': case 'molecule': case 'stage3d': case 'image': case 'window': return [m.at, [m.at[0] + (+m.w || 0), m.at[1] + (+m.h || 0)]];
+      case 'circle': case 'ellipse': { const rx = +(m.r || m.rx) || 0, ry = +(m.r || m.ry) || 0; return [[m.at[0] - rx, m.at[1] - ry], [m.at[0] + rx, m.at[1] + ry]]; }
+    }
+    return [m.at];
+  }
+  // a mark moved by (dx, dy); with `only`, just the points it picks (a line keeps the end that is outside a moved box)
+  function shiftMark(m, dx, dy, only) {
+    const mv = p => !only || only(p) ? [p[0] + dx, p[1] + dy] : p;
+    if (Array.isArray(m.at)) m.at = mv(m.at);
+    if (Array.isArray(m.pts)) m.pts = m.pts.map(p => Array.isArray(p) ? mv(p) : p);
+    if (m.do === 'path') m.shift = [(m.shift ? m.shift[0] : 0) + dx, (m.shift ? m.shift[1] : 0) + dy];
+  }
   function Layout(W, H) {
-    const cons = [], texts = [], warnings = [], pts = [], areas = [];   // pts: points on lines and dots; areas: bboxes of shapes drawn so far
-    let grp = null, overlaps = 0, moved = 0, covered = 0, n = 0;
-    // ReferenceRenderer: what an edit erased (or a new turn dropped) is no longer on the paper; startOver clears it all
+    // containers (closed shapes big enough to hold words), text boxes, points along strokes [x, y, i] and the boxes of
+    // other shapes: what is on the paper so far
+    const cons = [], texts = [], ink = [], areas = [], warnings = [];
+    let group = null, overlaps = 0, moved = 0, covered = 0, n = 0;   // group: the box just moved, whose step follows it
+    // what an edit erased (or a new turn dropped) is no longer on the paper; startOver clears it all
     const prune = (list, gone) => { let k = 0; for (const x of list) if (!gone(x)) list[k++] = x; list.length = k; };
     function forget(indices) {
-      const set = indices instanceof Set ? indices : new Set(indices || []); if (!set.size) return;
+      const set = indices instanceof Set ? indices : new Set(indices || []);
+      if (!set.size) return;
       const gone = x => set.has(x.i != null ? x.i : x[2]);
-      prune(cons, gone); prune(texts, gone); prune(pts, gone); prune(areas, gone);
-      if (grp && set.has(grp.i)) grp = null;
+      prune(cons, gone); prune(texts, gone); prune(ink, gone); prune(areas, gone);
+      if (group && set.has(group.i)) group = null;
     }
-    function reset() { cons.length = texts.length = pts.length = areas.length = 0; grp = null; }
-    const tw = (s, size, style) => String(s).length * (size || 20) * (style === 'title' ? 0.56 : 0.47);
-    function shapeOf(m) {
-      if (m.under) return null;
-      if (m.do === 'rect' && Array.isArray(m.at) && isFinite(m.w) && isFinite(m.h)) {
-        let [x, y] = m.at, w = +m.w, h = +m.h; if (w < 0) { x += w; w = -w; } if (h < 0) { y += h; h = -h; }
-        return { kind: 'box', b: [x, y, x + w, y + h], area: w * h, inside: (px, py) => px >= x && px <= x + w && py >= y && py <= y + h };
-      }
-      if ((m.do === 'circle' || m.do === 'ellipse') && Array.isArray(m.at)) {
-        const [cx, cy] = m.at; let rx = +(m.r || m.rx), ry = +(m.r || m.ry); if (!(rx > 0 && ry > 0)) return null;
-        if (m.rot) rx = ry = Math.max(rx, ry);
-        return { kind: 'round', b: [cx - rx, cy - ry, cx + rx, cy + ry], area: Math.PI * rx * ry, inside: (px, py) => ((px - cx) / rx) ** 2 + ((py - cy) / ry) ** 2 <= 1 };
-      }
-      // ReferenceRenderer: a window is a card, like the paper sheet it replaced (a 'poly': words go inside it, it is never nudged)
-      if (m.do === 'window' && Array.isArray(m.at) && +m.w > 0 && +m.h > 0) {
-        const [x, y] = m.at, w = +m.w, h = +m.h;
-        return { kind: 'poly', b: [x, y, x + w, y + h], area: w * h, inside: (px, py) => px >= x && px <= x + w && py >= y && py <= y + h };
-      }
-      if (m.do === 'poly' && Array.isArray(m.pts) && m.pts.length >= 3 && m.close !== false && m.pts.every(p => Array.isArray(p))) {
-        const P = m.pts, xs = P.map(p => p[0]), ys = P.map(p => p[1]);
-        let a = 0; for (let i = 0; i < P.length; i++) { const p = P[i], q = P[(i + 1) % P.length]; a += p[0] * q[1] - q[0] * p[1]; }
-        const inside = (px, py) => { let c = false; for (let i = 0, j = P.length - 1; i < P.length; j = i++) if ((P[i][1] > py) !== (P[j][1] > py) && px < (P[j][0] - P[i][0]) * (py - P[i][1]) / ((P[j][1] - P[i][1]) || 1e-9) + P[i][0]) c = !c; return c; };
-        return { kind: 'poly', b: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], area: Math.abs(a) / 2, inside };
-      }
-      return null;
-    }
+    function reset() { cons.length = texts.length = ink.length = areas.length = 0; group = null; }
     const isContainer = (m, s) => s && s.b[2] - s.b[0] >= 36 && s.b[3] - s.b[1] >= 22 && s.area < 0.4 * W * H && (m.outline !== false || (m.fill && (m.fillAlpha == null || m.fillAlpha >= 0.5)));
     const opaque = m => m.fill && m.fill !== 'none' && (m.fillAlpha == null || m.fillAlpha >= 0.7);
-    function inter(a, b, dx = 0, dy = 0) {            // overlap area of shape a (moved by dx, dy) and shape b, by sampling
+    // how much of shape a (moved by dx, dy) and shape b overlap, measured by sampling
+    function overlap(a, b, dx = 0, dy = 0) {
       const x0 = Math.max(a.b[0] + dx, b.b[0]), y0 = Math.max(a.b[1] + dy, b.b[1]), x1 = Math.min(a.b[2] + dx, b.b[2]), y1 = Math.min(a.b[3] + dy, b.b[3]);
       if (x1 <= x0 || y1 <= y0) return 0;
-      const N = 14; let hit = 0;
-      for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) { const px = x0 + (i + 0.5) * (x1 - x0) / N, py = y0 + (j + 0.5) * (y1 - y0) / N; if (a.inside(px - dx, py - dy) && b.inside(px, py)) hit++; }
-      return hit / (N * N) * (x1 - x0) * (y1 - y0);
+      let hit = 0;
+      for (let i = 0; i < SAMPLES; i++) for (let j = 0; j < SAMPLES; j++) {
+        const px = x0 + (i + 0.5) * (x1 - x0) / SAMPLES, py = y0 + (j + 0.5) * (y1 - y0) / SAMPLES;
+        if (a.inside(px - dx, py - dy) && b.inside(px, py)) hit++;
+      }
+      return hit / (SAMPLES * SAMPLES) * (x1 - x0) * (y1 - y0);
     }
-    function clash(a, b, dx = 0, dy = 0) {             // an unintended partial overlap between two labelled containers
-      const I = inter(a, b, dx, dy); if (!I) return false;
+    // an unintended partial overlap between two containers, given how much they overlap
+    function clashes(a, b, shared) {
+      if (!shared) return false;
       const small = Math.min(a.area, b.area), big = Math.max(a.area, b.area);
-      if (I >= 0.8 * a.area || I >= 0.8 * b.area) return false;       // one sits inside the other on purpose
-      if (I < 0.1 * small) return false;                               // edges touching
-      if (a.kind !== b.kind || a.kind === 'poly' || small / big < 0.2) return false;   // a badge on a box, ears on a head, a hill on the sea
-      return true;
+      if (shared >= 0.8 * a.area || shared >= 0.8 * b.area) return false;   // one sits inside the other on purpose
+      if (shared < 0.1 * small) return false;                              // edges touching
+      return a.kind === b.kind && a.kind !== 'poly' && small / big >= 0.2;  // not a badge on a box, ears on a head, a hill on the sea
     }
-    function tbox(m) {
-      const size = m.size || (m.style === 'title' ? 24 : m.style === 'body' ? 17 : 20), wd = m.fit ? Math.min(m.fit[0], tw(m.text, size, m.style)) : tw(m.text, size, m.style);
-      const x = m.at[0] - (m.anchor === 'middle' ? wd / 2 : m.anchor === 'end' ? wd : 0);
-      return [x, m.at[1] - size * 0.8, x + wd, m.at[1] + size * 0.25];
+    function textBox(m) {
+      const size = m.size || (m.style === 'title' ? 24 : m.style === 'body' ? 17 : 20), full = textW(m.text, size, m.style), w = m.fit ? Math.min(m.fit[0], full) : full;
+      const x = m.at[0] - (m.anchor === 'middle' ? w / 2 : m.anchor === 'end' ? w : 0);
+      return [x, m.at[1] - size * 0.8, x + w, m.at[1] + size * 0.25];
     }
-    function points(m) {
-      if (Array.isArray(m.pts)) return m.pts.filter(p => Array.isArray(p));
-      if (!Array.isArray(m.at)) return [];
-      if (m.do === 'rect' || m.do === 'highlight' || m.do === 'molecule' || m.do === 'stage3d' || m.do === 'image' || m.do === 'window') return [m.at, [m.at[0] + (+m.w || 0), m.at[1] + (+m.h || 0)]];
-      if (m.do === 'circle' || m.do === 'ellipse') { const rx = +(m.r || m.rx) || 0, ry = +(m.r || m.ry) || 0; return [[m.at[0] - rx, m.at[1] - ry], [m.at[0] + rx, m.at[1] + ry]]; }
-      return [m.at];
+    // where a container may land when moved by (dx, dy): on the paper, clear of other containers, strokes, shapes and words
+    function free(c, dx, dy) {
+      const b = [c.b[0] + dx, c.b[1] + dy, c.b[2] + dx, c.b[3] + dy];
+      if (b[0] < 6 || b[1] < 6 || b[2] > W - 6 || b[3] > H - 6) return false;
+      for (const o of cons) {
+        const shared = overlap(c, o, dx, dy);
+        if ((o.labelled && clashes(c, o, shared)) || (shared > 0.12 * c.area && shared < 0.8 * o.area)) return false;
+      }
+      if (ink.some(p => nearBox(p, b, 4))) return false;
+      // another shape under it, unless it already sat on that shape and still does (a box on its panel)
+      if (areas.some(a => a.i !== c.i && boxOverlap(a.b, b) > 0.08 * c.area && !(boxOverlap(a.b, b) >= 0.95 * c.area && boxOverlap(a.b, c.b) >= 0.95 * c.area))) return false;
+      return !texts.some(t => boxOverlap(t, b) > 0.3 * boxArea(t));
     }
-    function shift(m, dx, dy, onlyNear) {
-      const mv = p => (!onlyNear || onlyNear(p)) ? [p[0] + dx, p[1] + dy] : p;
-      if (Array.isArray(m.at)) m.at = mv(m.at);
-      if (Array.isArray(m.pts)) m.pts = m.pts.map(p => Array.isArray(p) ? mv(p) : p);
-      if (m.do === 'path') m.shift = [(m.shift ? m.shift[0] : 0) + dx, (m.shift ? m.shift[1] : 0) + dy];
+    // the nearest free spot within reach: rings of 8 directions every 8 units, and just past each side of the box hit
+    function placeFor(c, hit) {
+      const reach = 0.22 * Math.min(W, H), tries = [];
+      for (let r = 8; r <= reach; r += 8) for (const [ux, uy] of AROUND) tries.push([ux * r, uy * r]);
+      tries.push([hit.b[2] + 10 - c.b[0], 0], [hit.b[0] - 10 - c.b[2], 0], [0, hit.b[3] + 10 - c.b[1]], [0, hit.b[1] - 10 - c.b[3]]);
+      return tries.filter(d => Math.hypot(d[0], d[1]) <= reach * 1.1).sort((p, q) => Math.hypot(p[0], p[1]) - Math.hypot(q[0], q[1])).find(d => free(c, d[0], d[1]));
     }
-    const within = (p, b, pad) => p[0] >= b[0] - pad && p[0] <= b[2] + pad && p[1] >= b[1] - pad && p[1] <= b[3] + pad;
+    // what a mark puts on the paper, for later boxes to stay clear of
+    function occupy(m, i) {
+      if ((m.do === 'line' || m.do === 'arrow') && Array.isArray(m.pts)) {
+        const P = m.pts.filter(Array.isArray);
+        for (let k = 0; k < P.length; k++) {
+          ink.push([P[k][0], P[k][1], i]);
+          if (!k) continue;                               // and every 8 units along each segment
+          const [ax, ay] = P[k - 1], len = Math.hypot(P[k][0] - ax, P[k][1] - ay);
+          for (let q = 1; q < len / 8; q++) ink.push([ax + (P[k][0] - ax) * q * 8 / len, ay + (P[k][1] - ay) * q * 8 / len, i]);
+        }
+      } else if (m.do === 'dot' && Array.isArray(m.at)) ink.push([m.at[0], m.at[1], i]);
+      else if (m.do === 'path') {
+        const [sx, sy] = m.shift || [0, 0];
+        for (const run of pathRuns(m.d)) for (const p of run) ink.push([p[0] + sx, p[1] + sy, i]);
+      } else if (m.do !== 'text') {
+        const s = shapeOf(m), P = placePoints(m), b = s ? s.b : P.length === 2 ? boxOf(P) : null;
+        if (b && boxArea(b) < 0.4 * W * H) areas.push({ b, i });
+      }
+    }
     function add(m, index) {
       const i = index != null ? index : n++;
       if (!m || typeof m !== 'object') return m;
-      if (m.do === 'edit' || m.__dropped) return m;          // ReferenceRenderer: edits have no geometry; dropped marks are never drawn
+      if (m.do === 'edit' || m.__dropped) return m;      // edits have no geometry; dropped marks are never drawn
       const sk = stepKey(m);
-      // 1. marks that belong to a box we moved come along with it
-      if (grp) {
-        if (sk !== grp.step) grp = null;
-        else {
-          const s0 = shapeOf(m), pts = points(m);
-          if (isContainer(m, s0) && !(within([s0.b[0], s0.b[1]], grp.orig, 3) && within([s0.b[2], s0.b[3]], grp.orig, 3))) grp = null;
-          else if (pts.length && (m.do === 'line' || m.do === 'arrow')) shift(m, grp.d[0], grp.d[1], p => within(p, grp.orig, 12));
-          else if (pts.length && pts.every(p => within(p, grp.orig, 3))) shift(m, grp.d[0], grp.d[1]);
-        }
+      // 1. what follows a moved box in its step and sits on it comes along (a line only by its ends on the box)
+      if (group && sk !== group.step) group = null;
+      if (group) {
+        const s = shapeOf(m), P = placePoints(m), from = group.from, [dx, dy] = group.by;
+        if (isContainer(m, s) && !(nearBox([s.b[0], s.b[1]], from, 3) && nearBox([s.b[2], s.b[3]], from, 3))) group = null;   // the step moved on to another box
+        else if (P.length && (m.do === 'line' || m.do === 'arrow')) shiftMark(m, dx, dy, p => nearBox(p, from, 12));
+        else if (P.length && P.every(p => nearBox(p, from, 3))) shiftMark(m, dx, dy);
       }
-      // occupancy: what is already on the paper (a box may only be nudged into empty paper)
-      if ((m.do === 'line' || m.do === 'arrow') && Array.isArray(m.pts)) { const P = m.pts.filter(p => Array.isArray(p)); for (let k = 0; k < P.length; k++) { pts.push([P[k][0], P[k][1], i]); if (k) { const L = Math.hypot(P[k][0] - P[k - 1][0], P[k][1] - P[k - 1][1]); for (let q = 1; q < L / 8; q++) pts.push([P[k - 1][0] + (P[k][0] - P[k - 1][0]) * q * 8 / L, P[k - 1][1] + (P[k][1] - P[k - 1][1]) * q * 8 / L, i]); } } }
-      else if (m.do === 'dot' && Array.isArray(m.at)) pts.push([m.at[0], m.at[1], i]);
-      else if (m.do === 'path') { const nums = String(m.d || '').match(/-?\d*\.?\d+/g) || []; if (!/[a-z]/.test(String(m.d).replace(/e-/g, ''))) for (let k = 0; k + 1 < nums.length; k += 2) pts.push([+nums[k] + (m.shift ? m.shift[0] : 0), +nums[k + 1] + (m.shift ? m.shift[1] : 0), i]); }
-      else if (m.do !== 'text') { const s1 = shapeOf(m), P = points(m); const b = s1 ? s1.b : P.length === 2 ? [Math.min(P[0][0], P[1][0]), Math.min(P[0][1], P[1][1]), Math.max(P[0][0], P[1][0]), Math.max(P[0][1], P[1][1])] : null; if (b && (b[2] - b[0]) * (b[3] - b[1]) < 0.4 * W * H) areas.push({ b, i }); }
+      occupy(m, i);
       // 2. a text labels the most recent container it sits in
       if (m.do === 'text' && Array.isArray(m.at) && m.text != null) {
-        const b = tbox(m), cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
+        const b = textBox(m), cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
         b.i = i; texts.push(b);
         for (let k = cons.length - 1; k >= 0; k--) if (cons[k].inside(cx, cy)) { cons[k].labelled = true; if (!cons[k].label) cons[k].label = String(m.text).slice(0, 24); break; }
         return m;
       }
-      // 3. a new container: check it against the labelled ones drawn before
+      // 3. a new container, checked against the labelled ones drawn before it
       const s = shapeOf(m);
       if (!isContainer(m, s)) return m;
       const c = Object.assign(s, { i, step: m.step, sk, labelled: false, label: '', opaque: opaque(m) });
-      const hit = cons.find(o => o.labelled && clash(c, o));
+      const hit = cons.find(o => o.labelled && clashes(c, o, overlap(c, o)));
       if (hit) {
-        const box = (dx, dy) => [c.b[0] + dx, c.b[1] + dy, c.b[2] + dx, c.b[3] + dy];
-        const ov = (A, B) => Math.max(0, Math.min(A[2], B[2]) - Math.max(A[0], B[0])) * Math.max(0, Math.min(A[3], B[3]) - Math.max(A[1], B[1]));
-        const ok = (dx, dy) => c.b[0] + dx >= 6 && c.b[1] + dy >= 6 && c.b[2] + dx <= W - 6 && c.b[3] + dy <= H - 6
-          && !cons.some(o => (o.labelled && clash(c, o, dx, dy)) || (inter(c, o, dx, dy) > 0.12 * c.area && inter(c, o, dx, dy) < 0.8 * o.area))
-          && !pts.some(p => within(p, box(dx, dy), 4))                                                    // no strokes where it would land
-          && !areas.some(a => a.i !== i && ov(a.b, box(dx, dy)) > 0.08 * c.area && !(ov(a.b, box(dx, dy)) >= 0.95 * c.area && ov(a.b, c.b) >= 0.95 * c.area))
-          && !texts.some(t => { const x0 = Math.max(t[0], c.b[0] + dx), x1 = Math.min(t[2], c.b[2] + dx), y0 = Math.max(t[1], c.b[1] + dy), y1 = Math.min(t[3], c.b[3] + dy); return x1 > x0 && y1 > y0 && (x1 - x0) * (y1 - y0) > 0.3 * (t[2] - t[0]) * (t[3] - t[1]); });
-        const maxShift = 0.22 * Math.min(W, H), cands = [];
-        for (let r = 8; r <= maxShift; r += 8) for (const [ux, uy] of [[0, 1], [1, 0], [-1, 0], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]]) cands.push([ux * r, uy * r]);
-        for (const o of [hit]) cands.push([o.b[2] + 10 - c.b[0], 0], [o.b[0] - 10 - c.b[2], 0], [0, o.b[3] + 10 - c.b[1]], [0, o.b[1] - 10 - c.b[3]]);
-        const best = cands.filter(([dx, dy]) => Math.hypot(dx, dy) <= maxShift * 1.1).sort((p, q) => Math.hypot(...p) - Math.hypot(...q)).find(([dx, dy]) => ok(dx, dy));
-        if (best) {
-          const orig = c.b.slice();
-          shift(m, best[0], best[1]); c.b = [c.b[0] + best[0], c.b[1] + best[1], c.b[2] + best[0], c.b[3] + best[1]];
-          const inside0 = c.inside; c.inside = (px, py) => inside0(px - best[0], py - best[1]);
-          grp = { orig, d: best, step: sk, i }; moved++;
-          warnings.push(`moved a box ${Math.round(best[0])},${Math.round(best[1])} so it no longer covers the box "${hit.label}"`);
+        const by = placeFor(c, hit);
+        if (by) {
+          const from = c.b.slice(), inside = c.inside;
+          shiftMark(m, by[0], by[1]);
+          c.b = [c.b[0] + by[0], c.b[1] + by[1], c.b[2] + by[0], c.b[3] + by[1]];
+          c.inside = (px, py) => inside(px - by[0], py - by[1]);
+          group = { from, by, step: sk, i }; moved++;
+          warnings.push(`moved a box ${Math.round(by[0])},${Math.round(by[1])} so it no longer covers the box "${hit.label}"`);
         } else { overlaps++; warnings.push(`the box at ${Math.round(c.b[0])},${Math.round(c.b[1])} overlaps the box "${hit.label}"`); }
       } else if (c.opaque) {
-        const cov = cons.find(o => o.labelled && o.sk !== c.sk && inter(c, o) > 0.2 * o.area && inter(c, o) < 0.8 * o.area && inter(c, o) < 0.8 * c.area);
-        if (cov) { covered++; warnings.push(`a shape in step ${c.step} covers part of the labelled shape "${cov.label}" from step ${cov.step}`); }
+        const under = cons.find(o => { if (!o.labelled || o.sk === c.sk) return false; const shared = overlap(c, o); return shared > 0.2 * o.area && shared < 0.8 * o.area && shared < 0.8 * c.area; });
+        if (under) { covered++; warnings.push(`a shape in step ${c.step} covers part of the labelled shape "${under.label}" from step ${under.step}`); }
       }
       cons.push(c);
       return m;
     }
     return { add, forget, reset, warnings, get overlaps() { return overlaps; }, get moved() { return moved; }, get covered() { return covered; } };
   }
-  // plan(m, i) (ReferenceRenderer, optional): for an edit mark, {reset} (startOver) or {forget: [mark indices it erases]}
+  // The layout check over a whole run of marks. plan(m, i) (optional): for an edit mark, {reset} (startOver) or
+  // {forget: [the indices of the marks it erases]}.
   function layoutMarks(marks, W, H, plan) {
     const L = Layout(W, H);
     for (let i = 0; i < marks.length; i++) {
