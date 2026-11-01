@@ -47,10 +47,11 @@ nonisolated enum MateAgentApprovalPolicy {
 
     /// The program at the start of each command segment, plus `git push`.
     static func runsTriggeredProgram(_ command: String) -> Bool {
-        let separators = CharacterSet(charactersIn: ";&|\n`(")
-        for segment in command.components(separatedBy: separators) {
+        // `$(` opens a command; a bare `(` is usually a function call in a script.
+        let separators = CharacterSet(charactersIn: ";&|\n`")
+        for segment in command.replacingOccurrences(of: "$(", with: "\n").components(separatedBy: separators) {
             let tokens = segment.split(whereSeparator: \.isWhitespace).map { String($0).lowercased() }
-            guard let first = tokens.first else { continue }
+            guard let first = tokens.first?.trimmingCharacters(in: CharacterSet(charactersIn: "({")), !first.isEmpty else { continue }
             let program = first.split(separator: "/").last.map(String.init) ?? first
             if shellTriggers.contains(program) { return true }
             if program == "git", tokens.dropFirst().contains("push") { return true }

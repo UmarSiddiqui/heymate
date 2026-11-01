@@ -849,7 +849,7 @@ final class NotchCompanionController {
     /// Sized to the caption's text, so a short reply is a slim strip.
     private func captionFrame(for screen: NSScreen) -> CGRect? {
         let height = NotchLayoutMath.captionHeight(
-            textHeight: captionTextHeight(companionManager?.cursorCaptionText ?? ""),
+            textHeight: captionTextHeight(CaptionText.display(companionManager?.cursorCaptionText ?? "")),
             hasProgress: companionManager?.cursorCaptionProgress != nil
         )
         if let housing = notchHousing(for: screen),

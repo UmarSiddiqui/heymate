@@ -350,7 +350,7 @@ struct CompanionCursorView: View {
                     .font(DS.Fonts.caption.weight(.medium))
                     .foregroundColor(DS.Colors.textSecondary)
             }
-            Text(companionManager.cursorCaptionText)
+            Text(CaptionText.display(companionManager.cursorCaptionText))
                 .font(showsBottomCaptions ? DS.Fonts.reading : DS.Fonts.body)
                 .foregroundColor(DS.Colors.textPrimary)
                 .multilineTextAlignment(showsBottomCaptions ? .center : .leading)
