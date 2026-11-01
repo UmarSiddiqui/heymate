@@ -57,7 +57,6 @@ struct MateHomeView: View {
     @State private var settingsMate: Mate?
     @State private var appearanceMate: Mate?
     @State private var isShowingChatHistory = false
-    @State private var showsAllRoutines = false
     @State private var matePendingDelete: Mate?
     @State private var matePendingArchive: Mate?
     @State private var filePendingDelete: String?
@@ -2596,31 +2595,13 @@ struct MateHomeView: View {
             ForEach(mine) { routine in
                 routineRow(routine)
             }
-            DisclosureGroup(isExpanded: $showsAllRoutines.withDisclosureSound()) {
-                VStack(alignment: .leading, spacing: 8) {
-                    if companionManager.routines.isEmpty {
-                        Text("Nothing scheduled.")
-                            .font(DS.Fonts.body)
-                            .foregroundColor(DS.Colors.textTertiary)
-                    }
-                    ForEach(companionManager.routines) { routine in
-                        routineRow(routine, showsMateName: true)
-                    }
-                }
-                .padding(.top, 4)
-            } label: {
-                Text("All routines")
-                    .font(DS.Fonts.control)
-                    .foregroundColor(DS.Colors.textSecondary)
-            }
-            .tint(DS.Colors.textSecondary)
         }
     }
 
-    private func routineRow(_ routine: MateRoutine, showsMateName: Bool = false) -> some View {
+    private func routineRow(_ routine: MateRoutine) -> some View {
         RoutineRow(
             routine: routine,
-            showsMateName: showsMateName,
+            showsMateName: false,
             mateName: companionManager.mates.first { $0.id == routine.mateID }?.name ?? Mate.defaultName,
             companionManager: companionManager
         )
