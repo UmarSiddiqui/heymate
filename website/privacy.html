@@ -5,19 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Privacy notes — HeyMate</title>
   <meta name="description" content="What HeyMate captures, what stays on your Mac, and how to delete it.">
+  <link rel="describedby" href="/llms.txt">
   <meta name="theme-color" content="#f7f8fa">
   <link rel="canonical" href="https://getheymate.vercel.app/privacy">
   <link rel="icon" href="assets/img/icon/favicon-mischief-32.png?v=blue-1" type="image/png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/fonts.css?v=1">
   <link rel="stylesheet" href="css/site.css?v=14">
-  <link rel="stylesheet" href="css/home.css?v=23">
-  <link rel="stylesheet" href="css/documents.css?v=1">
+  <link rel="stylesheet" href="css/home.css?v=40">
+  <link rel="stylesheet" href="css/documents.css?v=2">
   <script>document.documentElement.classList.add("js")</script>
-  <!-- Vercel Web Analytics: cookieless page counts (disclosed on privacy.html) -->
-  <script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
-  <script defer src="/_vercel/insights/script.js"></script>
   <!-- Hotjar Tracking Code for HeyMate -->
   <script>
     (function(h,o,t,j,a,r){
@@ -33,7 +29,7 @@
 <body class="home document-page">
   <a class="skip" href="#main">Skip to content</a>
   <header class="home-nav document-nav"><a class="brand" href="index.html"><img src="assets/img/icon/favicon-mischief-32.png?v=blue-1" alt="" width="24" height="24">HeyMate</a><nav aria-label="Primary"><a href="index.html#possibilities">What it does</a><a class="nav-download" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Get HeyMate <span aria-hidden="true">↓</span></a></nav></header>
-  <nav class="document-links" aria-label="Resources"><a href="how-to-use-heymate.html">Get started</a><a href="changelog.html">Changelog</a><a href="privacy.html" aria-current="page">Privacy</a><a href="permissions.html">Permissions</a></nav>
+  <nav class="document-links" aria-label="Resources"><a href="/blog">Blog &amp; guides</a><a href="how-to-use-heymate.html">Get started</a><a href="connect-claude-codex.html">Connect your AI</a><a href="screen-guidance.html">Screen guidance</a><a href="changelog.html">Changelog</a><a href="privacy.html" aria-current="page">Privacy</a><a href="permissions.html">Permissions</a></nav>
 
   <main class="document-main content-width" id="main">
     <header class="document-hero"><p class="eyebrow">Privacy</p>
@@ -76,16 +72,16 @@
       </ul>
 
       <h2 id="this-website">This website</h2>
-      <p>The homepage uses Vercel Web Analytics without Hotjar session recordings. Interactive preview messages stay in your browser and are not sent to an AI provider or stored by HeyMate. The buddy setting and recent public GitHub totals are cached in session storage until that browser session ends.</p>
+      <p>The homepage does not load Vercel Web Analytics or Hotjar session recordings. Interactive preview messages stay in your browser and are not sent to an AI provider or stored by HeyMate. The buddy setting and recent public GitHub totals are cached in session storage until that browser session ends.</p>
       <p>Other pages on getheymate.vercel.app include Hotjar for page interaction tracking, heatmaps, and session replays. It can set Hotjar cookies. This website tracking is separate from the Mac app. For Hotjar's privacy controls, see <a href="https://www.hotjar.com/policies/do-not-track/">Hotjar's opt-out information</a>.</p>
-      <p>The site also sends Hotjar a short event name when someone clicks a download or GitHub link or copies an install command. These measure interest, not completed installations. Page counts come from Vercel Web Analytics, which sets no cookies and reports only totals such as pages viewed, referring sites, and countries.</p>
+      <p>The site also sends Hotjar a short event name when someone clicks a download or GitHub link or copies an install command. These measure interest, not completed installations. Vercel Web Analytics is currently disabled on this website.</p>
 
       <h2 id="how-to-delete-everything">How to delete everything</h2>
       <p>In the app, clear memory from the Memory section. To remove HeyMate's local application data, stop jobs and routines, quit HeyMate, and delete <span class="code">~/Library/Application Support/heymate/</span>. Workspaces under <span class="code">~/Projects/heymate/</span>, exported files, temporary files, and provider CLI histories are separate. Deleting HeyMate data does not delete copies held by a provider or connected service. Older versions kept keys in the Keychain; any items named com.heymate.app.connector can be removed in Keychain Access.</p>
       <p><a href="index.html">Back to HeyMate</a></p></article></div>
   </main>
 
-  <footer class="home-footer content-width"><a class="brand" href="index.html"><img src="assets/img/icon/favicon-mischief-32.png?v=blue-1" alt="" width="24" height="24">HeyMate</a><nav aria-label="Footer"><a href="how-to-use-heymate.html">Get started</a><a href="changelog.html">Changelog</a><a href="privacy.html" aria-current="page">Privacy</a><a href="permissions.html">Permissions</a><a href="https://github.com/UmarSiddiqui/heymate">Source ↗</a></nav><p>© 2026 HeyMate</p></footer>
+  <footer class="home-footer content-width"><a class="brand" href="index.html"><img src="assets/img/icon/favicon-mischief-32.png?v=blue-1" alt="" width="24" height="24">HeyMate</a><nav aria-label="Footer"><a href="/blog">Blog &amp; guides</a><a href="how-to-use-heymate.html">Get started</a><a href="changelog.html">Changelog</a><a href="privacy.html" aria-current="page">Privacy</a><a href="permissions.html">Permissions</a><a href="https://github.com/UmarSiddiqui/heymate">Source ↗</a></nav><p>© 2026 HeyMate</p></footer>
   <script src="js/config.js"></script>
   <script src="js/main.js"></script>
 </body>

@@ -154,6 +154,40 @@ struct MateAgentApprovalPolicyTests {
         #expect(!MateAgentApprovalPolicy.autoAllows(["title": .string("Allow bash?"), "description": .string("{\"command\":\"ls")], mode: .fullAccess))
     }
 
+    /// The 2026-11-01 scrapbook card: `Image.open(p)` inside a script is not the `open` command.
+    @Test func programNamesInsideScriptsDoNotTripTheFloor() {
+        let script = """
+        /usr/bin/python3 - <<'PY'
+        from PIL import Image, ImageOps
+        from pathlib import Path
+        src=Path('/Users/me/Desktop/Camera photos/AB Web Photoshoot'); out=Path('/Users/me/tmp'); out.mkdir(exist_ok=True)
+        for p in sorted(src.glob('*.JPG')):
+            im=ImageOps.exif_transpose(Image.open(p)); im.thumbnail((280,185))
+        PY
+        """
+        #expect(MateAgentApprovalPolicy.autoAllows(params("bash", ["command": script]), mode: .fullAccess))
+    }
+
+    @Test func triggeredProgramsAskWhereverACommandStarts() {
+        for command in ["open -a Safari", "/usr/bin/curl https://example.com", "ls | sudo tee /etc/x",
+                        "cd site && git push", "echo $(curl -s x)", "make; killall Finder"] {
+            #expect(MateAgentApprovalPolicy.runsTriggeredProgram(command), "\(command)")
+        }
+        #expect(!MateAgentApprovalPolicy.runsTriggeredProgram("python3 -c 'print(open(\"a\").read())'"))
+        #expect(!MateAgentApprovalPolicy.runsTriggeredProgram("git status && git log -1"))
+    }
+
+    @Test func wholeSubjectIsUsedWhenTheDescriptionIsCut() {
+        let long = "python3 - <<'PY'\n" + String(repeating: "x = 1\n", count: 1_000) + "PY"
+        var request = params("bash", ["command": "cut"])
+        request["description"] = .string(String("{\"command\":\"\(long)".prefix(3_500)))
+        #expect(!MateAgentApprovalPolicy.autoAllows(request, mode: .fullAccess))
+        request["subject"] = .string(long)
+        #expect(MateAgentApprovalPolicy.autoAllows(request, mode: .fullAccess))
+        request["subject"] = .string(long + "\nrm -rf output")
+        #expect(!MateAgentApprovalPolicy.autoAllows(request, mode: .fullAccess))
+    }
+
     @Test func structuredToolNameWinsOverTitle() {
         var request = params("write", ["path": "output/a.txt"])
         request["tool"] = .string("bash")

@@ -77,7 +77,10 @@ export class HeyMateHarness {
     });
   }
   async approve(state, name, args, signal) {
+    // subject carries the whole command or path; the description is cut for display.
+    const subject = typeof args?.command === 'string' ? args.command : typeof args?.path === 'string' ? args.path : undefined;
     const response = await this.ask(state, 'approval', { choices: ['once', 'deny'], tool: name,
+      ...(subject ? { subject: subject.slice(0, 100000) } : {}),
       title: `Allow ${name}?`, description: JSON.stringify(args).slice(0, 3500) }, signal);
     if (response?.choice !== 'once') throw new Error('User did not approve this operation.');
   }

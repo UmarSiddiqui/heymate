@@ -31,7 +31,7 @@
       if (!example) return;
       player.pause();
       active = key;
-      player.poster = 'assets/video/visual-answers/' + key + '.png';
+      player.poster = 'assets/video/visual-answers/' + key + '-960.webp';
       player.src = 'assets/video/visual-answers/' + key + '.mp4?v=short-1';
       player.setAttribute('aria-label', example.label);
       document.getElementById('visual-example-name').textContent = example.name;

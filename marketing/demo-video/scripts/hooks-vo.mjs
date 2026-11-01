@@ -1,0 +1,116 @@
+// ElevenLabs voiceover for the hook shorts, with word timings for the captions.
+// Reads ELEVENLABS_API_KEY / ELEVENLABS_VOICE_ID from ~/.config/heymate/secrets.env (never printed).
+//   node scripts/hooks-vo.mjs
+// Writes public/hooks/vo-*.mp3 and src/hooks/voTimings.ts.
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {execFileSync} from 'node:child_process';
+
+const FPS = 30;
+const MIN_DROP = 12; // bass drop lands after the hook VO ends, on a half-second beat, never before 12 s
+const env = Object.fromEntries(
+	fs.readFileSync(path.join(os.homedir(), '.config/heymate/secrets.env'), 'utf8')
+		.split('\n')
+		.map((l) => l.match(/^\s*(?:export\s+)?([A-Z0-9_]+)=["']?(.*?)["']?\s*$/))
+		.filter(Boolean)
+		.map((m) => [m[1], m[2]]),
+);
+const KEY = process.env.ELEVENLABS_API_KEY || env.ELEVENLABS_API_KEY;
+const VOICE = env.ELEVENLABS_VOICE_ID;
+if (!KEY || !VOICE) throw new Error('ELEVENLABS_API_KEY / ELEVENLABS_VOICE_ID missing');
+
+const out = path.resolve('public/hooks');
+const HOOKS = {
+	anger: ['Stop paying', 'twenty dollars a month for AI wrappers that do absolutely nothing.', 'If you are still manually copy-pasting text into a browser tab just to write code or edit a video,', 'you are burning cash.', 'Look at this instead...'],
+	insider: ['The tech community is actively hiding this open-source tool', 'because it completely breaks the software market.', 'While everyone else is stuck using standard web chatbots,', 'the top 1% of creators are letting an AI crew physically control their local desktop apps.', 'Here is the secret...'],
+	lazy: ["I haven't manually edited a video layout or looked at a raw file folder all week.", 'Because instead of doing the busywork,', 'I just tap two keys on my keyboard', 'and let my AI mates take the wheel.', 'Look how it drives...'],
+};
+// master script lines, each placed at its scene start (seconds after the drop)
+const BODY = [
+	['This AI drives.', 0],
+	['Real 3D modeling.', 4],
+	['Zero middleman fees.', 8],
+	['100% open source.', 11.5],
+	['Which is why you...', 15],
+];
+const SETTINGS = {
+	anger: {stability: 0.3, similarity_boost: 0.8, style: 0.75, use_speaker_boost: true, speed: 1.08},
+	insider: {stability: 0.55, similarity_boost: 0.8, style: 0.35, use_speaker_boost: true, speed: 1.08},
+	lazy: {stability: 0.45, similarity_boost: 0.8, style: 0.5, use_speaker_boost: true, speed: 1.08},
+	body: {stability: 0.35, similarity_boost: 0.8, style: 0.7, use_speaker_boost: true, speed: 1.08},
+};
+
+async function tts(text, settings, file) {
+	const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICE}/with-timestamps?output_format=mp3_44100_128`, {
+		method: 'POST',
+		headers: {'xi-api-key': KEY, 'content-type': 'application/json'},
+		body: JSON.stringify({text, model_id: 'eleven_multilingual_v2', voice_settings: settings}),
+	});
+	if (!res.ok) throw new Error(`ElevenLabs ${res.status}: ${(await res.text()).slice(0, 300)}`);
+	const json = await res.json();
+	fs.writeFileSync(file, Buffer.from(json.audio_base64, 'base64'));
+	return json.alignment;
+}
+
+// character alignment → words with start/end seconds
+function words(alignment) {
+	const {characters: ch, character_start_times_seconds: st, character_end_times_seconds: en} = alignment;
+	const list = [];
+	let cur = null;
+	ch.forEach((c, i) => {
+		if (/\s/.test(c)) {
+			if (cur) list.push(cur);
+			cur = null;
+		} else if (!cur) cur = {w: c, start: st[i], end: en[i]};
+		else {
+			cur.w += c;
+			cur.end = en[i];
+		}
+	});
+	if (cur) list.push(cur);
+	return list;
+}
+
+const duration = (file) => Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file]).toString());
+
+const result = {};
+const bodyWords = [];
+for (const [i, [line, at]] of BODY.entries()) {
+	const file = path.join(out, `vo-body-${i}.mp3`);
+	const ws = words(await tts(line, SETTINGS.body, file));
+	bodyWords.push(...ws.map((w) => ({w: w.w, from: Math.round((at + w.start) * FPS), to: Math.round((at + w.end) * FPS)})));
+	result[`body${i}`] = {file: `vo-body-${i}.mp3`, at};
+	console.log('body', i, duration(file).toFixed(2), 's');
+}
+
+const timings = {};
+const meta = {};
+for (const [hook, segs] of Object.entries(HOOKS)) {
+	const file = path.join(out, `vo-${hook}.mp3`);
+	const ws = words(await tts(segs.join(' '), SETTINGS[hook], file));
+	const len = duration(file);
+	const drop = Math.max(MIN_DROP, Math.ceil((len + 0.4) * 2) / 2);
+	const hw = ws.map((w) => ({w: w.w, from: Math.round(w.start * FPS), to: Math.round(w.end * FPS)}));
+	// first frame of each script segment, so scene cuts follow the voice
+	const starts = [];
+	let idx = 0;
+	for (const s of segs) {
+		starts.push(idx === 0 ? 0 : hw[idx].from);
+		idx += s.split(/\s+/).filter(Boolean).length;
+	}
+	timings[hook] = {words: hw, starts, drop: Math.round(drop * FPS)};
+	meta[hook] = {drop, starts: starts.map((f) => f / FPS)};
+	console.log(hook, `${len.toFixed(2)}s`, `drop ${drop}s`, 'starts', starts.join(','));
+}
+
+const ts = `// Generated by scripts/hooks-vo.mjs — do not edit by hand.
+export type VoWord = {w: string; from: number; to: number};
+export const VO: Record<'anger' | 'insider' | 'lazy', {words: VoWord[]; starts: number[]; drop: number}> = ${JSON.stringify(timings)};
+// body words and clips are relative to the drop
+export const VO_BODY: VoWord[] = ${JSON.stringify(bodyWords)};
+export const VO_BODY_CLIPS: {file: string; at: number}[] = ${JSON.stringify(Object.values(result))};
+`;
+fs.writeFileSync(path.resolve('src/hooks/voTimings.ts'), ts);
+fs.writeFileSync(path.join(out, 'vo-meta.json'), JSON.stringify(meta));
+console.log('wrote src/hooks/voTimings.ts');

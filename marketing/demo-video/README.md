@@ -1,5 +1,43 @@
 # HeyMate demo video
 
+## Retired screenshot assets — 2026-11-01
+
+Old HeyMate UI screenshots, including `public/vision-still.jpg`,
+`public/hooks/mates.webp`, and `public/launch/home.webp` / `chat.webp`, were
+removed at the user's request. Earlier video compositions that reference
+these files need fresh captures before rendering. Do not restore old images
+or extract replacements from earlier videos or preview frames. Current
+product artwork and the fresh 2026-11-01 subway-banner capture are preserved.
+
+## Launch ad (42 seconds) — 2026-11-01
+
+`LaunchAd` / `LaunchAdVertical`, entry `src/launch-ad/index.tsx`, render with `node scripts/launch-ad-render.mjs film`. A bright, music-led ad in four beats, modelled on the structure of a reference launch reel: kinetic intro with inline glyphs, problem with an orbiting collage, a ring-to-logo reveal, four use cases, and a clouds CTA. Room photos and clouds are Google Flow (Nano Banana) images in `public/launch-ad/`. Real HeyMate captures are composited onto their screens with a homography (`quadMatrix`). Every composite is labelled "Real HeyMate capture, composited · AI-generated room/scene".
+
+## Ten minutes (37 seconds) — 2026-11-01
+
+`MeetingStory` / `MeetingStoryVertical`, entry `src/meeting-story/index.tsx`. Priya crams vector databases before an AI meeting. Her scenes are Flow stills labelled as a dramatization; the listening notch over her speaking shot is illustrated. The drawing is a real HeyMate answer recorded on 2026-11-01 by POSTing `/ask` to the local control server (127.0.0.1, port in `heymate.log`), so no typing appears. Record with ffmpeg AVFoundation (`-f avfoundation -i "4:none"`): `screencapture -v` makes HeyMate's overlays step aside (`SystemOverlayYield`) and the drawing only appears at the end. VO: `scripts/meeting-story-vo.mjs` (Jessica, eleven_v3).
+
+## Biryani night (34 seconds) — 2026-11-01
+
+`BiryaniStory` / `BiryaniStoryVertical`, 30 fps, standalone entry `src/biryani-story/index.tsx`. A first-person story: "Priya" and her dinner are AI-generated (Google Flow: Nano Banana character reference, three Omni 1.1 Flash 720p clips and one 2K still), and every one of those frames carries **Dramatization · AI-generated scene**. Don't present her as a real customer. The HeyMate parts are the real 2026-10-31 biryani capture, labelled with their speed-up. VO: ElevenLabs premade "Jessica" on `eleven_v3` (`scripts/biryani-story-vo.mjs`; library voices need a paid API plan). Captions are word-synced from the VO alignment.
+
+```sh
+ELEVENLABS_API_KEY=... node scripts/biryani-story-vo.mjs
+node scripts/biryani-story-render.mjs film
+```
+
+## Ask. It draws. (30 seconds) — 2026-11-01
+
+`AskDraws` (1920×1080) and `AskDrawsVertical` (1080×1920), 30 fps, from the standalone entry `src/askdraws/index.tsx` (not in Root.tsx). Opening: one Google Flow (Veo 3.1 Lite) 720p shot of a laptop notch, `public/askdraws/opener.mp4`. Product scenes are real HeyMate screen recordings from 2026-10-31 (biryani plan, Raspberry Pi 2D diagram, 3D Pi), sped up and labelled on screen. The Tide mate is a Blender character built from the brand blob by `scripts/mate-character.py` (300 transparent frames in `public/askdraws/mate/`). VO: ElevenLabs saved voice, `scripts/askdraws-vo.mjs` (pass `ELEVENLABS_API_KEY` via env; never write it to a file). Music: the original synthesized `public/launch/score.wav`.
+
+```sh
+ELEVENLABS_API_KEY=... node scripts/askdraws-vo.mjs        # VO + word timings
+/Applications/Blender.app/Contents/MacOS/Blender -b -P scripts/mate-character.py -- <out_dir>   # mate frames (resumes after a crash)
+node scripts/askdraws-render.mjs film                        # out/askdraws/AskDraws*.mp4
+```
+
+Final deliverables are loudness-normalized to -14 LUFS: `out/askdraws/HeyMate-AskItDraws-16x9.mp4` and `-9x16.mp4`.
+
 ## Meet HeyMate (41 seconds)
 
 `MeetHeyMate` (1920×1080) and `MeetHeyMateVertical` (1080×1920), 30 fps, in the `Meet-HeyMate` Studio folder. A fun, teaching-first tour: your AI is stuck in a tab → the buddy pops out of the notch → it teaches a spreadsheet chart step by step and waits while you do it → quick "ask about anything" examples → bring your own AI (Claude via Claude Code, ChatGPT via Codex, OpenCode, plus your own API key, local models, or Apple Intelligence) → "a more fun way to use them" → Say hey. UI is recreated and the UI scenes carry a small **Illustrated UI** tag. Music: Show Me by Peyruis (CC BY 3.0, credit below).

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Understand terminal errors with HeyMate before changing code — HeyMate</title>
+  <meta name="description" content="Use screen-aware AI to read an error, form a testable hypothesis, and plan a small fix. Includes prompts, secret handling, and verification steps.">
+  <meta name="author" content="HeyMate project">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <link rel="canonical" href="https://getheymate.vercel.app/blog/explain-terminal-errors-with-ai">
+  <link rel="describedby" href="/llms.txt">
+  <link rel="alternate" type="text/markdown" href="/blog/explain-terminal-errors-with-ai.md" title="Markdown version">
+  <link rel="alternate" type="application/rss+xml" href="/blog/feed.xml" title="HeyMate blog">
+  <meta property="og:site_name" content="HeyMate">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Understand terminal errors with HeyMate before changing code">
+  <meta property="og:description" content="Use screen-aware AI to read an error, form a testable hypothesis, and plan a small fix. Includes prompts, secret handling, and verification steps.">
+  <meta property="og:url" content="https://getheymate.vercel.app/blog/explain-terminal-errors-with-ai">
+  <meta property="og:image" content="https://getheymate.vercel.app/assets/img/icon/icon-mischief-1024.png">
+  <meta property="og:image:alt" content="HeyMate’s blue face app icon">
+  <meta property="article:published_time" content="2026-11-01T00:00:00+08:00"><meta property="article:modified_time" content="2026-11-01T00:00:00+08:00">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Understand terminal errors with HeyMate before changing code">
+  <meta name="twitter:description" content="Use screen-aware AI to read an error, form a testable hypothesis, and plan a small fix. Includes prompts, secret handling, and verification steps.">
+  <meta name="twitter:image" content="https://getheymate.vercel.app/assets/img/icon/icon-mischief-1024.png">
+  <meta name="theme-color" content="#f7f8fa">
+  <link rel="icon" href="/assets/img/icon/favicon-mischief-32.png?v=blue-1" type="image/png">
+  <link rel="preload" as="font" type="font/woff2" href="/assets/fonts/figtree-1.woff2" crossorigin>
+  <link rel="stylesheet" href="/css/fonts.css?v=1">
+  <link rel="stylesheet" href="/css/site.css?v=14">
+  <link rel="stylesheet" href="/css/home.css?v=40">
+  <link rel="stylesheet" href="/css/documents.css?v=2">
+  <link rel="stylesheet" href="/css/blog.css?v=1">
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"BlogPosting","@id":"https://getheymate.vercel.app/blog/explain-terminal-errors-with-ai#article","headline":"Understand terminal errors with HeyMate before changing code","description":"Use screen-aware AI to read an error, form a testable hypothesis, and plan a small fix. Includes prompts, secret handling, and verification steps.","datePublished":"2026-11-01T00:00:00+08:00","dateModified":"2026-11-01T00:00:00+08:00","author":{"@type":"Organization","name":"HeyMate project","url":"https://getheymate.vercel.app/"},"publisher":{"@type":"Organization","name":"HeyMate project","url":"https://getheymate.vercel.app/"},"url":"https://getheymate.vercel.app/blog/explain-terminal-errors-with-ai","mainEntityOfPage":"https://getheymate.vercel.app/blog/explain-terminal-errors-with-ai","image":"https://getheymate.vercel.app/assets/img/icon/icon-mischief-1024.png","inLanguage":"en","articleSection":"Workflows","wordCount":497,"isPartOf":{"@id":"https://getheymate.vercel.app/blog#blog"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"HeyMate","item":"https://getheymate.vercel.app/"},{"@type":"ListItem","position":2,"name":"Blog & guides","item":"https://getheymate.vercel.app/blog"},{"@type":"ListItem","position":3,"name":"Understand terminal errors with HeyMate before changing code","item":"https://getheymate.vercel.app/blog/explain-terminal-errors-with-ai"}]}]}</script>
+</head>
+<body class="home document-page blog-page">
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="home-nav document-nav"><a class="brand" href="/"><img src="/assets/img/icon/apple-touch-mischief.png?v=blue-1" alt="" width="24" height="24">HeyMate</a><nav aria-label="Primary"><a href="/#possibilities">What it does</a><a class="nav-download" href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Get HeyMate <span aria-hidden="true">↓</span></a></nav></header>
+  <nav class="document-links" aria-label="Resources"><a href="/blog">Blog &amp; guides</a><a href="/connect-claude-codex">Connect your AI</a><a href="/screen-guidance">Screen guidance</a><a href="/permissions">Permissions</a><a href="/privacy">Privacy</a></nav>
+  <main class="document-main content-width" id="main">
+    <header class="document-hero"><p class="eyebrow">Development · 3 min read</p><h1>Understand terminal errors with HeyMate before changing code</h1><p>Use screen-aware AI to read an error, form a testable hypothesis, and plan a small fix. Includes prompts, secret handling, and verification steps.</p><p class="blog-byline">By the HeyMate project · <time datetime="2026-11-01">November 1, 2026</time></p></header>
+    
+    <div class="document-layout"><aside class="document-contents"><nav aria-label="On this page"><p>On this page</p><a href="#ask-for-an-explanation-before-a-command">Ask for an explanation before a command</a><a href="#build-a-short-debugging-loop">Build a short debugging loop</a><a href="#turn-the-investigation-into-an-approved-coding-task">Turn the investigation into an approved coding task</a><a href="#verify-behavior-not-just-a-clean-log">Verify behavior, not just a clean log</a><a href="#use-the-right-source-for-the-exact-error">Use the right source for the exact error</a><a href="#related-reading">Related reading</a></nav></aside><article class="document-body">
+    <aside class="blog-answer" aria-label="At a glance"><p>HeyMate can explain a visible terminal error and help you decide what evidence to collect next. When you want code changed, use a scoped agent task, review its plan, and verify the result with a relevant test.</p></aside>
+    <h2 id="ask-for-an-explanation-before-a-command">Ask for an explanation before a command</h2>
+<p>A terminal failure often contains several messages, and the last line may be a consequence rather than the cause. Begin by asking which line matters and what it actually establishes. Keep the failing command, the working directory, and the first relevant error visible. Remove tokens, private URLs, and customer data from anything you share.</p>
+<figure class="blog-prompt"><figcaption>Try this prompt</figcaption><blockquote><p>Explain this error using only the visible output. Separate facts from guesses. What is the smallest read-only check that would distinguish the two most likely causes? Do not run or suggest a destructive command.</p></blockquote></figure>
+<h2 id="build-a-short-debugging-loop">Build a short debugging loop</h2>
+<ol><li>Reproduce the error with the smallest command or input you can.</li><li>Ask what the output proves and what information is missing.</li><li>Run a relevant diagnostic that you understand.</li><li>Update the hypothesis using the new output.</li><li>Change one thing, then rerun the command or focused test.</li></ol>
+<p>This approach works whether the failure is a missing tool, a dependency mismatch, or a test assertion. The point is not to guess the right fix immediately. It is to make each next action produce evidence that narrows the problem. A plausible explanation without a reproduction remains a guess.</p>
+<h2 id="turn-the-investigation-into-an-approved-coding-task">Turn the investigation into an approved coding task</h2>
+<figure class="blog-prompt"><figcaption>Try this prompt</figcaption><blockquote><p>In this project, fix the failing test we just discussed. First show a read-only plan naming the files you expect to change, the reason for the change, and the test you will run. Do not change dependencies or unrelated formatting.</p></blockquote></figure>
+<p>HeyMate can hand work to configured coding providers. Use Claude Code or Codex when the task needs shell commands to build or test itself; HeyMate’s OpenCode jobs can edit files but cannot run shell commands. Provider capabilities and access rules differ. Review the proposed scope before approving execution.</p>
+<h2 id="verify-behavior-not-just-a-clean-log">Verify behavior, not just a clean log</h2>
+<p>A passing command is useful only if it checks the behavior that failed. Confirm the original trigger, a normal case, and any boundary exposed by the bug. Inspect the diff for unrelated changes. If the result depends on a remote service, distinguish a successful local test from a verified production fix.</p>
+<p>Workspace snapshots can support local undo, but they cannot unsend a message or reverse a remote service change. Approved work may continue in a background helper after the app quits. Choose the project folder carefully and check job status before starting a second attempt.</p>
+<h2 id="use-the-right-source-for-the-exact-error">Use the right source for the exact error</h2>
+<p>Check the tool’s official documentation when an error concerns a command flag, supported runtime, or provider limit. HeyMate can help interpret that documentation in context. It does not turn model memory into an authoritative version-specific reference.</p>
+<p>Start with <a href="/connect-claude-codex">provider setup</a> and <a href="/screen-guidance">screen guidance</a>. Review <a href="/privacy">privacy</a> before showing logs: screen context can leave your Mac through the provider connection you select.</p>
+    <h2 id="related-reading">Related reading</h2><ul><li><a href="/blog/heymate-vs-claude-cowork">HeyMate vs Claude Cowork: choose your desktop AI workflow</a></li><li><a href="/blog/choose-open-source-ai-assistant-mac">How to choose an open-source AI assistant for Mac</a></li><li><a href="/blog/ai-weekly-research-brief">Build a weekly research brief with a specialist HeyMate</a></li></ul>
+    <div class="blog-next"><h2>Try it with one small task.</h2><p>HeyMate is free and open source for macOS 14.2 and later. Bring your own AI; provider limits and optional service fees apply. Current builds are self-signed and not Apple notarized.</p><p><a class="download-button" href="/connect-claude-codex">Set up HeyMate on Mac <span aria-hidden="true">↗</span></a></p></div>
+    </article></div>
+  </main>
+  <footer class="home-footer content-width"><a class="brand" href="/">HeyMate</a><nav aria-label="Footer"><a href="/blog">Blog &amp; guides</a><a href="/how-to-use-heymate">Get started</a><a href="/changelog">Changelog</a><a href="/privacy">Privacy</a><a href="/permissions">Permissions</a><a href="https://github.com/UmarSiddiqui/heymate">Source ↗</a></nav><p>© 2026 HeyMate</p></footer>
+</body>
+</html>

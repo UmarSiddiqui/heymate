@@ -19,14 +19,14 @@ export const SocialCard: React.FC = () => {
       }}
     >
       <Img
-        src={staticFile('vision-still.jpg')}
+        src={staticFile('heymate-mischief.svg')}
         style={{
           position: 'absolute',
-          right: -110 * u,
-          top: 60 * u,
-          height: 520 * u,
-          borderRadius: 24 * u,
-          boxShadow: '0 40px 100px rgba(0,0,0,0.7)',
+          right: 50 * u,
+          top: 135 * u,
+          width: 360 * u,
+          height: 360 * u,
+          opacity: 0.3,
         }}
       />
       <div

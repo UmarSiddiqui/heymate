@@ -3,21 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>How to use HeyMate as a developer, designer, or learner — HeyMate</title>
-  <meta name="description" content="A practical guide to using HeyMate, the AI buddy in your Mac notch, for development, design work, and learning something new: real prompts, real workflows, and how to set up mates.">
+  <title>How to Set Up HeyMate on Mac: Claude, Codex &amp; Screen Guidance</title>
+  <meta name="description" content="Install HeyMate on Mac, connect Claude or ChatGPT through Codex, and try screen guidance, approved agent tasks, and specialist mates. Includes setup FAQs.">
+  <link rel="describedby" href="/llms.txt">
   <meta name="theme-color" content="#f7f8fa">
   <link rel="canonical" href="https://getheymate.vercel.app/how-to-use-heymate">
   <link rel="icon" href="assets/img/icon/favicon-mischief-32.png?v=blue-1" type="image/png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/fonts.css?v=1">
   <link rel="stylesheet" href="css/site.css?v=14">
-  <link rel="stylesheet" href="css/home.css?v=23">
-  <link rel="stylesheet" href="css/documents.css?v=1">
+  <link rel="stylesheet" href="css/home.css?v=40">
+  <link rel="stylesheet" href="css/documents.css?v=2">
   <script>document.documentElement.classList.add("js")</script>
-  <!-- Vercel Web Analytics: cookieless page counts (disclosed on privacy.html) -->
-  <script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
-  <script defer src="/_vercel/insights/script.js"></script>
   <!-- Hotjar Tracking Code for HeyMate -->
   <script>
     (function(h,o,t,j,a,r){
@@ -33,18 +29,19 @@
 <body class="home document-page">
   <a class="skip" href="#main">Skip to content</a>
   <header class="home-nav document-nav"><a class="brand" href="index.html"><img src="assets/img/icon/favicon-mischief-32.png?v=blue-1" alt="" width="24" height="24">HeyMate</a><nav aria-label="Primary"><a href="index.html#possibilities">What it does</a><a class="nav-download" data-download href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Get HeyMate <span aria-hidden="true">↓</span></a></nav></header>
-  <nav class="document-links" aria-label="Resources"><a href="how-to-use-heymate.html" aria-current="page">Get started</a><a href="changelog.html">Changelog</a><a href="privacy.html">Privacy</a><a href="permissions.html">Permissions</a></nav>
+  <nav class="document-links" aria-label="Resources"><a href="/blog">Blog &amp; guides</a><a href="how-to-use-heymate.html" aria-current="page">Get started</a><a href="connect-claude-codex.html">Connect your AI</a><a href="screen-guidance.html">Screen guidance</a><a href="changelog.html">Changelog</a><a href="privacy.html">Privacy</a><a href="permissions.html">Permissions</a></nav>
 
   <main class="document-main content-width" id="main">
     <header class="document-hero"><p class="eyebrow">Guide · 9 min read</p>
       <h1>How to use HeyMate as a developer, designer, or learner.</h1>
       <p>HeyMate is a free, open-source AI buddy for learning desktop apps and websites, currently available for macOS. It lives in your Mac's notch. Hold <kbd>⌃</kbd> <kbd>⌥</kbd>, ask about anything on your screen, and it answers out loud while its cursor points at what it means. It can also hand real work to Claude Code, Codex, or OpenCode, on the subscription you already pay for.</p>
       <p>That is the whole pitch. This guide is about what to do with it on a normal working day, whether you write code, push pixels, or are trying to learn something you know nothing about yet.</p></header>
-    <div class="document-layout"><aside class="document-contents"><nav aria-label="On this page"><p>On this page</p><a href="#the-one-habit-that-matters">The one habit that matters</a><a href="#set-up-in-five-minutes">Set up in five minutes</a><a href="#for-developers">For developers</a><a href="#for-designers">For designers</a><a href="#for-learning-something-new">For learning something new</a><a href="#what-heymate-will-not-do">What HeyMate will not do</a><a href="#start-small">Start small</a></nav></aside><article class="document-body"><h2 id="the-one-habit-that-matters">The one habit that matters</h2>
+    <div class="document-layout"><aside class="document-contents"><nav aria-label="On this page"><p>On this page</p><a href="#the-one-habit-that-matters">The one habit that matters</a><a href="#set-up-in-five-minutes">Set up in five minutes</a><a href="#for-developers">For developers</a><a href="#for-designers">For designers</a><a href="#for-learning-something-new">For learning something new</a><a href="#what-heymate-will-not-do">What HeyMate will not do</a><a href="#common-questions">Common questions</a><a href="#start-small">Start small</a></nav></aside><article class="document-body"><h2 id="the-one-habit-that-matters">The one habit that matters</h2>
       <p>Stop copying things into a chat box. Keep working, hold the hotkey, and ask the question out loud while the thing is on your screen. HeyMate captures relevant screen context during interactions that need it and sends it with your words to the provider you choose. A walkthrough can capture again between steps. Some CLI integrations write temporary image files; see the <a href="privacy.html">privacy details</a> for storage and cleanup. Text-only questions do not need a screenshot.</p>
       <p>Everything below is a variation on that habit. Ask first, and only then decide whether the answer should turn into work.</p>
 
       <h2 id="set-up-in-five-minutes">Set up in five minutes</h2>
+      <p>Need the full sign-in steps? Follow <a href="connect-claude-codex.html">connecting Claude or ChatGPT through Codex</a>. Then try the <a href="screen-guidance.html">step-by-step screen guidance walkthrough</a>.</p>
       <ol>
         <li>Install: <code>curl -fsSL https://getheymate.vercel.app/install.sh | bash</code></li>
         <li>Grant Microphone, Accessibility, and Screen Recording. <a href="permissions.html">Here is why each one is needed.</a></li>
@@ -128,10 +125,20 @@
       <h2 id="what-heymate-will-not-do">What HeyMate will not do</h2>
       <ul>
         <li>It will not write, send, click, or delete anything without your approval.</li>
-        <li>It will not run in the background watching you. It takes a screenshot only when you press the hotkey and the question needs it, and never stores it.</li>
-        <li>It will not bill you. There is no HeyMate account. It uses your own Claude, Codex, or OpenCode sign-in, and strips API-key variables from those processes so a stray key cannot switch you to metered billing.</li>
+        <li>Screen guidance can capture relevant screen context, including fresh screenshots between walkthrough steps. Some integrations write temporary screenshots; interrupted cleanup can leave files behind. Enabled routines and approved jobs can run in the background. See the <a href="privacy.html">privacy details</a>.</li>
+        <li>HeyMate adds no subscription fee and uses your own Claude, Codex, OpenCode, or configured API connection. Provider usage limits and optional API, voice, and connector charges still apply.</li>
         <li>It is not a sandbox. Coding CLIs run as your macOS user, and plan mode limits writes, not reads. Read the <a href="permissions.html">permissions page</a> and the <a href="privacy.html">privacy notes</a>.</li>
       </ul>
+
+      <h2 id="common-questions">Common questions about HeyMate on Mac</h2>
+      <h3>Is HeyMate free, or do I need an AI subscription?</h3>
+      <p>HeyMate is free and MIT licensed. Connect your existing Claude, ChatGPT (Codex), or OpenCode setup, or configure a supported API. Your AI provider's limits and charges still apply. Optional voice services and connectors may also charge separately.</p>
+      <h3>Does HeyMate work on Intel Macs and Macs without a notch?</h3>
+      <p>HeyMate supports Apple silicon and Intel Macs running macOS 14.2 or later. Macs without a notch use a top-center pill. The optional Apple Intelligence provider has separate hardware requirements and needs macOS 26 or later.</p>
+      <h3>Can HeyMate see my screen and control Mac apps?</h3>
+      <p>Screen guidance needs a vision-capable provider and the relevant macOS permissions. Ask about the current app with Control + Option. Computer control needs to be enabled and approved; click, type, or press Escape to take back control. Read the <a href="permissions.html">Mac permissions guide</a> before enabling access.</p>
+      <h3>Does HeyMate work completely offline?</h3>
+      <p>That depends on the selected provider and feature. Cloud AI providers receive the questions and relevant context they process. The optional Apple Intelligence provider supports text-only questions on eligible Macs; it cannot see the screen. Local speech models can process speech on your Mac when available. See <a href="privacy.html">what stays local and what leaves your Mac</a>.</p>
 
       <h2 id="start-small">Start small</h2>
       <p>Install it, ask one question about whatever is on your screen right now, and see whether the answer saved you a context switch. Then create one mate for the job you repeat most. That is enough to know if it fits.</p>
@@ -140,7 +147,7 @@
       <p><a href="index.html">Back to HeyMate</a></p></article></div>
   </main>
 
-  <footer class="home-footer content-width"><a class="brand" href="index.html"><img src="assets/img/icon/favicon-mischief-32.png?v=blue-1" alt="" width="24" height="24">HeyMate</a><nav aria-label="Footer"><a href="how-to-use-heymate.html" aria-current="page">Get started</a><a href="changelog.html">Changelog</a><a href="privacy.html">Privacy</a><a href="permissions.html">Permissions</a><a href="https://github.com/UmarSiddiqui/heymate">Source ↗</a></nav><p>© 2026 HeyMate</p></footer>
+  <footer class="home-footer content-width"><a class="brand" href="index.html"><img src="assets/img/icon/favicon-mischief-32.png?v=blue-1" alt="" width="24" height="24">HeyMate</a><nav aria-label="Footer"><a href="/blog">Blog &amp; guides</a><a href="how-to-use-heymate.html" aria-current="page">Get started</a><a href="changelog.html">Changelog</a><a href="privacy.html">Privacy</a><a href="permissions.html">Permissions</a><a href="https://github.com/UmarSiddiqui/heymate">Source ↗</a></nav><p>© 2026 HeyMate</p></footer>
   <script src="js/config.js"></script>
   <script src="js/main.js"></script>
 </body>

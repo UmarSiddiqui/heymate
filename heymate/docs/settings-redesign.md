@@ -257,6 +257,6 @@ as the AI engine), `SettingsEmptyRow`, `SettingsRefreshButton`.
 
 ## Verified build
 
-Screenshots of the running app (light and dark, every section, plus the
-condensed title, search, a shortcut conflict, and the erase confirmation)
-are in `settings-verified/`.
+The historical screenshots from this verification were removed on 2026-11-01
+because they show outdated UI. Capture the current app before preparing new
+documentation or marketing material; do not restore the retired images.

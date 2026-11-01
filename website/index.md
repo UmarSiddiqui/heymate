@@ -1,0 +1,43 @@
+# HeyMate
+
+> A little company. A lot of help. HeyMate is an open-source AI companion: bring your own AI—your existing Claude, ChatGPT (Codex), or OpenCode subscription does the work. Free, MIT-licensed screen guidance for desktop apps and websites; it explains the next step, points to it, and waits while you try it. Currently available for macOS. HeyMate does not meter model use; provider limits and optional paid connectors still apply. It also supports specialist mates, routines, approved computer control, signed-in Chrome through its extension, Notes, and AI usage in the notch. See the website and release notes for current demonstrations and release status.
+
+- Website: https://getheymate.vercel.app
+- Source: https://github.com/UmarSiddiqui/heymate
+- Download: https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg
+- Releases: https://github.com/UmarSiddiqui/heymate/releases
+- Contribute: https://github.com/UmarSiddiqui/heymate/blob/main/CONTRIBUTING.md
+- Actual visual answer recordings (condensed, sped up, silent examples): https://getheymate.vercel.app/#visual-answers
+- Privacy: https://getheymate.vercel.app/privacy
+- Permissions: https://getheymate.vercel.app/permissions
+- Guide and common questions: https://getheymate.vercel.app/how-to-use-heymate#common-questions
+
+## Product facts
+
+- Native SwiftUI, MIT licensed, macOS 14.2 or later. Works on Apple silicon and Intel, with a top-center pill on Macs without a notch.
+- Hold Control + Option and ask for help with a desktop app or website. Multi-step guidance can show a plan, point to the current step, wait for a target click or “next,” and capture fresh screen context before continuing. Model mistakes remain possible.
+- Screen guidance requires a vision-capable provider. The optional Apple Intelligence brain is text-only, requires a supported Mac running macOS 26 or later, and cannot see the screen.
+- Open-source companion using your existing AI subscription. Provider limits still apply.
+- Claude Code, Codex, OpenCode, and a custom Anthropic-compatible API are supported routes. Capabilities differ by provider. HeyMate is MIT licensed, adds no subscription fee, and does not meter model use; provider limits and optional API/voice/connector charges apply.
+- HeyMate is the main agent you talk to. Other agents are made from one sentence: the user's own AI drafts a name, personality, habits, what the agent must ask before doing, and a first task. Habits are saved in the agent's AGENTS.md. Agents can have scheduled routines.
+- Agents show a read-only plan before approved execution. Workspace snapshots support local undo. Undo cannot reverse sent messages or remote service changes. Approved work can continue in a background helper after the app quits.
+- Optional notch tools include music controls, file shelf with AirDrop, timers, clipboard history, calendar, battery, volume and brightness controls, camera mirror, and downloads.
+- Integrations are shared by HeyMate and every agent: Apple apps, local CLIs, MCP, and Composio with the user's credentials. Connected services have their own access and billing rules.
+
+## Privacy and storage
+
+- Chats, memory, mates, and routines are local under ~/Library/Application Support/heymate/. HeyMate chat history contains text, not screenshot or audio bytes.
+- Active interactions that need screen context can capture images, including new captures between walkthrough steps. Some integrations write temporary screenshots and clean them up when requests/processes end. The optional local-control interface schedules screenshot cleanup after ten minutes. Interrupted cleanup can leave files behind.
+- Relevant questions and screen context go to the selected AI provider. Its retention and the CLI's session history are separate from HeyMate's local chat history.
+- Connector credentials are in a local file restricted to the Mac account, not the Keychain. They authenticate with services the user connects. There is no HeyMate account service storing chats.
+- Apple Speech uses local recognition when available for the language and can otherwise contact Apple. Downloaded Parakeet/Kokoro models process locally when available. Optional ElevenLabs receives the audio or text it processes.
+- Enabled routines, standing orders, and approved coding jobs can run in the background. Do not describe HeyMate as an app where nothing runs in the background.
+- App PostHog usage events require a configured build key and explicit user opt-in, off by default. Settings > Privacy & Data allows withdrawal. This is distinct from website tracking; the homepage has no Hotjar recording and Vercel Web Analytics is disabled. See the privacy page for details.
+
+## Install
+
+Download the DMG and drag HeyMate into Applications. Current builds use a stable self-signed certificate; they are not Apple Developer ID-signed or notarized. If macOS blocks first launch, review the app and use System Settings > Privacy & Security > Open Anyway if choosing to proceed.
+
+Alternative installers are `brew install umarsiddiqui/tap/heymate` or the script at https://getheymate.vercel.app/install.sh. Inspect the script before running it; it replaces /Applications/HeyMate.app and removes quarantine. This does not provide notarization.
+
+Grant the requested permissions, complete the selected provider's CLI sign-in, and try a small task with sample content. No comparative superiority, reliability percentage, or active-user count is established by this summary.
