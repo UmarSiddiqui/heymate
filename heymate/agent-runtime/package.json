@@ -13,9 +13,14 @@
   "dependencies": {
     "@earendil-works/pi-ai": "1.4.0",
     "@earendil-works/pi-coding-agent": "1.4.0",
-    "@modelcontextprotocol/sdk": "1.29.0",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "proper-lockfile": "4.1.2",
     "quickjs-emscripten": "0.32.0",
-    "ws": "8.18.3"
+    "ws": "8.22.0"
+  },
+  "overrides": {
+    "undici": "8.12.3",
+    "minimatch": "11.0.1",
+    "@hono/node-server": "2.1.5"
   }
 }
