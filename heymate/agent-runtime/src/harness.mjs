@@ -61,36 +61,37 @@ export class HeyMateHarness {
     const message = { jsonrpc: '2.0', id, method, params: { ...params, session_id: state.record.id } };
     state.session?.holdBudget?.(true);
     return new Promise((resolve, reject) => {
-      const finish = (error, value) => {
+      const finish = (error, value, reason) => {
         if (!state.requests.delete(id)) return;
         state.session?.holdBudget?.(false);
         clearTimeout(timer); signal?.removeEventListener('abort', abort);
-        this.emit(state, 'request.cancel', { id });
+        // The reason lets the app say why a card vanished instead of closing it silently.
+        this.emit(state, 'request.cancel', reason ? { id, reason, title: params?.title } : { id });
         error ? reject(error) : resolve(value);
       };
       const abort = () => finish(new Error('Request cancelled.'));
-      const timer = setTimeout(() => finish(new Error('Approval expired.')), 120000);
+      const timer = setTimeout(() => finish(new Error('Approval expired after 2 minutes without an answer. Nothing ran; tell the user and ask again if they still want it.'), undefined, 'expired'), 120000);
       state.requests.set(id, { message, finish });
       signal?.addEventListener('abort', abort, { once: true });
       if (signal?.aborted) abort(); else peer.send(message);
     });
   }
   async approve(state, name, args, signal) {
-    const response = await this.ask(state, 'approval', { choices: ['once', 'deny'],
+    const response = await this.ask(state, 'approval', { choices: ['once', 'deny'], tool: name,
       title: `Allow ${name}?`, description: JSON.stringify(args).slice(0, 3500) }, signal);
     if (response?.choice !== 'once') throw new Error('User did not approve this operation.');
   }
   answer(peer, message) {
     for (const state of this.sessions.values()) {
       const request = state.requests.get(message.id);
-      if (request && state.peers.has(peer)) request.finish(message.error ? new Error('Request denied.') : null, message.result);
+      if (request && state.peers.has(peer)) request.finish(message.error ? new Error('Request denied.') : null, message.result, null);
     }
   }
   disconnect(peer) {
     for (const state of this.sessions.values()) {
       state.peers.delete(peer);
       // A lost UI connection cannot grant permissions. Work may reconnect through replay.
-      if (!state.peers.size) for (const request of [...state.requests.values()]) request.finish(new Error('Approval window disconnected.'));
+      if (!state.peers.size) for (const request of [...state.requests.values()]) request.finish(new Error('Approval window disconnected.'), undefined, 'disconnected');
     }
   }
   async tools(state) {

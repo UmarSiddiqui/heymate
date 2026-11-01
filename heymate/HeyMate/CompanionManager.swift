@@ -1849,6 +1849,9 @@ final class CompanionManager: ObservableObject {
     private var pendingOpenCodeTrainingSend: PendingOpenCodeSend?
     private var pendingOpenCodeTrainingImages: [ChatImageAttachment] = []
     var pendingHandoffs: [MateHandoff] = []
+    /// Every handoff's state this app session, so get_mate_status can see
+    /// accepted, running and finished handoffs, not only agent runs.
+    var handoffLedger = HandoffLedger()
     var handoffDispatchScheduled = false
     /// Set when a walkthrough turn is still in flight and the user acts.
     var guidedClickLandedDuringTurn = false
@@ -2619,6 +2622,10 @@ final class CompanionManager: ObservableObject {
         }
         // Explicit Stop cancels queued delegation too. Provider failures do
         // not come through this path and must not erase unrelated tasks.
+        for dropped in pendingHandoffs {
+            handoffLedger.mark(dropped.id, .cancelled, note: "Stopped before it started.")
+            HeyMateLog.log("🤝 Handoff \(dropped.id) to \(dropped.mateName) cancelled before it started")
+        }
         pendingHandoffs.removeAll()
         guard resetInteractionState else { return }
         dispatch(.cancel)
@@ -5716,7 +5723,8 @@ extension CompanionManager {
             }
             let storedRuns = agentRunStore.loadAll()
             let report = selected.map { mate in
-                HarnessJobStatus.report(mateName: mate.name, mateID: mate.id, runs: storedRuns)
+                HarnessJobStatus.report(mateName: mate.name, mateID: mate.id, runs: storedRuns,
+                                        handoffs: handoffLedger.records(for: mate.id))
             }.joined(separator: "\n\n")
             return (report.count > 24_000
                 ? String(report.prefix(24_000)) + "\n[Status truncated. Specify an agent to inspect its jobs.]"
@@ -5881,9 +5889,8 @@ extension CompanionManager {
         }
         guard let mate else { return }
         let requester = AgentChatOwner(mateID: currentChat.mateID ?? mateDirectory.defaultMateID, chatID: currentChat.id)
-        pendingHandoffs.append(MateHandoff(mateID: mate.id, mateName: mate.name, instruction: task,
-                                           requester: requester.mateID == mate.id ? nil : requester))
-        HeyMateLog.log("🖍️ Drawing handOff to \(mate.name) queued")
+        enqueueHandoff(MateHandoff(mateID: mate.id, mateName: mate.name, instruction: task,
+                                   requester: requester.mateID == mate.id ? nil : requester), source: "drawing")
         cursorCaptionText = trimmed(payload["label"]) ?? "Sent to \(mate.name)"
         scheduleNextHandoffIfNeeded()
     }
@@ -5907,12 +5914,19 @@ extension CompanionManager {
             return ("Too many agent-to-agent hops. Ask the user before passing this on again.", true)
         }
         let sender = requester.flatMap { owner in mates.first { $0.id == owner.mateID } }
-        pendingHandoffs.append(MateHandoff(
+        let handoff = MateHandoff(
             mateID: mate.id, mateName: mate.name, instruction: message,
             fromMateName: sender?.conductsOthers == false ? sender?.name : nil,
-            hops: activeHandoffHops + 1, requester: requester))
+            hops: activeHandoffHops + 1, requester: requester)
+        enqueueHandoff(handoff, source: "send_to_mate")
+        return ("Queued for \(mate.name) (handoff \(handoff.id.uuidString)). It has not started: it runs in \(mate.name)'s chat after this reply, and the report returns here. get_mate_status shows whether it is queued, running, reported or failed. Not done yet.", false)
+    }
+
+    func enqueueHandoff(_ handoff: MateHandoff, source: String) {
+        pendingHandoffs.append(handoff)
+        handoffLedger.queued(handoff)
+        HeyMateLog.log("🤝 Handoff \(handoff.id) to \(handoff.mateName) queued (\(source), \(pendingHandoffs.count) waiting)")
         scheduleNextHandoffIfNeeded()
-        return ("Sent to \(mate.name). It runs in \(mate.name)'s chat after this reply and the report returns here. Not done yet.", false)
     }
 
     fileprivate func answerMateRequest(named name: String, answer: String, fromToolLoop: Bool,

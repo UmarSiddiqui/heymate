@@ -386,7 +386,8 @@ nonisolated struct MateAgentActivityEntry: Identifiable, Equatable {
 
     init(type: String, payload: JSONValue? = nil) {
         id = UUID()
-        persistsAfterTurn = type == "turn.failed" || type == "turn.cancelled" || !type.contains(".")
+        persistsAfterTurn = type == "turn.failed" || type == "turn.cancelled" || type == "request.expired"
+            || type == "request.disconnected" || !type.contains(".")
         let label: String
         switch type {
         case "tool.start": label = "Using tool"
@@ -396,6 +397,8 @@ nonisolated struct MateAgentActivityEntry: Identifiable, Equatable {
         case "connection.connected": label = "HeyMate Agent connected"
         case "request.approval": label = "Waiting for permission"
         case "request.clarify": label = "Waiting for your answer"
+        case "request.expired": label = "Permission request expired after 2 minutes; nothing ran"
+        case "request.disconnected": label = "Permission request closed because HeyMate lost the agent connection; nothing ran"
         case "turn.complete": label = "HeyMate Agent finished"
         case "turn.cancelled": label = "HeyMate Agent stopped; unfinished work is not marked complete"
         case "turn.failed": label = "HeyMate Agent could not finish"

@@ -515,6 +515,10 @@ final class MateAgentServeSession {
         }
         let payload = fields["payload"]
         if type == "request.cancel", case .object(let body) = payload, let id = body["id"] {
+            // An expired or orphaned card says so in the chat; a plain cancel stays quiet.
+            if case .string(let reason) = body["reason"], ["expired", "disconnected"].contains(reason) {
+                progress("request.\(reason)", payload)
+            }
             withdraw(id); return
         }
         if type == "message.complete", case .object(let body) = payload,

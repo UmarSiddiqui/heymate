@@ -335,13 +335,13 @@ struct MateAgentBriefTests {
                 #expect(prompt.contains("guide only the current step, then wait for their progress"))
                 #expect(!prompt.contains("do not write a plan, a list of steps"))
                 #expect(!prompt.contains("or take several steps is an agent run"))
-                #expect(prompt.contains("before it changes anything"))
-                #expect(prompt.contains("[WORK: the complete task"))
+                #expect(prompt.contains("do it yourself now with your write, edit and bash tools"))
+                #expect(prompt.contains("never write a [WORK: ...] line"))
             }
         }
     }
 
-    @Test func briefTellsAMateToStartRunsInsteadOfAsking() {
+    @Test func briefTellsAMateToDoFileWorkItselfInsteadOfAsking() {
         var mate = Mate(
             id: UUID(), name: "Web Smith", job: "website", pinned: false, archived: false,
             unreadCount: 0, createdAt: Date(), updatedAt: Date(), memoryNote: "",
@@ -349,22 +349,22 @@ struct MateAgentBriefTests {
         )
         mate.soul = ""
         let block = MateAgentBrief.promptBlock(mate: mate)
-        #expect(block.contains("[WORK:"))
+        #expect(!block.contains("end with exactly one line: [WORK:"))
         #expect(block.contains("/tmp/site"))
         #expect(block.contains("do not ask for a path"))
         #expect(block.contains("ask once"))
-        #expect(!block.contains("operate other mac apps"))
+        #expect(!block.contains("perform an app task"))
     }
 
-    @Test func briefSendsAppTasksToARunWhenRunsCanOperateApps() {
+    @Test func briefRoutesAppTasksToConnectedToolsWithoutPromisingARun() {
         let mate = Mate(
             id: UUID(), name: "Web Smith", job: "website", pinned: false, archived: false,
             unreadCount: 0, createdAt: Date(), updatedAt: Date(), memoryNote: "",
             folderPath: "/tmp/site"
         )
         let block = MateAgentBrief.promptBlock(mate: mate, runsCanOperateApps: true)
-        #expect(block.contains("operate other mac apps"))
-        #expect(block.contains("never say app control is unavailable"))
+        #expect(block.contains("perform an app task"))
+        #expect(!block.contains("start a [WORK"))
     }
 
     @Test func briefAsksOnceAndNamesTheResultBlocks() {
@@ -374,7 +374,7 @@ struct MateAgentBriefTests {
             folderPath: "/tmp/site", conductsOthers: true
         )
         let block = MateAgentBrief.promptBlock(mate: mate, runsCanOperateApps: true)
-        #expect(block.contains("this chat cannot write files"))
+        #expect(!block.contains("this chat cannot write files"))
         #expect(block.contains("ask once"))
         #expect(block.contains("never invent the user's facts"))
         #expect(block.contains("confirm only before"))

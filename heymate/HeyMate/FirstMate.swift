@@ -52,6 +52,8 @@ enum FirstMateBrief {
 }
 
 struct MateHandoff: Equatable {
+    /// Ties the handoff to its HandoffLedger record.
+    var id = UUID()
     var mateID: UUID
     var mateName: String
     var instruction: String
