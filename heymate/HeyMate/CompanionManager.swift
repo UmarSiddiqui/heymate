@@ -4531,7 +4531,7 @@ final class CompanionManager: ObservableObject {
                     mateAgent.verifyReply = { [weak self] text in
                         MateAgentGmailVerification.checkedReply(text, verifiedActions: self?.talkGmailEvidence[talkScopeToken] ?? [:], emailContext: emailContext)
                     }
-                    mateAgent.holdsStreamedText = emailContext
+                    mateAgent.streamsReplyLive = !emailContext
                     // Reply first: say what is about to happen while the tools run, as the
                     // final answer is said, so the turn never sits silent.
                     var spokeOpener = false

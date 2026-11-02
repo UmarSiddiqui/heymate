@@ -8,9 +8,10 @@ final class MateAgentServeConversationClient: VisionConversationClient {
     var model = "HeyMate agent profile"
     var connectorScope: String?
     var verifyReply: (@MainActor (String) -> String)?
-    /// Holds streamed text back until the reply is verified. Only email turns
-    /// need it; every other turn shows its words as they arrive.
-    var holdsStreamedText = false
+    /// With `verifyReply` set, text is held until the reply is verified unless
+    /// the caller opts in here: a turn that is not about email shows its words
+    /// as they arrive, until a draft or send claim appears.
+    var streamsReplyLive = false
     /// The one line the agent says before its tools run ("Checking your calendar now.").
     var onOpener: (@MainActor (String) -> Void)?
     /// The reply so far on every delta, even while verifyReply holds the text back: a drawing program is drawn as it
@@ -157,14 +158,19 @@ final class MateAgentServeConversationClient: VisionConversationClient {
             activeConfiguration = nil
         }
         var accumulated = ""
+        var holdingClaim = false
         func bind(_ active: MateAgentServeSession) {
             active.onTextDelta = { [weak self] delta in
                 accumulated += delta
                 self?.onDrawingText?(accumulated)
                 // Gmail completion claims are held until action receipts are checked. A reply
                 // that turns to email mid-stream stops streaming and waits for the check too.
-                guard let self, !self.holdsStreamedText else { return }
-                if self.verifyReply != nil, MateAgentGmailVerification.mentionsEmail(accumulated) { return }
+                guard let self else { return }
+                if self.verifyReply != nil {
+                    // Once a claim shows up the rest of the turn waits for the check.
+                    holdingClaim = holdingClaim || MateAgentGmailVerification.makesUnverifiedClaim(accumulated)
+                    guard self.streamsReplyLive, !holdingClaim else { return }
+                }
                 onTextChunk(accumulated)
             }
             active.onProgress = { [weak self] type, payload in
@@ -505,6 +511,12 @@ nonisolated enum MateAgentGmailVerification {
     static func mentionsEmail(_ text: String) -> Bool {
         let lowered = text.lowercased()
         return ["gmail", "email", "pitch", "recipient"].contains { lowered.contains($0) }
+    }
+
+    /// True when the text so far claims a draft or send that no receipt backs:
+    /// such words must not be shown before the reply is checked.
+    static func makesUnverifiedClaim(_ text: String) -> Bool {
+        mentionsEmail(text) || checkedReply(text, verifiedActions: [:], emailContext: true) != text
     }
 
     static func checkedReply(_ text: String, verifiedActions: [String: Set<String>], emailContext: Bool = false) -> String {
