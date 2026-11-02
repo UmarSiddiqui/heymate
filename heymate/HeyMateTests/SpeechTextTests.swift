@@ -10,6 +10,10 @@ import Testing
 @testable import HeyMate
 
 struct SpeechTextTests {
+    @Test func internalCaptureVocabularyNeverReachesSpeech() {
+        #expect(SpeechText.sanitize("The screenshot didn't come through.") == "I couldn't see your screen.")
+        #expect(SpeechText.sanitize("These Screen Shots show the menu.") == "These screen views show the menu.")
+    }
 
     @Test func plainSentenceIsUnchanged() {
         #expect(SpeechText.sanitize("Click the blue button.") == "Click the blue button.")
@@ -58,5 +62,32 @@ struct SpeechTextTests {
 
     @Test func markdownOnlyTextSpeaksNothing() {
         #expect(SpeechText.sanitize("***\n- \n```") == "")
+    }
+}
+
+/// 2026-11-01: "Your five-photo scrapbook is ready: [Open the scrapbook PDF](file:///Users/…)"
+/// showed raw in the notch and paths were read aloud slash by slash.
+struct PathSpeechAndCaptionTests {
+    private let reply = "Your five-photo scrapbook is ready:\n\n[Open the scrapbook PDF](file:///Users/umarsiddiqui/Projects/heymate/scrapbook-designer/output/AB-photoshoot-scrapbook.pdf)"
+
+    @Test func captionShowsLinkLabelNotMarkdown() {
+        let shown = CaptionText.display(reply)
+        #expect(shown.contains("Open the scrapbook PDF"))
+        #expect(!shown.contains("file://"))
+        #expect(!shown.contains("]("))
+        #expect(CaptionText.display("Saved to file:///Users/me/out/report.pdf") == "Saved to report.pdf")
+    }
+
+    @Test func pathsAreSpokenAsFileNames() {
+        let spoken = SpeechText.sanitize("Saved it to /Users/umarsiddiqui/Projects/heymate/output/AB-photoshoot-scrapbook.pdf and ~/Desktop/notes.txt")
+        #expect(spoken.contains("AB-photoshoot-scrapbook.pdf"))
+        #expect(spoken.contains("notes.txt"))
+        #expect(!spoken.contains("/"))
+        #expect(SpeechText.sanitize("Open file:///Users/me/out/report.pdf now").contains("report.pdf now"))
+        #expect(!SpeechText.sanitize(reply).contains("/"))
+    }
+
+    @Test func slashesThatAreNotPathsStay() {
+        #expect(SpeechText.fileNamesForPaths("and/or 10/31/2026 km/h") == "and/or 10/31/2026 km/h")
     }
 }

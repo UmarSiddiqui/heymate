@@ -82,7 +82,7 @@ struct NotchCaptionCard: View {
     private var captionText: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
-                Text(companionManager.cursorCaptionText)
+                Text(CaptionText.display(companionManager.cursorCaptionText))
                     .font(DS.Fonts.reading)
                     .foregroundColor(DS.Colors.textPrimary)
                     .lineSpacing(NotchLayoutMath.captionLineSpacing)

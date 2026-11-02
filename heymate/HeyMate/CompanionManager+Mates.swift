@@ -659,6 +659,8 @@ extension CompanionManager: MateRoutineRunning {
 
     func beginHandoff(_ handoff: MateHandoff, deliverySession: ChatSession? = nil) {
         guard mateDirectory.mates.contains(where: { $0.id == handoff.mateID && !$0.archived }) else {
+            handoffLedger.mark(handoff.id, .cancelled, note: "Specialist is no longer available.")
+            HeyMateLog.log("🤝 Handoff \(handoff.id) dropped: \(handoff.mateName) is no longer available")
             if let requester = handoff.requester {
                 postAgentMessage(owner: requester, text: handoff.returningReport("Specialist is no longer available.", succeeded: false))
             }
@@ -671,7 +673,13 @@ extension CompanionManager: MateRoutineRunning {
         if holdForOpenCodeTrainingConsent(
             handoff.deliveredInstruction, imageAttachments: handoff.imageAttachments, handoff: handoff, deliverySession: session,
             explicitExecutor: HeadlessExecutor.explicitlyRequested(in: handoff.instruction)
-        ) { return }
+        ) {
+            handoffLedger.mark(handoff.id, .queued, note: "Waiting for the user to confirm the OpenCode training notice.")
+            HeyMateLog.log("🤝 Handoff \(handoff.id) to \(handoff.mateName) held for OpenCode consent")
+            return
+        }
+        handoffLedger.mark(handoff.id, .running, note: "")
+        HeyMateLog.log("🤝 Handoff \(handoff.id) to \(handoff.mateName) started")
         activeHandoffMateID = handoff.mateID
         activeHandoffHops = handoff.hops
         activeHandoff = handoff
@@ -693,6 +701,19 @@ extension CompanionManager: MateRoutineRunning {
         var report = session.messages.dropFirst(activeHandoffMessageStart)
             .filter { $0.role == .assistant }.map(\.text).joined(separator: "\n\n")
         if let failureMessage { report += "\n\n\(failureMessage)" }
+        // Pi chats do their own work; a [WORK: ...] line is no longer parsed,
+        // so it must not read as work that started.
+        var succeeded = succeeded
+        var ledgerNote = failureMessage ?? ""
+        if succeeded, activeHandoffRunIDs.isEmpty, !MateWorkParser.extract(from: report).tasks.isEmpty {
+            succeeded = false
+            ledgerNote = "The reply asked for a [WORK: ...] run, which this chat cannot start. Nothing ran."
+            report += "\n\n" + ledgerNote
+        }
+        if let handoff {
+            handoffLedger.mark(handoff.id, succeeded ? .reported : .failed, note: ledgerNote, runIDs: activeHandoffRunIDs)
+            HeyMateLog.log("🤝 Handoff \(handoff.id) to \(handoff.mateName) \(succeeded ? "reported" : "failed")\(ledgerNote.isEmpty ? "" : ": \(ledgerNote)")")
+        }
         if !activeHandoffRunIDs.isEmpty {
             report += "\n\nA work run was requested. This is not proof of completed execution. Plan, approval, failure and final-result updates will return here from that run."
         }

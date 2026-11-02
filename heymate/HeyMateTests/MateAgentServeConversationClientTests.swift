@@ -130,7 +130,10 @@ struct MateAgentServeConversationClientTests {
         #expect(try await turn.value.text == "Verified answer")
         let methods = fixture.peers.first?.methods ?? []
         #expect(try #require(methods.lastIndex(of: "image.attach_bytes")) < #require(methods.firstIndex(of: "session.steer")))
-        #expect(fixture.peers.first?.prompts == ["Check work", "Also check the second file"])
+        #expect(fixture.peers.first?.prompts == [
+            "Check work",
+            "Also check the second file\n\nCurrent-turn images, in attachment order:\nImage 1:\nscreen"
+        ])
         #expect(fixture.peers.first?.methods.contains("session.interrupt") == false)
         #expect(client.canSteer == false)
         await #expect(throws: MateAgentServeSession.Failure.busy) { try await client.steer("Late") }

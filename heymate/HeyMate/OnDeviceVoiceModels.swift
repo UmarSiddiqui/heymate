@@ -3,13 +3,11 @@
 //  HeyMate
 //
 //  The default local voice: Parakeet (NVIDIA, via FluidAudio) listens
-//  and Kokoro 82M speaks. Both run on the Neural Engine, so once downloaded
-//  nothing leaves the Mac and no account or key is needed.
+//  and Phonon speaks through a private bundled Ollama/MLX service.
+//  Speech stays on the Mac; no account or key is needed.
 //
-//  Models are not bundled — the app stays small and downloads them on
-//  first launch. FluidAudio owns the cache locations:
-//  Parakeet under ~/Library/Application Support/FluidAudio/Models, Kokoro
-//  under ~/.cache/fluidaudio/Models.
+//  Parakeet downloads on first launch. Phonon ships inside the signed app
+//  and is copied to a writable private store before starting its service.
 //
 
 import Combine
@@ -45,7 +43,7 @@ final class OnDeviceVoiceModelStore: ObservableObject {
     static let shared = OnDeviceVoiceModelStore()
 
     /// Rough one-time download, shown before the user commits to it.
-    static let approximateDownloadSizeDescription = "about 600 MB"
+    static let approximateDownloadSizeDescription = "about 500 MB for listening; speaking is included"
 
     @Published private(set) var listenState: OnDeviceVoiceModelState = .notInstalled
     @Published private(set) var speakState: OnDeviceVoiceModelState = .notInstalled
@@ -105,10 +103,10 @@ final class OnDeviceVoiceModelStore: ObservableObject {
             }
         }
         if !speakState.isDownloading {
-            if let reason = KokoroEngine.unsupportedReason {
+            if let reason = PhononEngine.unsupportedReason {
                 speakState = .unsupported(reason)
             } else {
-                speakState = KokoroEngine.modelsAreInstalled() ? .installed : .notInstalled
+                speakState = PhononEngine.modelsAreInstalled() ? .installed : .notInstalled
             }
         }
     }
@@ -151,16 +149,15 @@ final class OnDeviceVoiceModelStore: ObservableObject {
         case .notInstalled, .failed: break
         default: return
         }
-        // Kokoro's loader reports no byte progress, so this one is
-        // indeterminate.
+        // Prepare the bundled speaking model in its private writable store.
         speakState = .downloading(nil)
         do {
-            try await KokoroEngine.shared.prepare()
+            try await PhononEngine.shared.prepare()
             speakState = .installed
             onModelInstalled?(.speak)
         } catch {
             HeyMateLog.log("❌ On-device speak model download failed: \(error)")
-            speakState = .failed("Couldn't download the speaking model. Check your connection and try again.")
+            speakState = .failed("Couldn't prepare the speaking model. Try again.")
         }
     }
 
@@ -169,7 +166,7 @@ final class OnDeviceVoiceModelStore: ObservableObject {
     func removeAll() async {
         guard !isDownloading else { return }
         await ParakeetEngine.shared.removeFromDisk()
-        await KokoroEngine.shared.removeFromDisk()
+        await PhononEngine.shared.removeFromDisk()
         refreshInstalledState()
     }
 }
@@ -262,7 +259,9 @@ actor KokoroEngine {
 
     nonisolated static let installedMarkerKey = "onDeviceKokoroModelsInstalled"
 
-    private var manager: KokoroAneManager?
+    private let speechProcess = KokoroSpeechProcess()
+    private var isPrepared = false
+    private var retryAfter: Date?
     private var isSynthesizing = false
     private var turnWaiters: [CheckedContinuation<Void, Never>] = []
 
@@ -274,10 +273,9 @@ actor KokoroEngine {
         #endif
     }
 
-    /// Keep the known macOS 26.4–26.5 BNNS exclusion. macOS 27.0.1 crashed
-    /// in libBNNS under E5RT on FluidAudio 0.17.7 (Oct 2026); 0.18.0 pads
-    /// Kokoro inputs against the OS 27 BNNS overread (FluidAudio #1038), so
-    /// 27 runs Kokoro again on trial. Re-gate 27 if that crash returns.
+    /// Keep the known macOS 26.4–26.5 exclusion. On other systems, inference
+    /// runs in a helper: even FluidAudio 0.18.0 traps on real replies on
+    /// macOS 27.0.1. A helper failure falls back to system speech in the GUI.
     nonisolated static func unsupportedReason(for version: OperatingSystemVersion) -> String? {
         if version.majorVersion == 26, (4...5).contains(version.minorVersion) {
             return "On-device speaking needs macOS 26.6 or later."
@@ -306,7 +304,16 @@ actor KokoroEngine {
         defer { endTurn() }
         try Task.checkCancellation()
         if let reason = Self.unsupportedReason { throw OnDeviceVoiceError.unsupported(reason) }
-        _ = try await loadedManager()
+        guard !isPrepared else { return }
+        try checkRetryWindow()
+        do {
+            _ = try await speechProcess.request(SpeechRunnerRequest(operation: "prepare"), timeout: .seconds(600))
+            isPrepared = true
+            UserDefaults.standard.set(true, forKey: Self.installedMarkerKey)
+        } catch {
+            await recordFailure(error)
+            throw error
+        }
     }
 
     /// Text in, 24 kHz mono float samples out.
@@ -320,23 +327,39 @@ actor KokoroEngine {
         try Task.checkCancellation()
         if let reason = Self.unsupportedReason { throw OnDeviceVoiceError.unsupported(reason) }
         guard Self.modelsAreInstalled() else { throw OnDeviceVoiceError.modelNotDownloaded }
-        let kokoroManager = try await loadedManager()
-        let result = try await kokoroManager.synthesizeDetailed(
-            text: text,
-            voice: SpeechStylePreferences.onDeviceVoice,
-            speed: Float(SpeechStylePreferences.speed)
-        )
-        return (result.samples, result.sampleRate)
+        try checkRetryWindow()
+        do {
+            let result = try await speechProcess.request(SpeechRunnerRequest(
+                // Legacy benchmark path retains its own voice namespace.
+                operation: "synthesize", text: text, voice: Self.defaultVoice,
+                speed: Float(SpeechStylePreferences.speed)))
+            guard let data = result.samples, !data.isEmpty,
+                  data.count % MemoryLayout<Float>.size == 0, result.sampleRate == 24_000 else {
+                throw KokoroSpeechProcess.Failure.invalidReply
+            }
+            let samples = data.withUnsafeBytes { bytes in
+                stride(from: 0, to: bytes.count, by: MemoryLayout<Float>.size).map {
+                    bytes.loadUnaligned(fromByteOffset: $0, as: Float.self)
+                }
+            }
+            guard samples.allSatisfy({ $0.isFinite }) else { throw KokoroSpeechProcess.Failure.invalidReply }
+            isPrepared = true
+            return (samples, 24_000)
+        } catch {
+            await recordFailure(error)
+            throw error
+        }
     }
 
-    /// Only called while holding the gate. Every caller shares one load.
-    private func loadedManager() async throws -> KokoroAneManager {
-        if let manager { return manager }
-        let kokoroManager = KokoroAneManager(defaultVoice: Self.defaultVoice)
-        try await kokoroManager.initialize()
-        manager = kokoroManager
-        UserDefaults.standard.set(true, forKey: Self.installedMarkerKey)
-        return kokoroManager
+    private func checkRetryWindow() throws {
+        if let retryAfter, retryAfter > Date() { throw KokoroSpeechProcess.Failure.unavailable }
+    }
+
+    private func recordFailure(_ error: Error) async {
+        isPrepared = false
+        await speechProcess.stop()
+        // Avoid a fresh native crash for every sentence in the same reply.
+        if !(error is CancellationError) { retryAfter = Date().addingTimeInterval(60) }
     }
 
     private func waitForTurn() async {
@@ -358,8 +381,9 @@ actor KokoroEngine {
     func removeFromDisk() async {
         await waitForTurn()
         defer { endTurn() }
-        await manager?.cleanup()
-        manager = nil
+        await speechProcess.stop()
+        isPrepared = false
+        retryAfter = nil
         UserDefaults.standard.set(false, forKey: Self.installedMarkerKey)
         let contents = (try? FileManager.default.contentsOfDirectory(atPath: Self.cacheRootURL.path)) ?? []
         for entry in contents where entry.hasPrefix("kokoro") {

@@ -32,7 +32,7 @@ nonisolated enum SpeechStylePreferences {
         return text + "×"
     }
 
-    /// The selected Kokoro voice, or the model's default.
+    /// The selected Phonon voice, or the model's default.
     static var onDeviceVoice: String {
         get {
             let stored = UserDefaults.standard.string(forKey: onDeviceVoiceKey) ?? ""
@@ -54,26 +54,23 @@ nonisolated enum SpeechStylePreferences {
     }
 }
 
-/// A curated handful of Kokoro's built-in voices, described the way people
-/// pick voices: by how they sound.
+/// Curated Phonon voices. IDs match the pinned model's voice catalog.
 nonisolated struct OnDeviceVoiceOption: Identifiable, Equatable {
     let id: String
     let name: String
     let character: String
     let symbol: String
-
-    static let defaultID = "af_heart"
-
+    static let defaultID = "Zoey"
     static let all: [OnDeviceVoiceOption] = [
-        .init(id: "af_heart", name: "Heart", character: "Warm default", symbol: "heart.fill"),
-        .init(id: "af_bella", name: "Bella", character: "Bright", symbol: "sun.max.fill"),
-        .init(id: "af_nicole", name: "Nicole", character: "Soft & close", symbol: "moon.fill"),
-        .init(id: "af_sky", name: "Sky", character: "Light & airy", symbol: "cloud.fill"),
-        .init(id: "af_nova", name: "Nova", character: "Crisp", symbol: "sparkle"),
-        .init(id: "am_michael", name: "Michael", character: "Steady", symbol: "leaf.fill"),
-        .init(id: "am_adam", name: "Adam", character: "Deep", symbol: "mountain.2.fill"),
-        .init(id: "am_puck", name: "Puck", character: "Lively", symbol: "music.note"),
-        .init(id: "bf_emma", name: "Emma", character: "British, clear", symbol: "drop.fill"),
-        .init(id: "bm_george", name: "George", character: "British, calm", symbol: "wind")
+        .init(id: "Zoey", name: "Zoey", character: "Default", symbol: "heart.fill"),
+        .init(id: "Freya", name: "Freya", character: "English", symbol: "sun.max.fill"),
+        .init(id: "Hadley", name: "Hadley", character: "English", symbol: "moon.fill"),
+        .init(id: "Harper", name: "Harper", character: "English", symbol: "cloud.fill"),
+        .init(id: "Imogen", name: "Imogen", character: "English", symbol: "sparkle"),
+        .init(id: "Easton", name: "Easton", character: "English", symbol: "leaf.fill"),
+        .init(id: "Hugh", name: "Hugh", character: "English", symbol: "mountain.2.fill"),
+        .init(id: "Miles", name: "Miles", character: "English", symbol: "music.note"),
+        .init(id: "Bryony", name: "Bryony", character: "English", symbol: "drop.fill"),
+        .init(id: "Preston", name: "Preston", character: "English", symbol: "wind")
     ]
 }

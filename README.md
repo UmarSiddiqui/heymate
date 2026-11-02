@@ -10,10 +10,6 @@ Your open-source AI assistant for Mac. Talk about your screen, see answers take 
 
 Free and open source · Apple silicon and Intel · Bring your own AI
 
-<img src="website/assets/screens/home.webp" width="900" alt="HeyMate Home above a mate chat, showing a screen question and delegated tasks">
-
-<sub>HeyMate Home and mate chat, with example content. No notch? You get a top-center pill.</sub>
-
 </div>
 
 ## One shortcut. A helping hand.
@@ -53,10 +49,6 @@ Drawings, diagrams, and 3D graphics appear over your desktop. Click a preview to
 
 Describe a researcher, editor, scheduler, or coding helper in one sentence. Give it a face, personality, notes, and workspace. Set a task or routine, then follow the work in chat. Habits live in each mate’s `AGENTS.md`.
 
-<p align="center">
-  <img src="website/assets/screens/mates.webp" width="800" alt="HeyMate mate chat with a morning summary, saved memory, and a daily routine">
-</p>
-
 Connect Mac apps, web apps through Composio, signed-in CLIs, and MCP servers. Connections are shared across mates. Agents can also use signed-in Chrome through the HeyMate extension. Actions that send, delete, or pay ask you first.
 
 ## Your AI. Your voice.
@@ -77,7 +69,7 @@ Compatible local servers work too. Set the format, server address, model, and AP
 
 <sub>Illustrative settings artwork with cleaned backgrounds and example content; current controls may differ.</sub>
 
-Downloaded Parakeet listening and Kokoro voices run locally on supported Apple silicon Macs. Kokoro is unavailable on macOS 26.4–26.5. Optional ElevenLabs receives the audio or text it processes.
+Parakeet listening downloads once; Phonon speaking is bundled. Both run locally on supported Apple silicon Macs, with a Mac voice available as fallback. Optional ElevenLabs receives the audio or text it processes.
 
 HeyMate adds no subscription fee or model metering. Provider limits and optional API, voice, and connector charges apply. Features vary by provider, model, and connected tools. Screen guidance needs a vision-capable provider.
 

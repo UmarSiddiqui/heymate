@@ -66,7 +66,13 @@ test('approval is one-time, denial and lost UI cannot approve', async t => {
   const allowed = f.harness.approve(state, 'write', { path: 'fixture' });
   f.harness.answer(f.peer, { id: f.sent.at(-1).id, result: { choice: 'once' } }); await allowed;
   const disconnected = f.harness.approve(state, 'bash', { command: 'fixture' });
+  assert.equal(f.sent.at(-1).params.tool, 'bash');
+  assert.equal(f.sent.at(-1).params.subject, 'fixture');
   f.harness.disconnect(f.peer); await assert.rejects(disconnected, /disconnected/);
+  const cancels = state.events.filter(e => e.type === 'request.cancel');
+  assert.equal(cancels.at(-1).payload.reason, 'disconnected');
+  // An answered card closes without a reason, so the app shows nothing extra.
+  assert.equal(cancels.at(0).payload.reason, undefined);
   await assert.rejects(f.harness.approve(state, 'bash', {}), /No native approval/);
 });
 

@@ -619,6 +619,61 @@ struct ChatTurnNavigationTests {
         #expect(manager.pendingHandoffs.isEmpty)
     }
 
+    /// The 2026-11-01 report: send_to_mate said "Sent", get_mate_status said
+    /// "no recorded jobs", and the specialist's [WORK: ...] reply started nothing.
+    @Test func sendToMateIsVisibleInStatusThroughItsWholeLifecycle() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        let worker = fixture.addMate(name: "Scout", brain: .onDevice)
+        manager.sendTranscriptToClaudeWithScreenshot(transcript: "Ask Scout to make a scrapbook", shouldCaptureScreen: false)
+        let conductorTurn = try #require(manager.currentResponseTask)
+        try await fixture.client.waitForRequest()
+
+        // Same scoped bridge a Pi turn calls send_to_mate and get_mate_status through.
+        let completion = try #require(manager.currentResponseCompletion)
+        let owner = AgentChatOwner(mateID: manager.currentChat.mateID ?? manager.mateDirectory.defaultMateID,
+                                   chatID: manager.currentChat.id)
+        let token = manager.registerTalkToolScope(owner: owner, completion: completion)
+        let sent = manager.executeScopedTalkTool(token: token, name: "send_to_mate",
+                                                 arguments: ["mate": "Scout", "message": "Make a scrapbook from five photos."])
+        #expect(sent.isError == false, "\(sent.text)")
+        #expect(sent.text.contains("Queued for Scout"))
+        #expect(sent.text.contains("has not started"))
+        let queued = manager.executeScopedTalkTool(token: token, name: "get_mate_status", arguments: ["mate": "Scout"])
+        #expect(queued.text.contains("— queued"), "\(queued.text)")
+        #expect(!queued.text.contains("no recorded jobs"))
+        manager.revokeTalkToolScope(token)
+
+        fixture.client.finish(text: "Scout has it.")
+        await conductorTurn.value
+        let handoffTurn = try #require(manager.currentResponseTask)
+        try await fixture.client.waitForRequest()
+        #expect(manager.handoffLedger.records(for: worker.id).first?.state == .running)
+        fixture.client.finish(text: "I'll make it.\n\n[WORK: Make a scrapbook from five photos.]")
+        await handoffTurn.value
+
+        let record = try #require(manager.handoffLedger.records(for: worker.id).first)
+        #expect(record.state == .failed)
+        #expect(record.note.contains("Nothing ran"))
+        #expect(manager.agentRuns.isEmpty)
+        let report = try #require(manager.currentChat.messages.last)
+        #expect(report.text.contains("Scout could not finish"))
+        #expect(report.text.contains("Nothing ran"))
+    }
+
+    @Test func stopMarksQueuedHandoffsCancelledInStatus() {
+        let fixture = try! Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        let worker = fixture.addMate(name: "Scout", brain: .onDevice)
+        let handoff = MateHandoff(mateID: worker.id, mateName: worker.name, instruction: "Check")
+        manager.pendingHandoffs = [handoff]
+        manager.handoffLedger.queued(handoff)
+        manager.cancelInFlightChatTurn()
+        #expect(manager.handoffLedger.records(for: worker.id).first?.state == .cancelled)
+    }
+
     @Test func delegatedRunReturnsTerminalResultOnceToRequesterAndSpecialist() throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }

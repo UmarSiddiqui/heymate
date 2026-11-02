@@ -59,10 +59,12 @@ jobs:
           npm ci --ignore-scripts --no-audit --no-fund
           npm test
 
-      - name: Check local signing and install workflow
+      - name: Check speech transport and screen context
         run: |
-          python3 heymate/script/local_install_tests.py
-          bash heymate/script/process_scope_tests.sh
+          python3 heymate/scripts/phonon-runtime-tests.py
+          bash heymate/script/verify_voice_process.sh
+          bash heymate/script/verify_talk_context.sh
+          PROBE_PURE_ONLY=1 bash heymate/script/verify_phonon.sh
 
       - name: Check local signing and install workflow
         run: |
@@ -145,6 +147,12 @@ jobs:
         run: |
           python3 heymate/scripts/pi-runtime-build.py --out "$RUNNER_TEMP/MateAgent"
           echo "HEYMATE_PI_RUNTIME=$RUNNER_TEMP/MateAgent" >> "$GITHUB_ENV"
+
+      - name: Prepare pinned Phonon speech runtime
+        run: |
+          python3 heymate/scripts/phonon-runtime-tests.py
+          python3 heymate/scripts/phonon-runtime.py --out "$RUNNER_TEMP/PhononRuntime"
+          echo "HEYMATE_PHONON_RUNTIME=$RUNNER_TEMP/PhononRuntime" >> "$GITHUB_ENV"
 
       - name: Build Release (universal, unsigned)
         run: |

@@ -18,8 +18,12 @@ xcrun swiftc -parse-as-library -swift-version 6 -profile-generate \
   -I "$fluid/Sources/FastClusterWrapper/include" \
   -I "$fluid/Sources/MachTaskSelfWrapper/include" \
   -I "$products/include" \
-  HeyMate/OnDeviceVoiceModels.swift HeyMate/SpeechStylePreferences.swift HeyMate/SpeechText.swift \
+  HeyMate/OnDeviceVoiceModels.swift HeyMate/KokoroSpeechProcess.swift HeyMate/SpeechRunnerProtocol.swift \
+  HeyMate/PhononEngine.swift HeyMate/HeyMateDataDirectory.swift \
+  HeyMate/SpeechStylePreferences.swift HeyMate/SpeechText.swift \
+  HeyMate/KokoroTTSClient.swift HeyMate/MacOSSpeechSynthesizerClient.swift \
+  HeyMate/SpeechVoiceCatalog.swift HeyMate/ProviderProtocols.swift \
   script/kokoro_probe.swift "$products/FluidAudio.o" "$products/FastClusterWrapper.o" \
-  "$products/MachTaskSelfWrapper.o" "$nemo" \
+  "$products/MachTaskSelfWrapper.o" "$products/LuxTtsG2pResources.o" "$nemo" \
   -lc++ -framework Accelerate -framework CoreML -o "$probe_dir/kokoro-probe"
 LLVM_PROFILE_FILE="$probe_dir/coverage.profraw" "$probe_dir/kokoro-probe"

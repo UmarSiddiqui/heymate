@@ -1,0 +1,172 @@
+{
+  "created": "2026-11-01",
+  "notes": [
+    "Keynote original repeated one step at 91.2\u2013131.4 seconds; these selected excerpts omit it.",
+    "All output silent. No app settings or source recordings changed."
+  ],
+  "assets": [
+    {
+      "asset": "marketing/demo-video/public/launch/keynote-animate.mp4",
+      "source": "marketing/demo-video/clip-a/public/keynote.mp4",
+      "source_start_seconds": 47.8,
+      "source_end_seconds": 51.3,
+      "source_frame_rate": "60/1",
+      "source_dimensions": [
+        2560,
+        1440
+      ],
+      "output_frame_rate": "60/1",
+      "output_dimensions": [
+        2560,
+        1440
+      ],
+      "audio": "removed",
+      "speed": 1,
+      "capture": "Real HeyMate screen recording; speech and pointer native; user questions and clicks staged. Edited excerpt, not uninterrupted workflow."
+    },
+    {
+      "asset": "marketing/demo-video/public/launch/keynote-effect.mp4",
+      "source": "marketing/demo-video/clip-a/public/keynote.mp4",
+      "source_start_seconds": 74.9,
+      "source_end_seconds": 78.1,
+      "source_frame_rate": "60/1",
+      "source_dimensions": [
+        2560,
+        1440
+      ],
+      "output_frame_rate": "60/1",
+      "output_dimensions": [
+        2560,
+        1440
+      ],
+      "audio": "removed",
+      "speed": 1,
+      "capture": "Real HeyMate screen recording; speech and pointer native; user questions and clicks staged. Edited excerpt, not uninterrupted workflow."
+    },
+    {
+      "asset": "marketing/demo-video/public/launch/keynote-fly.mp4",
+      "source": "marketing/demo-video/clip-a/public/keynote.mp4",
+      "source_start_seconds": 145,
+      "source_end_seconds": 148.3,
+      "source_frame_rate": "60/1",
+      "source_dimensions": [
+        2560,
+        1440
+      ],
+      "output_frame_rate": "60/1",
+      "output_dimensions": [
+        2560,
+        1440
+      ],
+      "audio": "removed",
+      "speed": 1,
+      "capture": "Real HeyMate screen recording; speech and pointer native; user questions and clicks staged. Edited excerpt, not uninterrupted workflow."
+    },
+    {
+      "asset": "marketing/demo-video/public/launch/keynote-result.mp4",
+      "source": "marketing/demo-video/clip-a/public/keynote.mp4",
+      "source_start_seconds": 162.8,
+      "source_end_seconds": 166.8,
+      "source_frame_rate": "60/1",
+      "source_dimensions": [
+        2560,
+        1440
+      ],
+      "output_frame_rate": "60/1",
+      "output_dimensions": [
+        2560,
+        1440
+      ],
+      "audio": "removed",
+      "speed": 1,
+      "capture": "Real HeyMate screen recording; speech and pointer native; user questions and clicks staged. Edited excerpt, not uninterrupted workflow."
+    },
+    {
+      "asset": "marketing/demo-video/public/launch/planets.mp4",
+      "source": "marketing/demo-video/clip-a/public/planets.mp4",
+      "source_start_seconds": 18.3,
+      "source_end_seconds": 23.3,
+      "source_frame_rate": "60/1",
+      "source_dimensions": [
+        2560,
+        1440
+      ],
+      "output_frame_rate": "60/1",
+      "output_dimensions": [
+        2560,
+        1440
+      ],
+      "audio": "removed",
+      "speed": 1,
+      "capture": "Real HeyMate screen recording; speech and pointer native; user questions and clicks staged. Edited excerpt, not uninterrupted workflow."
+    },
+    {
+      "asset": "marketing/demo-video/public/launch/board.mp4",
+      "source": "website/assets/video/visual-answers/board.mp4",
+      "source_start_seconds": 0,
+      "source_end_seconds": 7.5,
+      "source_frame_rate": "24/1",
+      "source_dimensions": [
+        1440,
+        944
+      ],
+      "output_frame_rate": "24/1",
+      "output_dimensions": [
+        1440,
+        944
+      ],
+      "audio": "source silent",
+      "copy": "byte-for-byte",
+      "capture": "Real HeyMate screen recording. Source already condensed and sped up; exact original speed mapping unavailable in supplied asset. No additional speed change."
+    },
+    {
+      "asset": "marketing/demo-video/public/launch/camera.mp4",
+      "source": "website/assets/video/visual-answers/camera.mp4",
+      "source_start_seconds": 0,
+      "source_end_seconds": 7.708333,
+      "source_frame_rate": "24/1",
+      "source_dimensions": [
+        1440,
+        944
+      ],
+      "output_frame_rate": "24/1",
+      "output_dimensions": [
+        1440,
+        944
+      ],
+      "audio": "source silent",
+      "copy": "byte-for-byte",
+      "capture": "Real HeyMate screen recording. Source already condensed and sped up; exact original speed mapping unavailable in supplied asset. No additional speed change."
+    },
+    {
+      "asset": "marketing/demo-video/public/launch/biryani.mp4",
+      "source": "website/assets/video/visual-answers/biryani.mp4",
+      "source_start_seconds": 0,
+      "source_end_seconds": 7.375,
+      "source_frame_rate": "24/1",
+      "source_dimensions": [
+        1440,
+        944
+      ],
+      "output_frame_rate": "24/1",
+      "output_dimensions": [
+        1440,
+        944
+      ],
+      "audio": "source silent",
+      "copy": "byte-for-byte",
+      "capture": "Real HeyMate screen recording. Source already condensed and sped up; exact original speed mapping unavailable in supplied asset. No additional speed change."
+    }
+  ],
+  "privacy_review": {
+    "method": "First/mid frames of all eight exports reviewed; camera initial notch additionally reviewed at native resolution 0.05,1,2 seconds.",
+    "clean_samples": [
+      "Keynote fictitious sample deck; no account/inbox visible",
+      "Wikipedia Guest Chrome; public content only",
+      "Board and biryani sampled frames show relevant response only"
+    ],
+    "camera_restriction": "Camera first second exposes unrelated truncated chat snippets in notch roster. Start camera at >=2.0 seconds or crop top 126 pixels. Native frame at2.0 seconds reviewed clean.",
+    "review_images": "marketing/demo-video/out/launch/product-footage-contact-sheet.jpg",
+    "limit": "Sampled frame review; not exhaustive frame-by-frame inspection."
+  }
+}

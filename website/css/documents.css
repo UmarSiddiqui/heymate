@@ -70,3 +70,7 @@
   .document-links { gap:18px; flex-wrap:wrap; }
   .document-links a { font-size:13px; }
 }
+
+.guide-figure { margin:0 0 36px; }
+.guide-figure img { display:block; width:100%; height:auto; border:1px solid var(--rule); border-radius:16px; }
+.guide-figure figcaption { margin-top:10px; color:var(--graphite); font-size:13px; line-height:1.6; }

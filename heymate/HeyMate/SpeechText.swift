@@ -21,6 +21,13 @@ enum SpeechText {
         text = replacing(#"!?\[([^\]\n]*)\]\([^)\n]*\)"#, in: text, with: "$1")
         // A bare URL is said as its site: "github.com", not every slash.
         text = replacing(#"https?://(?:www\.)?([^\s/?#)\]]+)[^\s)\]]*"#, in: text, with: "$1")
+        // A file URL or a path is said as its file name, not "slash Users slash…".
+        text = SpeechText.fileNamesForPaths(text)
+        // Models may echo internal capture vocabulary despite the reply contract.
+        text = replacing(#"(?i)\b(?:the|your) screen[ -]?shot (?:didn['’]t|did not) come through\b"#,
+                         in: text, with: "I couldn't see your screen")
+        text = replacing(#"(?i)\bscreen[ -]?shots\b"#, in: text, with: "screen views")
+        text = replacing(#"(?i)\bscreen[ -]?shot\b"#, in: text, with: "screen view")
 
         // Line starts: headers, quotes, bullets. Rules and table borders go whole.
         text = replacing(#"(?m)^[ \t]*([-*_=][ \t]*){3,}$"#, in: text, with: "")
@@ -54,6 +61,14 @@ enum SpeechText {
         return lines.joined(separator: " ")
     }
 
+    /// `file:///a/b/report.pdf`, `/Users/me/out/report.pdf` and `~/out/report.pdf`
+    /// become `report.pdf`. "and/or" and "1/2" stay: a path starts at a word boundary.
+    static func fileNamesForPaths(_ text: String) -> String {
+        var text = replacing(#"file://[^\s)\]]*/([^\s/)\]]+)"#, in: text, with: "$1")
+        text = replacing(#"(?<![\w:/.])~?/(?:[^\s/)\]]+/)+([^\s/)\]]+)"#, in: text, with: "$1")
+        return text
+    }
+
     private static func replacing(_ pattern: String, in text: String, with template: String) -> String {
         text.replacingOccurrences(of: pattern, with: template, options: .regularExpression)
     }
@@ -71,5 +86,17 @@ enum SpeechText {
             }
         }
         return String(scalars)
+    }
+}
+
+/// What the notch caption and cursor bubble show. They are plain Text, so a
+/// reply's markdown link showed as "[Open the PDF](file:///Users/…)". The
+/// copy button still copies the raw reply, path included.
+enum CaptionText {
+    static func display(_ text: String) -> String {
+        var text = text.replacingOccurrences(of: #"!?\[([^\]\n]*)\]\([^)\n]*\)"#, with: "$1", options: .regularExpression)
+        text = text.replacingOccurrences(of: #"file://[^\s)\]]*/([^\s/)\]]+)"#, with: "$1", options: .regularExpression)
+        text = text.replacingOccurrences(of: #"\*\*|__|`"#, with: "", options: .regularExpression)
+        return text
     }
 }

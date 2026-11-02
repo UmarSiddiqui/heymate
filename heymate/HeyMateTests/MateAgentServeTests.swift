@@ -4,6 +4,16 @@ import Testing
 
 @MainActor
 struct MateAgentServeTests {
+    @Test func imageLabelsPreserveOrderAndCoordinateContext() {
+        let prompt = ScreenContextPrompt.withImageLabels("What is this?", images: [
+            (Data([1]), "cursor display, 1280x720 pixels\nMeasured boxes: [10,20,30,40] Save"),
+            (Data([2]), "secondary display, 900x1280 pixels")
+        ])
+        #expect(prompt.contains("Image 1:\ncursor display, 1280x720 pixels"))
+        #expect(prompt.contains("[10,20,30,40] Save"))
+        #expect(prompt.contains("Image 2:\nsecondary display, 900x1280 pixels"))
+        #expect(ScreenContextPrompt.withImageLabels("Hello", images: []) == "Hello")
+    }
     @Test func ownedBackendAuthenticatesAttestsReusesAndStopsItsProcess() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }

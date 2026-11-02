@@ -269,6 +269,7 @@ class LocalInstallTests(unittest.TestCase):
             "TEST_RUNNING": str(self.root / "running"),
             "TEST_EVENTS": str(self.root / "events.jsonl"),
             "HEYMATE_PI_RUNTIME": str(self.root / "pi-runtime"),
+            "HEYMATE_PHONON_RUNTIME": str(self.root / "phonon-runtime"),
             "TEST_FINGERPRINT": FINGERPRINT,
             "TEST_TEMPLATE": str(self.candidate),
         })

@@ -21,6 +21,8 @@ nonisolated enum MateAgentConversationClient {
         Return verified absolute artifact paths when files are created or changed. Distinguish
         actual completion, unresolved failures, and actions still waiting for human permission.
         Screen images are available only when attached to this turn. Do not claim live screen access.
+        Describe screen access naturally: say "I couldn't see your screen" if it is unavailable.
+        Never use the word "screenshot" in replies to the user; call it their screen or screen view.
         Keep spoken replies brief; include necessary detail in the written answer.
         \(mateIdentity)
         """

@@ -10,6 +10,11 @@ final class MateAgentServeRequestPresenter {
     private var presentingRequest = false
 
     func respond(to request: MateAgentServeSession.ServerRequest) async -> JSONValue? {
+        if request.method == "approval", case .object(let params) = request.params,
+           MateAgentApprovalPolicy.autoAllows(params, mode: ApprovalMode.current()) {
+            HeyMateLog.log("🔓 Full access allowed \(MateAgentApprovalPolicy.toolName(params) ?? "tool") without a card")
+            return .object(["choice": .string("once"), "all": .bool(false)])
+        }
         // Parallel tools can ask independently. Show sheets in order rather
         // than silently denying a second legitimate request behind the first.
         while presentingRequest, !Task.isCancelled {

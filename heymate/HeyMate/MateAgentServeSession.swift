@@ -253,6 +253,7 @@ final class MateAgentServeSession {
     func prompt(text request: String, images: [(data: Data, label: String)] = [],
                 system: String = "", seed: [JSONValue] = [],
                 timeout: Duration = .seconds(300)) async throws -> Result {
+        let request = ScreenContextPrompt.withImageLabels(request, images: images)
         if let recovery { await recovery.value }
         guard !hasPriorWorkInProgress else { throw Failure.priorWorkRunning }
         guard let identity, isUsable, !request.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -350,6 +351,7 @@ final class MateAgentServeSession {
     /// Adds a message to the running turn. The agent reads it at its next model
     /// call, so work already in progress is not cancelled or repeated.
     func steer(text request: String, images: [(data: Data, label: String)] = []) async throws {
+        let request = ScreenContextPrompt.withImageLabels(request, images: images)
         guard canSteer, let identity else { throw Failure.busy }
         guard !request.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, request.utf8.count <= 65_536,
               images.count <= 8, images.reduce(0, { $0 + $1.data.count }) <= 4 * 1_024 * 1_024,
@@ -515,6 +517,10 @@ final class MateAgentServeSession {
         }
         let payload = fields["payload"]
         if type == "request.cancel", case .object(let body) = payload, let id = body["id"] {
+            // An expired or orphaned card says so in the chat; a plain cancel stays quiet.
+            if case .string(let reason) = body["reason"], ["expired", "disconnected"].contains(reason) {
+                progress("request.\(reason)", payload)
+            }
             withdraw(id); return
         }
         if type == "message.complete", case .object(let body) = payload,

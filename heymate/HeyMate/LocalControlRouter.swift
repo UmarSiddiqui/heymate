@@ -20,6 +20,7 @@ nonisolated enum LocalControlCommand: Equatable {
     case showCaption(text: String, point: CGPoint?, duration: TimeInterval)
     case captureScreenshot(focused: Bool)
     case speak(text: String)
+    case speechState
     /// Draws the same visual actions a reply can emit; the pen cursor builds
     /// them stroke by stroke on the matching display.
     case draw(actionsJSON: String)
@@ -101,6 +102,7 @@ nonisolated enum LocalControlRouter {
         // Pre-flight and liveness checks need no body.
         if method == "OPTIONS" || (method == "GET" && path == "/health") { return .accepted(.health) }
         if method == "GET", path == "/explain/state" { return .accepted(.drawingState) }
+        if method == "GET", path == "/speech/state" { return .accepted(.speechState) }
         if method == "GET", path == "/drive/status" { return .accepted(.driveStatus(driveIdentifier: nil)) }
         if refusedPaths.contains(path) { return unknown }
         guard method == "POST" else {

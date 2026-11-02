@@ -1,43 +1,32 @@
 import AppKit
-import GoogleSignInSwift
 import SwiftUI
 
 struct AccountGateView: View {
     @ObservedObject var account: HeyMateAccount
-
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                HStack(spacing: 12) {
-                    Image(nsImage: NSImage(named: NSImage.applicationIconName) ?? NSImage())
-                        .resizable().interpolation(.high).frame(width: 48, height: 48)
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("HeyMate").font(.system(size: 19, weight: .semibold))
-                        Text("A little company. A lot of help.")
-                            .font(.system(size: 11)).foregroundStyle(DS.Colors.textSecondary)
-                    }
-                    Spacer()
-                }
+        VStack(spacing: 0) {
+            Text("Welcome to")
+                .font(.system(size: 30, weight: .semibold, design: .rounded))
+                .foregroundStyle(.primary)
+                .multilineTextAlignment(.center)
+                .accessibilityAddTraits(.isHeader)
 
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Meet your new mate.")
-                        .font(.system(size: 31, weight: .semibold, design: .rounded)).tracking(-0.7)
-                    Text("One quick sign-in. Then, make yourself at home.")
-                        .font(.system(size: 14)).lineSpacing(3).foregroundStyle(DS.Colors.textSecondary)
-                }.padding(.top, 12)
+            Spacer(minLength: 96)
 
-                VStack(alignment: .leading, spacing: 16) {
-                    GoogleSignInButton(scheme: .light, style: .wide,
-                                       state: account.busy ? .disabled : .normal) {
-                        Task { await account.signInWithGoogle(using: GoogleAccountSignIn()) }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityLabel("Sign in with Google")
-                    Text("New here or coming back? Same button. Google provides your name and email.")
-                        .font(.system(size: 12)).lineSpacing(3).foregroundStyle(DS.Colors.textSecondary)
-                }
-
+            Button {
+                Task { await account.signInWithGoogle(using: GoogleAccountSignIn()) }
+            } label: {
+                Text("Sign in with Google")
+            }
+            .buttonStyle(AccountSignInButtonStyle())
+            .disabled(account.busy)
+            .accessibilityLabel("Sign in with Google")
+        }
+        .padding(.horizontal, 32)
+        .padding(.vertical, 64)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .bottom) {
+            VStack(spacing: 12) {
                 if account.busy {
                     HStack(spacing: 10) {
                         ProgressView().controlSize(.small)
@@ -45,30 +34,72 @@ struct AccountGateView: View {
                     }.accessibilityElement(children: .combine)
                 }
                 if let message = account.message {
-                    Label(message, systemImage: "info.circle")
-                        .font(.callout).foregroundStyle(DS.Colors.textPrimary)
-                        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-                        .background(DS.Colors.surface2, in: RoundedRectangle(cornerRadius: 12))
+                    Text(message)
+                        .font(.callout).foregroundStyle(.primary)
+                        .multilineTextAlignment(.center)
                         .accessibilityLabel(message)
                 }
-
-                VStack(alignment: .leading, spacing: 12) {
-                    Divider()
-                    Label("No access to your Gmail inbox.", systemImage: "lock.shield")
-                        .font(.system(size: 12, weight: .medium))
-                    Text("Google and Firebase handle account sign-in. Chats, screenshots and files stay outside this account flow. Your AI provider sign-ins stay separate.")
-                        .font(.system(size: 11)).lineSpacing(3).foregroundStyle(DS.Colors.textSecondary)
-                    Link("Privacy notes", destination: URL(string: "https://getheymate.vercel.app/privacy")!)
-                        .font(.system(size: 11, weight: .medium))
-                }
             }
-            .padding(32)
-            .frame(maxWidth: 520, alignment: .leading)
-            .frame(maxWidth: .infinity)
+            .padding(16)
         }
-        .background(DS.Colors.background)
-        .preferredColorScheme(.dark)
-        .tint(DS.Colors.accent)
+        .background {
+            AccountWelcomeBackground()
+                .ignoresSafeArea()
+        }
+    }
+}
+
+private struct AccountSignInButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 18, weight: .medium))
+            .foregroundStyle(Color(red: 0.08, green: 0.19, blue: 0.26))
+            .padding(.horizontal, 28)
+            .frame(minWidth: 268, minHeight: 48)
+            .background {
+                Capsule()
+                    .fill(LinearGradient(
+                        colors: [.white, Color(red: 0.78, green: 0.98, blue: 1),
+                                 Color(red: 0.38, green: 0.88, blue: 1)],
+                        startPoint: .top, endPoint: .bottom
+                    ))
+            }
+            .overlay {
+                Capsule()
+                    .strokeBorder(LinearGradient(
+                        colors: [.white, Color(red: 0.38, green: 0.40, blue: 1)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    ), lineWidth: 1.5)
+            }
+            .contentShape(Capsule())
+            .shadow(color: Color.blue.opacity(isEnabled ? 0.25 : 0.10), radius: 5, y: 1)
+            // Keep the opaque fill while Google sign-in is in progress, even on dark artwork.
+            .opacity(isEnabled ? 1 : 0.82)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+    }
+}
+
+private struct AccountWelcomeBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        GeometryReader { geometry in
+            // Keep the supplied artwork intact; show its matching half without stretching.
+            let scale = max(geometry.size.width / 1376, geometry.size.height / 1536)
+            let halfWidth = 1376 * scale
+            let imageHeight = 1536 * scale
+
+            Image("AccountWelcomeSky")
+                .resizable()
+                .frame(width: halfWidth * 2, height: imageHeight)
+                .offset(x: (geometry.size.width - halfWidth) / 2 - (colorScheme == .dark ? halfWidth : 0),
+                        y: (geometry.size.height - imageHeight) / 2)
+        }
+        .clipped()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
@@ -78,10 +109,12 @@ final class AccountGateWindowController: NSObject, NSWindowDelegate {
 
     func show(account: HeyMateAccount) {
         if window == nil {
-            let height = min(550, (NSScreen.main?.visibleFrame.height ?? 900) - 60)
+            let height = min(440, (NSScreen.main?.visibleFrame.height ?? 900) - 60)
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: height),
-                                  styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
-            window.title = "HeyMate account"
+                                  styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView], backing: .buffered, defer: false)
+            window.title = "Welcome to HeyMate"
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
             window.isReleasedWhenClosed = false
             window.contentView = NSHostingView(rootView: AccountGateView(account: account))
             window.delegate = self

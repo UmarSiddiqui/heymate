@@ -143,6 +143,12 @@ jobs:
           python3 heymate/scripts/pi-runtime-stage.py --source "$RUNNER_TEMP/pi-universal" --destination "$RUNNER_TEMP/verify/MateAgent" --verify-only
           echo "HEYMATE_PI_RUNTIME=$RUNNER_TEMP/pi-universal" >> "$GITHUB_ENV"
 
+      - name: Prepare pinned Phonon speech runtime
+        run: |
+          python3 heymate/scripts/phonon-runtime-tests.py
+          python3 heymate/scripts/phonon-runtime.py --out "$RUNNER_TEMP/PhononRuntime"
+          echo "HEYMATE_PHONON_RUNTIME=$RUNNER_TEMP/PhononRuntime" >> "$GITHUB_ENV"
+
       - name: Import the signing identity
         id: signing
         env:

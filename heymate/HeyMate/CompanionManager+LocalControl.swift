@@ -49,6 +49,16 @@ extension CompanionManager {
             return await saveScreenshots(focusedOnly: focused)
         case .speak(let text):
             return speak(text)
+        case .speechState:
+            return .ok([
+                "engine": selectedSpeakProvider == .elevenLabs ? "elevenlabs" : "phonon",
+                "voice": SpeechStylePreferences.onDeviceVoice,
+                "speed": SpeechStylePreferences.speed,
+                "controlPlaying": LocalControlState.speaker?.isPlaying == true,
+                "replyPlaying": voiceSynthesisClient.isPlaying,
+                "turnInFlight": isMateAgentTurnInFlight,
+                "silentMode": isSilentModeEnabled
+            ])
         case .draw(let actionsJSON):
             return draw(actionsJSON)
         case .drawPieces(let commandsJSON):

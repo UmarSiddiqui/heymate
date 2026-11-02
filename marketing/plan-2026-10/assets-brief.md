@@ -78,7 +78,7 @@ For 9:16 and 4:5 cuts, crop around the notch-to-pointer path. Don't crop away th
 ### Still S4: agent builder review card
 
 - **Ratio:** 1270×760.
-- **Scene:** reuse `website/assets/screens/v3/builder-review.webp`, re-composed onto a 1270×760 matte canvas.
+- **Scene:** capture the current builder-review UI and compose it onto a 1270×760 matte canvas. The previous v3 screenshot was retired on 2026-11-01; do not restore it.
 
 ### Still S5: privacy and permissions
 

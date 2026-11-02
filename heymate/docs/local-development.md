@@ -120,10 +120,36 @@ without rebuilding or relaunching.
 
 ## Speech and 3D regression checks
 
-After a verified local install, run the cached Kokoro integration probe:
+The default local speaker is now Phonon, bundled with its private Ollama/MLX
+runtime. `build_and_run.sh` prepares the pinned payload automatically; an
+existing prepared directory can be supplied as `HEYMATE_PHONON_RUNTIME`.
+No separate Ollama installation is needed. See
+[rollout evidence and cold-start limits](phonon-rollout-2026-11-01.md).
+
+After a verified local install, run production Phonon checks:
+
+```bash
+python3 scripts/phonon-runtime-tests.py
+python3 script/verify_phonon_lifetime.py
+PROBE_ROUNDS=1000 PROBE_PLAYBACK=1 bash script/verify_phonon.sh
+PROBE_LONG_ONLY=1 bash script/verify_phonon.sh
+```
+
+The CLI uses the canonical signed helper and disposable profile/model data.
+It checks real synthesis, overlapping voices, cancellation/recovery, audio
+playback speeds and rapid stops without starting another GUI. Optional
+`PROBE_CORPUS=/absolute/path/replies.json` uses a local array of reply strings.
+`PROBE_PURE_ONLY=1` runs PCM, streaming trim, segmentation and voice migration
+checks without starting a model. `GET /speech/state` on the existing local
+control interface reports selected engine/voice/speed and playback state.
+
+Kokoro remains an isolated legacy comparison path, fixed to its Heart voice.
+Its older probe remains available for explicit comparisons:
 
 ```bash
 ./script/verify_kokoro.sh
+bash script/verify_voice_process.sh
+bash script/verify_talk_context.sh
 node --test scripts/stage3d_tests.mjs
 ```
 
@@ -133,6 +159,24 @@ or changes the app's preferences. It requires already-downloaded models and
 runs 400 sentences from four overlapping callers, then checks recovery after
 a cancelled call. `PROBE_ROUNDS=40` selects a shorter check. A pass reports the
 actual sentence count; an Xcode test summary with zero tests is not evidence.
+
+Kokoro inference now runs in the signed `Contents/Helpers/HeyMateSpeechRunner`
+process. A native model trap cannot be caught by Swift in the GUI process;
+helper loss becomes an error and the production TTS client continues the
+remaining text with the Mac voice. Failed helpers have a 60-second retry
+cooldown. Audio travels through pipes and is not written to disk.
+
+The process probe checks persistent requests, a native worker trap, restart,
+fragmented replies, cancellation, timeout, and malformed output. The context
+probe runs production hotkey matching, voice/typed capture policy, image-label
+ordering and speech terminology without a GUI or privacy prompts.
+
+`PROBE_CORPUS=/absolute/path/replies.json` supplies a local array of reply
+strings to the speech probe. `PROBE_REPLAY=1` replays those sentences serially;
+the default remains four overlapping callers. `PROBE_PLAYBACK=1` checks actual
+production playback. `PROBE_RUNTIME=v3` is an explicit alternate-runtime
+experiment that may download v3 assets; it does not change the app's runtime.
+See [the November 1 repair evidence](voice-screen-repair-2026-11-01.md).
 
 The 3D checks use the bundled Three.js math with a stub renderer to verify
 same-beat group parenting, complete model bounds, first-frame cursor projection

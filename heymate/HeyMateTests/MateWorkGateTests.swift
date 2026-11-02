@@ -57,7 +57,7 @@ struct MateWorkGateTests {
         )
         let block = MateAgentBrief.promptBlock(mate: mate, runsCanOperateApps: true)
         #expect(block.contains("for email, calendar"))
-        #expect(block.contains("none of your connected apps can reach"))
+        #expect(block.contains("use a connected app tool or chrome when one reaches it"))
     }
 }
 

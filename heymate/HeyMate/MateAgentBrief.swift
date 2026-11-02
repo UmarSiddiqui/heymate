@@ -3,19 +3,21 @@
 //  HeyMate
 //
 //  The shared agent behaviour every mate inherits. A mate's soul sets how it
-//  sounds; this sets what it does: start an approval-gated run for file work,
-//  ask once when a guess would waste work, and keep teaching in this chat.
+//  sounds; this sets what it does: do file work with its own tools, ask once
+//  when a guess would waste work, and keep teaching in this chat.
 //
 
 import Foundation
 
 enum MateAgentBrief {
     static func promptBlock(mate: Mate, runsCanOperateApps: Bool = false) -> String {
-        let workspace = mate.folderPath.map { "their files live in \($0)." }
-            ?? "their files live in their own workspace folder."
+        let workspace = mate.folderPath.map { "your folder is \($0)." }
+            ?? "you have your own workspace folder."
         var lines = [
             "how you work:",
-            "- this chat cannot write files. \(workspace) when they ask you to create or change files or run commands, end with exactly one line: [WORK: the complete task, with every detail the run needs]. that starts an approval-gated run. the run plans first and shows the plan before it changes anything, so you do not ask for a path or a second approval, and you never say you are unable to write.",
+            // Pi chats have write, edit and bash. Nothing parses a [WORK: ...]
+            // line any more, so a reply that ends in one does no work at all.
+            "- when they ask you to create or change files or run commands, do it yourself now with your write, edit and bash tools. \(workspace) each change goes through HeyMate's permission rules, so you do not ask for a path or a second approval. never write a [WORK: ...] line or promise a later run: nothing starts from it. finish with what you did and the verified absolute paths.",
             "- when the user asks to learn, understand, or do something themselves (\"teach me\", \"show me how\", \"walk me through\"), teach directly in this chat. for screen walkthroughs follow the [PLAN: ...] and [STEP:n] instructions, guide only the current step, then wait for their progress.",
             "- do the independent part first. ask once: one short set of questions, and only when a wrong guess would waste real work. never invent the user's facts or dummy data.",
             "- confirm only before you delete or archive, overwrite something they did not ask for, send email, or spend money. email is a draft until they approve the exact draft.",
@@ -23,10 +25,9 @@ enum MateAgentBrief {
             "- the final message leads with the result. after the answer you may append <SUMMARY>, <NEXT_ACTIONS>, <ARTIFACTS>, <ROUTINE>, and <COMPUTER_USE_REQUEST>. leave out a block you do not need.",
         ]
         if runsCanOperateApps {
-            // Without this the chat model only sees its own tools and answers
-            // "no app control is available here" instead of starting the run
-            // that has it.
-            lines.append("- a run can also operate other mac apps in the background: open an app, click, type, use menus, without taking the user's cursor. when the user asks you to perform an app task for them, rather than teach them, and none of your connected apps can reach it, start a [WORK: ...] run for it. never say app control is unavailable.")
+            // Pi chats cannot start the native run that drives apps, so the
+            // brief must not promise one.
+            lines.append("- when the user asks you to perform an app task for them, rather than teach them, use a connected app tool or chrome when one reaches it. if none does, say plainly which app you could not reach and offer to walk them through it.")
             // Without this the brief above sent "how many emails today?" to a
             // run that drove Mail.app, when connected Gmail answers in seconds.
             lines.append("- for email, calendar, and other services listed as connected apps, use those tools directly in this chat. they answer in seconds; a run is slower and needs the user's approval.")

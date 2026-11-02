@@ -12,7 +12,10 @@
   function show(data, stale) {
     downloads.textContent = data.downloads.toLocaleString("en-US");
     stars.textContent = data.stars.toLocaleString("en-US");
-    status.textContent = stale ? "Last known GitHub totals · live refresh unavailable" : "Live GitHub totals · downloads, not unique users";
+    if (status) {
+      status.textContent = stale ? "Last known GitHub totals · live refresh unavailable" : "";
+      status.hidden = !stale;
+    }
   }
   try { cached = JSON.parse(sessionStorage.getItem(KEY)); } catch (_) {}
   if (cached && valid(cached.data)) { show(cached.data, Date.now() - cached.at >= TTL); if (Date.now() - cached.at < TTL) return; }
@@ -22,6 +25,6 @@
     try { sessionStorage.setItem(KEY, JSON.stringify({ at: Date.now(), data: data })); } catch (_) {}
   }).catch(function () {
     if (cached && valid(cached.data)) show(cached.data, true);
-    else { downloads.textContent = "—"; stars.textContent = "—"; status.textContent = "GitHub totals unavailable right now · explore the source ↗"; }
+    else { downloads.textContent = "—"; stars.textContent = "—"; if (status) { status.textContent = "GitHub totals unavailable right now · explore the source ↗"; status.hidden = false; } }
   });
 })();

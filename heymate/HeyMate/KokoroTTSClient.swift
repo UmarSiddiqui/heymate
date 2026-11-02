@@ -24,6 +24,7 @@ final class KokoroTTSClient: TTSClient {
     private var synthesisTask: Task<Void, Never>?
     private var scheduledBufferCount = 0
     private var isSynthesizing = false
+    private var fallbackSpeaker: MacOSSpeechSynthesizerClient?
 
     /// When the queue last ran dry while sentences were still being made.
     /// The next schedule logs that silence as an audible gap.
@@ -48,7 +49,13 @@ final class KokoroTTSClient: TTSClient {
 
         // The first sentence is synthesized before returning so a failure
         // (model missing, synthesis error) surfaces to the caller.
-        let firstSentenceAudio = try await Self.synthesizeLogged(sentences[0], index: 0)
+        let firstSentenceAudio: (samples: [Float], sampleRate: Int)
+        do {
+            firstSentenceAudio = try await Self.synthesizeLogged(sentences[0], index: 0)
+        } catch {
+            try await speakWithSystemVoice(sentences.joined(separator: " "), generation: generation, error: error)
+            return
+        }
         try Task.checkCancellation()
         guard generation == playbackGeneration else { return }
 
@@ -64,7 +71,23 @@ final class KokoroTTSClient: TTSClient {
         synthesisTask = Task { [weak self] in
             for (offset, sentence) in remainingSentences.enumerated() {
                 guard !Task.isCancelled else { break }
-                guard let audio = try? await Self.synthesizeLogged(sentence, index: offset + 1) else { continue }
+                let audio: (samples: [Float], sampleRate: Int)
+                do {
+                    audio = try await Self.synthesizeLogged(sentence, index: offset + 1)
+                } catch {
+                    guard let self, generation == self.playbackGeneration else { return }
+                    // Finish queued sentences, then speak every remaining word.
+                    // A failed synthesis used to silently drop this sentence.
+                    do {
+                        while self.scheduledBufferCount > 0, generation == self.playbackGeneration {
+                            try await Task.sleep(for: .milliseconds(50))
+                        }
+                        try await self.speakWithSystemVoice(
+                            remainingSentences.dropFirst(offset).joined(separator: " "), generation: generation, error: error)
+                    } catch { }
+                    if generation == self.playbackGeneration { self.isSynthesizing = false }
+                    return
+                }
                 guard let self, generation == self.playbackGeneration else { return }
                 try? self.schedule(audio, generation: generation)
             }
@@ -78,7 +101,7 @@ final class KokoroTTSClient: TTSClient {
     }
 
     var isPlaying: Bool {
-        isSynthesizing || scheduledBufferCount > 0
+        isSynthesizing || scheduledBufferCount > 0 || fallbackSpeaker?.isPlaying == true
     }
 
     func stopPlayback() {
@@ -88,6 +111,16 @@ final class KokoroTTSClient: TTSClient {
         isSynthesizing = false
         scheduledBufferCount = 0
         playerNode.stop()
+        fallbackSpeaker?.stopPlayback()
+    }
+
+    private func speakWithSystemVoice(_ text: String, generation: Int, error: Error) async throws {
+        try Task.checkCancellation()
+        guard !(error is CancellationError), generation == playbackGeneration else { throw CancellationError() }
+        HeyMateLog.log("Local voice unavailable; continuing with Mac voice: \(error.localizedDescription)")
+        let speaker = fallbackSpeaker ?? MacOSSpeechSynthesizerClient()
+        fallbackSpeaker = speaker
+        try await speaker.speakText(text)
     }
 
     private func schedule(_ audio: (samples: [Float], sampleRate: Int), generation: Int) throws {

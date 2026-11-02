@@ -91,6 +91,11 @@ if [ -z "${HEYMATE_PI_RUNTIME:-}" ]; then
   python3 "$ROOT_DIR/scripts/pi-runtime-build.py" --out "$HEYMATE_PI_RUNTIME"
 fi
 export HEYMATE_PI_RUNTIME
+if [ -z "${HEYMATE_PHONON_RUNTIME:-}" ]; then
+  HEYMATE_PHONON_RUNTIME="$ROOT_DIR/build/PhononRuntime"
+  python3 "$ROOT_DIR/scripts/phonon-runtime.py" --out "$HEYMATE_PHONON_RUNTIME"
+fi
+export HEYMATE_PHONON_RUNTIME
 
 run_xcodebuild build
 

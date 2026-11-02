@@ -107,6 +107,26 @@ nonisolated struct NotchUsageWindow: Identifiable, Codable, Equatable, Sendable 
     }
 }
 
+/// Reset copy shared by the quota cards and their regression tests.
+nonisolated enum NotchUsageResetText {
+    static func label(_ reset: Date?, now: Date) -> String {
+        guard let reset else { return "Reset time unavailable" }
+        guard reset > now else { return "Reset passed · refresh needed" }
+        let seconds = reset.timeIntervalSince(now)
+        if seconds < 60 { return "Resets in <1m" }
+        let minutes = Int(seconds / 60)
+        if minutes < 60 { return "Resets in \(minutes)m" }
+        let hours = minutes / 60
+        if hours < 48 {
+            let remainder = minutes % 60
+            return remainder == 0 ? "Resets in \(hours)h" : "Resets in \(hours)h \(remainder)m"
+        }
+        let days = hours / 24
+        let remainder = hours % 24
+        return remainder == 0 ? "Resets in \(days)d" : "Resets in \(days)d \(remainder)h"
+    }
+}
+
 nonisolated struct NotchUsageReading: Codable, Sendable {
     let windows: [NotchUsageWindow]
     let fetchedAt: Date
