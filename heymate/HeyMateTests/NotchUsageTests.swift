@@ -3,6 +3,22 @@ import Testing
 @testable import HeyMate
 
 struct NotchUsageTests {
+    @Test func resetLabelsKeepMissingAndElapsedResetsDistinct() {
+        let now = Date(timeIntervalSince1970: 1800000000)
+        #expect(NotchUsageResetText.label(nil, now: now) == "Reset time unavailable")
+        #expect(NotchUsageResetText.label(now, now: now) == "Reset passed · refresh needed")
+        #expect(NotchUsageResetText.label(now.addingTimeInterval(-60), now: now) == "Reset passed · refresh needed")
+        #expect(NotchUsageResetText.label(now.addingTimeInterval(30), now: now) == "Resets in <1m")
+    }
+
+    @Test func resetCountdownRetainsMinutesAndHours() {
+        let now = Date(timeIntervalSince1970: 1800000000)
+        #expect(NotchUsageResetText.label(now.addingTimeInterval(45 * 60), now: now) == "Resets in 45m")
+        #expect(NotchUsageResetText.label(now.addingTimeInterval(3 * 3600 + 15 * 60), now: now) == "Resets in 3h 15m")
+        #expect(NotchUsageResetText.label(now.addingTimeInterval(47 * 3600), now: now) == "Resets in 47h")
+        #expect(NotchUsageResetText.label(now.addingTimeInterval(49 * 3600), now: now) == "Resets in 2d 1h")
+    }
+
     @Test func codexKeepsZeroAndBothWindows() throws {
         let data = Data(#"{"rate_limit":{"primary_window":{"used_percent":0,"reset_at":1900000000},"secondary_window":{"used_percent":72,"reset_at":1900500000}}}"#.utf8)
         let windows = try NotchUsageParser.parse(data, provider: .codex)

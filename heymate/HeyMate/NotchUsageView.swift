@@ -201,6 +201,12 @@ struct NotchUsageView: View {
                                 Text(chipSubtitle(provider, window: window, date: date))
                                     .font(DS.Fonts.caption).monospacedDigit()
                                     .foregroundStyle(s.needsAttention ? DS.Colors.warningText : .secondary)
+                                if let window, window.usedPercent != nil {
+                                    Text(NotchUsageResetText.label(window.resetsAt, now: date))
+                                        .font(DS.Fonts.micro).monospacedDigit()
+                                        .foregroundStyle(s.stale ? DS.Colors.warningText : .secondary)
+                                        .help(window.resetsAt?.formatted(date: .abbreviated, time: .shortened) ?? "Provider did not report a reset time")
+                                }
                             }
                         }
                         .padding(.vertical, 5).padding(.horizontal, 9)
@@ -216,9 +222,7 @@ struct NotchUsageView: View {
 
     private func chipSubtitle(_ provider: NotchUsageProvider, window: NotchUsageWindow?, date: Date) -> String {
         guard let window else { return store.refreshing.contains(provider) ? "Reading…" : "Unavailable" }
-        let reading = window.headline(remaining: store.showsRemaining)
-        guard let reset = window.resetsAt, reset > date else { return reading }
-        return "\(reading) · \(Self.shortDuration(until: reset, from: date))"
+        return "\(window.title) · \(window.detail(remaining: store.showsRemaining))"
     }
 
     /// "45m", "3h", "2d": short enough to sit beside a percentage.
@@ -256,30 +260,28 @@ struct NotchUsageView: View {
                     } else if s.stale {
                         Text("Stale reading").font(DS.Fonts.caption).foregroundStyle(DS.Colors.warningText)
                     }
-                    ForEach(store.sessions[provider] ?? []) { session in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(session.name).font(DS.Fonts.caption.weight(.medium))
-                            Text(session.waitingFor ?? session.detail).font(DS.Fonts.micro).foregroundStyle(.secondary)
-                            Text(session.state.label).font(DS.Fonts.micro).foregroundStyle(session.state == .waiting ? DS.Colors.warningText : .secondary)
-                        }.lineLimit(1).frame(maxWidth: 160)
-                    }
-                    ForEach(reading?.runtimeDetails ?? [], id: \.self) { detail in
-                        Text(detail).font(DS.Fonts.micro).foregroundStyle(.secondary).frame(width: 180)
-                    }
                     ForEach(reading?.windows ?? []) { window in
                         VStack(alignment: .leading, spacing: 2) {
                             Text(window.title).font(DS.Fonts.micro).foregroundStyle(.secondary)
                             Text(window.detail(remaining: store.showsRemaining))
                                 .font(DS.Fonts.title).monospacedDigit()
-                            if let reset = window.resetsAt {
-                                if reset > date {
-                                    Text("Resets \(reset, style: .relative)").font(DS.Fonts.micro).foregroundStyle(.secondary)
-                                        .help(reset.formatted(date: .abbreviated, time: .shortened))
-                                } else {
-                                    Text("Reset passed").font(DS.Fonts.micro).foregroundStyle(.secondary)
-                                }
+                            if window.usedPercent != nil {
+                                Text(NotchUsageResetText.label(window.resetsAt, now: date))
+                                    .font(DS.Fonts.micro)
+                                    .foregroundStyle(window.hasReset(at: date) ? DS.Colors.warningText : .secondary)
+                                    .help(window.resetsAt?.formatted(date: .abbreviated, time: .shortened) ?? "Provider did not report a reset time")
                             }
                         }.fixedSize(horizontal: true, vertical: false)
+                    }
+                    ForEach(store.sessions[provider] ?? []) { session in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(session.name).font(DS.Fonts.caption.weight(.medium))
+                            Text(session.waitingFor ?? session.detail).font(DS.Fonts.micro).foregroundStyle(.secondary)
+                            Text("Observed · \(session.state.label)").font(DS.Fonts.micro).foregroundStyle(session.state == .waiting ? DS.Colors.warningText : .secondary)
+                        }.lineLimit(1).frame(maxWidth: 160)
+                    }
+                    ForEach(reading?.runtimeDetails ?? [], id: \.self) { detail in
+                        Text(detail).font(DS.Fonts.micro).foregroundStyle(.secondary).frame(width: 180)
                     }
                 }
             }

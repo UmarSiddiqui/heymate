@@ -1,6 +1,6 @@
 # Coding usage notch
 
-Connected coding tools appear in a compact row of provider-logo rings. Three full logos fit beside the hardware notch; overflow uses a count badge. Open **Usage** for the horizontal overview, select one provider for quota windows/reset times and observed sessions, and use **All providers** to return. Home, voice, mates and approvals keep their existing navigation.
+Connected coding tools appear in a compact row of provider-logo rings. Three full logos fit beside the hardware notch; overflow uses a count badge. Open **Usage** for the CodeNotch-inspired horizontal overview: provider-logo rings integrate quota and activity, while each provider shows a labeled used/remaining value and an explicit reset countdown. Select one provider for quota windows/reset times followed by observed sessions, and use **All providers** to return. Activity stays integrated in the rings, header summary and provider details; there is no separate Activity view. Home, voice, mates and approvals keep their existing navigation.
 
 Settings → Notch keeps **connections** separate from **display**:
 

@@ -475,13 +475,13 @@ struct MateHomeView: View {
 
     private func chatRow(_ session: ChatSession, selected: Bool) -> some View {
         let isSaved = companionManager.savedChats.contains { $0.id == session.id }
-        return Button {
-            openMainChat(session)
-        } label: {
-            HStack(spacing: 10) {
-                if let mate = companionManager.mates.first(where: { $0.id == (session.mateID ?? companionManager.mateDirectory.defaultMateID) }) {
-                    MateFaceView(mate: mate, size: 38).accessibilityHidden(true)
-                }
+        return HStack(spacing: 10) {
+            if let mate = companionManager.mates.first(where: { $0.id == (session.mateID ?? companionManager.mateDirectory.defaultMateID) }) {
+                mateFaceEditorButton(mate, size: 38)
+            }
+            Button {
+                openMainChat(session)
+            } label: {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(session.title)
@@ -499,15 +499,18 @@ struct MateHomeView: View {
                         .foregroundColor(selected ? DS.Colors.glassInk.opacity(0.78) : DS.Colors.textSecondary)
                         .lineLimit(1)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 7)
-            .background(MateSelectionSurface(selected: selected, hovered: hoveredRailChatID == session.id))
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .accessibilityLabel("Open chat \(session.title)")
+            .accessibilityAddTraits(selected ? .isSelected : [])
         }
-        .buttonStyle(.plain)
-        .pointerCursor()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
+        .background(MateSelectionSurface(selected: selected, hovered: hoveredRailChatID == session.id))
         .onHover { isHovering in
             if isHovering {
                 hoveredRailChatID = session.id
@@ -515,8 +518,6 @@ struct MateHomeView: View {
                 hoveredRailChatID = nil
             }
         }
-        .accessibilityLabel("Open chat \(session.title)")
-        .accessibilityAddTraits(selected ? .isSelected : [])
         .contextMenu {
             if isSaved {
                 Button("Delete", role: .destructive) { chatPendingDelete = session }
@@ -697,14 +698,7 @@ struct MateHomeView: View {
             defaultMateID: companionManager.mateDirectory.defaultMateID
         )
         return HStack(alignment: .center, spacing: 4) {
-            Button { appearanceMate = mate } label: {
-                MateFaceView(mate: mate, size: 38)
-            }
-            .buttonStyle(.plain)
-            .focusEffectDisabled()
-            .pointerCursor()
-            .help("Edit character")
-            .accessibilityLabel("Edit character for \(mate.name)")
+            mateFaceEditorButton(mate, size: 38)
             Button {
                 openMateFromRow(mate)
             } label: {
@@ -842,18 +836,24 @@ struct MateHomeView: View {
         settingsMate = mate
     }
 
+    private func mateFaceEditorButton(_ mate: Mate, size: CGFloat) -> some View {
+        Button { appearanceMate = mate } label: {
+            MateFaceView(mate: mate, size: size)
+                .allowsHitTesting(false)
+                .frame(width: size, height: size)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
+        .pointerCursor()
+        .help("Edit character")
+        .accessibilityLabel("Edit character for \(mate.name)")
+    }
+
     private func editableMateIdentity(size: CGFloat, nameFont: Font, nameColor: Color) -> some View {
         HStack(spacing: 8) {
             if let mate = activeMate {
-                Button {
-                    appearanceMate = mate
-                } label: {
-                    MateFaceView(mate: mate, size: size)
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
-                .help("Edit character")
-                .accessibilityLabel("Edit character for \(mate.name)")
+                mateFaceEditorButton(mate, size: size)
                 Button {
                     beginMateSettings(mate)
                 } label: {

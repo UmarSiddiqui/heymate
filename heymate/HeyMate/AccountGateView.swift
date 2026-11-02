@@ -1,14 +1,11 @@
 import AppKit
-import GoogleSignInSwift
 import SwiftUI
 
 struct AccountGateView: View {
     @ObservedObject var account: HeyMateAccount
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
         VStack(spacing: 0) {
-            Text("Welcome to HeyMate")
+            Text("Welcome to")
                 .font(.system(size: 30, weight: .semibold, design: .rounded))
                 .foregroundStyle(.primary)
                 .multilineTextAlignment(.center)
@@ -16,10 +13,12 @@ struct AccountGateView: View {
 
             Spacer(minLength: 96)
 
-            GoogleSignInButton(scheme: colorScheme == .dark ? .dark : .light, style: .wide,
-                               state: account.busy ? .disabled : .normal) {
+            Button {
                 Task { await account.signInWithGoogle(using: GoogleAccountSignIn()) }
+            } label: {
+                Text("Sign in with Google")
             }
+            .buttonStyle(AccountSignInButtonStyle())
             .disabled(account.busy)
             .accessibilityLabel("Sign in with Google")
         }
@@ -47,6 +46,38 @@ struct AccountGateView: View {
             AccountWelcomeBackground()
                 .ignoresSafeArea()
         }
+    }
+}
+
+private struct AccountSignInButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 18, weight: .medium))
+            .foregroundStyle(Color(red: 0.08, green: 0.19, blue: 0.26))
+            .padding(.horizontal, 28)
+            .frame(minWidth: 268, minHeight: 48)
+            .background {
+                Capsule()
+                    .fill(LinearGradient(
+                        colors: [.white, Color(red: 0.78, green: 0.98, blue: 1),
+                                 Color(red: 0.38, green: 0.88, blue: 1)],
+                        startPoint: .top, endPoint: .bottom
+                    ))
+            }
+            .overlay {
+                Capsule()
+                    .strokeBorder(LinearGradient(
+                        colors: [.white, Color(red: 0.38, green: 0.40, blue: 1)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    ), lineWidth: 1.5)
+            }
+            .contentShape(Capsule())
+            .shadow(color: Color.blue.opacity(isEnabled ? 0.25 : 0.10), radius: 5, y: 1)
+            // Keep the opaque fill while Google sign-in is in progress, even on dark artwork.
+            .opacity(isEnabled ? 1 : 0.82)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
     }
 }
 
