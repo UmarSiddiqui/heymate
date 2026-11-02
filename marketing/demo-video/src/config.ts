@@ -114,6 +114,6 @@ export const COPY = {
     line: 'Say hey.',
     cta: 'Download free for Mac',
     meta: 'macOS 14.2+  ·  Free  ·  Bring your own AI',
-    url: 'getheymate.vercel.app',
+    url: 'sayheymate.vercel.app',
   },
 } as const;

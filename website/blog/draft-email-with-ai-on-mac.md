@@ -22,7 +22,7 @@ Try this prompt:
 
 > Keep my meaning but remove repetition. Put the requested action first. List any factual claims or commitments you added that were not present in my notes.
 
-For repeated replies, save a clear template or use a dedicated text-expansion tool. Asking a model to regenerate an unchanged address or standard paragraph adds uncertainty without adding much value. [The Alfred comparison](https://getheymate.vercel.app/blog/heymate-vs-alfred) explains when snippets are a better fit.
+For repeated replies, save a clear template or use a dedicated text-expansion tool. Asking a model to regenerate an unchanged address or standard paragraph adds uncertainty without adding much value. [The Alfred comparison](https://sayheymate.vercel.app/blog/heymate-vs-alfred) explains when snippets are a better fit.
 
 ## Check the risky details yourself
 
@@ -38,16 +38,16 @@ A polished draft can still contain an unsupported statement. Asking for a separa
 
 If you connect an email service, its capabilities depend on the configured tools and account access. Do not assume a draft has been saved or sent because the assistant described it. Check the service’s draft or sent view, and approve the actual destination and content before an external send.
 
-HeyMate’s local undo cannot unsend an email or reverse another remote service change. Keep your first experiment to sample content. Read [privacy details](https://getheymate.vercel.app/privacy) before sharing a real thread; the selected provider receives the context it processes.
+HeyMate’s local undo cannot unsend an email or reverse another remote service change. Keep your first experiment to sample content. Read [privacy details](https://sayheymate.vercel.app/privacy) before sharing a real thread; the selected provider receives the context it processes.
 
 ## Build a reusable editing habit
 
-A writing mate can hold preferences such as “short paragraphs,” “ask before making promises,” and “always list unknown facts.” Those instructions are useful across tasks, but they do not replace a final read. If your need is a one-press rewrite in a launcher, [Raycast may also fit](https://getheymate.vercel.app/blog/heymate-vs-raycast). Choose the interaction that makes review easiest for you.
+A writing mate can hold preferences such as “short paragraphs,” “ask before making promises,” and “always list unknown facts.” Those instructions are useful across tasks, but they do not replace a final read. If your need is a one-press rewrite in a launcher, [Raycast may also fit](https://sayheymate.vercel.app/blog/heymate-vs-raycast). Choose the interaction that makes review easiest for you.
 
 ## Related reading
 
-- [Prepare for meetings on Mac with a source-backed AI brief](https://getheymate.vercel.app/blog/ai-meeting-prep-mac)
-- [HeyMate vs Raycast: which Mac AI workflow fits you?](https://getheymate.vercel.app/blog/heymate-vs-raycast)
-- [HeyMate vs Alfred: AI guidance or repeatable Mac workflows?](https://getheymate.vercel.app/blog/heymate-vs-alfred)
+- [Prepare for meetings on Mac with a source-backed AI brief](https://sayheymate.vercel.app/blog/ai-meeting-prep-mac)
+- [HeyMate vs Raycast: which Mac AI workflow fits you?](https://sayheymate.vercel.app/blog/heymate-vs-raycast)
+- [HeyMate vs Alfred: AI guidance or repeatable Mac workflows?](https://sayheymate.vercel.app/blog/heymate-vs-alfred)
 
-[Set up HeyMate](https://getheymate.vercel.app/connect-claude-codex) · [Privacy](https://getheymate.vercel.app/privacy) · [Permissions](https://getheymate.vercel.app/permissions)
+[Set up HeyMate](https://sayheymate.vercel.app/connect-claude-codex) · [Privacy](https://sayheymate.vercel.app/privacy) · [Permissions](https://sayheymate.vercel.app/permissions)

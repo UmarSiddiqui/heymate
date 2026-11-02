@@ -21,17 +21,17 @@ These categories overlap. The important question is how much interpretation the 
 
 HeyMate is MIT licensed and adds no subscription fee. It can use configured Claude Code, Codex, OpenCode, and custom Anthropic-compatible API routes. Those providers have their own limits, account requirements, and charges; optional voice and connector services can also cost money.
 
-When comparing products, ask what you pay for the app, what you pay for inference, and what connected services charge. Reusing an existing subscription can be useful, but it is not unique to HeyMate: [Raycast also documents that route](https://getheymate.vercel.app/blog/heymate-vs-raycast). Look at current terms rather than a comparison’s old price screenshot.
+When comparing products, ask what you pay for the app, what you pay for inference, and what connected services charge. Reusing an existing subscription can be useful, but it is not unique to HeyMate: [Raycast also documents that route](https://sayheymate.vercel.app/blog/heymate-vs-raycast). Look at current terms rather than a comparison’s old price screenshot.
 
 ## Check what “local” actually covers
 
 Ask separately about chat storage, model inference, speech processing, credentials, temporary files, and connected services. Local chat history does not mean the model ran locally. Open-source app code does not determine a cloud provider’s retention policy.
 
-In HeyMate, local history stores text, while relevant questions and screen images can go to the selected provider. Some integrations write temporary screenshots; interrupted cleanup can leave files behind. Optional Apple Intelligence is text-only on eligible Macs running macOS 26 or later and cannot see the screen. Review the detailed [privacy explanation](https://getheymate.vercel.app/privacy).
+In HeyMate, local history stores text, while relevant questions and screen images can go to the selected provider. Some integrations write temporary screenshots; interrupted cleanup can leave files behind. Optional Apple Intelligence is text-only on eligible Macs running macOS 26 or later and cannot see the screen. Review the detailed [privacy explanation](https://sayheymate.vercel.app/privacy).
 
 ## Review installation and access
 
-HeyMate supports macOS 14.2 or later on Apple silicon and Intel. Current builds use a stable self-signed certificate and are not Apple Developer ID signed or notarized. That differs from a polished installation experience you may expect from another vendor. Read the [setup guide](https://getheymate.vercel.app/connect-claude-codex) and decide whether the tradeoff is acceptable.
+HeyMate supports macOS 14.2 or later on Apple silicon and Intel. Current builds use a stable self-signed certificate and are not Apple Developer ID signed or notarized. That differs from a polished installation experience you may expect from another vendor. Read the [setup guide](https://sayheymate.vercel.app/connect-claude-codex) and decide whether the tradeoff is acceptable.
 
 For any assistant, review the permissions the chosen task needs. A question about text need not become broad access to your entire desktop. Screen guidance needs a vision-capable provider and appropriate permissions. Connected tools have their own account scope, and local undo cannot reverse every external action.
 
@@ -43,12 +43,12 @@ For any assistant, review the permissions the chosen task needs. A question abou
 4. Check the output against the original evidence.
 5. Decide whether the result is useful enough to keep using the tool.
 
-HeyMate is worth evaluating if a desktop companion, spoken guidance, and specialist mates match the way you work. Another tool may fit better if its explicit workflows, integrated environment, or installation model matter more. See the comparisons with [Alfred](https://getheymate.vercel.app/blog/heymate-vs-alfred), [Apple Shortcuts](https://getheymate.vercel.app/blog/heymate-vs-apple-shortcuts), and [Claude Cowork](https://getheymate.vercel.app/blog/heymate-vs-claude-cowork). No universal ranking or reliability percentage is established by these guides.
+HeyMate is worth evaluating if a desktop companion, spoken guidance, and specialist mates match the way you work. Another tool may fit better if its explicit workflows, integrated environment, or installation model matter more. See the comparisons with [Alfred](https://sayheymate.vercel.app/blog/heymate-vs-alfred), [Apple Shortcuts](https://sayheymate.vercel.app/blog/heymate-vs-apple-shortcuts), and [Claude Cowork](https://sayheymate.vercel.app/blog/heymate-vs-claude-cowork). No universal ranking or reliability percentage is established by these guides.
 
 ## Related reading
 
-- [HeyMate vs Raycast: which Mac AI workflow fits you?](https://getheymate.vercel.app/blog/heymate-vs-raycast)
-- [HeyMate vs Claude Cowork: choose your desktop AI workflow](https://getheymate.vercel.app/blog/heymate-vs-claude-cowork)
-- [Learn a Mac app with AI guidance, one step at a time](https://getheymate.vercel.app/blog/learn-mac-apps-with-ai)
+- [HeyMate vs Raycast: which Mac AI workflow fits you?](https://sayheymate.vercel.app/blog/heymate-vs-raycast)
+- [HeyMate vs Claude Cowork: choose your desktop AI workflow](https://sayheymate.vercel.app/blog/heymate-vs-claude-cowork)
+- [Learn a Mac app with AI guidance, one step at a time](https://sayheymate.vercel.app/blog/learn-mac-apps-with-ai)
 
-[Set up HeyMate](https://getheymate.vercel.app/connect-claude-codex) · [Privacy](https://getheymate.vercel.app/privacy) · [Permissions](https://getheymate.vercel.app/permissions)
+[Set up HeyMate](https://sayheymate.vercel.app/connect-claude-codex) · [Privacy](https://sayheymate.vercel.app/privacy) · [Permissions](https://sayheymate.vercel.app/permissions)

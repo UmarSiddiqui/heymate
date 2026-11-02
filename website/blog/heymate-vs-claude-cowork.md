@@ -41,12 +41,12 @@ Try this prompt:
 
 > Using only these sample documents, produce a short brief with source references and unresolved questions. Show your plan first. Do not send messages, change remote accounts, or invent missing facts. Tell me which inputs you could not access.
 
-For HeyMate, follow [provider setup](https://getheymate.vercel.app/connect-claude-codex) and review [privacy](https://getheymate.vercel.app/privacy). Then try [a research brief](https://getheymate.vercel.app/blog/ai-weekly-research-brief) or [meeting preparation](https://getheymate.vercel.app/blog/ai-meeting-prep-mac). This comparison is published by HeyMate and is not endorsed by Anthropic.
+For HeyMate, follow [provider setup](https://sayheymate.vercel.app/connect-claude-codex) and review [privacy](https://sayheymate.vercel.app/privacy). Then try [a research brief](https://sayheymate.vercel.app/blog/ai-weekly-research-brief) or [meeting preparation](https://sayheymate.vercel.app/blog/ai-meeting-prep-mac). This comparison is published by HeyMate and is not endorsed by Anthropic.
 
 ## Related reading
 
-- [Build a weekly research brief with a specialist HeyMate](https://getheymate.vercel.app/blog/ai-weekly-research-brief)
-- [Prepare for meetings on Mac with a source-backed AI brief](https://getheymate.vercel.app/blog/ai-meeting-prep-mac)
-- [Understand terminal errors with HeyMate before changing code](https://getheymate.vercel.app/blog/explain-terminal-errors-with-ai)
+- [Build a weekly research brief with a specialist HeyMate](https://sayheymate.vercel.app/blog/ai-weekly-research-brief)
+- [Prepare for meetings on Mac with a source-backed AI brief](https://sayheymate.vercel.app/blog/ai-meeting-prep-mac)
+- [Understand terminal errors with HeyMate before changing code](https://sayheymate.vercel.app/blog/explain-terminal-errors-with-ai)
 
-[Set up HeyMate](https://getheymate.vercel.app/connect-claude-codex) · [Privacy](https://getheymate.vercel.app/privacy) · [Permissions](https://getheymate.vercel.app/permissions)
+[Set up HeyMate](https://sayheymate.vercel.app/connect-claude-codex) · [Privacy](https://sayheymate.vercel.app/privacy) · [Permissions](https://sayheymate.vercel.app/permissions)

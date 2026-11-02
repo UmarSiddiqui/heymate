@@ -42,12 +42,12 @@ Avoid judging either tool from a model name alone. Give each the same sample tas
 3. Repeat with the same provider where feasible, noting any differences in tool access.
 4. Compare the result, interaction, account permissions, and total ongoing cost.
 
-For HeyMate, start with [provider setup](https://getheymate.vercel.app/connect-claude-codex) and [screen guidance](https://getheymate.vercel.app/screen-guidance). This article is not affiliated with or endorsed by Raycast. Vendor features and plans can change.
+For HeyMate, start with [provider setup](https://sayheymate.vercel.app/connect-claude-codex) and [screen guidance](https://sayheymate.vercel.app/screen-guidance). This article is not affiliated with or endorsed by Raycast. Vendor features and plans can change.
 
 ## Related reading
 
-- [HeyMate vs Alfred: AI guidance or repeatable Mac workflows?](https://getheymate.vercel.app/blog/heymate-vs-alfred)
-- [How to choose an open-source AI assistant for Mac](https://getheymate.vercel.app/blog/choose-open-source-ai-assistant-mac)
-- [Use HeyMate for a focused Figma or website design review](https://getheymate.vercel.app/blog/ai-design-review-figma)
+- [HeyMate vs Alfred: AI guidance or repeatable Mac workflows?](https://sayheymate.vercel.app/blog/heymate-vs-alfred)
+- [How to choose an open-source AI assistant for Mac](https://sayheymate.vercel.app/blog/choose-open-source-ai-assistant-mac)
+- [Use HeyMate for a focused Figma or website design review](https://sayheymate.vercel.app/blog/ai-design-review-figma)
 
-[Set up HeyMate](https://getheymate.vercel.app/connect-claude-codex) · [Privacy](https://getheymate.vercel.app/privacy) · [Permissions](https://getheymate.vercel.app/permissions)
+[Set up HeyMate](https://sayheymate.vercel.app/connect-claude-codex) · [Privacy](https://sayheymate.vercel.app/privacy) · [Permissions](https://sayheymate.vercel.app/permissions)

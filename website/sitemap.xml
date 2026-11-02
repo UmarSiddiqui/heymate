@@ -1,53 +1,53 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://getheymate.vercel.app/</loc>
+    <loc>https://sayheymate.vercel.app/</loc>
     <lastmod>2026-11-01</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://getheymate.vercel.app/changelog</loc>
+    <loc>https://sayheymate.vercel.app/changelog</loc>
     <lastmod>2026-11-01</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
-    <loc>https://getheymate.vercel.app/privacy</loc>
+    <loc>https://sayheymate.vercel.app/privacy</loc>
     <lastmod>2026-11-01</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>
   <url>
-    <loc>https://getheymate.vercel.app/permissions</loc>
+    <loc>https://sayheymate.vercel.app/permissions</loc>
     <lastmod>2026-11-01</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>
   <url>
-    <loc>https://getheymate.vercel.app/how-to-use-heymate</loc>
+    <loc>https://sayheymate.vercel.app/how-to-use-heymate</loc>
     <lastmod>2026-11-01</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
-  <url><loc>https://getheymate.vercel.app/connect-claude-codex</loc><lastmod>2026-11-01</lastmod></url>
-  <url><loc>https://getheymate.vercel.app/screen-guidance</loc><lastmod>2026-11-01</lastmod></url>
+  <url><loc>https://sayheymate.vercel.app/connect-claude-codex</loc><lastmod>2026-11-01</lastmod></url>
+  <url><loc>https://sayheymate.vercel.app/screen-guidance</loc><lastmod>2026-11-01</lastmod></url>
   <!-- blog:start -->
-  <url><loc>https://getheymate.vercel.app/blog</loc><lastmod>2026-11-01</lastmod></url>
-  <url><loc>https://getheymate.vercel.app/blog/meet-heymate</loc><lastmod>2026-11-01</lastmod></url>
-  <url><loc>https://getheymate.vercel.app/blog/learn-mac-apps-with-ai</loc><lastmod>2026-11-01</lastmod></url>
-  <url><loc>https://getheymate.vercel.app/blog/ai-design-review-figma</loc><lastmod>2026-11-01</lastmod></url>
-  <url><loc>https://getheymate.vercel.app/blog/explain-terminal-errors-with-ai</loc><lastmod>2026-11-01</lastmod></url>
-  <url><loc>https://getheymate.vercel.app/blog/organize-files-with-ai-on-mac</loc><lastmod>2026-11-01</lastmod></url>
-  <url><loc>https://getheymate.vercel.app/blog/ai-weekly-research-brief</loc><lastmod>2026-11-01</lastmod></url>
-  <url><loc>https://getheymate.vercel.app/blog/draft-email-with-ai-on-mac</loc><lastmod>2026-11-01</lastmod></url>
-  <url><loc>https://getheymate.vercel.app/blog/ai-meeting-prep-mac</loc><lastmod>2026-11-01</lastmod></url>
-  <url><loc>https://getheymate.vercel.app/blog/ai-study-tutor-mac</loc><lastmod>2026-11-01</lastmod></url>
-  <url><loc>https://getheymate.vercel.app/blog/visual-explanations-on-mac</loc><lastmod>2026-11-01</lastmod></url>
-  <url><loc>https://getheymate.vercel.app/blog/heymate-vs-raycast</loc><lastmod>2026-11-01</lastmod></url>
-  <url><loc>https://getheymate.vercel.app/blog/heymate-vs-alfred</loc><lastmod>2026-11-01</lastmod></url>
-  <url><loc>https://getheymate.vercel.app/blog/heymate-vs-claude-cowork</loc><lastmod>2026-11-01</lastmod></url>
-  <url><loc>https://getheymate.vercel.app/blog/heymate-vs-apple-shortcuts</loc><lastmod>2026-11-01</lastmod></url>
-  <url><loc>https://getheymate.vercel.app/blog/choose-open-source-ai-assistant-mac</loc><lastmod>2026-11-01</lastmod></url>
+  <url><loc>https://sayheymate.vercel.app/blog</loc><lastmod>2026-11-01</lastmod></url>
+  <url><loc>https://sayheymate.vercel.app/blog/meet-heymate</loc><lastmod>2026-11-01</lastmod></url>
+  <url><loc>https://sayheymate.vercel.app/blog/learn-mac-apps-with-ai</loc><lastmod>2026-11-01</lastmod></url>
+  <url><loc>https://sayheymate.vercel.app/blog/ai-design-review-figma</loc><lastmod>2026-11-01</lastmod></url>
+  <url><loc>https://sayheymate.vercel.app/blog/explain-terminal-errors-with-ai</loc><lastmod>2026-11-01</lastmod></url>
+  <url><loc>https://sayheymate.vercel.app/blog/organize-files-with-ai-on-mac</loc><lastmod>2026-11-01</lastmod></url>
+  <url><loc>https://sayheymate.vercel.app/blog/ai-weekly-research-brief</loc><lastmod>2026-11-01</lastmod></url>
+  <url><loc>https://sayheymate.vercel.app/blog/draft-email-with-ai-on-mac</loc><lastmod>2026-11-01</lastmod></url>
+  <url><loc>https://sayheymate.vercel.app/blog/ai-meeting-prep-mac</loc><lastmod>2026-11-01</lastmod></url>
+  <url><loc>https://sayheymate.vercel.app/blog/ai-study-tutor-mac</loc><lastmod>2026-11-01</lastmod></url>
+  <url><loc>https://sayheymate.vercel.app/blog/visual-explanations-on-mac</loc><lastmod>2026-11-01</lastmod></url>
+  <url><loc>https://sayheymate.vercel.app/blog/heymate-vs-raycast</loc><lastmod>2026-11-01</lastmod></url>
+  <url><loc>https://sayheymate.vercel.app/blog/heymate-vs-alfred</loc><lastmod>2026-11-01</lastmod></url>
+  <url><loc>https://sayheymate.vercel.app/blog/heymate-vs-claude-cowork</loc><lastmod>2026-11-01</lastmod></url>
+  <url><loc>https://sayheymate.vercel.app/blog/heymate-vs-apple-shortcuts</loc><lastmod>2026-11-01</lastmod></url>
+  <url><loc>https://sayheymate.vercel.app/blog/choose-open-source-ai-assistant-mac</loc><lastmod>2026-11-01</lastmod></url>
   <!-- blog:end -->
 </urlset>

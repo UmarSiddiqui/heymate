@@ -40,14 +40,14 @@ If the answer refers to a button that is not present, stop and describe the diff
 
 ## Set up screen access deliberately
 
-You need macOS 14.2 or later and a vision-capable provider. [Connect Claude or ChatGPT through Codex](https://getheymate.vercel.app/connect-claude-codex), then review [macOS permissions](https://getheymate.vercel.app/permissions). Optional Apple Intelligence in HeyMate is text-only and cannot see the screen.
+You need macOS 14.2 or later and a vision-capable provider. [Connect Claude or ChatGPT through Codex](https://sayheymate.vercel.app/connect-claude-codex), then review [macOS permissions](https://sayheymate.vercel.app/permissions). Optional Apple Intelligence in HeyMate is text-only and cannot see the screen.
 
-Use sample content until you understand the data path: relevant screen context goes to the selected provider. A walkthrough can capture again between steps. See [screen guidance](https://getheymate.vercel.app/screen-guidance) and [privacy details](https://getheymate.vercel.app/privacy) before using confidential material.
+Use sample content until you understand the data path: relevant screen context goes to the selected provider. A walkthrough can capture again between steps. See [screen guidance](https://sayheymate.vercel.app/screen-guidance) and [privacy details](https://sayheymate.vercel.app/privacy) before using confidential material.
 
 ## Related reading
 
-- [Create a study tutor mate that helps you practice on Mac](https://getheymate.vercel.app/blog/ai-study-tutor-mac)
-- [HeyMate vs Apple Shortcuts: conversation or a defined automation?](https://getheymate.vercel.app/blog/heymate-vs-apple-shortcuts)
-- [How to choose an open-source AI assistant for Mac](https://getheymate.vercel.app/blog/choose-open-source-ai-assistant-mac)
+- [Create a study tutor mate that helps you practice on Mac](https://sayheymate.vercel.app/blog/ai-study-tutor-mac)
+- [HeyMate vs Apple Shortcuts: conversation or a defined automation?](https://sayheymate.vercel.app/blog/heymate-vs-apple-shortcuts)
+- [How to choose an open-source AI assistant for Mac](https://sayheymate.vercel.app/blog/choose-open-source-ai-assistant-mac)
 
-[Set up HeyMate](https://getheymate.vercel.app/connect-claude-codex) · [Privacy](https://getheymate.vercel.app/privacy) · [Permissions](https://getheymate.vercel.app/permissions)
+[Set up HeyMate](https://sayheymate.vercel.app/connect-claude-codex) · [Privacy](https://sayheymate.vercel.app/privacy) · [Permissions](https://sayheymate.vercel.app/permissions)

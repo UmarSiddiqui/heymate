@@ -1,7 +1,7 @@
 # HeyMate — Landing Page Plan (v1, free tier)
 
 > Historical v1 build plan. Current positioning (11 October 2026): **Learn your software. One step at a time.** Teaching covers desktop apps and websites; macOS is the current host platform. Current public copy in `index.html`, `privacy.html`, and `../marketing/LAUNCH.md` supersedes older copy and privacy claims below.
-> Status: BUILT and hosted at https://getheymate.vercel.app (static site in this folder).
+> Status: BUILT and hosted at https://sayheymate.vercel.app (static site in this folder).
 > Product facts below are pulled from the app source (`heymate/HeyMate/*.swift`, `README.md`, `design-qa.md`). Do not invent features that are not listed in §2.
 
 ---

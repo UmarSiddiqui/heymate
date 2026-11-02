@@ -1,6 +1,6 @@
 # Website suggestions for `website/index.html` (not applied)
 
-These edits are proposed only. Apply them later on a branch in a separate session, after you approve. Then deploy and run `vercel alias set <new-url> getheymate.vercel.app`; the alias doesn't move on its own.
+These edits are proposed only. Apply them later on a branch in a separate session, after you approve. Then deploy and run `vercel alias set <new-url> sayheymate.vercel.app`; the alias doesn't move on its own.
 
 Edits are grouped by priority, and line numbers refer to `website/index.html` as of 14 Oct.
 

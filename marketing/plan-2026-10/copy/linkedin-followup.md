@@ -28,7 +28,7 @@ The clip below is a real recording. Here I asked "[the exact question from Clip 
 
 What I'd love now: five people who will try one question on something that confuses them at work, and tell me where it got stuck. Comment or message me and I'll send setup notes.
 
-https://getheymate.vercel.app/?utm_source=linkedin&utm_medium=social&utm_campaign=oct_followup
+https://sayheymate.vercel.app/?utm_source=linkedin&utm_medium=social&utm_campaign=oct_followup
 
 #macOS #OpenSource #AI
 ```

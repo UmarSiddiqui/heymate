@@ -5,7 +5,7 @@ Working launch plan, updated 11 October 2026. Published work is recorded below; 
 ## Publication record
 
 - [HeyMate v1.0.39](https://github.com/UmarSiddiqui/heymate/releases/tag/v1.0.39) is published. PR #20 is merged; 1,118 tests passed locally and in CI. The official release was verified and installed.
-- The [teaching-first landing page](https://getheymate.vercel.app) is live from earlier website PRs #15 and #22. This update supplies the new 42-second recreated demo, editable source, and website v1.0.39 notes; deployment evidence belongs in its PR.
+- The [teaching-first landing page](https://sayheymate.vercel.app) is live from earlier website PRs #15 and #22. This update supplies the new 42-second recreated demo, editable source, and website v1.0.39 notes; deployment evidence belongs in its PR.
 - [Pilot recruitment post](https://x.com/umarsiddiquiii/status/2109134193972351200) is published. This is an invitation, not evidence of ten completed tests.
 - [Release and native demo video post](https://x.com/umarsiddiquiii/status/2109208920468451380) is published on X. Campaign: `utm_source=x&utm_medium=social&utm_campaign=mates_1039`.
 - The user replaced the requested real recording with an animated product demo. Both landscape and portrait exports are complete and labeled **RECREATED PRODUCT DEMO**. A full guided export and automatic step advancement were not verified; do not present the animation as live-test proof.
@@ -57,11 +57,11 @@ Produce a readable 16:9 walkthrough and a separately framed 9:16 cut; do not cro
 > A more fun way to use the AI you already have: your Claude or ChatGPT plan, an API key, or a local model.
 >
 > Free, open source, Mac.
-> https://getheymate.vercel.app/?utm_source=x&utm_medium=social&utm_campaign=meet_heymate
+> https://sayheymate.vercel.app/?utm_source=x&utm_medium=social&utm_campaign=meet_heymate
 
 Post one is under 280 characters without an attachment URL:
 
-> Learn desktop apps and websites, one step at a time. HeyMate points, explains, and waits while you try it. Free and open source. Available for macOS. Try one useful walkthrough: https://getheymate.vercel.app
+> Learn desktop apps and websites, one step at a time. HeyMate points, explains, and waits while you try it. Free and open source. Available for macOS. Try one useful walkthrough: https://sayheymate.vercel.app
 
 Follow-up after real task verification:
 
@@ -104,7 +104,7 @@ Earlier notes in this repository reported an X thread, a Boring Notch reply, Sea
 
 ## Links and assets
 
-- Site: https://getheymate.vercel.app
+- Site: https://sayheymate.vercel.app
 - Repository: https://github.com/UmarSiddiqui/heymate
 - Download: https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg
 - Contribute: https://github.com/UmarSiddiqui/heymate/blob/main/CONTRIBUTING.md

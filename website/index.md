@@ -2,15 +2,15 @@
 
 > A little company. A lot of help. HeyMate is an open-source AI companion: bring your own AI—your existing Claude, ChatGPT (Codex), or OpenCode subscription does the work. Free, MIT-licensed screen guidance for desktop apps and websites; it explains the next step, points to it, and waits while you try it. Currently available for macOS. HeyMate does not meter model use; provider limits and optional paid connectors still apply. It also supports specialist mates, routines, approved computer control, signed-in Chrome through its extension, Notes, and AI usage in the notch. See the website and release notes for current demonstrations and release status.
 
-- Website: https://getheymate.vercel.app
+- Website: https://sayheymate.vercel.app
 - Source: https://github.com/UmarSiddiqui/heymate
 - Download: https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg
 - Releases: https://github.com/UmarSiddiqui/heymate/releases
 - Contribute: https://github.com/UmarSiddiqui/heymate/blob/main/CONTRIBUTING.md
-- Actual visual answer recordings (condensed, sped up, silent examples): https://getheymate.vercel.app/#visual-answers
-- Privacy: https://getheymate.vercel.app/privacy
-- Permissions: https://getheymate.vercel.app/permissions
-- Guide and common questions: https://getheymate.vercel.app/how-to-use-heymate#common-questions
+- Actual visual answer recordings (condensed, sped up, silent examples): https://sayheymate.vercel.app/#visual-answers
+- Privacy: https://sayheymate.vercel.app/privacy
+- Permissions: https://sayheymate.vercel.app/permissions
+- Guide and common questions: https://sayheymate.vercel.app/how-to-use-heymate#common-questions
 
 ## Product facts
 
@@ -38,6 +38,6 @@
 
 Download the DMG and drag HeyMate into Applications. Current builds use a stable self-signed certificate; they are not Apple Developer ID-signed or notarized. If macOS blocks first launch, review the app and use System Settings > Privacy & Security > Open Anyway if choosing to proceed.
 
-Alternative installers are `brew install umarsiddiqui/tap/heymate` or the script at https://getheymate.vercel.app/install.sh. Inspect the script before running it; it replaces /Applications/HeyMate.app and removes quarantine. This does not provide notarization.
+Alternative installers are `brew install umarsiddiqui/tap/heymate` or the script at https://sayheymate.vercel.app/install.sh. Inspect the script before running it; it replaces /Applications/HeyMate.app and removes quarantine. This does not provide notarization.
 
 Grant the requested permissions, complete the selected provider's CLI sign-in, and try a small task with sample content. No comparative superiority, reliability percentage, or active-user count is established by this summary.
