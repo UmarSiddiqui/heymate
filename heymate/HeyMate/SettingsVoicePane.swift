@@ -417,11 +417,11 @@ struct OnDeviceVoiceGrid: View {
     @ObservedObject private var store = OnDeviceVoiceModelStore.shared
     @State private var selectedID = SpeechStylePreferences.onDeviceVoice
     @State private var previewingID: String?
-    @State private var previewClient: KokoroTTSClient?
+    @State private var previewClient: PhononTTSClient?
 
     private let columns = [GridItem(.adaptive(minimum: 105), spacing: 12)]
 
-    private var isAvailable: Bool { KokoroEngine.modelsAreInstalled() }
+    private var isAvailable: Bool { PhononEngine.modelsAreInstalled() }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -445,15 +445,15 @@ struct OnDeviceVoiceGrid: View {
 
     private func voiceColor(_ option: OnDeviceVoiceOption) -> Color {
         switch option.id {
-        case "af_heart": return .pink
-        case "af_bella": return .orange
-        case "af_nicole": return .purple
-        case "af_sky": return .cyan
-        case "af_nova": return .yellow
-        case "am_michael": return .green
-        case "am_adam": return .indigo
-        case "am_puck": return .mint
-        case "bf_emma": return .blue
+        case "Zoey": return .pink
+        case "Freya": return .orange
+        case "Hadley": return .purple
+        case "Harper": return .cyan
+        case "Imogen": return .yellow
+        case "Easton": return .green
+        case "Hugh": return .indigo
+        case "Miles": return .mint
+        case "Bryony": return .blue
         default: return .teal
         }
     }
@@ -508,9 +508,9 @@ struct OnDeviceVoiceGrid: View {
         selectedID = option.id
         SpeechStylePreferences.onDeviceVoice = option.id
         previewClient?.stopPlayback()
-        // On an OS where Kokoro crashes, picking a voice saves it but never loads the model.
-        guard KokoroEngine.unsupportedReason == nil else { return }
-        let client = previewClient ?? KokoroTTSClient()
+        // Save the choice even on unsupported hardware.
+        guard PhononEngine.unsupportedReason == nil else { return }
+        let client = previewClient ?? PhononTTSClient()
         previewClient = client
         previewingID = option.id
         Task {

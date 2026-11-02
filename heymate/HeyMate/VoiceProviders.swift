@@ -70,7 +70,7 @@ enum VoiceListenProvider: String, CaseIterable, Hashable {
 
 enum VoiceSpeakProvider: String, CaseIterable, Hashable {
     case elevenLabs = "elevenlabs"
-    case onDevice = "kokoro"
+    case onDevice = "kokoro" // Persisted identifier retained across the Phonon migration.
     /// Raw value kept from earlier builds, so stored choices
     /// carry over. It picks the best installed voice automatically.
     case macOS = "macos"
@@ -88,7 +88,7 @@ enum VoiceSpeakProvider: String, CaseIterable, Hashable {
         case .elevenLabs:
             return ElevenLabsCredentials.isAvailable
         case .onDevice:
-            return KokoroEngine.modelsAreInstalled()
+            return PhononEngine.modelsAreInstalled()
         case .macOS:
             return true
         }

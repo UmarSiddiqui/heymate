@@ -10,6 +10,10 @@ import Testing
 @testable import HeyMate
 
 struct SpeechTextTests {
+    @Test func internalCaptureVocabularyNeverReachesSpeech() {
+        #expect(SpeechText.sanitize("The screenshot didn't come through.") == "I couldn't see your screen.")
+        #expect(SpeechText.sanitize("These Screen Shots show the menu.") == "These screen views show the menu.")
+    }
 
     @Test func plainSentenceIsUnchanged() {
         #expect(SpeechText.sanitize("Click the blue button.") == "Click the blue button.")

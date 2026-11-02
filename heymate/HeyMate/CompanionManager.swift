@@ -1400,7 +1400,7 @@ final class CompanionManager: ObservableObject {
             for: provider,
             workerBaseURL: Self.workerBaseURL
         )
-        if provider == .onDevice { Self.warmKokoro() }
+        if provider == .onDevice { Self.warmPhonon() }
     }
 
     /// Warm newly installed local models without overriding ElevenLabs choices.
@@ -1417,7 +1417,7 @@ final class CompanionManager: ObservableObject {
                     }
                 }
             case .speak:
-                if self.selectedSpeakProvider == .onDevice { Self.warmKokoro() }
+                if self.selectedSpeakProvider == .onDevice { Self.warmPhonon() }
             }
         }
 
@@ -1427,19 +1427,19 @@ final class CompanionManager: ObservableObject {
             }
         }
         if selectedSpeakProvider == .onDevice {
-            Self.warmKokoro()
+            Self.warmPhonon()
         }
     }
 
-    /// Loading Kokoro and compiling it for the Neural Engine took 13 s on
-    /// the first reply after launch. One throwaway synthesis moves that
-    /// cost to launch, off the user's first question.
-    private static func warmKokoro() {
-        guard KokoroEngine.modelsAreInstalled() else { return }
+    /// Load the private Phonon service before the first spoken reply.
+    private static func warmPhonon() {
+        guard PhononEngine.modelsAreInstalled() else { return }
         Task.detached(priority: .utility) {
             let startedAt = ContinuousClock.now
-            guard (try? await KokoroEngine.shared.synthesize("Hi.")) != nil else { return }
-            HeyMateLog.log("🔊 Kokoro: warmed in \(HeyMateLog.milliseconds(since: startedAt))ms", category: "KokoroTTSClient")
+            do {
+                try await PhononEngine.shared.stream("Hi.", voice: SpeechStylePreferences.onDeviceVoice) { _ in }
+            } catch { return }
+            HeyMateLog.log("Phonon: warmed in \(HeyMateLog.milliseconds(since: startedAt))ms", category: "PhononTTSClient")
         }
     }
 
@@ -1451,10 +1451,9 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Local voice is the default and the only fallback for ElevenLabs.
-    /// Kokoro where it runs safely; the Mac's own voice where Apple's BNNS
-    /// bug would take the whole app down mid-reply.
+    /// Phonon runs in its own process; system speech covers unsupported Macs.
     static func localSpeakingClient() -> any TTSClient {
-        KokoroEngine.unsupportedReason == nil ? KokoroTTSClient() : MacOSSpeechSynthesizerClient()
+        PhononEngine.unsupportedReason == nil ? PhononTTSClient() : MacOSSpeechSynthesizerClient()
     }
 
     static func makeSpeakingClient(
@@ -4226,7 +4225,8 @@ final class CompanionManager: ObservableObject {
         // screen, but the next step can only be found there.
         let wantsScreen = activeWalkthrough != nil || TalkContextPolicy.shouldCaptureScreen(
             for: transcript,
-            hasSpatialSelection: activeSpatialSelection != nil
+            hasSpatialSelection: activeSpatialSelection != nil,
+            isPushToTalk: isHeyMateTalkTurn && !typedInsideHeyMate
         )
         sendTranscriptToClaudeWithScreenshot(
             transcript: transcript,
@@ -4254,7 +4254,7 @@ final class CompanionManager: ObservableObject {
     /// Tells the model the screen is missing and why, so it says so instead
     /// of guessing at what the user is looking at.
     nonisolated static func screenCaptureUnavailableNote(_ error: Error) -> String {
-        "Screen capture failed: \(error.localizedDescription) No live screen image is attached. Do not claim to see the screen; if the request needs it, tell the user the screen could not be captured and why."
+        "Screen capture failed: \(error.localizedDescription) No live screen image is attached. Do not claim to see the screen. If needed, say ‘I couldn’t see your screen’ and explain the cause in plain language. Never tell the user a screenshot was missing or did not come through."
     }
 
     /// Captures a screenshot, sends it along with the transcript to the
@@ -4290,7 +4290,9 @@ final class CompanionManager: ObservableObject {
                         HeyMateLog.log("📸 Talk steer: screen capture failed — \(error.localizedDescription)")
                         unavailableNote = Self.screenCaptureUnavailableNote(error)
                     }
-                    images += captures.map { (data: $0.imageData, label: $0.label) }
+                    for capture in captures {
+                        images.append((data: capture.imageData, label: await ScreenCapture.annotationLabel(for: capture)))
+                    }
                     if let frame = selectedFrame, let selected = captures.first(where: { $0.displayFrame == frame }), let selectedFragment {
                         selectionContext = selectedFragment + "\nSelected display image: \(selected.label)."
                     }
@@ -4416,6 +4418,7 @@ final class CompanionManager: ObservableObject {
                     (data: $0.data, label: $0.modelLabel)
                 }
                 let labeledImages = screenImages + attachedImages
+                HeyMateLog.log("Talk context: \(screenImages.count) screen image(s), \(attachedImages.count) attachment(s), \(labeledImages.reduce(0) { $0 + $1.data.count }) bytes")
 
                 let selectedCapture = turnSelectedFrame.flatMap { frame in
                     screenCaptures.first { $0.displayFrame == frame }
@@ -5750,7 +5753,7 @@ extension CompanionManager {
                 if imagesAttached {
                     return ("Images are attached, so this stays on the configured brain.", false)
                 }
-                return ("No screenshot is attached. Answer from the words alone.", false)
+                return ("No current screen view is available. Answer from the words alone; if needed, say ‘I couldn’t see your screen’.", false)
             }
             if imagesAttached {
                 sendToTalk(

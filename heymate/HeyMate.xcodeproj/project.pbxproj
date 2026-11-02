@@ -51,6 +51,10 @@
 		A10006172F90061700000617 /* HeyMate/mate-three-parts.js in Resources */ = {isa = PBXBuildFile; fileRef = A20006072F90060700000607 /* HeyMate/mate-three-parts.js */; };
 		A10006182F90061800000618 /* HeyMate/three-r159.min.js in Resources */ = {isa = PBXBuildFile; fileRef = A20006082F90060800000608 /* HeyMate/three-r159.min.js */; };
 		A10006192F90061900000619 /* HeyMate/mate-metal-bridge.js in Resources */ = {isa = PBXBuildFile; fileRef = A20006092F90060900000609 /* HeyMate/mate-metal-bridge.js */; };
+		D51000010000000000000001 /* Speech runner embed */ = {isa = PBXBuildFile; fileRef = D51000020000000000000001; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		D51000010000000000000002 /* Speech main source */ = {isa = PBXBuildFile; fileRef = D51000020000000000000002; };
+		D51000010000000000000003 /* Speech protocol source */ = {isa = PBXBuildFile; fileRef = D51000020000000000000003; };
+		D51000010000000000000004 /* FluidAudio for speech */ = {isa = PBXBuildFile; productRef = AA00BB082F6500080039DA55; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -75,6 +79,7 @@
 			remoteGlobalIDString = A10006012F90060100000601;
 			remoteInfo = HeyMateAgentRunner;
 		};
+		D51000030000000000000001 = {isa = PBXContainerItemProxy; containerPortal = 28F22CB72F56440300A0FC59; proxyType = 1; remoteGlobalIDString = D51000040000000000000001; remoteInfo = HeyMateSpeechRunner; };
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -85,6 +90,7 @@
 			dstSubfolderSpec = 1;
 			files = (
 				A10000012F90000100000001 /* HeyMateAgentRunner in Embed Agent Runner */,
+				D51000010000000000000001 /* Speech runner embed */,
 			);
 			name = "Embed Agent Runner";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -133,6 +139,9 @@
 		A20006072F90060700000607 /* HeyMate/mate-three-parts.js */ = {isa = PBXFileReference; lastKnownFileType = text; path = "HeyMate/mate-three-parts.js"; sourceTree = SOURCE_ROOT; };
 		A20006082F90060800000608 /* HeyMate/three-r159.min.js */ = {isa = PBXFileReference; lastKnownFileType = text; path = "HeyMate/three-r159.min.js"; sourceTree = SOURCE_ROOT; };
 		A20006092F90060900000609 /* HeyMate/mate-metal-bridge.js */ = {isa = PBXFileReference; lastKnownFileType = text; path = "HeyMate/mate-metal-bridge.js"; sourceTree = SOURCE_ROOT; };
+		D51000020000000000000001 /* HeyMateSpeechRunner */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = HeyMateSpeechRunner; sourceTree = BUILT_PRODUCTS_DIR; };
+		D51000020000000000000002 /* Speech main */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeyMateSpeechRunner/HeyMateSpeechRunnerMain.swift; sourceTree = SOURCE_ROOT; };
+		D51000020000000000000003 /* Speech protocol */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeyMate/SpeechRunnerProtocol.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -201,6 +210,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D51000060000000000000002 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (D51000010000000000000004, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -220,6 +230,7 @@
 			children = (
 				28F22CBF2F56440300A0FC59 /* HeyMate.app */,
 				A10003012F90030100000301 /* HeyMateAgentRunner */,
+				D51000020000000000000001 /* HeyMateSpeechRunner */,
 				28F22CCC2F56440300A0FC59 /* HeyMateTests.xctest */,
 				28F22CD62F56440300A0FC59 /* HeyMateUITests.xctest */,
 			);
@@ -278,6 +289,7 @@
 			);
 			dependencies = (
 				A10007012F90070100000701 /* PBXTargetDependency */,
+				D51000030000000000000002,
 			);
 			fileSystemSynchronizedGroups = (
 				28F22CC12F56440300A0FC59 /* HeyMate */,
@@ -358,6 +370,18 @@
 			productReference = A10003012F90030100000301 /* HeyMateAgentRunner */;
 			productType = "com.apple.product-type.tool";
 		};
+		D51000040000000000000001 /* HeyMateSpeechRunner */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D51000050000000000000003;
+			buildPhases = (D51000060000000000000001, D51000060000000000000002, );
+			buildRules = ();
+			dependencies = ();
+			name = HeyMateSpeechRunner;
+			packageProductDependencies = (AA00BB082F6500080039DA55, );
+			productName = HeyMateSpeechRunner;
+			productReference = D51000020000000000000001;
+			productType = "com.apple.product-type.tool";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -406,6 +430,7 @@
 			projectRoot = "";
 			targets = (
 				A10006012F90060100000601 /* HeyMateAgentRunner */,
+				D51000040000000000000001 /* HeyMateSpeechRunner */,
 				28F22CBE2F56440300A0FC59 /* HeyMate */,
 				28F22CCB2F56440300A0FC59 /* HeyMateTests */,
 				28F22CD52F56440300A0FC59 /* HeyMateUITests */,
@@ -457,7 +482,7 @@
             outputPaths = ("$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/MateAgent", "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/BrowserExtension",);
             runOnlyForDeploymentPostprocessing = 0;
             shellPath = /bin/bash;
-            shellScript = "set -euo pipefail\n# The Chrome extension ships inside the app; HeyMate copies it out for Load unpacked.\n/bin/rm -rf -- \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/BrowserExtension\"\n/bin/cp -R \"${SRCROOT}/browser/extension\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/BrowserExtension\"\n# Remove only the retired payload inside this generated app bundle.\n/bin/rm -rf -- \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Hermes\"\nif [[ -n \"${HEYMATE_PI_RUNTIME:-}\" ]]; then\n  /usr/bin/python3 \"${SRCROOT}/scripts/pi-runtime-stage.py\" --source \"${HEYMATE_PI_RUNTIME}\" --destination \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/MateAgent\"\nelif [[ \"${CONFIGURATION}\" == Release ]]; then\n  echo \"error: Release requires HEYMATE_PI_RUNTIME pointing to the prepared sealed Pi harness payload.\" >&2\n  exit 1\nfi\n";
+            shellScript = "set -euo pipefail\n# The Chrome extension ships inside the app; HeyMate copies it out for Load unpacked.\n/bin/rm -rf -- \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/BrowserExtension\"\n/bin/cp -R \"${SRCROOT}/browser/extension\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/BrowserExtension\"\n# Remove only the retired payload inside this generated app bundle.\n/bin/rm -rf -- \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Hermes\"\nif [[ -n \"${HEYMATE_PI_RUNTIME:-}\" ]]; then\n  /usr/bin/python3 \"${SRCROOT}/scripts/pi-runtime-stage.py\" --source \"${HEYMATE_PI_RUNTIME}\" --destination \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/MateAgent\"\nelif [[ \"${CONFIGURATION}\" == Release ]]; then\n  echo \"error: Release requires HEYMATE_PI_RUNTIME pointing to the prepared sealed Pi harness payload.\" >&2\n  exit 1\nfi\nif [[ -n \"${HEYMATE_PHONON_RUNTIME:-}\" ]]; then\n  /usr/bin/python3 \"${SRCROOT}/scripts/phonon-runtime.py\" --source \"${HEYMATE_PHONON_RUNTIME}\" --destination \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/PhononRuntime\"\nelif [[ \"${CONFIGURATION}\" == Release ]]; then\n  echo \"error: Release requires HEYMATE_PHONON_RUNTIME pointing to prepared Phonon payload.\" >&2\n  exit 1\nfi\n";
         };
 /* End PBXShellScriptBuildPhase section */
 
@@ -518,6 +543,7 @@ A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D51000060000000000000001 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (D51000010000000000000002, D51000010000000000000003, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -536,6 +562,7 @@ A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */,
 			target = A10006012F90060100000601 /* HeyMateAgentRunner */;
 			targetProxy = A10002012F90020100000201 /* PBXContainerItemProxy */;
 		};
+		D51000030000000000000002 = {isa = PBXTargetDependency; target = D51000040000000000000001; targetProxy = D51000030000000000000001; };
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -874,6 +901,36 @@ A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */,
 			};
 			name = Release;
 		};
+		D51000050000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.2;
+				OTHER_CODE_SIGN_FLAGS = "$(inherited) -i $(PRODUCT_BUNDLE_IDENTIFIER)";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.heymate.app.speech-runner";
+				PRODUCT_NAME = HeyMateSpeechRunner;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		D51000050000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.2;
+				OTHER_CODE_SIGN_FLAGS = "$(inherited) -i $(PRODUCT_BUNDLE_IDENTIFIER)";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.heymate.app.speech-runner";
+				PRODUCT_NAME = HeyMateSpeechRunner;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -922,6 +979,7 @@ A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */,
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		D51000050000000000000003 = {isa = XCConfigurationList; buildConfigurations = (D51000050000000000000001, D51000050000000000000002, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */

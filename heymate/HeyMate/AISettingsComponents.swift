@@ -535,7 +535,7 @@ struct OnDeviceVoiceDownloadRow: View {
             return "Listening and speaking run on this Mac. Nothing leaves it."
         }
         if store.isDownloading {
-            return "Automatic one-time download, about 600 MB. Keep using HeyMate meanwhile."
+            return "Automatic listening download, about 500 MB. Speaking is included. Keep using HeyMate meanwhile."
         }
         return "Listens and talks on this Mac, offline and free. One-time download, \(OnDeviceVoiceModelStore.approximateDownloadSizeDescription)."
     }

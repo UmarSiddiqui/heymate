@@ -5,14 +5,15 @@
 
 import Foundation
 
-/// Decides whether Talk needs screen pixels. Ordinary conversation stays
-/// text-only and can use Codex Spark; visible/referential requests keep vision.
+/// Push-to-talk explicitly shares the current screen. Typed conversation can
+/// skip pixels when the request does not need them.
 nonisolated enum TalkContextPolicy {
     static func shouldCaptureScreen(
         for transcript: String,
-        hasSpatialSelection: Bool
+        hasSpatialSelection: Bool,
+        isPushToTalk: Bool = false
     ) -> Bool {
-        if hasSpatialSelection { return true }
+        if isPushToTalk || hasSpatialSelection { return true }
 
         let candidate = SpokenText.normalizedCommandCandidate(from: transcript)
         let normalized = SpokenText.normalizedSpokenCommandText(candidate)
@@ -74,5 +75,17 @@ nonisolated enum TalkContextPolicy {
             }
             .joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+nonisolated enum ScreenContextPrompt {
+    /// The byte-attachment protocol has no label field. Carry geometry and
+    /// display identity in this turn's text, in exactly the same image order.
+    static func withImageLabels(_ request: String, images: [(data: Data, label: String)]) -> String {
+        guard !images.isEmpty else { return request }
+        let labels = images.enumerated().map { index, image in
+            "Image \(index + 1):\n\(image.label)"
+        }.joined(separator: "\n\n")
+        return request + "\n\nCurrent-turn images, in attachment order:\n" + labels
     }
 }

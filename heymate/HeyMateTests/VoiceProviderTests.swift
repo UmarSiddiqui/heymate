@@ -127,10 +127,10 @@ struct VoiceProviderTests {
 struct VoiceProviderPersistenceTests {
 
     @Test func retiredMacSpeakingChoiceUsesTheLocalVoice() {
-        let kokoroRuns = KokoroEngine.unsupportedReason == nil
+        let phononRuns = PhononEngine.unsupportedReason == nil
         for provider in [VoiceSpeakProvider.macOS, .onDevice] {
             let client = CompanionManager.makeSpeakingClient(for: provider, workerBaseURL: "http://localhost")
-            #expect(kokoroRuns ? client is KokoroTTSClient : client is MacOSSpeechSynthesizerClient)
+            #expect(phononRuns ? client is PhononTTSClient : client is MacOSSpeechSynthesizerClient)
         }
     }
 

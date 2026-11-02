@@ -23,6 +23,11 @@ enum SpeechText {
         text = replacing(#"https?://(?:www\.)?([^\s/?#)\]]+)[^\s)\]]*"#, in: text, with: "$1")
         // A file URL or a path is said as its file name, not "slash Users slash…".
         text = SpeechText.fileNamesForPaths(text)
+        // Models may echo internal capture vocabulary despite the reply contract.
+        text = replacing(#"(?i)\b(?:the|your) screen[ -]?shot (?:didn['’]t|did not) come through\b"#,
+                         in: text, with: "I couldn't see your screen")
+        text = replacing(#"(?i)\bscreen[ -]?shots\b"#, in: text, with: "screen views")
+        text = replacing(#"(?i)\bscreen[ -]?shot\b"#, in: text, with: "screen view")
 
         // Line starts: headers, quotes, bullets. Rules and table borders go whole.
         text = replacing(#"(?m)^[ \t]*([-*_=][ \t]*){3,}$"#, in: text, with: "")

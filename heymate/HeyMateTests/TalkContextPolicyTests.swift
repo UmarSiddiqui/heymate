@@ -2,6 +2,11 @@ import Testing
 @testable import HeyMate
 
 struct TalkContextPolicyTests {
+    @Test func pushToTalkDoesNotGuessScreenIntentFromWording() {
+        for phrase in ["yes", "again", "do you see it now", "and this one", "tell me a joke"] {
+            #expect(TalkContextPolicy.shouldCaptureScreen(for: phrase, hasSpatialSelection: false, isPushToTalk: true))
+        }
+    }
     @Test func ordinaryTalkStaysTextOnly() {
         #expect(!TalkContextPolicy.shouldCaptureScreen(
             for: "explain database connection pooling",

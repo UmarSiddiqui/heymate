@@ -49,9 +49,9 @@ enum ScreenCapture {
         }
     }
 
-    /// Longest edge of every screenshot. Enough for the model to read UI
-    /// text, small enough to keep uploads and token counts down.
-    private nonisolated static let longestEdge = 1280
+    /// 1280 reduced 12-point text on a 3440-wide display to four pixels,
+    /// leaving both vision and OCR unable to read it. Keep more screen detail.
+    private nonisolated static let longestEdge = 2048
     private nonisolated static let jpegQuality = 0.8
 
     /// Content enumeration itself can prompt. Automatic voice/background captures
@@ -236,7 +236,19 @@ enum ScreenCapture {
         let configuration = SCStreamConfiguration()
         configuration.width = Int(size.width)
         configuration.height = Int(size.height)
-        return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+        do {
+            return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+        } catch {
+            let failure = error as NSError
+            guard !Task.isCancelled,
+                  failure.domain == "com.apple.ScreenCaptureKit.SCStreamErrorDomain",
+                  failure.code != -3801 else { throw error }
+            // ScreenCaptureKit can briefly fail to start a capture stream.
+            // Retry once, with the permission gate still enforced.
+            try await Task.sleep(for: .milliseconds(150))
+            try requirePermission()
+            return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+        }
     }
 
     /// ImageIO encodes straight from the CGImage, skipping the bitmap copy

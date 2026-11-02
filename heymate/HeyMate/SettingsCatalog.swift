@@ -315,7 +315,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .captions: return "subtitles bottom screen read along transcript words hearing"
         case .microphone: return "mic input device audio headset airpods"
         case .listenProvider: return "speech recognition transcription parakeet apple elevenlabs stt"
-        case .speakProvider: return "text to speech tts kokoro elevenlabs reply voice"
+        case .speakProvider: return "text to speech tts phonon kokoro elevenlabs reply voice"
         case .onDeviceVoice: return "download offline private parakeet kokoro model local"
         case .speechSpeed: return "rate fast slow talking pace"
         case .onDeviceVoiceStyle: return "voice character sound kokoro pick choose"
