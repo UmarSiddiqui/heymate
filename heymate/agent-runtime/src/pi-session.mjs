@@ -37,6 +37,10 @@ export function seedTranscript(seed) {
 export const turnLimits = { steps: 60, ms: 280000, nudgeAt: 0.8 };
 const wrapUpNote = 'HeyMate: this turn is close to its time or step limit. Start no new work. Finish what is in progress, '
   + 'then give the final answer now, saying plainly what is done and what remains.';
+// Reply first, then work: the opener is shown and spoken while the tools run.
+const replyFirst = 'Reply first: when a request needs tools, start your first response with one short spoken sentence, under 12 words, '
+  + 'saying what you are about to do (for example "Checking your calendar now."), then make the tool calls in that same response. '
+  + 'No findings or promises in it. Skip it when you can answer without tools.';
 const workingFast = 'Work fast: when several independent reads, searches or lookups are needed, issue those tool calls together in one response '
   + 'Use batch_read for independent read-only calls, or exec for a short JavaScript program across available tools. '
   + 'In exec, await tools.NAME(args), run independent reads with Promise.all, and print only needed results with text(...). '
@@ -65,7 +69,7 @@ export async function createPiSession({ home, record, access, tools, approve, em
   // in each user message where they would be stored and resent every turn.
   const loader = new DefaultResourceLoader({ cwd: record.cwd, agentDir: home, settingsManager: settings,
     noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
-    systemPrompt: 'You are HeyMate, a personal assistant in a native macOS app. Do authorized work, use tools, verify outcomes, and report failures honestly. Ask before irreversible external actions. Never claim an action succeeded from a plan or tool discovery. Follow the current mate identity supplied by the host.\n\n' + workingFast + '\n\n' + notesGuide + '\n\n' + enabledSkills,
+    systemPrompt: 'You are HeyMate, a personal assistant in a native macOS app. Do authorized work, use tools, verify outcomes, and report failures honestly. Ask before irreversible external actions. Never claim an action succeeded from a plan or tool discovery. Follow the current mate identity supplied by the host.\n\n' + replyFirst + '\n\n' + workingFast + '\n\n' + notesGuide + '\n\n' + enabledSkills,
     // The side-effect ledger is rebuilt from the durable chat record, not from
     // the model's summary, so compaction can never drop what was already done.
     extensionFactories: [{ name: 'heymate-ledger', factory: pi => {
@@ -172,6 +176,11 @@ export async function createPiSession({ home, record, access, tools, approve, em
       else if (turn.steps >= limits.steps * limits.nudgeAt) nudge();
     } else if (event.type === 'message_end' && turn && event.message?.role === 'assistant') {
       for (const key of Object.keys(turn.usage)) turn.usage[key] += event.message.usage?.[key] ?? 0;
+      // Text written before tool calls is the opener, not the answer: the app speaks it now
+      // and starts the answer's stream fresh.
+      const content = event.message.content ?? [];
+      const opener = content.filter(part => part.type === 'text').map(part => part.text).join('').trim();
+      if (opener && content.some(part => part.type === 'toolCall')) emit('agent.opener', { text: opener.slice(0, 300) });
     } else if (event.type === 'agent_end' && turn) {
       turn.timers.forEach(clearTimeout);
       stats({ steps: turn.steps, tools: turn.tools, ms: Date.now() - turn.started,

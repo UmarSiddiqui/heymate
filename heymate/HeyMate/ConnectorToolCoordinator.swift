@@ -54,6 +54,19 @@ enum ConnectorToolCallDescription {
         }
     }
 
+    /// The card's question as one short spoken line: "Reddit: Retrieve post
+    /// comments" → "Can I retrieve post comments on Reddit?"
+    static func spokenQuestion(for request: ConnectorToolApprovalRequest) -> String {
+        guard request.actions.count == 1 else {
+            return request.actions.isEmpty
+                ? "Can I use \(request.connectorDisplayName)?"
+                : "Can I run \(request.actions.count) actions with \(request.connectorDisplayName)?"
+        }
+        let parts = request.actions[0].split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+        guard parts.count == 2, let first = parts[1].first else { return "Can I \(request.actions[0].lowercased())?" }
+        return "Can I \(first.lowercased())\(parts[1].dropFirst()) on \(parts[0])?"
+    }
+
     /// `GITHUB_LIST_WORKFLOW_RUNS` → "GitHub: List workflow runs".
     static func describeComposioSlug(_ slug: String, appNames: [String: String]) -> String {
         let upperSlug = slug.uppercased()
@@ -84,16 +97,32 @@ final class ConnectorToolCoordinator: ObservableObject {
 
     /// The call waiting on the user. nil when nothing is pending.
     @Published private(set) var pendingRequest: ConnectorToolApprovalRequest?
+    /// When the visible card stops waiting, for its countdown.
+    @Published private(set) var pendingExpiresAt: Date?
+    /// Runs as each card appears, so the app can say the question aloud.
+    var onShowRequest: (@MainActor (ConnectorToolApprovalRequest) -> Void)?
+
+    /// How one approval card ended.
+    enum Outcome: Equatable { case approved, denied, expired }
+
+    /// A card nobody answers stops holding the turn after this long, the same
+    /// expiry the agent runtime gives its own approval requests.
+    var expiry: Duration = .seconds(120)
 
     private struct WaitingApproval {
         let request: ConnectorToolApprovalRequest
-        let continuation: CheckedContinuation<Bool, Never>
+        let continuation: CheckedContinuation<Outcome, Never>
     }
     private var approvals: [WaitingApproval] = []
+    private var expiryTask: Task<Void, Never>?
 
     /// Each request waits its turn; cancelling one does not deny another.
     func requestApproval(for request: ConnectorToolApprovalRequest) async -> Bool {
-        guard !Task.isCancelled else { return false }
+        await requestApprovalOutcome(for: request) == .approved
+    }
+
+    func requestApprovalOutcome(for request: ConnectorToolApprovalRequest) async -> Outcome {
+        guard !Task.isCancelled else { return .denied }
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 approvals.append(WaitingApproval(request: request, continuation: continuation))
@@ -107,18 +136,22 @@ final class ConnectorToolCoordinator: ObservableObject {
     }
 
     func approvePendingRequest() {
-        resolvePendingRequest(approved: true)
+        // The same yes sound a job approval makes.
+        if let id = pendingRequest?.id { HeyMateCue.shared.fire(.thumbsUp, subject: id.uuidString) }
+        resolvePendingRequest(.approved)
     }
 
     func denyPendingRequest() {
-        resolvePendingRequest(approved: false)
+        resolvePendingRequest(.denied)
     }
 
-    private func resolvePendingRequest(approved: Bool) {
+    private func resolvePendingRequest(_ outcome: Outcome) {
         guard !approvals.isEmpty else { return }
+        expiryTask?.cancel(); expiryTask = nil
         let approval = approvals.removeFirst()
         pendingRequest = nil
-        approval.continuation.resume(returning: approved)
+        pendingExpiresAt = nil
+        approval.continuation.resume(returning: outcome)
         showNextApproval()
     }
 
@@ -126,9 +159,11 @@ final class ConnectorToolCoordinator: ObservableObject {
         guard let index = approvals.firstIndex(where: { $0.request.id == id }) else { return }
         let wasVisible = index == 0
         let approval = approvals.remove(at: index)
-        approval.continuation.resume(returning: false)
+        approval.continuation.resume(returning: .denied)
         if wasVisible {
+            expiryTask?.cancel(); expiryTask = nil
             pendingRequest = nil
+            pendingExpiresAt = nil
             showNextApproval()
         }
     }
@@ -136,6 +171,15 @@ final class ConnectorToolCoordinator: ObservableObject {
     private func showNextApproval() {
         guard let next = approvals.first else { return }
         pendingRequest = next.request
-        NSSound.beep()
+        pendingExpiresAt = Date().addingTimeInterval(TimeInterval(expiry.components.seconds))
+        let shownID = next.request.id
+        expiryTask = Task { @MainActor [weak self, expiry] in
+            try? await Task.sleep(for: expiry)
+            guard !Task.isCancelled, let self, self.pendingRequest?.id == shownID else { return }
+            self.resolvePendingRequest(.expired)
+        }
+        // The same ask cue as a job approval: sound and card motion together.
+        HeyMateCue.shared.fire(.permissionAsk, subject: shownID.uuidString)
+        onShowRequest?(next.request)
     }
 }

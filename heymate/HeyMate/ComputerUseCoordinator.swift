@@ -189,7 +189,7 @@ final class ComputerUseCoordinator: ObservableObject {
         lastOutcomeSummary = nil
         pendingRequest = request
         updateTakeBackWatching()
-        NSSound.beep()
+        HeyMateCue.shared.fire(.permissionAsk, subject: request.id.uuidString)
 
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in

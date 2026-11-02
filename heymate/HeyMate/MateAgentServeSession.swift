@@ -375,6 +375,15 @@ final class MateAgentServeSession {
         }
     }
 
+    /// Pauses or resumes the running turn's clock while the app holds a call on
+    /// an approval card. Best effort: a missed release is bounded by the card's expiry.
+    func holdTurnClock(_ held: Bool) async {
+        guard let identity else { return }
+        _ = try? await connection.request(method: "session.hold", params: .object([
+            "session_id": .string(identity.runtimeID), "held": .bool(held)
+        ]), timeout: .seconds(5))
+    }
+
     func cancel() { Task { _ = await cancelAndWait() } }
     @discardableResult
     func cancelAndWait() async -> Bool {

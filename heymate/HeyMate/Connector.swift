@@ -191,7 +191,8 @@ enum ConnectorToolRisk: Int, Codable, Comparable, Sendable {
     private static let readVerbs: Set<String> = [
         "search", "list", "get", "read", "fetch", "find", "describe", "schema",
         "schemas", "lookup", "count", "query", "check", "status", "info",
-        "view", "show", "download", "export", "analytics", "stats", "metrics"
+        "view", "show", "download", "export", "analytics", "stats", "metrics",
+        "retrieve", "browse", "load", "scan", "inspect", "preview"
     ]
 
     private static let allVerbs: Set<String> = destructiveVerbs

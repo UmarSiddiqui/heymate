@@ -237,4 +237,14 @@ struct CompanionStateMachineTests {
         )
     }
 
+    /// An Escape meant for another app must not kill a reply still being
+    /// prepared in the background; one on a reply being said still stops it.
+    @Test func escapeInAnotherAppLeavesAPreparingReplyRunning() {
+        #expect(!CompanionManager.escapeInterruptsReply(in: .thinking, heyMateHasFocus: false))
+        #expect(!CompanionManager.escapeInterruptsReply(in: .capturingContext, heyMateHasFocus: false))
+        #expect(CompanionManager.escapeInterruptsReply(in: .thinking, heyMateHasFocus: true))
+        #expect(CompanionManager.escapeInterruptsReply(in: .speaking, heyMateHasFocus: false))
+        #expect(CompanionManager.escapeInterruptsReply(in: .guiding, heyMateHasFocus: false))
+        #expect(!CompanionManager.escapeInterruptsReply(in: .idle, heyMateHasFocus: true))
+    }
 }

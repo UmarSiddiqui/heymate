@@ -363,6 +363,12 @@ struct MateAgentServeConversationClientTests {
         #expect(client.latestDelivery?.text == response.text)
     }
 
+    @Test func aDraftOrSendClaimIsNeverShownBeforeItIsChecked() {
+        #expect(MateAgentGmailVerification.makesUnverifiedClaim("I've updated both drafts."))
+        #expect(MateAgentGmailVerification.makesUnverifiedClaim("The email was sent to Sam."))
+        #expect(!MateAgentGmailVerification.makesUnverifiedClaim("Checking your calendar now."))
+    }
+
     @MainActor
     private final class Fixture {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("pi-sessions-client-\(UUID())", isDirectory: true)

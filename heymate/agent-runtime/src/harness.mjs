@@ -11,7 +11,14 @@ import { SessionStore, validID, readJSON, saveJSON } from './store.mjs';
 import { StepJournal } from './step-journal.mjs';
 
 const boundedText = (value, max) => typeof value === 'string' && value.length > 0 && Buffer.byteLength(value) <= max;
+const connectorCallTimeoutMs = 5 * 60 * 1000;
 const errorText = 'HeyMate could not finish this operation. Check model access or retry after reviewing progress.';
+// A turn stopped by its time or step limit is not a model-access problem: say what happened.
+const limitText = 'HeyMate ran out of time before it could answer. Work already finished stayed done; nothing else ran. Ask again to continue.';
+// After a limit stops the work, one tool-free call turns what was already found into an answer.
+const salvageNote = reason => `HeyMate: ${reason} Tools are now off. Give your final answer now from what you already found. `
+  + 'Lead with the useful findings, then say plainly what you could not finish. Do not claim unfinished work is done.';
+const salvageMs = 30000;
 // Provider errors can echo request fragments; never surface or log token-shaped text.
 const redact = value => String(value ?? '').replace(/(sk-|xox[a-z]-|ghp_|Bearer\s+)[A-Za-z0-9._-]{8,}/gi, '$1[redacted]');
 const validSeed = seed => Array.isArray(seed) && seed.length <= 200
@@ -111,7 +118,10 @@ export class HeyMateHarness {
           if (!current || current.sessionID !== state.record.id || !state.running) throw new Error('Connector scope expired.');
           // The native scoped bridge enforces current-turn action approvals too.
           const result = await current.client.callTool({ name: tool.name, arguments: args,
-            ...(id ? { _meta: { 'heymate/idempotency_key': id } } : {}) }, undefined, { signal });
+            ...(id ? { _meta: { 'heymate/idempotency_key': id } } : {}) }, undefined,
+            // The app may hold the call on an approval card for up to two minutes; the SDK's
+            // 60s default timed out before the user could answer. The turn's signal still aborts it.
+            { signal, timeout: connectorCallTimeoutMs });
           if (result.isError) {
             // Keep the tool's own reason: without it the model can only say "it failed".
             const reason = (result.content ?? []).filter(part => part.type === 'text').map(part => part.text).join('\n').trim().slice(0, 500);
@@ -299,6 +309,26 @@ export class HeyMateHarness {
         error: redact(error?.stack ?? error).slice(0, 4000) }) + '\n', { mode: 0o600 });
     } catch { /* Logging never changes the turn outcome. */ }
   }
+  // One bounded, tool-free call after a limit. Returns the answer, or null when none came.
+  async salvage(state, reason) {
+    if (state.cancelled || typeof state.session.setActiveToolsByName !== 'function') return null;
+    const active = state.session.getActiveToolNames();
+    this.emit(state, 'agent.thinking', { status: 'Out of time, answering with what was found' });
+    const timer = setTimeout(() => { Promise.resolve(state.session.abort()).catch(() => {}); }, salvageMs);
+    // One reply only: a model that still reaches for tools has no answer to give.
+    const unsubscribe = state.session.subscribe?.(event => {
+      if (event.type === 'message_end' && event.message?.role === 'assistant'
+        && event.message.content?.some(part => part.type === 'toolCall')) Promise.resolve(state.session.abort()).catch(() => {});
+    });
+    try {
+      state.session.setActiveToolsByName([]);
+      await state.session.prompt(salvageNote(reason), { expandPromptTemplates: false });
+    } catch { return null; } finally { clearTimeout(timer); unsubscribe?.(); state.session.setActiveToolsByName(active); }
+    const last = state.session.messages.filter(m => m.role === 'assistant').at(-1);
+    const answer = state.session.getLastAssistantText();
+    if (state.cancelled || state.session.limitReached || !answer?.trim() || ['error', 'toolUse', 'aborted'].includes(last?.stopReason)) return null;
+    return answer;
+  }
   async run(state, text, images, system = '', seed = []) {
     try {
       // One Pi session per chat stays alive across turns. It is rebuilt only
@@ -318,9 +348,15 @@ export class HeyMateHarness {
       if (state.cancelled) throw new Error('Turn interrupted.');
       state.noteChanged = false; state.closedNotePreviews = new Set();
       await state.session.prompt(text, { images, expandPromptTemplates: false });
-      const last = state.session.messages.filter(m => m.role === 'assistant').at(-1);
-      const answer = state.session.getLastAssistantText();
-      if (state.session.limitReached) throw new Error(state.session.limitReached);
+      let last = state.session.messages.filter(m => m.role === 'assistant').at(-1);
+      let answer = state.session.getLastAssistantText();
+      if (state.session.limitReached) {
+        // Answer from the work already done rather than discard it.
+        const reason = state.session.limitReached;
+        answer = await this.salvage(state, reason);
+        if (!answer) { state.session.limitReached = reason; throw new Error(reason); }
+        last = state.session.messages.filter(m => m.role === 'assistant').at(-1);
+      }
       if (state.cancelled || last?.stopReason === 'aborted') throw new Error('Turn interrupted.');
       if (!answer?.trim() || last?.stopReason === 'error' || last?.stopReason === 'toolUse') throw new Error('No verified final answer.');
       if (state.noteChanged && !state.cancelled && typeof state.session.setActiveToolsByName === 'function') {
@@ -355,11 +391,12 @@ export class HeyMateHarness {
       const reason = redact(state.session?.limitReached ?? (last?.stopReason === 'error' && last.errorMessage ? last.errorMessage : error?.message)).slice(0, 300);
       if (!state.cancelled) await this.logFailure(state, last?.errorMessage ? `${last.errorMessage}\n${error?.stack ?? error}` : error);
       state.record.pending = false;
-      state.record.rows.push({ id: state.record.rows.length + 1, role: 'assistant', content: errorText,
+      state.record.rows.push({ id: state.record.rows.length + 1, role: 'assistant', content: state.session?.limitReached ? limitText : errorText,
         finish_reason: state.cancelled ? 'aborted' : 'error', display_kind: 'failed_turn', ...(reason && !state.cancelled ? { error_detail: reason } : {}) });
       try { await this.store.save(state.record); } catch { /* Native ledger remains unresolved. */ }
+      const failure = state.session?.limitReached ? limitText : errorText;
       this.emit(state, 'message.complete', { status: state.cancelled ? 'interrupted' : 'error',
-        error: state.cancelled ? 'Turn interrupted.' : reason ? `${errorText} Reason: ${reason}` : errorText });
+        error: state.cancelled ? 'Turn interrupted.' : reason ? `${failure} Reason: ${reason}` : failure });
     } finally {
       await state.notePreviewWrite;
       await this.clearNotePreview(state).catch(() => {});
@@ -483,6 +520,13 @@ export class HeyMateHarness {
       // Acceptance is separate from completion; native ledger records this exact row.
       state.run = new Promise(resolve => setImmediate(resolve)).then(() => this.run(state, p.text, images, p.system ?? '', p.seed ?? []));
       return { status: 'streaming', user_row_id: rowID };
+    }
+    if (method === 'session.hold') {
+      // The app shows its own connector approval card inside a tool call. The
+      // turn clock waits with it, the same as for the runtime's own approvals.
+      if (typeof p.held !== 'boolean') throw new Error('Invalid hold.');
+      if (state.running) state.session?.holdBudget?.(p.held);
+      return { ok: true };
     }
     if (method === 'session.steer') {
       // A message sent mid-turn joins the running turn at its next model call
