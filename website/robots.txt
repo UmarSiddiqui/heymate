@@ -1,4 +1,4 @@
-# HeyMate — https://getheymate.vercel.app
+# HeyMate — https://sayheymate.vercel.app
 # Search engines and AI assistants are welcome to read and cite this site.
 User-agent: *
 Allow: /
@@ -30,4 +30,4 @@ Allow: /
 User-agent: Applebot-Extended
 Allow: /
 
-Sitemap: https://getheymate.vercel.app/sitemap.xml
+Sitemap: https://sayheymate.vercel.app/sitemap.xml

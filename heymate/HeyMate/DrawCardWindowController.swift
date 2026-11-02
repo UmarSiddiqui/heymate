@@ -252,7 +252,7 @@ nonisolated enum DrawCardPhotoLookup {
         guard let url = searchURL(for: subject) else { return nil }
         var request = URLRequest(url: url, timeoutInterval: 6)
         // Wikimedia asks API clients to name themselves.
-        request.setValue("HeyMate/1.0 (macOS companion; https://getheymate.vercel.app)", forHTTPHeaderField: "User-Agent")
+        request.setValue("HeyMate/1.0 (macOS companion; https://sayheymate.vercel.app)", forHTTPHeaderField: "User-Agent")
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         return thumbnailURL(fromResponse: data)

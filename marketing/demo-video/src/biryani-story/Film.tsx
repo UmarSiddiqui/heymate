@@ -123,7 +123,7 @@ const EndCard: React.FC = () => {
 			<div style={{position: 'absolute', left: 0, right: 0, top: v ? 900 : 480, textAlign: 'center', opacity: ease(f, 4), transform: `translateY(${(1 - ease(f, 4)) * 30}px)`}}>
 				<div style={{fontSize: v ? 56 : 52, fontWeight: 600, color: '#c9d0db', letterSpacing: -1}}>Ask about anything on your screen.</div>
 				<div style={{fontSize: 150, fontWeight: 800, letterSpacing: -7, marginTop: 14}}>HeyMate.</div>
-				<div style={{marginTop: 30, display: 'inline-block', padding: '18px 32px', borderRadius: 40, fontSize: 30, fontWeight: 600, color: C.ink, background: C.paper, opacity: ease(f, 30)}}>Free for Mac · getheymate.vercel.app</div>
+				<div style={{marginTop: 30, display: 'inline-block', padding: '18px 32px', borderRadius: 40, fontSize: 30, fontWeight: 600, color: C.ink, background: C.paper, opacity: ease(f, 30)}}>Free for Mac · sayheymate.vercel.app</div>
 			</div>
 		</AbsoluteFill>
 	);

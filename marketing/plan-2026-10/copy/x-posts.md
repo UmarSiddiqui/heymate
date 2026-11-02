@@ -23,7 +23,7 @@ Hold ⌃⌥ and ask about anything on your screen. HeyMate answers out loud and 
 
 It lives in your Mac's notch and runs on the Claude or ChatGPT plan you already have. Free and open source.
 
-https://getheymate.vercel.app/?utm_source=x&utm_medium=social&utm_campaign=oct_core
+https://sayheymate.vercel.app/?utm_source=x&utm_medium=social&utm_campaign=oct_core
 ```
 
 Attach Clip A: a 16:9 real recording, 12–20 s, with burned-in captions.
@@ -42,7 +42,7 @@ Hold ⌃⌥, ask out loud, let go. HeyMate looks at your screen, answers by voic
 Here I asked "where do I change the export size?"
 
 Free and open source for Mac:
-https://getheymate.vercel.app/?utm_source=x&utm_medium=social&utm_campaign=oct_screens
+https://sayheymate.vercel.app/?utm_source=x&utm_medium=social&utm_campaign=oct_screens
 ```
 
 Replace the quoted question with the exact question you asked in Clip B. If you change it, recount; anything up to 24 extra characters still fits.
@@ -74,7 +74,7 @@ Some questions turn into chores. Describe one in a sentence and HeyMate drafts a
 
 Routines run on a schedule. Anything that sends, deletes, or pays waits for your yes.
 
-https://getheymate.vercel.app/?utm_source=x&utm_medium=social&utm_campaign=oct_agents
+https://sayheymate.vercel.app/?utm_source=x&utm_medium=social&utm_campaign=oct_agents
 ```
 
 ---
@@ -88,7 +88,7 @@ New in HeyMate [VERSION]: your agents have faces that look toward what you're do
 
 Sound on for this one.
 
-https://getheymate.vercel.app/?utm_source=x&utm_medium=social&utm_campaign=faces_release
+https://sayheymate.vercel.app/?utm_source=x&utm_medium=social&utm_campaign=faces_release
 ```
 
 Attach Clip E+G, or Clip F. Check every claim against the shipped build before posting. If #55 lands with a different behaviour, for example faces that react but don't follow your gaze, rewrite the sentence.
@@ -102,7 +102,7 @@ The template counts 115 as written: the URL counts 23 and the placeholder text t
 ```
 HeyMate [VERSION]: [one visible change, in plain words]. [one sentence on why it matters].
 
-https://getheymate.vercel.app/changelog?utm_source=x&utm_medium=social&utm_campaign=rel_[VERSION]
+https://sayheymate.vercel.app/changelog?utm_source=x&utm_medium=social&utm_campaign=rel_[VERSION]
 ```
 
 ---

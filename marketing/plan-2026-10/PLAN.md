@@ -102,7 +102,7 @@ One clear call to action per post. Every clip that is recreated rather than reco
 | Day | Channel | Action | Who |
 |---|---|---|---|
 | Thu 15 | Decision | Decide the ReferenceRenderer question (§7) and approve or edit `website-suggestions.md` and the README hero (`copy/readme-hero.md`). | You |
-| Thu 15 to Fri 16 | Repo and site | Apply the approved edits on a branch in a separate session. Bring "What's new" up to 1.0.59. | Claude preps, you approve; you deploy and repoint `getheymate.vercel.app` |
+| Thu 15 to Fri 16 | Repo and site | Apply the approved edits on a branch in a separate session. Bring "What's new" up to 1.0.59. | Claude preps, you approve; you deploy and repoint `sayheymate.vercel.app` |
 | Daily | HN | Start real comment history: 1–2 thoughtful comments a day on macOS, Swift, local AI or accessibility threads where you know something. Don't link HeyMate or mention it. | You |
 | Daily | Reddit | Comment helpfully in r/macapps and r/ClaudeAI, with no links. Goal: 10+ karma before any Reddit promo. r/ClaudeAI needs 50 total karma for a feed showcase; below that, it routes you to the megathread. | You |
 | Fri 16 | Capture | Record **Clip A**, the core ask-and-point (`assets-brief.md`). Computer-use can't drive HeyMate, so this one is yours. | You record, Claude edits captions |
@@ -168,7 +168,7 @@ Every app release (push to main → Release run → approve the `release` enviro
 |---|---|---|
 | 1 | Read the real version with `gh release list --limit 1`. Don't guess; it's MARKETING_VERSION plus the run number. | Claude |
 | 2 | Write plain-language bullets for `website/changelog.html` (full) and the `#changelog` top three in `index.html`. | Claude drafts, you approve |
-| 3 | Deploy the website, then run `vercel alias set <new-url> getheymate.vercel.app`. | You (Release Captain reminds you) |
+| 3 | Deploy the website, then run `vercel alias set <new-url> sayheymate.vercel.app`. | You (Release Captain reminds you) |
 | 4 | If the release has a visible change: one X post (280 characters or fewer) with one 6–12 s silent GIF or MP4 of that change. Use the template in `copy/x-posts.md`. | Claude drafts and cuts; you record and post |
 | 5 | If the UI visibly changed: refresh the README GIF or still, and the site screenshot. New filenames, because `/assets/*` is cached as immutable. | Claude (stills via the screencapture helper where possible) |
 | 6 | Weekly: link a "What shipped this week" note from the GitHub release body to the site changelog. | Claude |

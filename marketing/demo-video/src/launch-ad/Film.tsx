@@ -256,7 +256,7 @@ const Cta: React.FC = () => {
 							<div style={{fontSize: v ? 120 : 132, fontWeight: 700, letterSpacing: -6, color: C.ink}}>HeyMate</div>
 						</div>
 						<div style={{fontSize: v ? 38 : 36, color: '#3c4350', marginTop: 18, fontWeight: 500}}>Ask about anything on your screen.</div>
-						<div style={{marginTop: 34, display: 'inline-block', padding: '18px 32px', borderRadius: 999, background: C.ink, color: C.cream, fontSize: 30, fontWeight: 600, opacity: ease(f, 110, 18)}}>Free & open source · getheymate.vercel.app</div>
+						<div style={{marginTop: 34, display: 'inline-block', padding: '18px 32px', borderRadius: 999, background: C.ink, color: C.cream, fontSize: 30, fontWeight: 600, opacity: ease(f, 110, 18)}}>Free & open source · sayheymate.vercel.app</div>
 					</div>
 				</AbsoluteFill>
 			</AbsoluteFill>

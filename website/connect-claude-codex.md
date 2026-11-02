@@ -32,9 +32,9 @@ For a manually installed CLI, use `codex login`. Signing in to the ChatGPT Mac a
 
 ## Try your first screen question
 
-Open an app with sample content, hold Control + Option, and ask: “Explain what I’m looking at and show me the next step.” Grant the [Microphone, Accessibility, and Screen Recording permissions](https://getheymate.vercel.app/permissions) needed by the features you use.
+Open an app with sample content, hold Control + Option, and ask: “Explain what I’m looking at and show me the next step.” Grant the [Microphone, Accessibility, and Screen Recording permissions](https://sayheymate.vercel.app/permissions) needed by the features you use.
 
-Start with guidance while you do the clicking. Computer control is a separate choice that needs your approval. Follow the [screen guidance walkthrough](https://getheymate.vercel.app/screen-guidance) for examples and ways to recover from a wrong answer.
+Start with guidance while you do the clicking. Computer control is a separate choice that needs your approval. Follow the [screen guidance walkthrough](https://sayheymate.vercel.app/screen-guidance) for examples and ways to recover from a wrong answer.
 
 ## If sign-in or screen guidance does not work
 
@@ -49,7 +49,7 @@ OpenCode and a custom Anthropic-compatible API are additional routes. Capabiliti
 
 ## Understand privacy and cost before using real work
 
-Relevant questions and screen context go to your selected provider. Local chat history is separate from the provider’s retention and CLI session history. Some integrations write temporary screenshots. Read [HeyMate’s privacy and storage details](https://getheymate.vercel.app/privacy) before using sensitive content.
+Relevant questions and screen context go to your selected provider. Local chat history is separate from the provider’s retention and CLI session history. Some integrations write temporary screenshots. Read [HeyMate’s privacy and storage details](https://sayheymate.vercel.app/privacy) before using sensitive content.
 
-HeyMate adds no subscription fee and does not meter model use. Provider limits and optional API, voice, and connector charges remain separate. For everyday tasks, continue with the [developer, designer, and learning guide](https://getheymate.vercel.app/how-to-use-heymate).
+HeyMate adds no subscription fee and does not meter model use. Provider limits and optional API, voice, and connector charges remain separate. For everyday tasks, continue with the [developer, designer, and learning guide](https://sayheymate.vercel.app/how-to-use-heymate).
 

@@ -9,7 +9,7 @@
 - [x] Make real download/star counts prominent; cache GitHub data on server; label failures and stale data.
 - [x] Verify desktop/mobile layouts, keyboard navigation, safe typed content, consent flow, network failure, and reduced motion.
 - [x] Review release availability of capabilities against production DMG before publishing.
-- [ ] Publish approved website; repoint getheymate.vercel.app alias after production deploy.
+- [ ] Publish approved website; repoint sayheymate.vercel.app alias after production deploy.
 - [ ] Feedback form / public board: deferred by user. No new collection or email service.
 
 ## Capability evidence
@@ -73,7 +73,7 @@ Open http://127.0.0.1:4173. Vercel serves `api/stats.mjs` in production. No new 
 - Removed eyebrow labels, numbered feature decoration, and small character taglines. Main-page supporting copy is at least 14 px; body descriptions are 16-18 px.
 - Verified GitHub's latest published release is v1.0.76 (2026-10-28), added its summary to changelog.html, and mirrored the latest three releases on the landing page with a full-changelog button.
 - Existing stats tests pass. Local asset/anchor checks pass; desktop and mobile browser checks cover hero, search results/no results, notch, video, and changelog navigation.
-- No production deployment performed. Repoint getheymate.vercel.app after the next approved production deploy.
+- No production deployment performed. Repoint sayheymate.vercel.app after the next approved production deploy.
 
 ## Screenshot-based product artwork, 2026-10-31
 

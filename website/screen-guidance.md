@@ -6,9 +6,9 @@ By Umar Siddiqui. Updated November 1, 2026.
 
 ## What you need for screen guidance
 
-HeyMate supports macOS 14.2 or later on Apple silicon and Intel. A MacBook notch is optional: Macs without one use a top-center pill. Install the app and [connect a vision-capable AI provider](https://getheymate.vercel.app/connect-claude-codex).
+HeyMate supports macOS 14.2 or later on Apple silicon and Intel. A MacBook notch is optional: Macs without one use a top-center pill. Install the app and [connect a vision-capable AI provider](https://sayheymate.vercel.app/connect-claude-codex).
 
-Enable the permissions needed for your chosen features. Microphone supports spoken questions, Screen Recording supplies screen context, and Accessibility supports the hotkey and pointing. The [permissions guide](https://getheymate.vercel.app/permissions) explains each permission and how to revoke it.
+Enable the permissions needed for your chosen features. Microphone supports spoken questions, Screen Recording supplies screen context, and Accessibility supports the hotkey and pointing. The [permissions guide](https://sayheymate.vercel.app/permissions) explains each permission and how to revoke it.
 
 Apple Intelligence is an optional text-only provider on eligible Macs running macOS 26 or later. It cannot provide screen guidance because it cannot see screen images.
 
@@ -34,7 +34,7 @@ A walkthrough can show a plan and capture fresh screen context between steps. Mo
 - Find a control: “Point to where I can change the export format. Wait while I try it.”
 
 - Learn a tool: “Walk me through this one step at a time. Ask what I already know first.”
-These are example questions, not guaranteed outcomes. Specific tasks depend on your app, current screen, permissions, and selected provider. For recorded examples of drawn explanations, see [HeyMate’s actual visual answer recordings](https://getheymate.vercel.app/index#visual-answers).
+These are example questions, not guaranteed outcomes. Specific tasks depend on your app, current screen, permissions, and selected provider. For recorded examples of drawn explanations, see [HeyMate’s actual visual answer recordings](https://sayheymate.vercel.app/index#visual-answers).
 
 ## Screen guidance and computer control are different choices
 
@@ -51,11 +51,11 @@ Use small, reviewable tasks first. Before approving a message, file change, purc
 - Hotkey or pointing unavailable: review Accessibility permission in System Settings > Privacy & Security.
 
 - Answer does not match the interface: say what is different and ask for one corrected step. Do not keep following instructions that no longer match the screen.
-If connection problems persist, use the [Claude and Codex connection checks](https://getheymate.vercel.app/connect-claude-codex#connection-troubleshooting). Include the app version and a non-sensitive description when reporting a bug.
+If connection problems persist, use the [Claude and Codex connection checks](https://sayheymate.vercel.app/connect-claude-codex#connection-troubleshooting). Include the app version and a non-sensitive description when reporting a bug.
 
 ## What happens to screen context?
 
 Relevant questions and screen images go to the provider you select. HeyMate’s local chat history contains text, not screenshot or audio bytes. Some integrations write temporary screenshots; interrupted cleanup can leave files behind. Provider retention and CLI histories follow separate rules.
 
-Enabled routines, standing orders, and approved jobs can run in the background. Review [privacy and storage details](https://getheymate.vercel.app/privacy) and [macOS access settings](https://getheymate.vercel.app/permissions) before using HeyMate with private work. Continue with the [everyday workflow guide](https://getheymate.vercel.app/how-to-use-heymate) when you are ready to create a specialist mate.
+Enabled routines, standing orders, and approved jobs can run in the background. Review [privacy and storage details](https://sayheymate.vercel.app/privacy) and [macOS access settings](https://sayheymate.vercel.app/permissions) before using HeyMate with private work. Continue with the [everyday workflow guide](https://sayheymate.vercel.app/how-to-use-heymate) when you are ready to create a specialist mate.
 

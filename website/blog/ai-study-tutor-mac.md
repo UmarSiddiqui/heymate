@@ -26,7 +26,7 @@ This is a suggested practice structure, not a measured claim that HeyMate improv
 
 ## Use screen guidance for software practice
 
-When the subject is an app, bring a sample task into view and use a vision-capable provider. HeyMate can point to the current control and wait while you try the step. Ask for a second task that uses the same concept in a slightly different way. Read [learning Mac apps](https://getheymate.vercel.app/blog/learn-mac-apps-with-ai) for that workflow.
+When the subject is an app, bring a sample task into view and use a vision-capable provider. HeyMate can point to the current control and wait while you try the step. Ask for a second task that uses the same concept in a slightly different way. Read [learning Mac apps](https://sayheymate.vercel.app/blog/learn-mac-apps-with-ai) for that workflow.
 
 Try this prompt:
 
@@ -45,12 +45,12 @@ A routine can prompt another review, using the scheduling controls available in 
 
 Use the official course, textbook, or software documentation to verify definitions, formulas, and exam rules. A confident generated explanation may still be wrong. Do not use this workflow as a substitute for qualified medical, legal, or other professional instruction.
 
-Text questions do not require screen access. Screen guidance needs a vision-capable provider; HeyMate’s optional Apple Intelligence route is text-only. Review [provider setup](https://getheymate.vercel.app/connect-claude-codex) and [privacy](https://getheymate.vercel.app/privacy) before showing private coursework or documents.
+Text questions do not require screen access. Screen guidance needs a vision-capable provider; HeyMate’s optional Apple Intelligence route is text-only. Review [provider setup](https://sayheymate.vercel.app/connect-claude-codex) and [privacy](https://sayheymate.vercel.app/privacy) before showing private coursework or documents.
 
 ## Related reading
 
-- [Learn a Mac app with AI guidance, one step at a time](https://getheymate.vercel.app/blog/learn-mac-apps-with-ai)
-- [Ask HeyMate for diagrams and visual explanations on your desktop](https://getheymate.vercel.app/blog/visual-explanations-on-mac)
-- [How to choose an open-source AI assistant for Mac](https://getheymate.vercel.app/blog/choose-open-source-ai-assistant-mac)
+- [Learn a Mac app with AI guidance, one step at a time](https://sayheymate.vercel.app/blog/learn-mac-apps-with-ai)
+- [Ask HeyMate for diagrams and visual explanations on your desktop](https://sayheymate.vercel.app/blog/visual-explanations-on-mac)
+- [How to choose an open-source AI assistant for Mac](https://sayheymate.vercel.app/blog/choose-open-source-ai-assistant-mac)
 
-[Set up HeyMate](https://getheymate.vercel.app/connect-claude-codex) · [Privacy](https://getheymate.vercel.app/privacy) · [Permissions](https://getheymate.vercel.app/permissions)
+[Set up HeyMate](https://sayheymate.vercel.app/connect-claude-codex) · [Privacy](https://sayheymate.vercel.app/privacy) · [Permissions](https://sayheymate.vercel.app/permissions)

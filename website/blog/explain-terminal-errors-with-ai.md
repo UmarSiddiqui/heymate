@@ -42,12 +42,12 @@ Workspace snapshots can support local undo, but they cannot unsend a message or 
 
 Check the tool’s official documentation when an error concerns a command flag, supported runtime, or provider limit. HeyMate can help interpret that documentation in context. It does not turn model memory into an authoritative version-specific reference.
 
-Start with [provider setup](https://getheymate.vercel.app/connect-claude-codex) and [screen guidance](https://getheymate.vercel.app/screen-guidance). Review [privacy](https://getheymate.vercel.app/privacy) before showing logs: screen context can leave your Mac through the provider connection you select.
+Start with [provider setup](https://sayheymate.vercel.app/connect-claude-codex) and [screen guidance](https://sayheymate.vercel.app/screen-guidance). Review [privacy](https://sayheymate.vercel.app/privacy) before showing logs: screen context can leave your Mac through the provider connection you select.
 
 ## Related reading
 
-- [HeyMate vs Claude Cowork: choose your desktop AI workflow](https://getheymate.vercel.app/blog/heymate-vs-claude-cowork)
-- [How to choose an open-source AI assistant for Mac](https://getheymate.vercel.app/blog/choose-open-source-ai-assistant-mac)
-- [Build a weekly research brief with a specialist HeyMate](https://getheymate.vercel.app/blog/ai-weekly-research-brief)
+- [HeyMate vs Claude Cowork: choose your desktop AI workflow](https://sayheymate.vercel.app/blog/heymate-vs-claude-cowork)
+- [How to choose an open-source AI assistant for Mac](https://sayheymate.vercel.app/blog/choose-open-source-ai-assistant-mac)
+- [Build a weekly research brief with a specialist HeyMate](https://sayheymate.vercel.app/blog/ai-weekly-research-brief)
 
-[Set up HeyMate](https://getheymate.vercel.app/connect-claude-codex) · [Privacy](https://getheymate.vercel.app/privacy) · [Permissions](https://getheymate.vercel.app/permissions)
+[Set up HeyMate](https://sayheymate.vercel.app/connect-claude-codex) · [Privacy](https://sayheymate.vercel.app/privacy) · [Permissions](https://sayheymate.vercel.app/permissions)
