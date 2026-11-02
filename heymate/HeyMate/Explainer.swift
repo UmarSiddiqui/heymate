@@ -428,6 +428,7 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
             guard let query = payload as? String else { break }
             Task { [weak self] in
                 let url = await ExplainerPhotoFinder.find(query)
+                HeyMateLog.log("🖼️ Photo \(query.prefix(120)) → \(url?.host ?? "none")", category: "Explainer")
                 self?.run("HeyMateCanvas.photoFound(\(Self.jsString(query)), \(url.map { Self.jsString($0.absoluteString) } ?? "null"))")
             }
         case "askPart":
@@ -527,7 +528,7 @@ private final class WeakMessageHandler: NSObject, WKScriptMessageHandler {
 }
 
 /// Finds the picture for a drawing's photo(), as ReferenceRenderer's app does for its query, from free sources with no key:
-/// a news page's own preview picture ("page: url :: name"), else Wikipedia's picture for the thing (skipped for
+/// a news or profile page's own preview picture ("page: url :: name"), else Wikipedia's picture for the thing (skipped for
 /// "web:", something new), else Openverse's openly licensed images.
 nonisolated enum ExplainerPhotoFinder {
     static func find(_ query: String) async -> URL? {
@@ -537,7 +538,7 @@ nonisolated enum ExplainerPhotoFinder {
             let parts = rest.dropFirst(5).components(separatedBy: " :: ")
             let page = parts.first?.trimmingCharacters(in: .whitespaces) ?? ""
             let name = parts.dropFirst().joined(separator: " :: ")
-            if let url = await pagePicture(page) { return url }
+            if let url = await pagePicture(page, of: name) { return url }
             return await find(name)
         }
         let web = rest.lowercased().hasPrefix("web:")
@@ -576,18 +577,43 @@ nonisolated enum ExplainerPhotoFinder {
         return ((first["thumbnail"] as? String) ?? (first["url"] as? String)).flatMap(URL.init(string:))
     }
 
-    /// A web page's own preview picture (its og:image).
-    private static func pagePicture(_ address: String) async -> URL? {
+    /// A web page's own preview picture (its og:image). A profile page counts only when its title or bio names the person:
+    /// a guessed handle can belong to someone else, and a stranger's face is worse than a grey frame.
+    private static func pagePicture(_ address: String, of name: String = "") async -> URL? {
         guard let page = URL(string: address), let scheme = page.scheme?.lowercased(), scheme == "https" || scheme == "http" else { return nil }
         var request = URLRequest(url: page, timeoutInterval: 8)
         request.setValue("Mozilla/5.0 (Macintosh) HeyMate/1.0", forHTTPHeaderField: "User-Agent")
         guard let (data, _) = try? await URLSession.shared.data(for: request),
               let html = String(data: data.prefix(400_000), encoding: .utf8) ?? String(data: data.prefix(400_000), encoding: .isoLatin1),
-              let regex = try? NSRegularExpression(pattern: #"<meta[^>]+(?:property|name)=["']og:image["'][^>]*content=["']([^"']+)["']|<meta[^>]+content=["']([^"']+)["'][^>]*(?:property|name)=["']og:image["']"#, options: .caseInsensitive),
+              let image = meta("og:image", in: html) else { return nil }
+        if isProfile(page), !names(name, meta("og:title", in: html), meta("og:description", in: html)) { return nil }
+        return URL(string: image, relativeTo: page)?.absoluteURL
+    }
+
+    private static func meta(_ property: String, in html: String) -> String? {
+        let key = NSRegularExpression.escapedPattern(for: property)
+        guard let regex = try? NSRegularExpression(pattern: #"<meta[^>]+(?:property|name)=["']"# + key + #"["'][^>]*content=["']([^"']+)["']|<meta[^>]+content=["']([^"']+)["'][^>]*(?:property|name)=["']"# + key + #"["']"#, options: .caseInsensitive),
               let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)) else { return nil }
         for group in 1...2 {
-            if let range = Range(match.range(at: group), in: html) { return URL(string: String(html[range]), relativeTo: page)?.absoluteURL }
+            if let range = Range(match.range(at: group), in: html) { return String(html[range]) }
         }
         return nil
+    }
+
+    static func isProfile(_ page: URL) -> Bool {
+        let host = (page.host ?? "").lowercased().replacingOccurrences(of: "www.", with: "")
+        return ["x.com", "twitter.com", "github.com", "instagram.com", "threads.net", "linkedin.com", "bsky.app"].contains(host)
+    }
+
+    /// Whether a profile's title or bio shares a whole word with the name asked for, its @handle left out.
+    static func names(_ name: String, _ texts: String?...) -> Bool {
+        func words(_ text: String) -> Set<String> {
+            let plain = text.replacingOccurrences(of: #"@\w+"#, with: " ", options: .regularExpression)
+                .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            return Set(plain.components(separatedBy: CharacterSet.letters.inverted).filter { $0.count >= 3 })
+        }
+        let asked = words(name)
+        guard !asked.isEmpty else { return true }
+        return texts.compactMap { $0 }.contains { !words($0).isDisjoint(with: asked) }
     }
 }

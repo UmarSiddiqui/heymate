@@ -245,14 +245,50 @@
     return g;
   }
   // A photo for a query: a soft grey frame until HeyMate's photo finder (findPhoto, asked once per query) sends an
-  // address, then the photo fades in, cropped to the frame.
+  // address, then the photo fades in, cropped to the frame. A query nothing found (someone with no Wikipedia page or
+  // open photos) is asked once more for the picture of the page its own open button links to, a profile or site.
   const photoURLs = new Map(), photoFrames = new Map(), photosAsked = new Set();
+  // The button's page is noted while the drawing is read: by the time a slow search finds nothing, the screen may have
+  // changed and the drawing's actions gone.
+  const photosMissing = new Set(), photoPages = new Map(), buttonPages = new Map(); // page search -> its query; query -> page
   function askForPhotos(actions) {
     for (const a of actions || []) {
-      if (a.role !== 'photo' || !a.text || photosAsked.has(a.text)) continue;
+      if (a.role !== 'photo' || !a.text) continue;
+      const page = pageUnder(a.text);
+      if (page) buttonPages.set(a.text, page);
+      if (photosAsked.has(a.text)) continue;
       photosAsked.add(a.text);
       post('findPhoto', a.text);
     }
+    for (const query of photosMissing) askForPhotoPage(query);
+  }
+  // The open button on a photo's bottom edge, as photo() and button(p.box, …) place it, else one named for a profile.
+  const PROFILE_BUTTON = /\b(profile|twitter|x|github|linkedin|instagram|website|site|homepage|bio)\b/i;
+  function pageUnder(query) {
+    const actions = (analysis && analysis.actions) || [];
+    const frame = actions.find(a => a.role === 'photo' && a.text === query && Array.isArray(a.box));
+    if (!frame) return '';
+    const [x, y, w, h] = frame.box;
+    let page = '', nearest = Infinity, named = '';
+    for (const a of actions) {
+      if (a.role !== 'button' || !Array.isArray(a.box)) continue;
+      let p; try { p = JSON.parse(a.text || '{}'); } catch (_) { continue; }
+      const url = String(p.value || '');
+      if (p.kind !== 'open' || !/^https?:\/{2}/i.test(url)) continue;
+      if (!named && PROFILE_BUTTON.test(String(p.text || ''))) named = url;
+      const [bx, by, bw, bh] = a.box, gap = by - (y + h);
+      if (bx + bw / 2 < x || bx + bw / 2 > x + w || gap < -bh || gap > w * 0.6 || gap >= nearest) continue;
+      page = url; nearest = gap;
+    }
+    return page || named;
+  }
+  function askForPhotoPage(query) {
+    const page = pageUnder(query) || buttonPages.get(query) || '', tried = /^page:\s*(\S+)\s+::\s*([\s\S]*)$/i.exec(query);
+    if (!page || (tried && tried[1] === page)) return;
+    photosMissing.delete(query);
+    const search = `page: ${page} :: ${tried ? tried[2] : query.replace(/^(web:)\s*/i, '')}`;
+    photoPages.set(search, query);
+    post('findPhoto', search);
   }
   function fillPhoto(frame, url) {
     const { g, x, y, w, h, r, id } = frame;
@@ -639,9 +675,13 @@
       try { lineOffset = JSON.parse(json).firstLine || 0; } catch (_) {}
       return json;
     },
-    // HeyMate found the photo for a query (null: none found, the frame stays grey).
-    photoFound(query, url) {
-      if (!url) return;
+    // HeyMate found the photo for a query (null: none found, the frame stays grey unless the photo has an open button).
+    photoFound(search, url) {
+      const query = photoPages.get(search) || search;
+      if (!url) {
+        if (!photoPages.has(search) && !/^nopeople:/i.test(search)) { photosMissing.add(query); askForPhotoPage(query); }
+        return;
+      }
       photoURLs.set(query, url);
       for (const frame of photoFrames.get(query) || []) fillPhoto(frame, url);
       photoFrames.delete(query);
@@ -666,7 +706,7 @@
       // The native canvas removes its virtual stage as a whole. Its render
       // stream does not enumerate every descendant for this host to remove.
       clearButtons();
-      photoFrames.clear(); photoURLs.clear(); photosAsked.clear();
+      photoFrames.clear(); photoURLs.clear(); photosAsked.clear(); photosMissing.clear(); photoPages.clear(); buttonPages.clear();
       setUp(canvasW, canvasH);
       analysis = null; heardLine = -1; pointed.clear();
       refreshHits();

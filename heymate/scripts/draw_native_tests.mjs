@@ -204,3 +204,37 @@ test('a continued drawing reports an earlier turn\'s error once', () => {
   assert.equal(L.report.errors.length, 1);
   assert.match(L.report.errors[0], /nope is not defined/);
 });
+
+// A photo nothing was found for is asked again for the page of the open button on its edge (mate-host.js).
+const host = read('mate-host.js');
+const src = host.slice(host.indexOf('  const PROFILE_BUTTON'), host.indexOf('  function askForPhotoPage('));
+const run = code => {
+  const c = canvas();
+  c.call('beginStream', { w: 1280, h: 800, width: 1440, ink: '#3380ff' });
+  const analysis = JSON.parse(c.call('feed', { code, done: true }));
+  assert.equal(analysis.error, null);
+  const pageUnder = new Function('analysis', src + '\nreturn pageUnder;')(analysis);
+  return { analysis, pageUnder };
+};
+test('a person photo uses the profile button on its edge, not a button elsewhere', () => {
+  const { analysis, pageUnder } = run(`step(1);say("This is Farza.");
+const p = photo(500, 150, 240, 240, 'Farza Majeed', 'Farza Majeed', {subtitle: 'HeyClicky founder', tilt: 2});
+button(p, 'Profile', {open: 'https://x.com/FarzaTV'});
+button(520, 600, 'Interview', {open: 'https://example.com/interview'});`);
+  assert.equal(pageUnder('Farza Majeed'), 'https://x.com/FarzaTV');
+});
+test('a profile button placed away from the photo is still its page', () => {
+  const { pageUnder } = run(`step(1);say("This is Farza.");
+const p = photo(500, 150, 240, 240, 'page: https://www.linkedin.com/in/farza :: Farza Majeed', 'Farza Majeed', {tilt: 2});
+button(900, 600, 'Interview', {open: 'https://example.com/interview'});
+button(520, 650, 'Profile', {open: 'https://x.com/FarzaTV'});`);
+  assert.equal(pageUnder('page: https://www.linkedin.com/in/farza :: Farza Majeed'), 'https://x.com/FarzaTV');
+});
+test('a photo with no open button on it finds no page', () => {
+  const { pageUnder } = run(`step(1);say("Tower.");
+photo(500, 150, 240, 240, 'eiffel tower', 'Eiffel Tower');
+button(100, 700, 'Tickets', {open: 'https://example.com'});
+const q = photo(900, 150, 200, 200, 'louvre', 'Louvre'); button(q, 'Copy', {copy: 'louvre'});`);
+  assert.equal(pageUnder('eiffel tower'), '');
+  assert.equal(pageUnder('louvre'), '');
+});

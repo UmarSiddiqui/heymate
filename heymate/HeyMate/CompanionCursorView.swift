@@ -473,7 +473,7 @@ struct CompanionCursorView: View {
         let manager = companionManager
         CursorTypingMonitor.retain { event in
             guard CursorTypingPolicy.hides(forKeyDown: event.characters) else { return }
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 manager.hideCursorForTyping(anchor: NSEvent.mouseLocation)
             }
         }
@@ -921,7 +921,9 @@ struct CompanionCursorView: View {
     /// or a window is being dragged (common run loop modes).
     private static func frameTimer(interval: TimeInterval, _ tick: @escaping @MainActor () -> Void) -> Timer {
         let timer = Timer(timeInterval: interval, repeats: true) { _ in
-            MainActor.assumeIsolated { tick() }
+            // AppKit callback is not a Swift executor guarantee. An older
+            // crash reached assumeIsolated here; schedule explicit ownership.
+            Task { @MainActor in tick() }
         }
         RunLoop.main.add(timer, forMode: .common)
         return timer

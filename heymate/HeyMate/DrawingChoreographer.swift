@@ -291,7 +291,7 @@ final class DrawingChoreographer: ObservableObject {
     private func startTimerIfNeeded() {
         guard timer == nil else { return }
         let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tick() }
+            Task { @MainActor in self?.tick() }
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer

@@ -310,7 +310,7 @@ const {
   const usedPages = new Set();
   // photo(x, y, w, h, query, caption, {subtitle, tilt, web, from, noPeople}): a real photo found by image search, printed
   // as a polaroid taped to the screen. x, y, w, h is the picture; the print (border, caption strip) grows round it.
-  // web: search the web only (something new); from: a news page whose preview picture to use (each page once);
+  // web: search the web only (something new); from: a news or profile page whose preview picture to use (each page once);
   // noPeople: skip results showing people. Returns {box} of the whole print, for tie() and button().
   const photo = (x, y, w, h, query, caption, o = {}) => {
     const subtitle = typeof o.subtitle === 'string' ? o.subtitle.trim() : '';
