@@ -272,7 +272,7 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
         clearButton.setAccessibilityLabel("Clear drawings")
         clearButton.setAccessibilityIdentifier("drawing-clear")
         clearButton.frame = CGRect(x: 0, y: 0, width: 88, height: 32)
-        let controls = NSPanel(contentRect: CGRect(x: screenFrame.maxX - 112, y: screenFrame.maxY - 78, width: 88, height: 32),
+        let controls = NSPanel(contentRect: CGRect(x: screenFrame.midX - clearButton.frame.width / 2, y: screenFrame.maxY - 78, width: 88, height: 32),
                                styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         controls.isOpaque = false
         controls.backgroundColor = .clear
