@@ -995,7 +995,7 @@ A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */,
 			repositoryURL = "https://github.com/sparkle-project/Sparkle";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 2.9.0;
+				minimumVersion = 2.10.1;
 			};
 		};
 		AA00BB042F6500040039DA55 /* XCRemoteSwiftPackageReference "posthog-ios" */ = {
