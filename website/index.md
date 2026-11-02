@@ -30,7 +30,7 @@
 - Active interactions that need screen context can capture images, including new captures between walkthrough steps. Some integrations write temporary screenshots and clean them up when requests/processes end. The optional local-control interface schedules screenshot cleanup after ten minutes. Interrupted cleanup can leave files behind.
 - Relevant questions and screen context go to the selected AI provider. Its retention and the CLI's session history are separate from HeyMate's local chat history.
 - Connector credentials are in a local file restricted to the Mac account, not the Keychain. They authenticate with services the user connects. There is no HeyMate account service storing chats.
-- Apple Speech uses local recognition when available for the language and can otherwise contact Apple. Downloaded Parakeet/Kokoro models process locally when available. Optional ElevenLabs receives the audio or text it processes.
+- Apple Speech uses local recognition when available for the language and can otherwise contact Apple. Downloaded Parakeet listening and bundled Phonon speaking process locally on supported Apple silicon Macs. Optional ElevenLabs receives the audio or text it processes.
 - Enabled routines, standing orders, and approved coding jobs can run in the background. Do not describe HeyMate as an app where nothing runs in the background.
 - App PostHog usage events require a configured build key and explicit user opt-in, off by default. Settings > Privacy & Data allows withdrawal. This is distinct from website tracking; the homepage has no Hotjar recording and Vercel Web Analytics is disabled. See the privacy page for details.
 

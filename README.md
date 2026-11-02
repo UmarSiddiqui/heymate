@@ -69,7 +69,7 @@ Compatible local servers work too. Set the format, server address, model, and AP
 
 <sub>Illustrative settings artwork with cleaned backgrounds and example content; current controls may differ.</sub>
 
-Downloaded Parakeet listening and Kokoro voices run locally on supported Apple silicon Macs. Kokoro is unavailable on macOS 26.4–26.5. Optional ElevenLabs receives the audio or text it processes.
+Parakeet listening downloads once; Phonon speaking is bundled. Both run locally on supported Apple silicon Macs, with a Mac voice available as fallback. Optional ElevenLabs receives the audio or text it processes.
 
 HeyMate adds no subscription fee or model metering. Provider limits and optional API, voice, and connector charges apply. Features vary by provider, model, and connected tools. Screen guidance needs a vision-capable provider.
 

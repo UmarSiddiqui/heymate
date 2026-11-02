@@ -41,7 +41,7 @@
         <li>HeyMate chat history does not store screenshot or audio bytes. Some CLI integrations write temporary image files, cleaned up when the request or process ends. The optional local-control interface schedules screenshot cleanup after ten minutes and removes stale files on a later capture. Interrupted cleanup can leave temporary files behind.</li>
         <li>Password managers and System Settings are excluded by default.</li>
         <li>You can limit capture to the frontmost window.</li>
-        <li>Apple Speech uses on-device recognition when the selected language supports it; otherwise it can use Apple's speech service. A Mac voice speaks locally. The optional downloaded Parakeet and Kokoro models process voice on your Mac when available; fallback to Apple Speech follows the same language limitation.</li>
+        <li>Apple Speech uses on-device recognition when the selected language supports it; otherwise it can use Apple's speech service. A Mac voice speaks locally. Downloaded Parakeet listening and bundled Phonon speaking process voice on supported Apple silicon Macs; fallback to Apple Speech follows the same language limitation.</li>
       </ul>
       <p>Every macOS permission HeyMate can ask for, and what it does with each one, is on the <a href="permissions.html">permissions page</a>.</p>
 
