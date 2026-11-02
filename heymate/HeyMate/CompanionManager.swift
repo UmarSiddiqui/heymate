@@ -416,18 +416,29 @@ final class CompanionManager: ObservableObject {
 
     private let systemOverlayYield = SystemOverlayYield()
 
-    /// Escape anywhere clears drawings and pointing, and stops a reply that
-    /// is still being prepared or spoken. Listening, agents and approvals
-    /// are left alone: they have their own explicit stop controls.
+    /// Escape anywhere clears drawings and pointing, and stops a reply being
+    /// spoken or guided. A reply still being prepared stops only when Escape
+    /// was meant for HeyMate: a long agent turn runs in the background while
+    /// the user works elsewhere, and an Escape in another app (or one another
+    /// agent sends) silently killed it. Listening, agents and approvals are
+    /// left alone: they have their own explicit stop controls.
     private func handleGlobalEscape() {
         cancelGuidance()
         cancelSpatialContextAndAnnotations()
+        let heyMateHasFocus = NSApp.isActive || NSApp.keyWindow != nil
+        guard Self.escapeInterruptsReply(in: state, heyMateHasFocus: heyMateHasFocus) else {
+            if case .thinking = state { HeyMateLog.log("⎋ Escape in another app; reply keeps running") }
+            return
+        }
+        HeyMateLog.log("⎋ Escape interrupted the reply")
+        cancelInFlightChatTurn()
+    }
+
+    static func escapeInterruptsReply(in state: CompanionState, heyMateHasFocus: Bool) -> Bool {
         switch state {
-        case .capturingContext, .thinking, .speaking, .guiding:
-            HeyMateLog.log("⎋ Escape interrupted the reply")
-            cancelInFlightChatTurn()
-        default:
-            break
+        case .speaking, .guiding: return true
+        case .capturingContext, .thinking: return heyMateHasFocus
+        default: return false
         }
     }
 
@@ -812,6 +823,12 @@ final class CompanionManager: ObservableObject {
     /// makes a synthesized click something the user watches rather than
     /// something that merely happens to them.
     private func startComputerUseCursorBridge() {
+        // A permission card is asked out loud too, so a voice turn never
+        // stalls on a card nobody is looking at.
+        connectorToolCoordinator.onShowRequest = { [weak self] request in
+            guard let self, !self.isSilentModeEnabled, self.activeRoutineTurn == nil else { return }
+            self.speakLine(ConnectorToolCallDescription.spokenQuestion(for: request))
+        }
         computerUseCoordinator.onWillSynthesizeInput = { [weak self] targetPoint in
             guard let self else { return }
             // Synthesized input is in Quartz coordinates (origin top-left
@@ -4514,6 +4531,17 @@ final class CompanionManager: ObservableObject {
                     mateAgent.verifyReply = { [weak self] text in
                         MateAgentGmailVerification.checkedReply(text, verifiedActions: self?.talkGmailEvidence[talkScopeToken] ?? [:], emailContext: emailContext)
                     }
+                    mateAgent.holdsStreamedText = emailContext
+                    // Reply first: say what is about to happen while the tools run, as the
+                    // final answer is said, so the turn never sits silent.
+                    var spokeOpener = false
+                    mateAgent.onOpener = { [weak self] line in
+                        guard let self, !spokeOpener, self.ownsCurrentResponse(completion),
+                              self.activeRoutineTurn == nil, self.activeHandoffMateID == nil else { return }
+                        spokeOpener = true
+                        self.publishStreamingAssistantText(line)
+                        if !self.isSilentModeEnabled { self.speakLine(line) }
+                    }
                     mateAgent.onDrawingText = { [weak self] text in
                         guard let self, self.ownsCurrentResponse(completion) else { return }
                         self.streamExplainer(text, owner: ObjectIdentifier(completion), screenCaptures: screenCaptures)
@@ -4841,7 +4869,11 @@ final class CompanionManager: ObservableObject {
         let approvalPolicy = ApprovalMode.current().connectorPolicy(
             connectorStore.record(for: connectorIdentifier).approvalPolicy)
         if approvalPolicy.requiresApproval(forRisk: risk) {
-            let wasApproved = await connectorToolCoordinator.requestApproval(
+            // The card waits inside the agent's tool call; stop the turn clock
+            // with it so a slow answer does not run the turn out of time.
+            let heldClient = owner.flatMap { mateAgentConversationClients[$0.chatID] }
+            await heldClient?.holdTurnClock(true)
+            let outcome = await connectorToolCoordinator.requestApprovalOutcome(
                 for: ConnectorToolApprovalRequest(
                     connectorDisplayName: owner.flatMap { id in mateDirectory.mates.first(where: { $0.id == id.mateID }) }
                         .map { "\($0.name) · \(connectorDisplayName)" } ?? connectorDisplayName,
@@ -4855,8 +4887,12 @@ final class CompanionManager: ObservableObject {
                     )
                 )
             )
-            guard wasApproved, !Task.isCancelled, responseIsCurrent?() != false else {
+            await heldClient?.holdTurnClock(false)
+            guard outcome != .denied, !Task.isCancelled, responseIsCurrent?() != false else {
                 return ("The user did not approve this action.", true)
+            }
+            guard outcome == .approved else {
+                return ("Approval expired after 2 minutes without an answer. Nothing ran; tell the user and ask again if they still want it.", true)
             }
         }
 

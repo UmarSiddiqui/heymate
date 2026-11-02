@@ -424,10 +424,24 @@ test('a runaway turn is nudged to wrap up at 80% and stopped at its step limit w
   const row = (await f.harness.messages(f.id, 1)).messages.at(-1);
   assert.equal(row.display_kind, 'failed_turn'); assert.match(row.error_detail, /step limit/);
   assert.ok(f.contexts.at(-1).includes('close to its time or step limit'));
-  assert.ok(f.contexts.length <= 6);
+  assert.ok(f.contexts.length <= 7);
   const stats = (await readFile(path.join(f.home, 'logs', 'turn-stats.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
-  assert.equal(stats.at(-1).nudged, true); assert.match(stats.at(-1).limit, /step limit/);
-  assert.ok(stats.at(-1).usage.input >= 15 && stats.at(-1).usage.cacheRead >= 5);
+  const limited = stats.find(entry => entry.limit);
+  assert.equal(limited.nudged, true); assert.match(limited.limit, /step limit/);
+  assert.ok(limited.usage.input >= 15 && limited.usage.cacheRead >= 5);
+  assert.match(row.content, /ran out of time/); assert.doesNotMatch(row.content, /model access/);
+});
+
+test('a turn stopped by its limit still answers from what it already found', async t => {
+  const f = await piFixture(t, (round, context) => JSON.stringify(context).includes('Tools are now off')
+    ? [{ type: 'text', text: 'Found your post with 6 comments; could not read them in time.' }]
+    : [{ type: 'toolCall', id: `read-${randomUUID()}`, name: 'read', arguments: { path: 'missing.txt' } }],
+    { steps: 3, ms: 60000, nudgeAt: 0.8 });
+  await f.harness.dispatch(f.peer, 'prompt.submit', { session_id: f.id, text: 'Find my Reddit post' });
+  await (await f.harness.get(f.id)).run;
+  const row = (await f.harness.messages(f.id, 1)).messages.at(-1);
+  assert.notEqual(row.display_kind, 'failed_turn');
+  assert.match(row.content, /6 comments/);
 });
 
 test('time spent waiting on the user for an answer does not count against the turn', async t => {
@@ -577,4 +591,18 @@ test('note closing pass is bounded, note-only and preserves original answer', as
   await (await f.harness.get(f.id)).run;
   assert.equal(prompts, 2); assert.deepEqual(active, ['read', 'bash', 'note']);
   assert.equal((await f.harness.get(f.id)).record.rows.at(-1).content, 'Original verified result');
+});
+
+test('text written before the first tool call is emitted as an opener, apart from the answer', async t => {
+  const f = await piFixture(t, n => n === 1
+    ? [{ type: 'text', text: 'Checking that file now.' }, { type: 'toolCall', id: 'read-1', name: 'read', arguments: { path: 'missing.txt' } }]
+    : [{ type: 'text', text: 'The file is missing.' }], { steps: 20, ms: 60000, nudgeAt: 0.8 });
+  const events = [];
+  f.peer.send = message => { if (message.method === 'event') events.push(message.params); };
+  await f.harness.dispatch(f.peer, 'prompt.submit', { session_id: f.id, text: 'Read missing.txt' });
+  await (await f.harness.get(f.id)).run;
+  const openers = events.filter(event => event.type === 'agent.opener');
+  assert.deepEqual(openers.map(event => event.payload.text), ['Checking that file now.']);
+  assert.equal((await f.harness.messages(f.id, 1)).messages.at(-1).content, 'The file is missing.');
+  assert.ok(f.contexts[0].includes('Reply first'));
 });

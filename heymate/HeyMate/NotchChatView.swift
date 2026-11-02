@@ -478,6 +478,7 @@ struct NotchSurfaceRoot: View {
             Spacer().frame(height: occludedTopInset)
             ConnectorToolApprovalCard(
                 request: pendingRequest,
+                expiresAt: connectorToolCoordinator.pendingExpiresAt,
                 onApprove: { connectorToolCoordinator.approvePendingRequest() },
                 onDeny: { connectorToolCoordinator.denyPendingRequest() }
             )

@@ -350,6 +350,17 @@ final class NotchCompanionController {
             }
             .store(in: &cancellables)
 
+        // A connector card waits inside a running turn; a closed notch hid it
+        // behind a beep until the call timed out.
+        companionManager.connectorToolCoordinator.$pendingRequest
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] pendingRequest in
+                guard pendingRequest != nil else { return }
+                self?.expandPinned()
+            }
+            .store(in: &cancellables)
+
         companionManager.$shouldRevealAgentsTab
             .removeDuplicates()
             .filter { $0 }

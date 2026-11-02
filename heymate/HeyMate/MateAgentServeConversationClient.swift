@@ -8,6 +8,11 @@ final class MateAgentServeConversationClient: VisionConversationClient {
     var model = "HeyMate agent profile"
     var connectorScope: String?
     var verifyReply: (@MainActor (String) -> String)?
+    /// Holds streamed text back until the reply is verified. Only email turns
+    /// need it; every other turn shows its words as they arrive.
+    var holdsStreamedText = false
+    /// The one line the agent says before its tools run ("Checking your calendar now.").
+    var onOpener: (@MainActor (String) -> Void)?
     /// The reply so far on every delta, even while verifyReply holds the text back: a drawing program is drawn as it
     /// arrives, and it makes no Gmail claim.
     var onDrawingText: (@MainActor (String) -> Void)?
@@ -156,10 +161,21 @@ final class MateAgentServeConversationClient: VisionConversationClient {
             active.onTextDelta = { [weak self] delta in
                 accumulated += delta
                 self?.onDrawingText?(accumulated)
-                // Gmail completion claims are held until action receipts are checked.
-                if self?.verifyReply == nil { onTextChunk(accumulated) }
+                // Gmail completion claims are held until action receipts are checked. A reply
+                // that turns to email mid-stream stops streaming and waits for the check too.
+                guard let self, !self.holdsStreamedText else { return }
+                if self.verifyReply != nil, MateAgentGmailVerification.mentionsEmail(accumulated) { return }
+                onTextChunk(accumulated)
             }
-            active.onProgress = { type, payload in progress?(type, payload) }
+            active.onProgress = { [weak self] type, payload in
+                if type == "agent.opener", case .object(let fields) = payload, case .string(let text) = fields["text"] {
+                    // The answer streams fresh after the opener rather than appended to it.
+                    accumulated = ""
+                    self?.onOpener?(text)
+                    return
+                }
+                progress?(type, payload)
+            }
             active.onConnectionState = { state in progress?("connection.\(state)", nil) }
             active.onRequest = { [weak self] request in
                 guard let self, !Task.isCancelled else { return nil }
@@ -307,6 +323,12 @@ final class MateAgentServeConversationClient: VisionConversationClient {
     func steer(_ text: String, images: [(data: Data, label: String)] = []) async throws {
         guard let session, turnInFlight else { throw MateAgentServeSession.Failure.busy }
         try await session.steer(text: text, images: images)
+    }
+
+    /// Holds the running turn's clock while a connector approval card waits on the user.
+    func holdTurnClock(_ held: Bool) async {
+        guard let session, turnInFlight else { return }
+        await session.holdTurnClock(held)
     }
 
     func acknowledgeDelivery(_ id: UUID) throws {
@@ -479,13 +501,19 @@ nonisolated enum MateAgentGmailVerification {
         return verified
     }
 
+    /// The same words `checkedReply` treats as an email reply.
+    static func mentionsEmail(_ text: String) -> Bool {
+        let lowered = text.lowercased()
+        return ["gmail", "email", "pitch", "recipient"].contains { lowered.contains($0) }
+    }
+
     static func checkedReply(_ text: String, verifiedActions: [String: Set<String>], emailContext: Bool = false) -> String {
         // Match affirmative completion language; explicit denials and plans stay intact.
         let normalized = text.lowercased().replacingOccurrences(of: "’", with: "'")
             .replacingOccurrences(of: "*", with: "")
         let draft = #"\b(?:i(?:'ve| have)? (?:created|updated|saved)|(?:both |the |two )?(?:gmail |email )?drafts? (?:are|were|have been) (?:updated|created|saved))\b"#
         let send = #"\b(?:i(?:'ve| have)? (?:sent|emailed)|(?:the |your )?(?:emails?|messages?|pitches?) (?:was|were|has been|have been) sent|sent (?:the |your )?(?:emails?|messages?|pitches?) to)\b"#
-        let isEmail = emailContext || ["gmail", "email", "pitch", "recipient"].contains { normalized.contains($0) }
+        let isEmail = emailContext || mentionsEmail(normalized)
         let mentionsDraft = isEmail && normalized.contains("draft") && normalized.range(of: draft, options: .regularExpression) != nil
         let mentionsSend = isEmail && normalized.range(of: send, options: .regularExpression) != nil
         let requiredCount = normalized.range(of: #"\b(?:both|two|2)\b"#, options: .regularExpression) == nil ? 1 : 2

@@ -394,7 +394,8 @@ struct ConnectorToolRiskInferenceTests {
     /// "message", "post" and friends are nouns after a read verb. A Gmail
     /// read used to stop for a "Sends or publishes" approval.
     @Test func aSendWordAfterAReadVerbIsANoun() {
-        for slug in ["GMAIL_FETCH_MESSAGE_BY_THREAD_ID", "GMAIL_GET_EMAIL", "LINKEDIN_GET_POST", "SLACK_LIST_MESSAGE_REPLY"] {
+        for slug in ["GMAIL_FETCH_MESSAGE_BY_THREAD_ID", "GMAIL_GET_EMAIL", "LINKEDIN_GET_POST", "SLACK_LIST_MESSAGE_REPLY",
+                     "REDDIT_RETRIEVE_POST_COMMENTS"] {
             #expect(ConnectorToolRisk.inferred(
                 forToolNamed: "composio__COMPOSIO_MULTI_EXECUTE_TOOL",
                 arguments: ["tools": [["tool_slug": slug]]],
@@ -517,5 +518,28 @@ struct ConnectorToolCallDescriptionTests {
             forToolNamed: "notion__create_page",
             arguments: ["title": "x"]
         ) == ["Create page"])
+    }
+
+    /// The card and the voice ask the same plain question.
+    @Test func approvalIsAskedAsOnePlainQuestion() {
+        func request(_ actions: [String]) -> ConnectorToolApprovalRequest {
+            ConnectorToolApprovalRequest(connectorDisplayName: "Composio", toolName: "x", argumentsSummary: "", risk: .readOnly, actions: actions)
+        }
+        #expect(ConnectorToolCallDescription.spokenQuestion(for: request(["Reddit: Retrieve post comments"]))
+            == "Can I retrieve post comments on Reddit?")
+        #expect(ConnectorToolCallDescription.spokenQuestion(for: request(["Create page"])) == "Can I create page?")
+        #expect(ConnectorToolCallDescription.spokenQuestion(for: request(["A: B", "C: D"])) == "Can I run 2 actions with Composio?")
+        #expect(ConnectorToolCallDescription.spokenQuestion(for: request([])) == "Can I use Composio?")
+    }
+
+    /// An unanswered card stops holding the turn and says it expired, not denied.
+    @MainActor @Test func anUnansweredApprovalExpires() async {
+        let coordinator = ConnectorToolCoordinator()
+        coordinator.expiry = .milliseconds(50)
+        let outcome = await coordinator.requestApprovalOutcome(for: ConnectorToolApprovalRequest(
+            connectorDisplayName: "Reddit", toolName: "x", argumentsSummary: "", risk: .externalSideEffect))
+        #expect(outcome == .expired)
+        #expect(coordinator.pendingRequest == nil)
+        #expect(coordinator.pendingExpiresAt == nil)
     }
 }
