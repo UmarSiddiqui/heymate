@@ -3705,6 +3705,9 @@ final class CompanionManager: ObservableObject {
             guard !voiceDictation.isDictationInProgress else { return }
             guard hasMicrophonePermission else { return }
 
+            // Capture before HeyMate changes its own panels or visual state.
+            let insertionTarget = DictationInserter.captureTarget()
+
             // Cancel any in-flight response/TTS — one interaction at a time.
             currentResponseTask?.cancel()
             voiceSynthesisClient.stopPlayback()
@@ -3713,6 +3716,7 @@ final class CompanionManager: ObservableObject {
             clearAnnotations()
 
             inputModeOfActiveSession = .dictate
+            DictationInserter.prepareForDictation()
             dispatch(.startListening(.dictate))
             NotificationCenter.default.post(name: .heyMateDismissPanel, object: nil)
 
@@ -3724,7 +3728,7 @@ final class CompanionManager: ObservableObject {
                         // Partial transcripts are hidden (waveform-only UI)
                     },
                     onSubmit: { [weak self] finalTranscript in
-                        self?.processDictationTranscript(finalTranscript)
+                        self?.processDictationTranscript(finalTranscript, target: insertionTarget)
                     }
                 )
             }
@@ -3747,7 +3751,7 @@ final class CompanionManager: ObservableObject {
 
     /// Routes a finalized dictation transcript through Literal cleanup or the
     /// Smart screen-aware rewrite, then inserts into the focused text field.
-    func processDictationTranscript(_ finalTranscript: String) {
+    func processDictationTranscript(_ finalTranscript: String, target: DictationInsertionTarget? = nil) {
         let trimmedTranscript = finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTranscript.isEmpty else {
             // Nothing spoken — return to idle without touching any field.
@@ -3830,22 +3834,29 @@ final class CompanionManager: ObservableObject {
                 guard !Task.isCancelled else { return }
 
                 if !textToInsert.isEmpty {
+                    let outcome: InsertionOutcome
                     if let dictationInsertionOverride {
-                        _ = await dictationInsertionOverride(textToInsert)
-                        dispatch(.interactionFinished)
-                        scheduleTransientHideIfNeeded()
-                        return
+                        outcome = await dictationInsertionOverride(textToInsert)
+                    } else {
+                        DictationCorrectionLearner.shared.stop()
+                        outcome = await DictationInserter.insert(textToInsert, target: target)
                     }
-                    DictationCorrectionLearner.shared.stop()
-                    let outcome = await DictationInserter.insert(textToInsert)
                     HeyMateLog.log("✍️ Dictation insert (\(insertionContextSummary)): \(outcome)")
                     if Self.insertionLanded(outcome) {
                         // Give the target app a beat to apply the text before
                         // the learner snapshots the field.
                         try? await Task.sleep(for: .milliseconds(250))
-                        if let element = DictationInserter.focusedElementForObservation() {
+                        if dictationInsertionOverride == nil,
+                           let element = DictationInserter.focusedElementForObservation() {
                             DictationCorrectionLearner.shared.observe(element, inserted: textToInsert)
                         }
+                    } else {
+                        // Keep failed dictation recoverable without replacing
+                        // the clipboard or silently discarding the utterance.
+                        let draft = currentChat.draftText ?? ""
+                        updateCurrentDraft(draft.isEmpty ? textToInsert : draft + "\n" + textToInsert)
+                        commandBarFeedback = "Dictation couldn't reach the text field. Your words are saved in the HeyMate draft."
+                        lingerCursorCaption(textToInsert, keepingProgress: "Couldn't insert. Copy your words here; saved in HeyMate draft.")
                     }
                 }
 

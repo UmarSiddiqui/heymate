@@ -15,6 +15,21 @@ struct HeyMateApp: App {
         Settings {
             AccountProtectedSettingsView(appDelegate: appDelegate)
         }
+        #if DEBUG
+        .commands {
+            CommandMenu("Developer") {
+                Button("Test Dictation Paste in 5 Seconds") {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(5))
+                        let target = DictationInserter.captureTarget()
+                        let outcome = await DictationInserter.insertUsingShortcutTarget(
+                            "HeyMate insertion test.", target: target)
+                        HeyMateLog.log("Dictation paste probe: \(outcome)")
+                    }
+                }
+            }
+        }
+        #endif
     }
 }
 
