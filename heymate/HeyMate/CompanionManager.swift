@@ -458,6 +458,9 @@ final class CompanionManager: ObservableObject {
     @Published var showOnboardingPrompt: Bool = false
     /// The first-run demo and talk prompt; see CompanionManager+Onboarding.
     var onboardingIntroTask: Task<Void, Never>?
+    /// The welcome tour's hello for the buddy cursor, said once as it fades
+    /// in. Read by a freshly shown overlay; cleared when it has been said.
+    var cursorGreeting: String?
     /// While the welcome tour wants a spoken answer (a name, an interview
     /// reply), Talk transcripts go here instead of starting a turn.
     var onboardingTranscriptSink: ((String) -> Void)?
@@ -474,21 +477,17 @@ final class CompanionManager: ObservableObject {
     private lazy var dictateShortcutMonitor = GlobalShortcutMonitor(
         optionProvider: { PushToTalkShortcut.dictate }
     )
-    /// Third channel: hold + freehand drag to mark a screen region.
-    private lazy var spatialShortcutMonitor = GlobalShortcutMonitor(
-        optionProvider: { PushToTalkShortcut.spatialSelect }
-    )
-    /// Fourth channel: press ctrl+command (default) to summon compact notch chat.
+    /// Third channel: press ctrl+command (default) to summon compact notch chat.
     private lazy var chatShortcutMonitor = GlobalShortcutMonitor(
         optionProvider: { PushToTalkShortcut.chat }
     )
-    /// Fifth channel: tap ctrl twice to summon the typed ask box. Separate tap
+    /// Fourth channel: tap ctrl twice to summon the typed ask box. Separate tap
     /// because double-tap is a different state machine from hold-to-talk.
     private lazy var textDoubleTapMonitor = ModifierDoubleTapMonitor(
         shortcutProvider: { ModifierDoubleTapPreferences.textShortcut },
         isEnabledProvider: { ModifierDoubleTapPreferences.isTextShortcutEnabled }
     )
-    /// Sixth channel: tap fn+ctrl twice to start a turn that ends when you
+    /// Fifth channel: tap fn+ctrl twice to start a turn that ends when you
     /// stop talking rather than when you let go of a key.
     private lazy var handsFreeDoubleTapMonitor = ModifierDoubleTapMonitor(
         shortcutProvider: { ModifierDoubleTapPreferences.handsFreeShortcut },
@@ -2150,7 +2149,6 @@ final class CompanionManager: ObservableObject {
 
     private var shortcutTransitionCancellable: AnyCancellable?
     private var dictateTransitionCancellable: AnyCancellable?
-    private var spatialTransitionCancellable: AnyCancellable?
     private var chatTransitionCancellable: AnyCancellable?
     private var voiceStateCancellable: AnyCancellable?
     private var computerUseTakeBackCancellable: AnyCancellable?
@@ -2248,14 +2246,6 @@ final class CompanionManager: ObservableObject {
     @Published var dictateShortcutOption: PushToTalkShortcut.Option = PushToTalkShortcut.dictate {
         didSet {
             PushToTalkShortcut.dictate = dictateShortcutOption
-        }
-    }
-
-    /// The spatial-selection shortcut: hold, drag a freehand region, and
-    /// that region becomes priority context for the next Talk/dictate send.
-    @Published var spatialSelectShortcutOption: PushToTalkShortcut.Option = PushToTalkShortcut.spatialSelect {
-        didSet {
-            PushToTalkShortcut.spatialSelect = spatialSelectShortcutOption
         }
     }
 
@@ -3140,7 +3130,6 @@ final class CompanionManager: ObservableObject {
         bindAudioPowerLevel()
         bindShortcutTransitions()
         bindDictateShortcutTransitions()
-        bindSpatialShortcutTransitions()
         bindChatShortcutTransitions()
         bindDoubleTapShortcuts()
         startNotchActivityCenter()
@@ -3206,6 +3195,11 @@ final class CompanionManager: ObservableObject {
         isOverlayVisible = true
     }
 
+    func hideCursorOverlay() {
+        overlayWindowManager.hideOverlay()
+        isOverlayVisible = false
+    }
+
     func clearPointingTarget() {
         pointingTarget = nil
     }
@@ -3226,7 +3220,6 @@ final class CompanionManager: ObservableObject {
         pendingDictateStartTask?.cancel()
         pendingDictateStartTask = nil
         dictateTransitionCancellable?.cancel()
-        spatialTransitionCancellable?.cancel()
         chatTransitionCancellable?.cancel()
         textDoubleTapCancellable?.cancel()
         handsFreeDoubleTapCancellable?.cancel()
@@ -3323,7 +3316,7 @@ final class CompanionManager: ObservableObject {
     /// Every global keyboard shortcut channel at once.
     private func setKeyboardShortcutsListening(_ listening: Bool) {
         let shortcuts: [any KeyboardShortcutChannel] = [
-            talkShortcutMonitor, dictateShortcutMonitor, spatialShortcutMonitor, chatShortcutMonitor,
+            talkShortcutMonitor, dictateShortcutMonitor, chatShortcutMonitor,
             textDoubleTapMonitor, handsFreeDoubleTapMonitor,
         ]
         for shortcut in shortcuts {
@@ -3447,14 +3440,6 @@ final class CompanionManager: ObservableObject {
             }
     }
 
-    private func bindSpatialShortcutTransitions() {
-        spatialTransitionCancellable = spatialShortcutMonitor
-            .shortcutTransitionPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] transition in
-                self?.handleSpatialTransition(transition)
-            }
-    }
 
     private func bindChatShortcutTransitions() {
         chatTransitionCancellable = chatShortcutMonitor
@@ -3600,53 +3585,6 @@ final class CompanionManager: ObservableObject {
         case .pressed:
             notchCompanionController.toggleCompactChat()
         case .released, .none:
-            break
-        }
-    }
-
-    /// Spatial channel: press starts freehand capture on the cursor's screen
-    /// (the overlay temporarily accepts mouse events); release finalizes the
-    /// polygon and returns the overlay to click-through.
-    private func handleSpatialTransition(_ transition: PushToTalkShortcut.Transition) {
-        switch transition {
-        case .pressed:
-            guard !voiceDictation.isDictationInProgress else { return }
-            guard case .idle = state else { return }
-
-            // A fresh gesture replaces any previous selection.
-            clearSpatialSelection()
-            NotificationCenter.default.post(name: .heyMateDismissPanel, object: nil)
-            dispatch(.startListening(.spatial))
-
-            // When persistent deployment is off, the cursor is docked and no
-            // overlay window exists yet — beginSpatialCapture would find no
-            // target window and silently no-op. Deploy the overlay for the
-            // gesture, then undock it again afterward if it wasn't already up.
-            let overlayWasAlreadyVisible = isOverlayVisible
-            if !overlayWasAlreadyVisible {
-                showCursorOverlay()
-            }
-
-            overlayWindowManager.beginSpatialCapture { [weak self] draftPoints in
-                self?.spatialDraftPoints = draftPoints
-            } completion: { [weak self] screenFrame, normalizedSelection in
-                guard let self else { return }
-                if let screenFrame, let normalizedSelection {
-                    self.spatialSelectionScreenFrame = screenFrame
-                    self.activeSpatialSelection = normalizedSelection
-                    HeyMateLog.log("🔲 Spatial selection captured on \(screenFrame): \(normalizedSelection.bounds)")
-                }
-                self.spatialDraftPoints = []
-                self.overlayWindowManager.endSpatialCapture()
-                if !overlayWasAlreadyVisible && !self.isCursorCompanionEnabled {
-                    self.overlayWindowManager.hideOverlay()
-                    self.isOverlayVisible = false
-                }
-                self.dispatch(.interactionFinished)
-            }
-        case .released:
-            overlayWindowManager.finishSpatialCapture()
-        case .none:
             break
         }
     }

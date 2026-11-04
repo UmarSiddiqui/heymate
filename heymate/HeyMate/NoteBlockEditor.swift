@@ -179,6 +179,7 @@ private struct BlockRow: View {
             Button { item.wrappedValue.isChecked = !(item.wrappedValue.isChecked ?? false) } label: {
                 Image(systemName: item.wrappedValue.isChecked == true ? "checkmark.square.fill" : "square")
                     .foregroundColor(DS.Colors.textPrimary)
+                    .contentShape(Rectangle().inset(by: -6))
             }.buttonStyle(.plain)
         } else if block.kind == .numberedList || block.kind == .steps {
             let n = (block.items.firstIndex { $0.id == item.wrappedValue.id } ?? 0) + 1

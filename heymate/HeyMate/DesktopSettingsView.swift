@@ -215,6 +215,7 @@ struct SettingsSidebar: View {
                     Image(systemName: "xmark.circle.fill")
                         .font(DS.Glyph.small)
                         .foregroundColor(DS.Colors.textTertiary)
+                        .dsIconHitArea()
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()

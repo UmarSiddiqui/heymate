@@ -61,7 +61,9 @@ final class OnboardingTour: ObservableObject {
     enum VoiceSample { case onDevice }
 
     let micCheck = OnboardingMicCheck()
+    let music = OnboardingMusic()
     let companionManager: CompanionManager
+    private let voiceClips = OnboardingVoiceClips()
 
     /// Called when the tour ends, by Skip or by its last step.
     var onFinish: (() -> Void)?
@@ -89,6 +91,9 @@ final class OnboardingTour: ObservableObject {
         }
     }
 
+    /// What the buddy cursor says the first time it fades in.
+    static let cursorGreeting = "Hey! I am your AI Mate ^-^"
+
     static var storedName: String? {
         UserDefaults.standard.string(forKey: nameKey)
     }
@@ -98,7 +103,6 @@ final class OnboardingTour: ObservableObject {
     var canGoBack: Bool { stepIndex > 0 && step != .reveal }
 
     var talkKeys: [String] { PushToTalkShortcut.talk.keyCapsuleLabels }
-    var circleKeys: [String] { PushToTalkShortcut.spatialSelect.keyCapsuleLabels }
     var typeKeys: [String] { ModifierDoubleTapPreferences.textShortcut.keyCapsuleLabels }
     var isTypeShortcutOn: Bool { ModifierDoubleTapPreferences.isTextShortcutEnabled }
 
@@ -107,7 +111,11 @@ final class OnboardingTour: ObservableObject {
     func begin() {
         // A tour starting from the top boots HeyMate up; a resumed one
         // picks up quietly where it left off.
-        if step == .hello { HeyMateCue.shared.fire(.boot) }
+        if step == .hello {
+            HeyMateCue.shared.fire(.boot)
+            companionManager.greetWithCursor(Self.cursorGreeting)
+        }
+        music.start()
         enter(step)
     }
 
@@ -137,16 +145,20 @@ final class OnboardingTour: ObservableObject {
         companionManager.finishWelcomeTour(openingHome: openingHome)
         if prefersTyping { companionManager.isSilentModeEnabled = true }
         if openingHome && !prefersTyping {
-            let greeting = heardName.map { "You're all set, \($0). I'm up in the notch whenever you need me." }
-                ?? "You're all set. I'm up in the notch whenever you need me."
-            speak(greeting)
+            if let heardName {
+                speak("You're all set, \(heardName). I'm up in the notch whenever you need me.")
+            } else {
+                speak("You're all set. I'm up in the notch whenever you need me.")
+            }
         }
+        music.stop()
         onFinish?()
     }
 
     /// The window closed without finishing: stop listening, keep the place.
     func suspend() {
         leaveStep()
+        music.stop(fade: 0.5)
     }
 
     private func enter(_ newStep: OnboardingStep) {
@@ -159,6 +171,7 @@ final class OnboardingTour: ObservableObject {
         }
         UserDefaults.standard.set(newStep.rawValue, forKey: Self.progressKey)
         HeyMateAnalytics.track(.onboardingStepViewed(step: newStep.rawValue))
+        music.setListening(Self.listens(newStep))
         stepTask = Task { [weak self] in await self?.run(newStep) }
     }
 
@@ -169,8 +182,18 @@ final class OnboardingTour: ObservableObject {
         watchers.removeAll()
         companionManager.onboardingTranscriptSink = nil
         companionManager.stopSpeaking()
+        voiceClips.stop()
+        music.setDucked(false)
         stopSamples()
         micCheck.stop()
+    }
+
+    /// Steps that hear the person. The music steps aside for them.
+    private static func listens(_ step: OnboardingStep) -> Bool {
+        switch step {
+        case .mic, .talk, .interview, .showMe, .point, .circle: return true
+        default: return false
+        }
     }
 
     private func markDone(_ note: String? = nil) {
@@ -182,13 +205,27 @@ final class OnboardingTour: ObservableObject {
 
     /// Fire-and-forget line; silent when the person chose typing.
     private func speak(_ line: String) {
-        guard !prefersTyping else { return }
+        guard speaksAloud else { return }
+        if usesVoiceClips, voiceClips.start(line) { return }
         companionManager.speakLine(line)
     }
 
     private func say(_ line: String) async {
-        guard !prefersTyping else { return }
+        guard speaksAloud else { return }
+        music.setDucked(true)
+        defer { music.setDucked(false) }
+        if usesVoiceClips, await voiceClips.play(line) { return }
         await companionManager.speakAndWait(line)
+    }
+
+    private var speaksAloud: Bool {
+        !prefersTyping && !companionManager.isSilentModeEnabled
+    }
+
+    /// Scripted lines play pre-rendered in HeyMate's own voice, so the
+    /// first words are instant and never wait on the speaking model.
+    private var usesVoiceClips: Bool {
+        OnboardingVoiceClips.isPreferred(for: companionManager.selectedSpeakProvider)
     }
 
     /// Talk transcripts come here for this step, through the main actor.
@@ -202,7 +239,10 @@ final class OnboardingTour: ObservableObject {
         switch step {
         case .hello:
             markDone()
-            await say("Hey, I'm HeyMate. I live up in your notch and help with whatever's on your screen. Let me show you around.")
+            // Let the buddy fade in and say hello before the voice does.
+            try? await Task.sleep(for: .seconds(2.5))
+            guard !Task.isCancelled else { return }
+            await say("Hey! I'm your AI mate. This is the start of a great friendship. I live up in your notch, and I'm here for whatever's on your screen. Let me show you around.")
 
         case .voice:
             markDone()
@@ -312,6 +352,7 @@ final class OnboardingTour: ObservableObject {
 
     func playOnDeviceSample() {
         stopSamples()
+        voiceClips.stop()
         guard let url = Bundle.main.url(forResource: "OnDeviceVoiceSample", withExtension: "m4a"),
               let player = try? AVAudioPlayer(contentsOf: url) else { return }
         samplePlayer = player
@@ -343,6 +384,7 @@ final class OnboardingTour: ObservableObject {
         UserDefaults.standard.set(typing, forKey: Self.prefersTypingKey)
         if typing {
             stopSamples()
+            voiceClips.stop()
             companionManager.stopSpeaking()
         }
     }
@@ -395,7 +437,11 @@ final class OnboardingTour: ObservableObject {
         }
         markDone(name.map { "Hi, \($0)." } ?? "Heard you.")
         companionManager.onboardingTranscriptSink = nil
-        speak(name.map { "Nice to meet you, \($0)!" } ?? "Got it, I can hear you!")
+        if let name {
+            speak("Nice to meet you, \(name)!")
+        } else {
+            speak("Got it, I can hear you!")
+        }
     }
 
     // MARK: Show me

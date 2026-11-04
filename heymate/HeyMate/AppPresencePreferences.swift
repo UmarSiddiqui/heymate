@@ -45,9 +45,10 @@ final class AppPresencePreferences: ObservableObject {
     private static let appearsInScreenRecordingsKey = "appearsInScreenRecordings"
     private static let noNotchPlacementKey = "noNotchPlacement"
 
-    /// Off by default: HeyMate ships as an `LSUIElement` app whose home is the
-    /// notch. On, the Dock tile stays for the whole session instead of only
-    /// while the desktop window is open.
+    /// On by default, so HeyMate is easy to find and quit like any app. The
+    /// bundle still ships as an `LSUIElement` (no Dock bounce before launch
+    /// settles); off, the Dock tile appears only while the desktop window is
+    /// open and the notch is the app's home.
     @Published var showsInDock: Bool {
         didSet {
             guard showsInDock != oldValue else { return }
@@ -99,7 +100,9 @@ final class AppPresencePreferences: ObservableObject {
 
     private init() {
         let defaults = UserDefaults.standard
-        showsInDock = defaults.bool(forKey: Self.showsInDockKey)
+        showsInDock = defaults.object(forKey: Self.showsInDockKey) == nil
+            ? true
+            : defaults.bool(forKey: Self.showsInDockKey)
         launchesAtLogin = defaults.object(forKey: Self.launchesAtLoginKey) == nil
             ? true
             : defaults.bool(forKey: Self.launchesAtLoginKey)

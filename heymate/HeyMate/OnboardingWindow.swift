@@ -130,6 +130,7 @@ struct OnboardingRootView: View {
             } label: {
                 Label("Back", systemImage: "chevron.left")
                     .labelStyle(.titleAndIcon)
+                    .dsIconHitArea()
             }
             .buttonStyle(.plain)
             .font(DS.Fonts.caption)
@@ -138,22 +139,27 @@ struct OnboardingRootView: View {
             .disabled(!tour.canGoBack)
             .focusEffectDisabled()
             .pointerCursor()
-            .frame(width: 80, alignment: .leading)
+            .frame(width: 116, alignment: .leading)
 
             Spacer()
             progressDots
             Spacer()
 
-            Button("Skip tour") { tour.skip() }
-                .buttonStyle(.plain)
-                .font(DS.Fonts.caption)
-                .foregroundColor(DS.Colors.textTertiary)
-                .opacity(tour.step == .reveal ? 0 : 1)
-                .disabled(tour.step == .reveal)
-                .pointerCursor()
-                .help("You can replay the tour from Settings › General")
-                .focusEffectDisabled()
-                .frame(width: 80, alignment: .trailing)
+            HStack(spacing: DS.Spacing.sm) {
+                OnboardingMusicToggle(music: tour.music)
+                Button { tour.skip() } label: {
+                    Text("Skip tour").dsIconHitArea()
+                }
+                    .buttonStyle(.plain)
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .opacity(tour.step == .reveal ? 0 : 1)
+                    .disabled(tour.step == .reveal)
+                    .pointerCursor()
+                    .help("You can replay the tour from Settings › General")
+                    .focusEffectDisabled()
+            }
+            .frame(width: 116, alignment: .trailing)
         }
         // Clear of the traffic lights.
         .padding(.leading, 56)
@@ -205,7 +211,7 @@ struct OnboardingRootView: View {
     private func stepView(_ step: OnboardingStep) -> some View {
         switch step {
         case .hello:
-            OnboardingHelloStep()
+            OnboardingHelloStep(name: tour.heardName)
         case .voice:
             OnboardingVoiceStep(tour: tour)
         case .permissions:
@@ -451,24 +457,34 @@ struct OnboardingFace: View {
 // MARK: - Hello
 
 struct OnboardingHelloStep: View {
+    var name: String?
     @ObservedObject private var analytics = HeyMateAnalytics.shared
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    /// The words arrive after the hello trace, one beat at a time.
+    @State private var revealed = 0
+
     var body: some View {
         VStack(spacing: 18) {
             Spacer(minLength: 20)
-            HeyMateHelloTrace(lineWidth: 4, duration: 2.0)
+            HeyMateHelloTrace(lineWidth: 4, duration: 2.6)
                 .frame(width: 210, height: 150)
                 .cueMotion(.boot)
-            Text("I'm HeyMate.")
+            Text(name.map { "Hey \($0)! I'm your AI Mate." } ?? "Hey! I'm your AI Mate.")
                 .font(.system(size: 28, weight: .semibold))
                 .foregroundColor(DS.Colors.textPrimary)
-            Text("I live in your notch. Ask me about anything on your screen, and I'll point at the answer.")
+                .opacity(revealed >= 1 ? 1 : 0)
+                .offset(y: revealed >= 1 ? 0 : 8)
+            Text("This is the start of a great friendship. I live in your notch, ask me about anything on your screen, and I'll point at the answer.")
                 .font(DS.Fonts.body)
                 .foregroundColor(DS.Colors.textSecondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
+                .opacity(revealed >= 2 ? 1 : 0)
+                .offset(y: revealed >= 2 ? 0 : 8)
             Text("I only look at your screen when you ask. Screenshots are never stored.")
                 .font(DS.Fonts.caption)
                 .foregroundColor(DS.Colors.textTertiary)
+                .opacity(revealed >= 3 ? 1 : 0)
             if analytics.isAvailable {
                 VStack(alignment: .leading, spacing: 8) {
                     Toggle("Share usage analytics", isOn: Binding(
@@ -481,9 +497,37 @@ struct OnboardingHelloStep: View {
                 }
                 .frame(maxWidth: 420)
                 .padding(.top, 12)
+                .opacity(revealed >= 3 ? 1 : 0)
             }
             Spacer(minLength: 0)
         }
+        .task {
+            guard !accessibilityReduceMotion else {
+                revealed = 3
+                return
+            }
+            for step in 1...3 {
+                try? await Task.sleep(for: .seconds(step == 1 ? 1.8 : 0.9))
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeOut(duration: 1.1)) { revealed = step }
+            }
+        }
+    }
+}
+
+/// Mutes or brings back the tour's background music.
+struct OnboardingMusicToggle: View {
+    @ObservedObject var music: OnboardingMusic
+
+    var body: some View {
+        Button(action: music.toggleMuted) {
+            Image(systemName: music.isMuted ? "speaker.slash" : "speaker.wave.2")
+                .font(DS.Glyph.small)
+        }
+        .dsToolbarIconButtonStyle()
+        .focusEffectDisabled()
+        .help(music.isMuted ? "Play music" : "Mute music")
+        .accessibilityLabel(music.isMuted ? "Play background music" : "Mute background music")
     }
 }
 

@@ -76,7 +76,7 @@ struct SettingsGeneralPane: View {
             SettingsDivider()
             SettingsToggleRow(
                 SettingsItem.showInDock.title,
-                subtitle: "Keep a Dock icon and menu bar all session.",
+                subtitle: "Keep a Dock icon and menu bar all session. Turn off to live only in the notch.",
                 item: .showInDock,
                 isOn: $presencePreferences.showsInDock
             )

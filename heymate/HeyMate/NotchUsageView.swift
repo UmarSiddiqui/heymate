@@ -145,11 +145,11 @@ struct NotchUsageView: View {
             Spacer(minLength: 0)
             Button {
                 if let selectedProvider { store.refresh(selectedProvider) } else { store.refresh() }
-            } label: { Image(systemName: "arrow.clockwise") }
+            } label: { Image(systemName: "arrow.clockwise").dsIconHitArea(22) }
                 .buttonStyle(.plain).foregroundStyle(.secondary)
                 .help(selectedProvider.map { "Refresh \($0.name) usage" } ?? "Refresh usage")
                 .accessibilityLabel("Refresh usage")
-            Button { companionManager.openDesktopWindow(section: .notch) } label: { Image(systemName: "plus") }
+            Button { companionManager.openDesktopWindow(section: .notch) } label: { Image(systemName: "plus").dsIconHitArea(22) }
                 .buttonStyle(.plain).help("Add or manage usage sources").foregroundStyle(.secondary)
                 .accessibilityLabel("Manage usage sources")
         }

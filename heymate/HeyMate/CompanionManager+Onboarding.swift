@@ -36,6 +36,13 @@ extension CompanionManager {
         onboardingWindowController.show(restart: restart)
     }
 
+    /// The welcome tour's hello: the buddy cursor fades in slowly beside
+    /// the pointer and introduces itself, then stays for the tour.
+    func greetWithCursor(_ greeting: String) {
+        cursorGreeting = greeting
+        showCursorOverlay(playingWelcome: true)
+    }
+
     /// Kept for callers of the old setup card: both now open the tour.
     func triggerOnboarding() { openWelcomeTour() }
     func replayOnboarding() { openWelcomeTour(restart: true) }
@@ -46,8 +53,12 @@ extension CompanionManager {
         onboardingTranscriptSink = nil
         hasCompletedOnboarding = true
         HeyMateAnalytics.track(.onboardingVideoCompleted)
+        cursorGreeting = nil
         if allPermissionsGranted && isCursorCompanionEnabled && !isOverlayVisible {
             showCursorOverlay()
+        } else if isOverlayVisible && !isCursorCompanionEnabled {
+            // The tour brought the buddy out; put it back the way it was set.
+            hideCursorOverlay()
         }
         if openingHome {
             openDesktopWindow(section: .chat)

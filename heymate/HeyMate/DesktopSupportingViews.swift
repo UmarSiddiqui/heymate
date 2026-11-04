@@ -164,6 +164,7 @@ struct DesktopMemoryView: View {
                 } label: {
                     Image(systemName: "trash")
                         .foregroundColor(DS.Colors.destructiveText)
+                        .dsIconHitArea()
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()

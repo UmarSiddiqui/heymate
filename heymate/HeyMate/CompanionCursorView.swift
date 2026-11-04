@@ -44,6 +44,8 @@ struct CompanionCursorView: View {
     @State private var position: CGPoint
     @State private var isPointerOnThisScreen: Bool
     @State private var cursorOpacity: Double = 0
+    /// Grows from small to full size the first time the tour shows the buddy.
+    @State private var appearScale: CGFloat = 1
     @State private var mode: CompanionCursorMode = .following
     @State private var headingDegrees = CompanionCursorShape.restingHeadingDegrees
     @State private var flightScale: CGFloat = 1
@@ -218,7 +220,7 @@ struct CompanionCursorView: View {
                 breathes ? .easeInOut(duration: 1.25).repeatForever(autoreverses: true) : .easeOut(duration: 0.3),
                 value: breathes
             )
-            .scaleEffect(flightScale * pointingPose.scale)
+            .scaleEffect(flightScale * pointingPose.scale * appearScale)
             .opacity(showsArrow ? visibleOpacity : 0)
             .position(
                 x: position.x + leanDirection.dx * pointingPose.lean + coachPose.offset.dx,
@@ -446,6 +448,14 @@ struct CompanionCursorView: View {
         if companionManager.cursorDockPhase == .launching && runsDockFlightOnThisScreen {
             showsWelcome = false
             flyOutOfDock()
+        } else if isFirstAppearance && isPointerOnThisScreen, let greeting = companionManager.cursorGreeting {
+            // Meeting the buddy for the first time: a slow, soft arrival.
+            if !reduceMotion {
+                appearScale = 0.35
+                withAnimation(.spring(response: 2.6, dampingFraction: 0.72)) { appearScale = 1 }
+            }
+            withAnimation(.easeInOut(duration: 3.2)) { cursorOpacity = 1 }
+            typeWelcome(greeting, isTourGreeting: true)
         } else if isFirstAppearance && isPointerOnThisScreen {
             withAnimation(.easeIn(duration: 2)) { cursorOpacity = 1 }
             typeWelcome()
@@ -882,21 +892,27 @@ struct CompanionCursorView: View {
 
     /// Fades the cursor in, types "hey! i'm heymate", holds it, then hands
     /// over to onboarding.
-    private func typeWelcome() {
+    /// Types `message` beside the cursor. The tour's greeting types slower
+    /// and lingers, and doesn't start the older cursor-only demo after it.
+    private func typeWelcome(_ message: String = Self.welcomeMessage, isTourGreeting: Bool = false) {
         welcomeTask?.cancel()
         welcomeTask = Task {
             do {
-                try await Task.sleep(for: .seconds(2))
-                withAnimation(.easeIn(duration: 0.4)) { welcomeOpacity = 1 }
-                for character in Self.welcomeMessage {
+                try await Task.sleep(for: .seconds(isTourGreeting ? 2.4 : 2))
+                withAnimation(.easeIn(duration: isTourGreeting ? 0.8 : 0.4)) { welcomeOpacity = 1 }
+                for character in message {
                     welcomeText.append(character)
-                    try await Task.sleep(for: .milliseconds(30))
+                    try await Task.sleep(for: .milliseconds(isTourGreeting ? 55 : 30))
                 }
-                try await Task.sleep(for: .seconds(2))
+                try await Task.sleep(for: .seconds(isTourGreeting ? 5 : 2))
                 welcomeOpacity = 0
                 try await Task.sleep(for: .milliseconds(500))
                 showsWelcome = false
-                companionManager.continueOnboardingAfterWelcome()
+                if isTourGreeting {
+                    companionManager.cursorGreeting = nil
+                } else {
+                    companionManager.continueOnboardingAfterWelcome()
+                }
             } catch {
                 // The overlay went away mid-welcome; nothing left to do.
             }

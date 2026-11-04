@@ -155,6 +155,10 @@ final class NotchCompanionController {
     private var escapeKeyMonitor: Any?
     private var outsideClickMonitor: Any?
     private var localOutsideClickMonitor: Any?
+    /// Where an outside mouse-down landed while the full chat was up. The
+    /// full chat closes on the matching mouse-up only if the pointer barely
+    /// moved, so dragging a file from Finder into the chat keeps it open.
+    private var fullChatOutsidePressLocation: NSPoint?
 
     /// Visual-only hover on the collapsed tab — does not change window frame.
     private var isPillHovered = false
@@ -1575,8 +1579,9 @@ final class NotchCompanionController {
         }
         if outsideClickMonitor == nil {
             outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
-                matching: [.leftMouseDown, .rightMouseDown]
+                matching: [.leftMouseDown, .rightMouseDown, .leftMouseUp]
             ) { [weak self] event in
+                let eventType = event.type
                 Task { @MainActor in
                     guard let self, self.isExpanded, !self.isAboutPopoverPresented else { return }
                     // A global monitor only fires for events HeyMate did not
@@ -1584,19 +1589,47 @@ final class NotchCompanionController {
                     // here. The frame check covers the pill window and any
                     // other HeyMate panel sitting under the pointer.
                     let clickLocation = NSEvent.mouseLocation
-                    if self.expandedPanel?.frame.contains(clickLocation) == true { return }
-                    // The full chat is a place you work in, like a window:
-                    // it stays until Escape or its close button.
-                    if self.presentedSurface == .fullChat { return }
                     // The caption talks while you keep working in that app.
                     if self.presentedSurface == .caption { return }
+                    if self.presentedSurface == .fullChat {
+                        self.handleFullChatOutsideClick(eventType, at: clickLocation)
+                        return
+                    }
+                    guard eventType != .leftMouseUp else { return }
+                    if self.expandedPanel?.frame.contains(clickLocation) == true { return }
                     self.collapseAndUnpin()
                 }
             }
         }
     }
 
+    /// A click on another app or the desktop puts the full chat away. A
+    /// press that turns into a drag (a file on its way into the composer)
+    /// does not.
+    private func handleFullChatOutsideClick(_ eventType: NSEvent.EventType, at location: NSPoint) {
+        switch eventType {
+        case .leftMouseDown, .rightMouseDown:
+            if expandedPanel?.frame.contains(location) == true {
+                fullChatOutsidePressLocation = nil
+                return
+            }
+            fullChatOutsidePressLocation = location
+            if eventType == .rightMouseDown {
+                fullChatOutsidePressLocation = nil
+                collapseAndUnpin()
+            }
+        case .leftMouseUp:
+            guard let pressed = fullChatOutsidePressLocation else { return }
+            fullChatOutsidePressLocation = nil
+            guard hypot(location.x - pressed.x, location.y - pressed.y) < 6 else { return }
+            collapseAndUnpin()
+        default:
+            break
+        }
+    }
+
     private func removeDismissalMonitors() {
+        fullChatOutsidePressLocation = nil
         if let escapeKeyMonitor {
             NSEvent.removeMonitor(escapeKeyMonitor)
         }

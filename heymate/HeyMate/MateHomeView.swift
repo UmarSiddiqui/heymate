@@ -562,6 +562,7 @@ struct MateHomeView: View {
                                 suggestedRow(suggestion)
                             }
                         }
+                        .disclosureGroupStyle(.ds)
                         .font(DS.Fonts.control)
                         .foregroundStyle(DS.Colors.textSecondary)
                         .padding(.horizontal, 8)
@@ -1599,6 +1600,7 @@ struct MateHomeView: View {
                                 }
                                 .frame(maxHeight: 180)
                             }
+                            .disclosureGroupStyle(.ds)
                             .font(DS.Fonts.caption)
                             .foregroundColor(DS.Colors.textTertiary)
                         }

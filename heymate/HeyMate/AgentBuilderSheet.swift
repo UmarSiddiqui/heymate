@@ -380,6 +380,7 @@ struct AgentHabitList: View {
                             Image(systemName: "xmark")
                                 .font(DS.Glyph.small)
                                 .foregroundColor(DS.Colors.textTertiary)
+                                .dsIconHitArea()
                         }
                         .buttonStyle(.plain)
                         .pointerCursor()

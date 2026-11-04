@@ -94,8 +94,7 @@ struct SettingsCatalogTests {
         let assignments: [SettingsShortcutRole: PushToTalkShortcut.Option] = [
             .talk: .controlOption,
             .chat: .controlCommand,
-            .dictate: .controlOption,
-            .region: .shiftControl
+            .dictate: .controlOption
         ]
         #expect(SettingsShortcutRole.conflictingRoles(in: assignments) == [.talk, .dictate])
     }
@@ -104,10 +103,9 @@ struct SettingsCatalogTests {
         let assignments: [SettingsShortcutRole: PushToTalkShortcut.Option] = [
             .talk: .shiftControl,
             .chat: .shiftControl,
-            .dictate: .shiftFunction,
-            .region: .shiftControl
+            .dictate: .shiftControl
         ]
-        #expect(SettingsShortcutRole.conflictingRoles(in: assignments) == [.talk, .chat, .region])
+        #expect(SettingsShortcutRole.conflictingRoles(in: assignments) == [.talk, .chat, .dictate])
     }
 
     @Test func eachRoleSearchesToItsOwnRow() {

@@ -41,6 +41,7 @@ struct NoteCanvasView: View {
             ForEach(NoteCanvas.stickyColors, id: \.self) { color in
                 Button { add(NoteCanvas.sticky(x: spawn.x, y: spawn.y, words: "New note", color: color)) } label: {
                     RoundedRectangle(cornerRadius: 3).fill(NoteStyle.stock(color)).frame(width: 16, height: 16)
+                        .dsIconHitArea()
                 }
                 .buttonStyle(.plain).help("Add a \(color) sticky")
             }

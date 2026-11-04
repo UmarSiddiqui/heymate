@@ -145,7 +145,6 @@ enum SettingsItem: String, CaseIterable, Identifiable {
     case talkShortcut
     case chatShortcut
     case dictateShortcut
-    case regionShortcut
     case doubleTapText
     case doubleTapHandsFree
     case restoreShortcuts
@@ -209,7 +208,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .accentColor, .launchAtLogin, .showInDock, .noNotchPlacement,
              .cursorCompanion, .softwareUpdates, .helpAndFeedback, .replayIntroduction:
             return .general
-        case .talkShortcut, .chatShortcut, .dictateShortcut, .regionShortcut,
+        case .talkShortcut, .chatShortcut, .dictateShortcut,
              .doubleTapText, .doubleTapHandsFree, .restoreShortcuts:
             return .shortcuts
         case .silentMode, .dictationMode, .learnedWords, .focusedWindow, .interactionSounds, .captions,
@@ -243,7 +242,6 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .talkShortcut: return "Talk"
         case .chatShortcut: return "Chat"
         case .dictateShortcut: return "Dictate"
-        case .regionShortcut: return "Region select"
         case .doubleTapText: return "Typed ask"
         case .doubleTapHandsFree: return "Hands-free talk"
         case .restoreShortcuts: return "Restore default shortcuts"
@@ -300,10 +298,9 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .softwareUpdates: return "update version check automatic sparkle release"
         case .helpAndFeedback: return "bug report feature request email support issue permissions github"
         case .replayIntroduction: return "onboarding tutorial welcome replay intro"
-        case .talkShortcut: return "push to talk hold key hotkey ask screen"
+        case .talkShortcut: return "push to talk hold key hotkey ask screen circle area region spatial selection"
         case .chatShortcut: return "notch chat type hotkey"
         case .dictateShortcut: return "dictation transcribe type hotkey"
-        case .regionShortcut: return "circle area spatial selection screen hotkey"
         case .doubleTapText: return "double tap control text box"
         case .doubleTapHandsFree: return "double tap hands free voice activity"
         case .restoreShortcuts: return "reset defaults keys"
@@ -454,7 +451,6 @@ enum SettingsShortcutRole: String, CaseIterable, Identifiable {
     case talk
     case chat
     case dictate
-    case region
 
     var id: String { rawValue }
 
@@ -464,7 +460,6 @@ enum SettingsShortcutRole: String, CaseIterable, Identifiable {
         case .talk: return .controlOption
         case .chat: return .controlCommand
         case .dictate: return .shiftFunction
-        case .region: return .shiftControl
         }
     }
 
@@ -473,7 +468,6 @@ enum SettingsShortcutRole: String, CaseIterable, Identifiable {
         case .talk: return .talkShortcut
         case .chat: return .chatShortcut
         case .dictate: return .dictateShortcut
-        case .region: return .regionShortcut
         }
     }
 

@@ -1162,6 +1162,13 @@ extension View {
         ))
     }
 
+    /// Pads a bare glyph label (an `xmark`, a chevron) out to a clickable
+    /// square, so a plain-style button isn't only as big as its pixels.
+    func dsIconHitArea(_ side: CGFloat = DS.ControlSize.small) -> some View {
+        frame(minWidth: side, minHeight: side)
+            .contentShape(Rectangle())
+    }
+
     /// Shows the pointing hand over this view. Disabled controls pass
     /// `false` and keep the arrow.
     func pointerCursor(isEnabled: Bool = true) -> some View {

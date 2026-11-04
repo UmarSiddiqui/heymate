@@ -40,7 +40,7 @@ struct SettingsVoicePane: View {
                 item: .captions,
                 isOn: $showsBottomCaptions
             )
-            DisclosureGroup("Advanced", isExpanded: $showsAdvanced) {
+            DisclosureGroup("Advanced", isExpanded: $showsAdvanced.withDisclosureSound()) {
                 VStack(alignment: .leading, spacing: DS.SettingsLayout.sectionSpacing) {
                     listenAndSpeakSection.id(credentialsRevision)
                     elevenLabsSection
@@ -49,6 +49,8 @@ struct SettingsVoicePane: View {
                 }
                 .padding(.top, DS.Spacing.md)
             }
+            .disclosureGroupStyle(.ds)
+            .font(DS.Fonts.control)
             .foregroundStyle(DS.Colors.textSecondary)
         }
         .onAppear {

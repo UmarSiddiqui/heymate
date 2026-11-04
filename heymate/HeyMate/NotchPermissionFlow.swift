@@ -75,7 +75,7 @@ struct NotchPermissionFlow: View {
                 Spacer(minLength: 4)
                 progressDots
                 Button(action: openChecklist) {
-                    Image(systemName: "chevron.right").font(DS.Glyph.micro)
+                    Image(systemName: "chevron.right").font(DS.Glyph.micro).dsIconHitArea(20)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(DS.Colors.textTertiary)

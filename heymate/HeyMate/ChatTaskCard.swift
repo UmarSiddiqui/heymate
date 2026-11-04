@@ -85,6 +85,7 @@ struct TaskProgressDisclosure: View {
                 Text("\(entries.count) progress \(entries.count == 1 ? "update" : "updates")")
                     .font(DS.Fonts.caption).foregroundStyle(DS.Colors.textSecondary)
             }
+            .disclosureGroupStyle(.ds)
             .accessibilityLabel("Progress for \(run.title), \(entries.count) updates")
         }
     }

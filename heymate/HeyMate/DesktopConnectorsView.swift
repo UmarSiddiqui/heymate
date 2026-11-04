@@ -64,8 +64,10 @@ struct DesktopConnectorsView: View {
                 }
                 if !composioConnections.isConfigured { composioSetupCard }
                 DisclosureGroup("Google accounts on this Mac") { googleAccountCard.padding(.top, 12) }
+                    .disclosureGroupStyle(.ds)
                     .font(DS.Fonts.control)
                 DisclosureGroup("Custom tools") { customSection.padding(.top, 12) }
+                    .disclosureGroupStyle(.ds)
                     .font(DS.Fonts.control)
                 composioKeySection
             }
@@ -233,6 +235,7 @@ struct DesktopConnectorsView: View {
                     Image(systemName: "xmark.circle.fill")
                         .font(DS.Fonts.caption)
                         .foregroundColor(DS.Colors.textTertiary)
+                        .dsIconHitArea()
                 }
                 .buttonStyle(.plain)
             }
@@ -425,6 +428,7 @@ struct DesktopConnectorsView: View {
                         .font(DS.Fonts.sectionLabel)
                         .foregroundColor(DS.Colors.textSecondary)
                 }
+                .disclosureGroupStyle(.ds)
             }
         }
     }
@@ -830,6 +834,7 @@ private struct ConnectorCard: View {
                     footer
                     if onEditCommand != nil || onRemoveCommand != nil { commandActions }
                 }
+                .disclosureGroupStyle(.ds)
                 .font(DS.Fonts.caption).foregroundStyle(DS.Colors.textSecondary)
                 .padding(.leading, 51)
             }
