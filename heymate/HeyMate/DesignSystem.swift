@@ -971,6 +971,9 @@ struct DSToolbarIconButtonStyle: ButtonStyle {
     /// live mic) rather than merely selected. Glyph turns `textOnAccent`.
     var activeFill: Color?
     var isDestructiveOnHover = false
+    /// Sits on a light `DSGlassSurface` (a selected row): ink glyphs and
+    /// ink-tinted hover fill instead of theme surfaces.
+    var onGlass = false
 
     func makeBody(configuration: Configuration) -> some View {
         DSToolbarIconButton(
@@ -978,7 +981,8 @@ struct DSToolbarIconButtonStyle: ButtonStyle {
             size: size,
             isActive: isActive,
             activeFill: activeFill,
-            isDestructiveOnHover: isDestructiveOnHover
+            isDestructiveOnHover: isDestructiveOnHover,
+            onGlass: onGlass
         )
     }
 }
@@ -989,6 +993,7 @@ private struct DSToolbarIconButton: View {
     let isActive: Bool
     let activeFill: Color?
     let isDestructiveOnHover: Bool
+    let onGlass: Bool
 
     @State private var isHovered = false
     @Environment(\.isEnabled) private var isEnabled
@@ -1008,6 +1013,10 @@ private struct DSToolbarIconButton: View {
 
     private var fill: Color {
         if isActive, let activeFill { return activeFill.opacity(configuration.isPressed ? 0.85 : 1) }
+        if onGlass {
+            if configuration.isPressed || isActive { return DS.Colors.glassInk.opacity(0.16) }
+            return isHovered ? DS.Colors.glassInk.opacity(0.10) : .clear
+        }
         if configuration.isPressed || isActive { return DS.Colors.surface3 }
         return isHovered ? DS.Colors.surface2 : .clear
     }
@@ -1015,6 +1024,7 @@ private struct DSToolbarIconButton: View {
     private var foreground: Color {
         if isActive && activeFill != nil { return DS.Colors.textOnAccent }
         if isHovered && isDestructiveOnHover { return DS.Colors.destructiveText }
+        if onGlass { return DS.Colors.glassInk.opacity(isHovered || isActive ? 1 : 0.68) }
         return isHovered || isActive ? DS.Colors.textPrimary : DS.Colors.textSecondary
     }
 }
@@ -1137,13 +1147,15 @@ extension View {
         size: CGFloat = DS.ControlSize.regular,
         isActive: Bool = false,
         activeFill: Color? = nil,
-        isDestructiveOnHover: Bool = false
+        isDestructiveOnHover: Bool = false,
+        onGlass: Bool = false
     ) -> some View {
         buttonStyle(DSToolbarIconButtonStyle(
             size: size,
             isActive: isActive,
             activeFill: activeFill,
-            isDestructiveOnHover: isDestructiveOnHover
+            isDestructiveOnHover: isDestructiveOnHover,
+            onGlass: onGlass
         ))
     }
 
