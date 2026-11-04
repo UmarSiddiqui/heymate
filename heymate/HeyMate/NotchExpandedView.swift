@@ -472,7 +472,7 @@ struct NotchExpandedView: View {
 
     // MARK: About
 
-    /// Version, what this thing is, and the way out to help. Small on
+    /// Version and the way out to help. Small on
     /// purpose — anything longer belongs in the window.
     private var notchAboutPopover: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -481,10 +481,6 @@ struct NotchExpandedView: View {
             Text("Version \(AppUpdateController.shared.displayedVersion)")
                 .font(DS.Fonts.caption)
                 .foregroundColor(.secondary)
-            Text("A notch companion that can see your screen, talk back, and run coding agents in ~/Projects/heymate.")
-                .font(DS.Fonts.caption)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 240, alignment: .leading)
 
             Divider()
 
@@ -722,10 +718,6 @@ private struct NotchHomeTab: View {
                         .font(DS.Fonts.title)
                         .foregroundColor(DS.Colors.textPrimary)
                 }
-                Text("A small companion that lives next to your cursor and helps you as you use your Mac.")
-                    .font(DS.Fonts.caption)
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
                 Text("Nothing runs in the background. HeyMate only takes a screenshot when you press the hotkey, and screenshots are never stored.")
                     .font(DS.Fonts.caption)
                     .foregroundColor(DS.Colors.destructiveText.opacity(0.9))

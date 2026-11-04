@@ -32,10 +32,7 @@ struct SettingsGeneralPane: View {
     // MARK: Appearance
 
     private var appearanceSection: some View {
-        SettingsSection(
-            "Appearance",
-            footer: "Tints the cursor companion and primary buttons. The notch always stays black."
-        ) {
+        SettingsSection("Appearance") {
             SettingsRow(
                 SettingsItem.accentColor.title,
                 subtitle: currentSwatchName,
@@ -44,13 +41,9 @@ struct SettingsGeneralPane: View {
                 SettingsAccentSwatches(companionManager: companionManager)
             }
             SettingsDivider()
-            SettingsToggleRow("Idle character animation",
-                              subtitle: "Let live mates breathe and blink. Reduce Motion always takes priority.",
-                              isOn: $idleAnimations)
+            SettingsToggleRow("Idle character animation", isOn: $idleAnimations)
             SettingsDivider()
-            SettingsToggleRow("Floating agent cards",
-                              subtitle: "Keep active jobs and approval requests visible on each display.",
-                              isOn: $floatingAgents)
+            SettingsToggleRow("Floating agent cards", isOn: $floatingAgents)
         }
     }
 
@@ -63,29 +56,23 @@ struct SettingsGeneralPane: View {
     // MARK: Startup & presence
 
     private var presenceSection: some View {
-        SettingsSection(
-            "Startup & presence",
-            footer: "HeyMate normally has no Dock icon — the notch is its home."
-        ) {
+        SettingsSection("Startup & presence") {
             SettingsToggleRow(
                 SettingsItem.launchAtLogin.title,
-                subtitle: "Start HeyMate when you log in to your Mac.",
                 item: .launchAtLogin,
                 isOn: $presencePreferences.launchesAtLogin
             )
             SettingsDivider()
             SettingsToggleRow(
                 SettingsItem.showInDock.title,
-                subtitle: "Keep a Dock icon and menu bar all session. Turn off to live only in the notch.",
                 item: .showInDock,
                 isOn: $presencePreferences.showsInDock
             )
             SettingsDivider()
-            SettingsToggleRow("Presentation mode", subtitle: "Hide floating task notices and pause announcements and suggestions. Approvals stay pending in chat.", isOn: $presentationMode)
+            SettingsToggleRow("Presentation mode", subtitle: "Hides task notices and pauses announcements. Approvals wait in chat.", isOn: $presentationMode)
             SettingsDivider()
             SettingsRow(
                 SettingsItem.noNotchPlacement.title,
-                subtitle: "On displays without one, draw a stand-in or use the menu bar.",
                 item: .noNotchPlacement
             ) {
                 DSSegmentedControl(
@@ -97,7 +84,6 @@ struct SettingsGeneralPane: View {
             SettingsDivider()
             SettingsToggleRow(
                 SettingsItem.cursorCompanion.title,
-                subtitle: "Stay beside your pointer, not only while you use it.",
                 item: .cursorCompanion,
                 isOn: Binding(
                     get: { companionManager.isCursorCompanionEnabled },
@@ -122,10 +108,7 @@ struct SettingsGeneralPane: View {
                     .disabled(!updateController.canCheckForUpdates)
             }
             SettingsDivider()
-            SettingsRow(
-                "What's new",
-                subtitle: "Everything that shipped in HeyMate, newest first."
-            ) {
+            SettingsRow("What's new") {
                 Button {
                     if let url = URL(string: SupportLinks.changelogURLString) { NSWorkspace.shared.open(url) }
                 } label: {
@@ -140,14 +123,13 @@ struct SettingsGeneralPane: View {
             if updateController.isReady {
                 SettingsToggleRow(
                     "Check automatically",
-                    subtitle: "Check for new versions every six hours and remind me when one is available.",
                     isOn: $updateController.automaticallyChecksForUpdates
                 )
                 SettingsDivider()
                 SettingsToggleRow(
                     "Automatically download and install updates",
                     subtitle: updateController.automaticallyChecksForUpdates
-                        ? "Download in the background and install when HeyMate quits. You can also choose to restart sooner."
+                        ? "Installs when HeyMate quits."
                         : "Turn on Check automatically to download and install updates.",
                     isOn: $updateController.automaticallyDownloadsUpdates
                 )
@@ -206,7 +188,6 @@ struct SettingsGeneralPane: View {
         SettingsSection("Help") {
             SettingsRow(
                 SettingsItem.replayIntroduction.title,
-                subtitle: "Watch the welcome tour again.",
                 item: .replayIntroduction
             ) {
                 Button("Replay") { companionManager.replayOnboarding() }
@@ -214,7 +195,7 @@ struct SettingsGeneralPane: View {
             }
 
             SettingsDivider()
-            SettingsRow("Support diagnostics", subtitle: "Review a redacted local report before saving. Nothing uploads.") {
+            SettingsRow("Support diagnostics", subtitle: "Redacted, saved locally. Nothing uploads.") {
                 SupportDiagnosticsExport(manager: companionManager)
                     .dsCapsuleButtonStyle(.quiet)
             }

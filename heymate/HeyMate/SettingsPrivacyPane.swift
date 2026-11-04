@@ -46,7 +46,7 @@ struct SettingsPrivacyPane: View {
     private var screenCaptureSection: some View {
         SettingsSection(
             "Screen capture",
-            footer: "Listed apps are never captured, for any feature. Password managers and System Settings are always on the list."
+            footer: "Password managers and System Settings are always excluded."
         ) {
             SettingsRow(
                 SettingsItem.excludedApps.title,

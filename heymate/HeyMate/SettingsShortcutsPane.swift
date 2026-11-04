@@ -75,10 +75,7 @@ struct SettingsShortcutsPane: View {
 
     private var holdToTalkSection: some View {
         let conflicts = SettingsShortcutRole.conflictingRoles(in: assignments)
-        return SettingsSection(
-            "Hold to talk",
-            footer: "Work from anywhere on your Mac."
-        ) {
+        return SettingsSection("Hold to talk") {
             ForEach(Array(SettingsShortcutRole.allCases.enumerated()), id: \.element) { index, role in
                 if index > 0 {
                     SettingsDivider()
@@ -126,13 +123,9 @@ struct SettingsShortcutsPane: View {
         }
 
     private var doubleTapSection: some View {
-        SettingsSection(
-            "Double-tap",
-            footer: "A quick press and release with no other key. Holding the keys works as before."
-        ) {
+        SettingsSection("Double-tap") {
             SettingsToggleRow(
                 SettingsItem.doubleTapText.title,
-                subtitle: "Double-tap to open the typed ask box from anywhere.",
                 item: .doubleTapText,
                 isOn: $isTextDoubleTapEnabled
             )
@@ -149,7 +142,7 @@ struct SettingsShortcutsPane: View {
 
             SettingsToggleRow(
                 SettingsItem.doubleTapHandsFree.title,
-                subtitle: "Talk without holding a key; it ends when you stop speaking.",
+                subtitle: "Ends when you stop speaking.",
                 item: .doubleTapHandsFree,
                 isOn: $isHandsFreeDoubleTapEnabled
             )

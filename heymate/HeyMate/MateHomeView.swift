@@ -1492,9 +1492,6 @@ struct MateHomeView: View {
                     .pointerCursor()
                     .accessibilityLabel("Dismiss starter suggestion")
             }
-            Text("Edit the message, then send when you're ready.")
-                .font(DS.Fonts.caption)
-                .foregroundColor(DS.Colors.textSecondary)
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).fill(DS.Colors.surface2))

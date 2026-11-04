@@ -30,10 +30,7 @@ struct SettingsPermissionsPane: View {
             }
             approvalsSection
             chromeSection
-            SettingsSection(
-                "All permissions",
-                footer: "Each one says what HeyMate can do with it. You can turn any of them off again in System Settings › Privacy & Security."
-            ) {
+            SettingsSection("All permissions") {
                 PermissionChecklist()
                     .settingsRowInsets()
                     .settingsAnchor(.permissionList)
@@ -176,7 +173,7 @@ struct SettingsPermissionsPane: View {
     private var repairSection: some View {
         SettingsSection(
             "Still not working?",
-            footer: "Changing HeyMate's signing identity can require new macOS approval. Ordinary local updates keep the installed signer. Reset is a last resort if enabling the installed app still fails."
+            footer: "Reset only if enabling HeyMate in System Settings still fails."
         ) {
             SettingsRow(
                 SettingsItem.repairShortcuts.title,

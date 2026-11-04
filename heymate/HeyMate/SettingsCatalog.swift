@@ -64,26 +64,6 @@ enum DesktopSettingsTab: String, CaseIterable, Identifiable {
         }
     }
 
-    /// The one line under the page title: what this section is for.
-    var subtitle: String {
-        switch self {
-        case .general:
-            return "How HeyMate looks, starts, and stays up to date."
-        case .shortcuts:
-            return "The keys that summon HeyMate from anywhere on your Mac."
-        case .voice:
-            return "Choose how HeyMate sounds and how fast it talks."
-        case .notch:
-            return "Coding usage, reset times, and agent activity."
-        case .brain:
-            return "Pick a subscription, a model, and how hard it thinks."
-        case .permissions:
-            return "What macOS lets HeyMate do, and how to fix it when something stops working."
-        case .privacy:
-            return "What HeyMate sees, what it keeps, and how to erase it."
-        }
-    }
-
     var symbolName: String {
         switch self {
         case .general: return "gearshape"

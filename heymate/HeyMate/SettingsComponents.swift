@@ -129,10 +129,6 @@ struct SettingsPage<Content: View>: View {
                 .tracking(-0.5)
                 .foregroundColor(DS.Colors.textPrimary)
                 .accessibilityAddTraits(.isHeader)
-            Text(tab.subtitle)
-                .font(DS.Fonts.bodyLarge)
-                .foregroundColor(DS.Colors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.bottom, DS.Spacing.xs)
     }

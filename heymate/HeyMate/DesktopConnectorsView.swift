@@ -37,20 +37,7 @@ struct DesktopConnectorsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Integrations").font(DS.Fonts.pageTitle).foregroundStyle(DS.Colors.textPrimary)
-                    Text("Your saved HeyMate connections.")
-                        .font(DS.Fonts.bodyLarge).foregroundStyle(DS.Colors.textSecondary)
-                }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("HeyMate Agent integrations").font(DS.Fonts.control).fontWeight(.semibold)
-                        Text("Enabled connections reach the HeyMate harness through a tool bridge scoped to this turn. Account access and action approvals stay in HeyMate.")
-                            .font(DS.Fonts.caption).foregroundStyle(DS.Colors.textSecondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(16)
-                    .background(DS.Colors.surface1, in: RoundedRectangle(cornerRadius: 16))
+                Text("Integrations").font(DS.Fonts.pageTitle).foregroundStyle(DS.Colors.textPrimary)
 
                 HStack(spacing: 10) {
                     searchField
@@ -265,7 +252,7 @@ struct DesktopConnectorsView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Want Gmail, Slack, Notion, and more?")
                         .font(DS.Fonts.headline)
-                    Text("For now these need a free key from Composio, a service that handles signing in to web apps. Paste it below. Your app logins stay with Composio, not HeyMate.")
+                    Text("Paste a free Composio key below. Your app logins stay with Composio.")
                         .font(DS.Fonts.caption)
                         .foregroundColor(DS.Colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -283,7 +270,7 @@ struct DesktopConnectorsView: View {
     private var composioKeySection: some View {
         if composioConnections.isConfigured {
             VStack(alignment: .leading, spacing: 10) {
-                sectionHeader(title: "Composio key", subtitle: "What the web apps above sign in with")
+                sectionHeader(title: "Composio key")
                 ComposioKeyRow(companionManager: companionManager)
                     .dsSurface(.row)
             }
@@ -357,7 +344,7 @@ struct DesktopConnectorsView: View {
         let savedCustomServers = listedCustomMCPConnectors
 
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(title: "Custom", subtitle: "Bring tools HeyMate can inspect before use")
+            sectionHeader(title: "Custom")
 
             HStack(alignment: .top, spacing: 10) {
                 if customMCPConnector != nil {
@@ -438,7 +425,7 @@ struct DesktopConnectorsView: View {
             Label("HTTP APIs need a contract", systemImage: "curlybraces.square")
                 .font(DS.Fonts.title)
 
-            Text("A base URL and API key do not describe available operations, parameters, or risk. HeyMate will not guess those details.")
+            Text("A base URL and key don't say what an API can do, so HeyMate won't guess.")
                 .font(DS.Fonts.body)
                 .foregroundColor(DS.Colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -449,7 +436,7 @@ struct DesktopConnectorsView: View {
                 requirementRow("Risk review", detail: "Writes, sends, and deletes stay approval-gated.")
             }
 
-            Text("Available now: connect an MCP server that wraps your API. Native OpenAPI import remains disabled until schema validation and risk mapping ship.")
+            Text("For now, connect an MCP server that wraps your API.")
                 .font(DS.Fonts.caption)
                 .foregroundColor(DS.Colors.warningText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -483,16 +470,11 @@ struct DesktopConnectorsView: View {
         return connectors.filter { matchingIDs.contains($0.id) }
     }
 
-    private func sectionHeader(title: String, subtitle: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(title)
-                .font(DS.Fonts.title)
-                .foregroundColor(DS.Colors.textPrimary)
-            Text(subtitle)
-                .font(DS.Fonts.caption)
-                .foregroundColor(DS.Colors.textTertiary)
-            Spacer(minLength: 0)
-        }
+    private func sectionHeader(title: String) -> some View {
+        Text(title)
+            .font(DS.Fonts.title)
+            .foregroundColor(DS.Colors.textPrimary)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func connect(_ connector: Connector) {
@@ -613,7 +595,7 @@ struct DesktopConnectorsView: View {
             Text("Connect \(connector.displayName)")
                 .font(DS.Fonts.title)
 
-            Text("HeyMate stores this in a private file only your Mac account can read and passes it to the server as `\(ConnectorRuntime.environmentVariableName(forConnectorID: connector.id))`. It is never sent anywhere else.")
+            Text("Kept on this Mac and sent only to this server.")
                 .font(DS.Fonts.body)
                 .foregroundColor(DS.Colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)

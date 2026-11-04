@@ -70,7 +70,7 @@ struct MateAgentSetupPane: View {
 
             SettingsSection("Model") {
                 if provider == "openai-codex" {
-                    SettingsRow("ChatGPT models", subtitle: "Check your account for available models and speeds.") {
+                    SettingsRow("ChatGPT models") {
                         Button {
                             Task { await setup.check(configuration, refresh: true); reflectSavedChoice() }
                         } label: { Label(busy ? "Refreshing…" : "Refresh models", systemImage: "arrow.clockwise") }
@@ -84,7 +84,7 @@ struct MateAgentSetupPane: View {
                             .frame(width: DS.SettingsLayout.pickerWidth)
                     }
                 } else if connected, !models.isEmpty {
-                    SettingsRow("Model", subtitle: "Newer models are listed first.") {
+                    SettingsRow("Model") {
                         DSMenuPicker(accessibilityTitle: "Model", selection: $model,
                                      options: models.map { DSMenuOption(value: $0, title: selected?.modelNames[$0] ?? $0) },
                                      placeholder: "Choose a model", width: 240)
@@ -213,13 +213,13 @@ struct MateAgentSetupPane: View {
 
     @ViewBuilder private var signInRow: some View {
         if connected && subscription.userCode == nil && subscription.verificationURL == nil {
-            SettingsRow("Signed in to \(providerName)", subtitle: "Your plan answers HeyMate. No API key needed.") {
+            SettingsRow("Signed in to \(providerName)") {
                 Button("Switch account") { startSignIn() }
                     .dsCapsuleButtonStyle(.secondary).disabled(busy)
             }
         } else if subscription.userCode == nil && subscription.verificationURL == nil {
             SettingsRow("Sign in with \(providerName)",
-                        subtitle: "Opens \(providerName) in your browser. Uses your plan, no API key.") {
+                        subtitle: "Uses your plan. No API key needed.") {
                 if subscription.busy {
                     ProgressView().controlSize(.small)
                 } else {

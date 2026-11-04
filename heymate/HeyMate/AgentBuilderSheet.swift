@@ -51,7 +51,7 @@ struct AgentBuilderSheet: View {
                 Text("New agent")
                     .font(DS.Fonts.hero)
                     .foregroundColor(DS.Colors.textPrimary)
-                Text("Say what it should do for you. HeyMate drafts how it works, and you can change anything before it is made.")
+                Text("Say what it should do. You can change anything before it's made.")
                     .font(DS.Fonts.body)
                     .foregroundColor(DS.Colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)

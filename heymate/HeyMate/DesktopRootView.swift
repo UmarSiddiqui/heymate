@@ -387,7 +387,7 @@ struct DesktopRootView: View {
 /// every desktop section so they cannot drift apart visually.
 struct DesktopPage<Content: View>: View {
     let title: String
-    let subtitle: String
+    var subtitle: String?
     /// Optional trailing control in the header (a "+" or a search field).
     var accessory: AnyView?
     @ViewBuilder var content: () -> Content
@@ -400,10 +400,12 @@ struct DesktopPage<Content: View>: View {
                         .font(DS.Fonts.pageTitle)
                         .tracking(-0.5)
                         .foregroundColor(DS.Colors.textPrimary)
-                    Text(subtitle)
-                        .font(DS.Fonts.body)
-                        .foregroundColor(DS.Colors.textSecondary)
-                        .lineLimit(2)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(DS.Fonts.body)
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .lineLimit(2)
+                    }
                 }
                 Spacer(minLength: 12)
                 if let accessory { accessory }
