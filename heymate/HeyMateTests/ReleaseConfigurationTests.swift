@@ -64,3 +64,73 @@ struct SupportLinksTests {
         #expect((info["SUScheduledCheckInterval"] as? Int ?? 0) <= 86_400)
     }
 }
+
+
+struct AppUpdateReminderTests {
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+    private let available = AppUpdateReminder(version: "1.4", build: "140", isReadyToInstall: false)
+
+    @Test func snoozeExpiresAtDeadline() {
+        let snooze = AppUpdateReminderSnooze(reminderID: available.id, until: now.addingTimeInterval(86_400))
+        #expect(snooze.hides(available, at: now))
+        #expect(snooze.hides(available, at: now.addingTimeInterval(86_399)))
+        #expect(!snooze.hides(available, at: now.addingTimeInterval(86_400)))
+    }
+
+    @Test func aNewBuildWithTheSameDisplayVersionBypassesSnooze() {
+        let snooze = AppUpdateReminderSnooze(reminderID: available.id, until: now.addingTimeInterval(86_400))
+        let newer = AppUpdateReminder(version: "1.4", build: "141", isReadyToInstall: false)
+        #expect(!snooze.hides(newer, at: now))
+    }
+
+    @Test func finishedDownloadGetsItsOwnRestartReminder() {
+        let snooze = AppUpdateReminderSnooze(reminderID: available.id, until: now.addingTimeInterval(86_400))
+        let ready = AppUpdateReminder(version: "1.4", build: "140", isReadyToInstall: true)
+        #expect(!snooze.hides(ready, at: now))
+        let restartSnooze = AppUpdateReminderSnooze(reminderID: ready.id, until: now.addingTimeInterval(86_400))
+        #expect(restartSnooze.hides(ready, at: now))
+    }
+}
+
+
+@MainActor
+struct AppUpdateReminderLifecycleTests {
+    private let available = AppUpdateReminder(version: "1.4", build: "140", isReadyToInstall: false)
+
+    @Test func dismissedManualUpdateClearsReminder() {
+        let suite = "HeyMateUpdateTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let controller = AppUpdateController(infoDictionary: [:], defaults: defaults)
+        controller.showReminder(available)
+        controller.finishReminderSession()
+        #expect(controller.reminder == nil)
+    }
+
+    @Test func automaticInstallOnQuitKeepsRestartReminder() {
+        let suite = "HeyMateUpdateTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let controller = AppUpdateController(infoDictionary: [:], defaults: defaults)
+        let ready = AppUpdateReminder(version: "1.4", build: "140", isReadyToInstall: true)
+        controller.showReminder(ready, installsOnQuit: true)
+        controller.finishReminderSession()
+        #expect(controller.reminder == ready)
+    }
+
+    @Test func snoozeSurvivesControllerRecreationWithoutChangingUpdatePreferences() {
+        let suite = "HeyMateUpdateTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let controller = AppUpdateController(infoDictionary: [:], defaults: defaults)
+        controller.showReminder(available)
+        controller.remindLater()
+        let restored = AppUpdateController(infoDictionary: [:], defaults: defaults)
+        #expect(restored.reminderSnooze?.hides(available, at: Date()) == true)
+        #expect((restored.reminderSnooze?.until.timeIntervalSinceNow ?? 0) > 86_390)
+        // Snoozing affects inline reminders only; it doesn't disable Sparkle
+        // or write Sparkle's own automatic check/download preferences.
+        #expect(defaults.object(forKey: "SUEnableAutomaticChecks") == nil)
+        #expect(defaults.object(forKey: "SUAutomaticallyUpdate") == nil)
+    }
+}

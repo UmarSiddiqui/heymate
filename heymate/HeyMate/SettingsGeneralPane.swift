@@ -111,6 +111,7 @@ struct SettingsGeneralPane: View {
 
     private var updatesSection: some View {
         SettingsSection("Updates", footer: "Version \(updateController.displayedVersion).") {
+            AppUpdateReminderView()
             SettingsRow(
                 SettingsItem.softwareUpdates.title,
                 subtitle: lastUpdateCheckDescription,
@@ -139,9 +140,18 @@ struct SettingsGeneralPane: View {
             if updateController.isReady {
                 SettingsToggleRow(
                     "Check automatically",
-                    subtitle: "Download new versions in the background.",
+                    subtitle: "Check for new versions every six hours and remind me when one is available.",
                     isOn: $updateController.automaticallyChecksForUpdates
                 )
+                SettingsDivider()
+                SettingsToggleRow(
+                    "Automatically download and install updates",
+                    subtitle: updateController.automaticallyChecksForUpdates
+                        ? "Download in the background and install when HeyMate quits. You can also choose to restart sooner."
+                        : "Turn on Check automatically to download and install updates.",
+                    isOn: $updateController.automaticallyDownloadsUpdates
+                )
+                .disabled(!updateController.allowsAutomaticUpdates)
             } else {
                 SettingsInlineHelp(updateAvailabilityDescription, tone: updateAvailabilityTone)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -257,5 +267,41 @@ struct SettingsAccentSwatches: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(SettingsItem.accentColor.title)
+    }
+}
+
+
+/// Shared by the notch and Settings so updates remain discoverable without
+/// opening a separate window or requesting notification permission.
+struct AppUpdateReminderView: View {
+    @ObservedObject private var controller = AppUpdateController.shared
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            if let reminder = controller.reminder,
+               controller.reminderSnooze?.hides(reminder, at: context.date) != true {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(reminder.title, systemImage: "arrow.down.circle")
+                        .font(DS.Fonts.caption.weight(.semibold))
+                    Text(reminder.isReadyToInstall
+                         ? "Restart to finish updating. HeyMate will briefly close."
+                         : "Get the latest improvements and fixes.")
+                        .font(DS.Fonts.caption)
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 12) {
+                        Button(reminder.isReadyToInstall ? "Review and restart" : "Update now") {
+                            controller.checkForUpdates()
+                        }
+                        .dsCapsuleButtonStyle(.secondary)
+                        .disabled(!controller.canCheckForUpdates)
+                        Button("Remind tomorrow") { controller.remindLater() }
+                            .dsCapsuleButtonStyle(.quiet)
+                    }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .contain)
+            }
+        }
     }
 }

@@ -293,6 +293,7 @@ struct NotchExpandedView: View {
                 .frame(height: max(occludedTopInset, 24))
 
             VStack(spacing: 0) {
+                AppUpdateReminderView()
                 // Settings and the model picker live in the app window only,
                 // so every engine gets the same full-size controls there.
                 Group {

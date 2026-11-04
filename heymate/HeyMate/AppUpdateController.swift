@@ -43,9 +43,26 @@ nonisolated struct SparkleUpdateConfiguration: Equatable, Sendable {
     }
 }
 
-/// Wraps `SPUStandardUpdaterController` and republishes the one piece of
-/// updater state the UI needs — whether a check is currently allowed — so a
-/// SwiftUI button can disable itself while a check is already running.
+nonisolated struct AppUpdateReminder: Equatable, Sendable {
+    let version: String
+    let build: String
+    let isReadyToInstall: Bool
+
+    var id: String { "\(build):\(isReadyToInstall)" }
+    var title: String { isReadyToInstall ? "HeyMate \(version) is ready to install" : "HeyMate \(version) is available" }
+}
+
+nonisolated struct AppUpdateReminderSnooze: Equatable, Sendable {
+    let reminderID: String
+    let until: Date
+
+    func hides(_ reminder: AppUpdateReminder, at date: Date) -> Bool {
+        reminder.id == reminderID && date < until
+    }
+}
+
+/// Keeps SwiftUI controls in sync with Sparkle, which owns update preferences
+/// and the signed download/install flow.
 @MainActor
 final class AppUpdateController: ObservableObject {
 
@@ -65,6 +82,22 @@ final class AppUpdateController: ObservableObject {
         }
     }
 
+    @Published var automaticallyDownloadsUpdates: Bool = false {
+        didSet {
+            guard let updater = updaterController?.updater,
+                  updater.automaticallyDownloadsUpdates != automaticallyDownloadsUpdates else { return }
+            updater.automaticallyDownloadsUpdates = automaticallyDownloadsUpdates
+        }
+    }
+
+    @Published private(set) var allowsAutomaticUpdates = false
+    @Published private(set) var reminder: AppUpdateReminder?
+    @Published private(set) var reminderSnooze: AppUpdateReminderSnooze?
+    private var installsOnQuit = false
+    private let defaults: UserDefaults
+    private static let snoozeIDKey = "HeyMateUpdateReminderID"
+    private static let snoozeDateKey = "HeyMateUpdateReminderUntil"
+
     /// The last successful update check, for the "Last checked" footnote.
     @Published private(set) var lastUpdateCheckDate: Date?
 
@@ -74,7 +107,7 @@ final class AppUpdateController: ObservableObject {
 
     private var updaterController: SPUStandardUpdaterController?
     private let userDriverDelegate = BackgroundAppUpdateDriverDelegate()
-    private var canCheckObservation: AnyCancellable?
+    private var observations = Set<AnyCancellable>()
     private let hasReleaseConfiguration: Bool
 
     /// False for ordinary source/Debug builds where release.sh did not embed
@@ -85,12 +118,15 @@ final class AppUpdateController: ObservableObject {
 
     var isReady: Bool { availability == .ready }
 
-    private init() {
-        let isConfigured = SparkleUpdateConfiguration.resolve(
-            from: Bundle.main.infoDictionary ?? [:]
-        ) != nil
+    init(infoDictionary: [String: Any] = Bundle.main.infoDictionary ?? [:], defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        let isConfigured = SparkleUpdateConfiguration.resolve(from: infoDictionary) != nil
         hasReleaseConfiguration = isConfigured
         availability = isConfigured ? .notStarted : .sourceBuild
+        if let id = defaults.string(forKey: Self.snoozeIDKey),
+           let until = defaults.object(forKey: Self.snoozeDateKey) as? Date {
+            reminderSnooze = AppUpdateReminderSnooze(reminderID: id, until: until)
+        }
     }
 
     /// Starts the updater. Called once from the app delegate on launch.
@@ -101,9 +137,10 @@ final class AppUpdateController: ObservableObject {
         guard isConfigured else { return }
         availability = .starting
 
+        userDriverDelegate.owner = self
         let updaterController = SPUStandardUpdaterController(
             startingUpdater: false,
-            updaterDelegate: nil,
+            updaterDelegate: userDriverDelegate,
             userDriverDelegate: userDriverDelegate
         )
         self.updaterController = updaterController
@@ -118,21 +155,57 @@ final class AppUpdateController: ObservableObject {
             return
         }
 
-        automaticallyChecksForUpdates = updaterController.updater.automaticallyChecksForUpdates
-        lastUpdateCheckDate = updaterController.updater.lastUpdateCheckDate
         availability = .ready
-
-        canCheckObservation = updaterController.updater
-            .publisher(for: \.canCheckForUpdates)
+        let updater = updaterController.updater
+        updater.publisher(for: \.canCheckForUpdates)
             .receive(on: RunLoop.main)
-            .sink { [weak self] canCheck in
-                self?.canCheckForUpdates = canCheck
-            }
+            .sink { [weak self] in self?.canCheckForUpdates = $0 }
+            .store(in: &observations)
+        updater.publisher(for: \.automaticallyChecksForUpdates)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.automaticallyChecksForUpdates = $0 }
+            .store(in: &observations)
+        updater.publisher(for: \.automaticallyDownloadsUpdates)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.automaticallyDownloadsUpdates = $0 }
+            .store(in: &observations)
+        updater.publisher(for: \.allowsAutomaticUpdates)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.allowsAutomaticUpdates = $0 }
+            .store(in: &observations)
+        updater.publisher(for: \.lastUpdateCheckDate)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.lastUpdateCheckDate = $0 }
+            .store(in: &observations)
+    }
+
+    func remindLater() {
+        guard let reminder else { return }
+        let until = Date().addingTimeInterval(24 * 60 * 60)
+        reminderSnooze = AppUpdateReminderSnooze(reminderID: reminder.id, until: until)
+        defaults.set(reminder.id, forKey: Self.snoozeIDKey)
+        defaults.set(until, forKey: Self.snoozeDateKey)
+    }
+
+    func showReminder(_ reminder: AppUpdateReminder, installsOnQuit: Bool = false) {
+        self.installsOnQuit = installsOnQuit
+        self.reminder = reminder
+    }
+
+    func finishReminderSession() {
+        // An automatic download can finish its session while installation is
+        // still waiting for quit. Keep that restart reminder visible.
+        if !installsOnQuit { clearReminder() }
+    }
+
+    func clearReminder() {
+        installsOnQuit = false
+        reminder = nil
     }
 
     /// Shows Sparkle's own update UI. No-op when the updater never started.
     func checkForUpdates() {
-        guard let updaterController else { return }
+        guard canCheckForUpdates, let updaterController else { return }
         updaterController.updater.checkForUpdates()
         lastUpdateCheckDate = updaterController.updater.lastUpdateCheckDate
     }
@@ -147,21 +220,49 @@ final class AppUpdateController: ObservableObject {
 }
 
 
-/// HeyMate has no Dock icon, so Sparkle's update window can open behind
-/// whatever is in front and be missed. This brings HeyMate forward whenever
-/// Sparkle shows something, and lets Sparkle use its gentle reminders for
-/// scheduled checks instead of a window that steals focus at a bad moment.
+/// Scheduled checks use an inline reminder instead of stealing focus from
+/// another app. Explicit checks still use Sparkle's full update window.
 @MainActor
-final class BackgroundAppUpdateDriverDelegate: NSObject, SPUStandardUserDriverDelegate {
+final class BackgroundAppUpdateDriverDelegate: NSObject, @MainActor SPUStandardUserDriverDelegate, SPUUpdaterDelegate {
+    weak var owner: AppUpdateController?
     var supportsGentleScheduledUpdateReminders: Bool { true }
+
+    func standardUserDriverShouldHandleShowingScheduledUpdate(
+        _ update: SUAppcastItem, andInImmediateFocus immediateFocus: Bool
+    ) -> Bool {
+        // Critical updates keep Sparkle's immediate presentation.
+        update.isCriticalUpdate
+    }
 
     func standardUserDriverWillHandleShowingUpdate(
         _ handleShowingUpdate: Bool,
         forUpdate update: SUAppcastItem,
         state: SPUUserUpdateState
     ) {
-        guard handleShowingUpdate else { return }
-        NSApp.activate(ignoringOtherApps: true)
+        if handleShowingUpdate {
+            NSApp.activate(ignoringOtherApps: true)
+        } else {
+            owner?.showReminder(AppUpdateReminder(version: update.displayVersionString,
+                                                   build: update.versionString,
+                                                   isReadyToInstall: state.stage != .notDownloaded))
+        }
+    }
+
+    func standardUserDriverWillFinishUpdateSession() {
+        owner?.finishReminderSession()
+    }
+
+    func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem,
+                 immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
+        owner?.showReminder(AppUpdateReminder(version: item.displayVersionString,
+                                               build: item.versionString,
+                                               isReadyToInstall: true), installsOnQuit: true)
+        // Sparkle retains control of scheduling and installation on normal quit.
+        return false
+    }
+
+    func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
+        owner?.clearReminder()
     }
 
     func standardUserDriverWillShowModalAlert() {
