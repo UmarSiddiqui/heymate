@@ -122,22 +122,11 @@ struct ChatMessageActionBar: View {
     var onRegenerate: (() -> Void)?
     let onDelete: () -> Void
 
-    @State private var didCopy = false
-
     var body: some View {
         HStack(spacing: 2) {
-            ChatMessageActionButton(
-                systemImage: didCopy ? "checkmark" : "doc.on.doc",
-                label: didCopy ? "Copied" : "Copy"
-            ) {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(text, forType: .string)
-                didCopy = true
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 1_400_000_000)
-                    didCopy = false
-                }
-            }
+            // A reply copies as readable markdown: OpenUI blocks become text
+            // and tables, never their source.
+            ChatCopyButton(label: "Copy") { isUser ? text : ChatReplyText.readableMarkdown(text) }
             if let onEdit {
                 ChatMessageActionButton(systemImage: "pencil", label: "Edit message", action: onEdit)
             }
@@ -163,5 +152,22 @@ struct ChatMessageHoverRow<Content: View>: View {
         content(isHovered)
             .contentShape(Rectangle())
             .onHover { isHovered = $0 }
+    }
+}
+
+enum ChatReplyClipboard {
+    static func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+extension View {
+    /// Right-click copy choices for an assistant reply.
+    func chatReplyCopyMenu(_ reply: String) -> some View {
+        contextMenu {
+            Button("Copy") { ChatReplyClipboard.copy(ChatReplyText.readableMarkdown(reply)) }
+            Button("Copy as Plain Text") { ChatReplyClipboard.copy(ChatReplyText.plainText(reply)) }
+        }
     }
 }

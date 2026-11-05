@@ -134,8 +134,9 @@ nonisolated enum GuidedReplyParser {
     }
 
     /// Spoken and captioned words carry no markdown: **bold**, __bold__ and `code` become their words.
+    /// An ```openui block becomes its words, so a caption never shows its source.
     static func strippingMarkdownEmphasis(_ text: String) -> String {
-        text.replacingOccurrences(of: #"\*\*([^*]+)\*\*|__([^_]+)__|`([^`]+)`"#, with: "$1$2$3", options: .regularExpression)
+        (text.contains("```openui") ? ChatReplyText.readableMarkdown(text) : text).replacingOccurrences(of: #"\*\*([^*]+)\*\*|__([^_]+)__|`([^`]+)`"#, with: "$1$2$3", options: .regularExpression)
     }
 
     static func strippingControlTags(from text: String) -> String {

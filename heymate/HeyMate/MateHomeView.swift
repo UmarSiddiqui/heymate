@@ -1377,6 +1377,14 @@ struct MateHomeView: View {
                     .padding(.bottom, 10 + composerDockHeight)
                 }
             }
+            // Buttons inside an OpenUI reply send their words as the next
+            // message, the same as a follow-up chip.
+            .environment(\.chatReplyAction) { action in
+                switch action {
+                case .send(let text): _ = companionManager.sendTypedMessage(text)
+                case .open(let url): NSWorkspace.shared.open(url)
+                }
+            }
         }
     }
 
@@ -1619,6 +1627,8 @@ struct MateHomeView: View {
                         CueWordReveal(text: message.visibleText, bornAt: message.createdAt) { visibleWords in
                             ChatMarkdownText(text: message.visibleText, visibleWordCount: visibleWords)
                         }
+                        .chatReplyBubble()
+                        .chatReplyCopyMenu(message.visibleText)
                         .cueMotion(.messageReceived, bornAt: message.createdAt, anchor: .topLeading)
                         .cueMotion(.question, part: .item(0), bornAt: message.createdAt, anchor: .topLeading)
                         if let chrome = companionManager.harnessReplyChrome[message.id] {
@@ -1671,6 +1681,7 @@ struct MateHomeView: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 6) {
                 ChatMarkdownText(text: companionManager.streamingAssistantText)
+                    .chatReplyBubble()
                 Label("Replying", systemImage: "ellipsis")
                     .font(DS.Fonts.micro)
                     .foregroundColor(DS.Colors.textTertiary)
