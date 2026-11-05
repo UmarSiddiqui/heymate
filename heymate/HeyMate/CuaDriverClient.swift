@@ -38,6 +38,10 @@ final class CuaDriverClient {
     private var nextID = 0
     private var pending: [Int: CheckedContinuation<[String: Any], Error>] = [:]
     private var started = false
+    private var stopping = false
+    private let cleanupOnStop: Bool
+    private let requestTimeout: Duration
+    private var windowReadContract = CuaDriverWindowReadContract(inputSchema: [:])
 
     static let embeddedArguments = ["mcp", "--direct", "--embedded", "--no-overlay"]
     static let environment = [
@@ -55,7 +59,9 @@ final class CuaDriverClient {
                 .first { FileManager.default.isExecutableFile(atPath: $0.path) }
     }
 
-    init(executable: URL) {
+    init(executable: URL, timeout: Duration? = nil, cleanupOnStop: Bool = false) {
+        self.cleanupOnStop = cleanupOnStop
+        requestTimeout = timeout ?? Self.callTimeout
         process.executableURL = executable
         process.arguments = Self.embeddedArguments
         var environment = ProcessInfo.processInfo.environment
@@ -67,6 +73,7 @@ final class CuaDriverClient {
     }
 
     func start() async throws {
+        guard !stopping else { throw CancellationError() }
         guard !started else { return }
         started = true
         output.fileHandleForReading.readabilityHandler = { [weak self] handle in
@@ -83,11 +90,30 @@ final class CuaDriverClient {
             "clientInfo": ["name": "heymate-drive", "version": "1"],
         ])
         send(["jsonrpc": "2.0", "method": "notifications/initialized"])
+        // Negotiate the actual installed surface: older drivers return both
+        // tree forms by default and reject the new tree_format argument.
+        var cursor: String?
+        repeat {
+            let listing = try await request("tools/list", cursor.map { ["cursor": $0] } ?? [:])
+            if let tools = listing["tools"] as? [[String: Any]],
+               let windowTool = tools.first(where: { $0["name"] as? String == "get_window_state" }),
+               let schema = windowTool["inputSchema"] as? [String: Any] {
+                windowReadContract = CuaDriverWindowReadContract(inputSchema: schema)
+                break
+            }
+            cursor = listing["nextCursor"] as? String
+        } while cursor != nil
     }
 
     func stop() {
+        guard !stopping else { return }
+        stopping = true
         output.fileHandleForReading.readabilityHandler = nil
-        if process.isRunning { process.terminate() }
+        if cleanupOnStop {
+            // Cua tears down owned Chromium profiles on transport EOF. SIGTERM
+            // skips that lifecycle cleanup and leaves the browser behind.
+            try? input.fileHandleForWriting.close()
+        } else if process.isRunning { process.terminate() }
         failAll(CancellationError())
     }
 
@@ -95,11 +121,14 @@ final class CuaDriverClient {
     /// A tool-level error becomes `toolFailed` with the driver's own words.
     @discardableResult
     func call(_ tool: String, _ arguments: [String: Any]) async throws -> [String: Any] {
+        let arguments = tool == "get_window_state" ? windowReadContract.arguments(arguments) : arguments
         let result = try await request("tools/call", ["name": tool, "arguments": arguments])
         let structured = result["structuredContent"] as? [String: Any] ?? [:]
-        if result["isError"] as? Bool == true {
+        if result["isError"] as? Bool == true || structured["effect"] as? String == "refused"
+            || ["error", "refused"].contains(structured["status"] as? String ?? "") {
             let text = (result["content"] as? [[String: Any]])?.compactMap { $0["text"] as? String }.joined(separator: " ")
-            throw CuaDriverClientError.toolFailed(text?.isEmpty == false ? text! : "\(tool) failed")
+            let summary = structured["summary"] as? String
+            throw CuaDriverClientError.toolFailed(summary ?? (text?.isEmpty == false ? text! : "\(tool) failed"))
         }
         return structured
     }
@@ -107,21 +136,35 @@ final class CuaDriverClient {
     // MARK: Wire
 
     private func request(_ method: String, _ params: [String: Any]) async throws -> [String: Any] {
+        try Task.checkCancellation()
+        guard !stopping else { throw CancellationError() }
         guard process.isRunning || !started else { throw CuaDriverClientError.exited }
         nextID += 1
         let id = nextID
         let timeout = Task { [weak self] in
-            try? await Task.sleep(for: Self.callTimeout)
-            self?.resolve(id, with: .failure(CuaDriverClientError.toolFailed("\(method) timed out")))
+            guard let self else { return }
+            try? await Task.sleep(for: self.requestTimeout)
+            guard !Task.isCancelled, self.pending[id] != nil else { return }
+            self.resolve(id, with: .failure(CuaDriverClientError.toolFailed("\(method) timed out")))
+            // This direct, embedded runtime belongs to one drive. Stopping
+            // only the waiter would leave a timed-out action running unseen.
+            self.stop()
         }
         defer { timeout.cancel() }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
                 pending[id] = continuation
                 send(["jsonrpc": "2.0", "id": id, "method": method, "params": params])
             }
         } onCancel: {
-            Task { @MainActor [weak self] in self?.resolve(id, with: .failure(CancellationError())) }
+            Task { @MainActor [weak self] in
+                guard let self, self.pending[id] != nil else { return }
+                self.stop()
+            }
         }
     }
 

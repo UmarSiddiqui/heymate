@@ -15,6 +15,7 @@
 
 import AppKit
 import Foundation
+import HeyMateComputerUse
 
 @MainActor
 final class CuaDriveAppDriver: DriveAppDriving {
@@ -28,6 +29,7 @@ final class CuaDriveAppDriver: DriveAppDriving {
     /// Cua's element token for each of our tokens, last snapshot only.
     private var tokens: [Int: String] = [:]
     private var windowID: Int?
+    private var nativeTextTokens: Set<String> = []
     private var processIdentifier: pid_t = 0
 
     /// Elements per snapshot, before HeyMate's own prompt cap.
@@ -71,6 +73,7 @@ final class CuaDriveAppDriver: DriveAppDriving {
                 "include_screenshot": false,
                 "max_elements": Self.maximumElements,
             ])
+            nativeTextTokens = CuaDriverTextReplacementPolicy.nativeTextTokens(in: state)
             return Self.project(state, processIdentifier: processIdentifier, tokens: &tokens)
         } catch {
             HeyMateLog.log("⚠️ Drive: Cua snapshot failed — \(error.localizedDescription)")
@@ -173,19 +176,30 @@ final class CuaDriveAppDriver: DriveAppDriving {
 
         case .type(let token, let modelText, let submit):
             var text = modelText
+            var replacedNatively = false
             var arguments: [String: Any] = ["pid": pid]
             if let token {
                 let (element, cuaToken) = try target(token, in: snapshot)
                 if let supplied = DriveEngine.suppliedValue(for: element, values: request.values) { text = supplied }
                 point(at: element)
                 arguments["element_token"] = cuaToken
-                // Replace what is there rather than appending to it.
-                try await client.call("hotkey", ["pid": pid, "keys": ["cmd", "a"], "element_token": cuaToken])
+                if nativeTextTokens.contains(cuaToken) {
+                    // Native AppKit fields may ignore background Cmd+A even
+                    // when the hotkey tool succeeds. Replace semantically and
+                    // require Cua's value readback, never append after uncertainty.
+                    let result = try await client.call("set_value", ["pid": pid, "element_token": cuaToken, "value": text])
+                    guard CuaDriverTextReplacementPolicy.confirmsReplacement(result) else {
+                        throw DriveActionError.unsupported("native text replacement was not confirmed")
+                    }
+                    replacedNatively = true
+                } else {
+                    try await client.call("hotkey", ["pid": pid, "keys": ["cmd", "a"], "element_token": cuaToken])
+                }
             } else if let windowID {
                 arguments["window_id"] = windowID
             }
             arguments["text"] = text
-            try await client.call("type_text", arguments)
+            if !replacedNatively { try await client.call("type_text", arguments) }
             if submit {
                 var keyArguments: [String: Any] = ["pid": pid, "key": "return"]
                 if let cuaToken = arguments["element_token"] { keyArguments["element_token"] = cuaToken }

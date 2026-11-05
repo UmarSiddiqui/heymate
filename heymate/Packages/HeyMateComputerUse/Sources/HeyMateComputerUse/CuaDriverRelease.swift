@@ -35,12 +35,12 @@ public struct CuaDriverRelease: Equatable, Sendable {
         self.installerSHA256 = installerSHA256
     }
 
-    /// Reviewed 2026-10-09. The driver binary is Developer ID signed by
+    /// Reviewed 2026-11-05. The driver binary is Developer ID signed by
     /// Cua AI, Inc. (YCK386LBJ7). Bump all three together.
     public static let pinned = CuaDriverRelease(
-        version: CuaDriverVersion(major: 0, minor: 34, patch: 0),
-        installerURL: URL(string: "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.34.0/_install-rust.sh")!,
-        installerSHA256: "06f239c68ef03d4b57cd04a0eebe228b627003b1856a764abff431600ea2a9d7"
+        version: CuaDriverVersion(major: 0, minor: 38, patch: 0),
+        installerURL: URL(string: "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.38.0/_install-rust.sh")!,
+        installerSHA256: "0be0bd269056a7c0c5b15e77ff6c64c880267d091957c97efc19103380e4aeb7"
     )
 
     /// The environment the installer runs with: the version pinned, and the

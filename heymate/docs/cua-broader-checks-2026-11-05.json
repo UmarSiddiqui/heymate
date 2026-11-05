@@ -1,0 +1,125 @@
+{
+  "native": {
+    "checks": [
+      {
+        "name": "window_capture",
+        "passed": true,
+        "dimensions": [
+          920,
+          1124
+        ],
+        "pixels_saved": false
+      },
+      {
+        "name": "return_key_submits",
+        "passed": true,
+        "delivery": "background",
+        "tool_succeeded": true
+      },
+      {
+        "name": "targeted_scroll",
+        "passed": true,
+        "delivery": "background",
+        "tool_succeeded": true
+      },
+      {
+        "name": "slider_drag",
+        "passed": true,
+        "delivery": "foreground",
+        "tool_succeeded": true
+      },
+      {
+        "name": "stale_reference_refused",
+        "passed": true
+      },
+      {
+        "name": "owned_driver_stops",
+        "passed": true
+      },
+      {
+        "name": "new_session_recovers",
+        "passed": true
+      }
+    ],
+    "passed": true,
+    "limits": [
+      "Synthetic native app; invoking-host permissions, not HeyMate's TCC identity.",
+      "Driver shutdown/restart checked; in-flight cancellation needs separate check."
+    ]
+  },
+  "cua_browser": {
+    "checks": [
+      {
+        "name": "isolated_profile_launch",
+        "passed": true
+      },
+      {
+        "name": "exact_window_binding",
+        "passed": true
+      },
+      {
+        "name": "navigate_local_fixture",
+        "passed": true
+      },
+      {
+        "name": "type_click_verified_by_page_event",
+        "passed": true
+      },
+      {
+        "name": "page_scroll_event",
+        "passed": true
+      },
+      {
+        "name": "tab_capture_in_memory",
+        "passed": true,
+        "pixels_saved": false
+      },
+      {
+        "name": "navigation_invalidates_old_ref",
+        "passed": true,
+        "refusal_code": "browser_ref_stale"
+      },
+      {
+        "name": "owned_browser_session_ends",
+        "passed": true
+      }
+    ],
+    "passed": true,
+    "limits": [
+      "Driver-owned temporary profile only; no existing Chrome profile or sign-in tested.",
+      "browser_prepare remains outside HeyMate's agent allowlist; used only by trusted test setup."
+    ]
+  },
+  "chrome_extension": {
+    "passed": true,
+    "checks": 15,
+    "command": "CHROME_PATH=<Chrome executable> node scripts/browser_live_check.mjs",
+    "limits": "Real Chrome/CDP with chrome.* adapter; not native messaging or existing sign-ins."
+  },
+  "client_regressions": {
+    "cancelled_late_effect_pre_fix": "failed as expected",
+    "cancelled_late_effect_post_fix": "passed",
+    "timeout_late_effect": "passed",
+    "structured_refusal": "passed",
+    "count": 3
+  },
+  "permissions": "Invoking host only. Canonical HeyMate grants require separate post-install checks.",
+  "post_install": {
+    "canonical_app_health": true,
+    "canonical_app_capture": true,
+    "temporary_files_created": 1,
+    "temporary_files_removed": 1,
+    "image_content_inspected": false,
+    "startup_permission_checks": {
+      "accessibility": true,
+      "inputMonitoring": true,
+      "screen": true,
+      "mic": true,
+      "screenContent": true
+    },
+    "endpoint_owner_is_canonical": true,
+    "canonical_instance_count": 1,
+    "reviewed_memory_code_present": true,
+    "verified_local_install": true
+  }
+}

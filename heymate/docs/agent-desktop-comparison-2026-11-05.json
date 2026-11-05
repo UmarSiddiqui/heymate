@@ -1,0 +1,242 @@
+{
+  "date": "2026-11-05",
+  "candidate": {
+    "name": "Vercel Agent Desktop",
+    "version": "1.2.0",
+    "source": "https://github.com/vercel-labs/agent-desktop",
+    "official_npm_integrity_verified": true,
+    "extracted_binary_hashes_verified": true
+  },
+  "baseline": {
+    "name": "Cua Driver",
+    "version": "0.38.0"
+  },
+  "method": "Two orders against the same synthetic AppKit fixture with fresh instances. Persistent local MCP on both sides. Seven snapshots per driver per run. First snapshot reported separately. The fixture independently records text, button, slider, and scroll effects.",
+  "first_run": {
+    "Cua Driver": {
+      "checks": {
+        "button_click": {
+          "passed": true,
+          "tool_accepted": true,
+          "elapsed_ms": 473.94,
+          "fixture_effect": true,
+          "error": null
+        },
+        "initial_text": {
+          "passed": true,
+          "tool_accepted": true,
+          "elapsed_ms": 337.42,
+          "fixture_effect": true,
+          "error": null
+        },
+        "replace_text": {
+          "passed": true,
+          "tool_accepted": true,
+          "elapsed_ms": 335.05,
+          "fixture_effect": true,
+          "error": null
+        },
+        "semantic_slider_set": {
+          "passed": true,
+          "tool_accepted": true,
+          "elapsed_ms": 348.76,
+          "fixture_effect": true,
+          "error": null
+        },
+        "background_scroll": {
+          "passed": true,
+          "tool_accepted": true,
+          "elapsed_ms": 220.52,
+          "fixture_effect": true,
+          "error": null
+        },
+        "closed_target_refused": {
+          "passed": true,
+          "elapsed_ms": 33.75,
+          "error": null
+        }
+      },
+      "snapshot": {
+        "samples": 7,
+        "first_ms": 156.22,
+        "warm_median_ms": 37.33,
+        "median_structured_bytes": 9526
+      }
+    },
+    "Agent Desktop": {
+      "checks": {
+        "button_click": {
+          "passed": true,
+          "tool_accepted": true,
+          "elapsed_ms": 223.9,
+          "fixture_effect": true,
+          "error": null
+        },
+        "initial_text": {
+          "passed": true,
+          "tool_accepted": true,
+          "elapsed_ms": 97.51,
+          "fixture_effect": true,
+          "error": null
+        },
+        "replace_text": {
+          "passed": true,
+          "tool_accepted": true,
+          "elapsed_ms": 88.65,
+          "fixture_effect": true,
+          "error": null
+        },
+        "semantic_slider_set": {
+          "passed": true,
+          "tool_accepted": true,
+          "elapsed_ms": 122.59,
+          "fixture_effect": true,
+          "error": null
+        },
+        "background_scroll": {
+          "passed": true,
+          "tool_accepted": true,
+          "elapsed_ms": 127.55,
+          "fixture_effect": true,
+          "error": null
+        },
+        "closed_target_refused": {
+          "passed": true,
+          "elapsed_ms": 82.27,
+          "error": "STALE_REF"
+        }
+      },
+      "snapshot": {
+        "samples": 7,
+        "first_ms": 2367.75,
+        "warm_median_ms": 232.97,
+        "median_structured_bytes": 4276
+      }
+    }
+  },
+  "reverse_order_run": {
+    "Agent Desktop": {
+      "checks": {
+        "button_click": {
+          "passed": true,
+          "tool_accepted": true,
+          "elapsed_ms": 220.93,
+          "fixture_effect": true,
+          "foreground_unchanged": true,
+          "error": null
+        },
+        "initial_text": {
+          "passed": true,
+          "tool_accepted": true,
+          "elapsed_ms": 108.54,
+          "fixture_effect": true,
+          "foreground_unchanged": true,
+          "error": null
+        },
+        "replace_text": {
+          "passed": true,
+          "tool_accepted": true,
+          "elapsed_ms": 110.91,
+          "fixture_effect": true,
+          "foreground_unchanged": true,
+          "error": null
+        },
+        "semantic_slider_set": {
+          "passed": true,
+          "tool_accepted": true,
+          "elapsed_ms": 95.67,
+          "fixture_effect": true,
+          "foreground_unchanged": true,
+          "error": null
+        },
+        "background_scroll": {
+          "passed": true,
+          "tool_accepted": true,
+          "elapsed_ms": 120.93,
+          "fixture_effect": true,
+          "foreground_unchanged": true,
+          "error": null
+        },
+        "closed_target_refused": {
+          "passed": true,
+          "elapsed_ms": 68.08,
+          "error": "STALE_REF"
+        }
+      },
+      "snapshot": {
+        "samples": 7,
+        "first_ms": 2302.36,
+        "warm_median_ms": 223.76,
+        "median_structured_bytes": 4260
+      }
+    },
+    "Cua Driver": {
+      "checks": {
+        "button_click": {
+          "passed": true,
+          "tool_accepted": true,
+          "elapsed_ms": 611.52,
+          "fixture_effect": true,
+          "foreground_unchanged": true,
+          "error": null
+        },
+        "initial_text": {
+          "passed": true,
+          "tool_accepted": true,
+          "elapsed_ms": 400.23,
+          "fixture_effect": true,
+          "foreground_unchanged": true,
+          "error": null
+        },
+        "replace_text": {
+          "passed": true,
+          "tool_accepted": true,
+          "elapsed_ms": 398.6,
+          "fixture_effect": true,
+          "foreground_unchanged": true,
+          "error": null
+        },
+        "semantic_slider_set": {
+          "passed": true,
+          "tool_accepted": true,
+          "elapsed_ms": 390.41,
+          "fixture_effect": true,
+          "foreground_unchanged": true,
+          "error": null
+        },
+        "background_scroll": {
+          "passed": true,
+          "tool_accepted": true,
+          "elapsed_ms": 214.61,
+          "fixture_effect": true,
+          "foreground_unchanged": true,
+          "error": null
+        },
+        "closed_target_refused": {
+          "passed": true,
+          "elapsed_ms": 20.42,
+          "error": null
+        }
+      },
+      "snapshot": {
+        "samples": 7,
+        "first_ms": 118.86,
+        "warm_median_ms": 37.54,
+        "median_structured_bytes": 9526
+      }
+    }
+  },
+  "candidate_session_scope": {
+    "foreign_scope_refused": true,
+    "error": "SNAPSHOT_NOT_FOUND",
+    "own_scope_still_works": true
+  },
+  "decision": "Keep Cua as the default pending broader workflow evidence. The candidate acted faster on this fixture and its compact tree was smaller, but the baseline read the window faster and had lower first-snapshot latency.",
+  "limits": [
+    "One synthetic AppKit window on one Mac. No model loop, desktop app coverage survey, or end-to-end task speed claim.",
+    "Cua returned its production-style structured and Markdown tree. Agent Desktop returned its compact interactive tree. Payload sizes measure these formats, not equivalent content or token usage.",
+    "Foreground identity sampled at the fixture immediately before and after actions in the reverse-order run. Transient changes could be missed.",
+    "Candidate permissions were attributed to the invoking host. Signed HeyMate integration and permissions were not tested.",
+    "Session-scoped references prevent reuse across candidate sessions. This does not isolate desktop data or global input."
+  ]
+}

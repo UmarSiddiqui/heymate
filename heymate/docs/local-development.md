@@ -188,3 +188,66 @@ regressions and renders production Metal pipelines on the local GPU with API
 validation, without installing or launching HeyMate. Gallery PNGs are written to
 `../output/metal/`. See `native-metal-renderer.md` for source provenance and
 remaining reference-calibration limits.
+
+## Cua driver comparisons
+
+The reviewed driver pin lives in
+`Packages/HeyMateComputerUse/Sources/HeyMateComputerUse/CuaDriverRelease.swift`.
+Change the version, installer URL, and installer SHA256 together, after checking
+the release archive and mutually compatible designated requirements. Never run
+an installer that would reset TCC to make an upgrade work.
+
+`scripts/compare_cua_drivers.py` compares two already-reviewed binaries using
+HeyMate's embedded MCP arguments. It checks tool presence and top-level input
+schemas, reads permissions with `prompt:false`, and times screen-size calls.
+It does not install anything, prompt for permissions, or capture the screen.
+Permission results belong to the invoking host, not HeyMate or the standalone
+Cua daemon. These timings do not measure agent task completion.
+
+For synthetic native-action checks, compile `scripts/fixtures/cua-comparison.swift`
+to a temporary executable and pass it with `--fixture`. The script launches a
+temporary window for each driver, clicks its counter button, types synthetic
+text, replaces the field through `set_value`, verifies the result through the fixture's own state, checks foreground
+identity before/after, and terminates only its own fixture and MCP children.
+Missing permission, missing controls, failed actions, and changed foreground
+identity fail the fixture comparison. Foreground identity checks do not detect
+every transient focus change.
+
+Run the comparator with `--baseline`, `--candidate`, and `--output`, each taking
+an absolute path. `--samples` controls read-only timing calls (default 20).
+The checked-in `cua-driver-comparison-2026-11-05.json` records the 0.34/0.38
+comparison, integrity checks, and its limits. Chrome, capture, drag, cancellation,
+and post-install HeyMate permission continuity require separate live checks.
+
+Cua 0.38 defaults to Markdown-only window trees. HeyMate negotiates
+`tree_format:"both"` when advertised so structured controls and Markdown-only
+visible text remain available. Older drivers receive no unsupported argument;
+geometry-only reads keep their existing capture behavior. New upstream tools
+do not automatically enter HeyMate's approved tool list.
+
+`--probe-legacy-replacement` additionally diagnoses the old background
+Cmd+A/`type_text` sequence, separately from the corrected-path checks. On both
+reviewed versions, the tools reported success while the fixture text was not
+replaced. Complete, native window-rooted text fields now use `set_value` and
+require confirmed value-readback evidence. Partial trees, missing ancestry,
+secure subroles, and web-area ancestors do not qualify for this native route.
+The comparison does not establish replacement correctness inside web apps.
+
+For broader native checks, compile the same fixture and run
+`python3 scripts/verify_cua_workflows.py --fixture /absolute/path/to/fixture --output /absolute/path/to/report.json`.
+This captures only the synthetic window, checks Return, targeted scrolling,
+slider drag, stale handles, and session shutdown/recovery. Native slider drag
+required foreground fallback on the tested Mac. Capture bytes stay in memory.
+`python3 scripts/verify_cua_browser.py --output /absolute/path/to/report.json`
+uses a driver-owned temporary Chrome profile and a loopback fixture, including
+page-event verification, tab capture, and stale-ref refusal. It does not touch
+the user's existing Chrome profile. Browser setup remains outside the agent
+allowlist. `node scripts/browser_live_check.mjs` separately runs the production
+extension engine against real Chrome/CDP with a `chrome.*` adapter.
+
+`bash script/test_cua_client.sh` runs the production MCP client against a delayed
+synthetic driver. Cancellation and timeout must terminate the owned embedded
+runtime so a late side effect cannot occur. A structured `effect:refused` is a
+failure even when Cua omits `isError`. These tests reproduced a late-action bug
+before the client fix. See `cua-broader-checks-2026-11-05.json` for evidence and
+permission-identity limits.
