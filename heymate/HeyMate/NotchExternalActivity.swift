@@ -45,7 +45,7 @@ nonisolated enum NotchExternalActivity {
             guard let data = try? CNReadBudget.data(url),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let record = CNClaudeSessionRecord(json: json), record.reportsStatus,
-                  !record.isFromSDK, CNProcessLiveness.isAlive(pid: record.pid, startedAt: record.startedAt),
+                  !record.isFromSDK, !CNClaudeUsageCLI.runningPIDs.contains(record.pid), CNProcessLiveness.isAlive(pid: record.pid, startedAt: record.startedAt),
                   !CNProcessLiveness.isStopped(pid: record.pid) else { return nil }
             // Busy/waiting registry entries are heartbeat signals. Dead or
             // suspended processes and old files never become permanent waits.

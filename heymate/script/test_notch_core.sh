@@ -20,7 +20,7 @@ let package = Package(name: "HeyMateNotchCore", platforms: [.macOS(.v14)],
     swiftLanguageModes: [.v5])
 ''')
 for file in (root/'HeyMate/Codenotch').glob('*.swift'): shutil.copy2(file,source/file.name)
-for name in ['NotchUsageStore','NotchProviderCatalog','NotchCodenotchReader','NotchExternalActivity','NotchLayoutMath','NotchGlyphOutline','NotchCompactStatus','NotchOpenCue','NotchOpenRing']:
+for name in ['NotchUsageStore','NotchProviderCatalog','NotchCodenotchReader','NotchExternalActivity','NotchLayoutMath','NotchGlyphOutline','NotchCompactStatus','NotchOpenCue','NotchOpenRing','HeyMateDataDirectory']:
     shutil.copy2(root/f'HeyMate/{name}.swift',source/f'{name}.swift')
 # Ring host declarations are independent from the rest of HeyMate's services.
 view=(root/'HeyMate/NotchUsageView.swift').read_text().split('struct NotchUsageView:')[0]

@@ -195,6 +195,11 @@
       "upstream": "Sources/Sessions/ClaudeSessionRecord.swift",
       "file": "CNClaudeSessionRecord.swift",
       "sha256": "3faceb7600f3578f0c2a4a0d5f1899a5e6513de4c9cb0ded2bc6100e9843be40"
+    },
+    {
+      "upstream": "Sources/Providers/ClaudeUsageCLI.swift",
+      "file": "CNClaudeUsageCLI.swift",
+      "sha256": "2ba962b9617da39a9528ba16725848e8836fedc7d19c1105b4cbd2004c8ab9bb"
     }
   ]
 }

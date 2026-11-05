@@ -500,6 +500,7 @@ final class CompanionManager: ObservableObject {
     /// Watches the mic level during a hands-free turn so it can stop on
     /// silence. Nil whenever no hands-free turn is running.
     private var handsFreeSilenceCancellable: AnyCancellable?
+    private var usageBrainsCancellable: AnyCancellable?
     private var handsFreeTurnStartedAt: Date?
     private var handsFreeHasHeardSpeech = false
     private var handsFreeSilenceStartedAt: Date?
@@ -1107,6 +1108,7 @@ final class CompanionManager: ObservableObject {
     @Published var selectedBrain: AgentBrain = AgentBrain.fromUserDefaults() {
         didSet {
             UserDefaults.standard.set(selectedBrain.rawValue, forKey: "selectedAgentBrain")
+            syncUsageBrains()
             if let executor = selectedBrain.executor {
                 defaultHeadlessExecutor = executor
             }
@@ -2220,7 +2222,23 @@ final class CompanionManager: ObservableObject {
     /// Sign-in state per executor, refreshed off the main actor. The launcher
     /// reads this cache instead of probing on the spawn path, because a probe
     /// spawns a process and the spawn path must never block on one.
-    @Published fileprivate(set) var headlessExecutorReadiness: [HeadlessExecutor: HeadlessExecutorReadiness] = [:]
+    @Published fileprivate(set) var headlessExecutorReadiness: [HeadlessExecutor: HeadlessExecutorReadiness] = [:] {
+        didSet { syncUsageBrains() }
+    }
+
+    /// Usage shows the selected brain plus every brain account that is signed
+    /// in, either to its CLI or to HeyMate's own agent engine.
+    func syncUsageBrains(engineProviders: [MateAgentSetupController.Provider]? = nil) {
+        var providers = Set(selectedBrain.usageProvider.map { [$0] } ?? [])
+        for (executor, readiness) in headlessExecutorReadiness where readiness.state == .ready || readiness.state == .usingAPIKey {
+            if let provider = executor.usageProvider { providers.insert(provider) }
+        }
+        let engineUsage: [String: NotchUsageProvider] = ["openai-codex": .codex, "anthropic": .claude]
+        for engine in engineProviders ?? MateAgentSetupController.shared.providers where engine.authenticated {
+            if let provider = engineUsage[engine.id] { providers.insert(provider) }
+        }
+        NotchUsageStore.shared.brainFocus = providers
+    }
 
     func readiness(for executor: HeadlessExecutor) -> HeadlessExecutorReadiness {
         headlessExecutorReadiness[executor] ?? .indeterminate()
@@ -3101,6 +3119,9 @@ final class CompanionManager: ObservableObject {
     let explainerWindowController = ExplainerWindowController()
 
     func start() {
+        syncUsageBrains()
+        usageBrainsCancellable = MateAgentSetupController.shared.$providers
+            .sink { [weak self] in self?.syncUsageBrains(engineProviders: $0) }
         floatingAgentWindowController.start(manager: self)
         model3DWindowController.onAskAboutPart = { [weak self] title, part in
             self?.askAboutModelPart(part, inModel: title)

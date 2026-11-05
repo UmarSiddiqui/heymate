@@ -24,6 +24,12 @@ vendored core, not an independent copy of the upstream application.
 - Session display models, process identity checks, Gemini CLI activity,
   Antigravity transcript states, Kimi wire states, Cursor composer headers,
   Claude session records and Codex rollout lifecycle parser.
+- Claude Code `/usage` reader (`ClaudeUsageCLI`): Claude is read from
+  `claude --print --no-session-persistence --strict-mcp-config /usage` first,
+  then the OAuth usage endpoint. Window ids/titles map to the endpoint's
+  (`five_hour`, `seven_day`, `seven_day_<model>`); scratch directory lives in
+  HeyMate's data directory; profiles and the Desktop HTTP-cache source are not
+  imported. Probe pids are skipped by the session scan.
 - Generic provider-order reconciliation. Applicable upstream display choices
   are hosted in HeyMate preferences, with existing HeyMate defaults preserved.
 

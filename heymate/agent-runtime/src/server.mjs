@@ -24,6 +24,16 @@ async function body(request) {
   }
   return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
 }
+/// Fixed reason codes only: provider errors can carry request and response bodies.
+export function loginFailureReason(error) {
+  const message = String(error?.message ?? '');
+  if (/state mismatch/i.test(message)) return 'code_mismatch';
+  if (/missing authorization code/i.test(message)) return 'code_missing';
+  if (/status=4\d\d/.test(message)) return 'code_rejected';
+  if (/request failed|fetch failed|ENOTFOUND|ECONNRESET|ETIMEDOUT/i.test(message)) return 'network';
+  return 'unknown';
+}
+
 async function startLogin(harness, provider) {
   if (!['openai-codex', 'anthropic'].includes(provider)) throw new Error('Unsupported subscription.');
   const id = randomUUID(), abort = new AbortController();
@@ -68,7 +78,11 @@ async function startLogin(harness, provider) {
     await harness.access.runtime.refresh({});
     await harness.modelSet({ provider });
     flow.status = 'approved';
-  }).catch(() => { flow.status = abort.signal.aborted ? 'expired' : 'error'; device.reject(new Error('Sign-in failed.')); })
+  }).catch(error => {
+    flow.status = abort.signal.aborted ? 'expired' : 'error';
+    if (flow.status === 'error') flow.reason = loginFailureReason(error);
+    device.reject(new Error('Sign-in failed.'));
+  })
     .finally(() => clearTimeout(deadline));
   flow.expiry = setTimeout(() => { if (flow.status === 'pending') abort.abort(); harness.logins.delete(id); }, 900000);
   flow.expiry.unref();
@@ -118,7 +132,7 @@ export async function startServer({ home, token, access, createSession = createP
       if (method === 'GET' && poll) {
         const flow = harness.logins.get(poll[2]);
         if (!flow || flow.provider !== poll[1]) return send(404, safeError);
-        return send(200, { session_id: poll[2], status: flow.status });
+        return send(200, { session_id: poll[2], status: flow.status, ...(flow.reason ? { reason: flow.reason } : {}) });
       }
       const cancel = url.pathname.match(/^\/api\/providers\/oauth\/sessions\/([A-Za-z0-9_-]+)$/);
       if (method === 'DELETE' && cancel) {

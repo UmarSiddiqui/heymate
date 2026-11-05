@@ -181,7 +181,8 @@ struct NotchUsageView: View {
             HStack(spacing: 8) {
                 if store.displayedProviders.isEmpty {
                     Button { companionManager.openDesktopWindow(section: .notch) } label: {
-                        Label("Connect a coding tool to see its usage", systemImage: "plus.circle")
+                        Label(store.brainFocus == nil ? "Connect a coding tool to see its usage" : "\(companionManager.selectedBrain.displayName) has no usage limits to show",
+                              systemImage: "plus.circle")
                             .font(DS.Fonts.caption)
                             .foregroundStyle(DS.Colors.textSecondary)
                     }

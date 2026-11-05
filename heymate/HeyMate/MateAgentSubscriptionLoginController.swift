@@ -102,8 +102,10 @@ final class MateAgentSubscriptionLoginController: ObservableObject {
                 case "pending": continue
                 case "approved": finish(.connected, "Subscription connected. HeyMate is ready."); return
                 case "expired": finish(.expired, "The sign-in code expired. Request a new code to try again."); return
-                case "denied": finish(.denied, "OpenAI sign-in was declined. You can request a new code."); return
-                case "error": finish(.failed, "OpenAI could not complete sign-in. Check your account and connection, then request a new code."); return
+                case "denied": finish(.denied, "\(providerName) sign-in was declined. You can sign in again."); return
+                case "error":
+                    let reason: String? = if case .string(let value) = fields["reason"] { value } else { nil }
+                    finish(.failed, Self.failureMessage(reason: reason, providerName: providerName)); return
                 default: throw LoginFailure.invalidResponse
                 }
             }
@@ -113,7 +115,7 @@ final class MateAgentSubscriptionLoginController: ObservableObject {
         } catch {
             guard generation == owned else { return }
             _ = try? await request("/api/providers/oauth/sessions/" + id, "DELETE", .seconds(10))
-            finish(.failed, "Could not confirm ChatGPT sign-in. Check the connection before trying again.")
+            finish(.failed, "Could not confirm \(providerName) sign-in. Check the connection before trying again.")
         }
     }
 
@@ -141,6 +143,18 @@ final class MateAgentSubscriptionLoginController: ObservableObject {
     private func finish(_ state: State, _ message: String) {
         self.state = state; status = message; busy = false
         userCode = nil; verificationURL = nil; sessionID = nil; pollTask = nil
+    }
+    private var providerName: String { provider == "anthropic" ? "Claude" : "ChatGPT" }
+
+    /// Only the engine's fixed reason codes are mapped; anything else gets the generic line.
+    static func failureMessage(reason: String?, providerName: String) -> String {
+        switch reason {
+        case "code_rejected": return "\(providerName) rejected that code. Sign in again and paste the whole code shown after you approve."
+        case "code_mismatch": return "That code belongs to an earlier sign-in. Sign in again and paste the newest code."
+        case "code_missing": return "No authorization code was found. Paste the whole code \(providerName) shows after you approve."
+        case "network": return "Could not reach \(providerName). Check your connection, then sign in again."
+        default: return "\(providerName) could not complete sign-in. Check your account and connection, then sign in again."
+        }
     }
     private static func validSessionID(_ value: String) -> Bool {
         value.range(of: #"^[A-Za-z0-9_-]{1,128}$"#, options: .regularExpression) != nil

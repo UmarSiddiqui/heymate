@@ -142,5 +142,24 @@ struct MateAgentSubscriptionLoginTests {
         #expect(!login.status.contains("private-fixture-token"))
         #expect(login.userCode == nil)
     }
+    @Test func claudeFailureNamesClaudeAndMapsOnlyKnownReasons() async throws {
+        let started: JSONValue = .object([
+            "session_id": .string("safe_flow-123"), "flow": .string("authorization_code"),
+            "verification_url": .string("https://claude.ai/oauth/authorize?state=fixture"),
+            "expires_in": .number(900), "poll_interval": .number(3)
+        ])
+        let login = MateAgentSubscriptionLoginController(prepare: { _ in }, request: { _, method, _ in
+            if method == "POST" { return started }
+            if method == "DELETE" { return .object(["ok": .bool(true)]) }
+            return .object(["session_id": .string("safe_flow-123"), "status": .string("error"), "reason": .string("code_rejected")])
+        }, sleep: { _ in await Task.yield() })
+        await login.start(configuration, provider: "anthropic")
+        try await waitUntil { !login.busy }
+        #expect(login.state == .failed)
+        #expect(login.status.contains("Claude rejected that code"))
+        #expect(!login.status.contains("OpenAI"))
+        let unknown = MateAgentSubscriptionLoginController.failureMessage(reason: "private-fixture-token", providerName: "Claude")
+        #expect(unknown.hasPrefix("Claude could not complete sign-in") && !unknown.contains("private-fixture-token"))
+    }
     private enum TestFailure: Error { case timedOut }
 }

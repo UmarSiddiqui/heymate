@@ -1,5 +1,7 @@
 # Coding usage notch
 
+Usage follows your brains: the selected brain plus every brain account that is signed in, to its CLI or to HeyMate's agent engine (Settings → Brain → Subscription). Claude → Claude Code, ChatGPT → Codex, OpenCode → OpenCode Go. Signed in to both Claude and ChatGPT shows both. Non-brain tools (Cursor, Kimi, custom sources…) keep their settings but are neither shown nor polled. With only Custom API or On this Mac and no signed-in account, Usage says there is nothing to show.
+
 Connected coding tools appear in a compact row of provider-logo rings. Three full logos fit beside the hardware notch; overflow uses a count badge. Open **Usage** for the CodeNotch-inspired horizontal overview: provider-logo rings integrate quota and activity, while each provider shows a labeled used/remaining value and an explicit reset countdown. Select one provider for quota windows/reset times followed by observed sessions, and use **All providers** to return. Activity stays integrated in the rings, header summary and provider details; there is no separate Activity view. Home, voice, mates and approvals keep their existing navigation.
 
 Settings → Notch keeps **connections** separate from **display**:
@@ -18,7 +20,7 @@ Existing Codex/Claude/Cursor connection IDs, sign-ins, custom sources and cached
 | Provider | Usage source and limits | External activity |
 | --- | --- | --- |
 | Codex | `CODEX_HOME/auth.json` or `~/.codex/auth.json`; ChatGPT usage endpoint | Recent default-profile rollout lifecycle events; heuristic freshness |
-| Claude Code | `Claude Code-credentials` in Keychain; Anthropic OAuth usage | Fresh terminal session registry status, live/non-suspended process; unknown desktop transcript state omitted |
+| Claude Code | Claude Code's own `claude /usage` (no Keychain, at most every 4 minutes on the timer); falls back to `Claude Code-credentials` in Keychain and Anthropic OAuth usage. The CLI keeps reading while the endpoint is in 429 backoff | Fresh terminal session registry status, live/non-suspended process; unknown desktop transcript state omitted |
 | Cursor | Read-only default `state.vscdb`, current WAL; Auto/API quotas and included-limit fallback | Composer headers with current editor-launch and freshness checks |
 | Antigravity | Quota RPC from an already running IDE/CLI language server; otherwise derived local requests today | Recent transcript state; waits expire without live process evidence |
 | Gemini | Gemini CLI recordings, OpenCode Google-provider message ledger and Hermes Gemini billing rows | Recent Gemini CLI recording writes, labelled as observed tool activity |
