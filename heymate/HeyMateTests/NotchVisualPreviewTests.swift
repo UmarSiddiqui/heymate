@@ -24,9 +24,11 @@ struct NotchVisualPreviewTests {
         let top = try gray(500, 4)
         let middle = try gray(980, 350)
         let bottom = try gray(980, 650)
-        #expect(top < 0.01)
+        // Near-black top: only the faint sheen and film grain lift it.
+        #expect(top < 0.08)
         #expect(middle > top + 0.02)
-        #expect(bottom > middle + 0.02)
+        // The floor eases a touch darker so the composer has somewhere to rest.
+        #expect(bottom < middle)
         #expect(abs(bottom - CGFloat(30.0 / 255)) < 0.02)
         // Sidebar and conversation share the same global fade.
         let railMiddle = try gray(8, 350)
