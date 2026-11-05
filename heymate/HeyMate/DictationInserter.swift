@@ -263,19 +263,19 @@ enum DictationInserter {
         // Some embedded web views do not implement AXFocusedUIElement on
         // their host app, but do expose AXFocused on the actual text field.
         // Search only that app's focused window, never an arbitrary editor.
-        let focusedElement = directFocus.flatMap { isTextEntry($0) ? $0 : nil }
+        let textEntry = directFocus.flatMap { isTextEntry($0) ? $0 : nil }
             ?? focusedTextEntry(in: applicationElement)
-        guard let focusedElement else { return nil }
+        guard let textEntry else { return nil }
 
         return ResolvedFocus(
-            element: focusedElement,
+            element: textEntry,
             info: FocusedFieldInfo(
                 bundleIdentifier: frontmostApplication.bundleIdentifier,
                 appName: frontmostApplication.localizedName,
-                role: stringValue(of: focusedElement, attribute: kAXRoleAttribute),
-                subrole: stringValue(of: focusedElement, attribute: kAXSubroleAttribute),
-                placeholder: stringValue(of: focusedElement, attribute: kAXPlaceholderValueAttribute),
-                currentValuePreview: stringValue(of: focusedElement, attribute: kAXValueAttribute)
+                role: stringValue(of: textEntry, attribute: kAXRoleAttribute),
+                subrole: stringValue(of: textEntry, attribute: kAXSubroleAttribute),
+                placeholder: stringValue(of: textEntry, attribute: kAXPlaceholderValueAttribute),
+                currentValuePreview: stringValue(of: textEntry, attribute: kAXValueAttribute)
                     .map { String($0.prefix(currentValuePreviewCharacterLimit)) }
             )
         )
