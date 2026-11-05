@@ -57,7 +57,7 @@ struct CustomAPISettingsRows: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if companionManager.selectedBrain.talkNeedsSeparateVisionEndpoint {
-                SettingsInlineHelp("\(companionManager.selectedBrain.displayName) runs your agents. Answering “what's on my screen” needs a fast vision server, which \(companionManager.selectedBrain.displayName) can't be — set one here or screen questions stay unanswered.")
+                SettingsInlineHelp("Screen questions need a fast vision server. \(companionManager.selectedBrain.displayName) can't answer them, so set one here.")
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .settingsRowInsets()
             }
@@ -89,7 +89,7 @@ struct CustomAPISettingsRows: View {
             SettingsDivider()
             SettingsSecretKeyRow(
                 title: "API key",
-                subtitle: "Optional. Leave it empty if the server holds its own key.",
+                subtitle: "Optional.",
                 placeholder: "API key",
                 isStored: hasAPIKey,
                 removalTitle: "Remove the custom API key?",
@@ -103,7 +103,7 @@ struct CustomAPISettingsRows: View {
                     hasAPIKey = CustomAPIConfiguration.hasAPIKey
                 }
             )
-            SettingsInlineHelp("Works with any Anthropic-compatible or OpenAI-compatible server; you pay that provider per use. For OpenAI-compatible servers a base URL ending in /v1 is enough. The key is kept in a private file only your Mac account can read, never in preferences.")
+            SettingsInlineHelp("Any Anthropic- or OpenAI-compatible server. You pay that provider per use.")
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .settingsRowContentInsets()
         }

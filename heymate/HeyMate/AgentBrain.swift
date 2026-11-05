@@ -224,3 +224,22 @@ nonisolated enum CustomAPIConfiguration {
         return !trimmed.isEmpty && trimmed != defaultBaseURL
     }
 }
+
+extension AgentBrain {
+    /// The usage meter for the account this brain runs on, if it has one.
+    var usageProvider: NotchUsageProvider? {
+        switch self {
+        case .claudeCode: return .claude
+        case .codex: return .codex
+        case .openCode: return .opencode
+        case .customAPI, .onDevice: return nil
+        }
+    }
+}
+
+extension HeadlessExecutor {
+    /// The usage meter for this CLI's signed-in account.
+    var usageProvider: NotchUsageProvider? {
+        AgentBrain.allCases.first { $0.executor == self }?.usageProvider
+    }
+}

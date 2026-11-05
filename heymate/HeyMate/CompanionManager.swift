@@ -458,6 +458,9 @@ final class CompanionManager: ObservableObject {
     @Published var showOnboardingPrompt: Bool = false
     /// The first-run demo and talk prompt; see CompanionManager+Onboarding.
     var onboardingIntroTask: Task<Void, Never>?
+    /// The welcome tour's hello for the buddy cursor, said once as it fades
+    /// in. Read by a freshly shown overlay; cleared when it has been said.
+    var cursorGreeting: String?
     /// While the welcome tour wants a spoken answer (a name, an interview
     /// reply), Talk transcripts go here instead of starting a turn.
     var onboardingTranscriptSink: ((String) -> Void)?
@@ -474,21 +477,17 @@ final class CompanionManager: ObservableObject {
     private lazy var dictateShortcutMonitor = GlobalShortcutMonitor(
         optionProvider: { PushToTalkShortcut.dictate }
     )
-    /// Third channel: hold + freehand drag to mark a screen region.
-    private lazy var spatialShortcutMonitor = GlobalShortcutMonitor(
-        optionProvider: { PushToTalkShortcut.spatialSelect }
-    )
-    /// Fourth channel: press ctrl+command (default) to summon compact notch chat.
+    /// Third channel: press ctrl+command (default) to summon compact notch chat.
     private lazy var chatShortcutMonitor = GlobalShortcutMonitor(
         optionProvider: { PushToTalkShortcut.chat }
     )
-    /// Fifth channel: tap ctrl twice to summon the typed ask box. Separate tap
+    /// Fourth channel: tap ctrl twice to summon the typed ask box. Separate tap
     /// because double-tap is a different state machine from hold-to-talk.
     private lazy var textDoubleTapMonitor = ModifierDoubleTapMonitor(
         shortcutProvider: { ModifierDoubleTapPreferences.textShortcut },
         isEnabledProvider: { ModifierDoubleTapPreferences.isTextShortcutEnabled }
     )
-    /// Sixth channel: tap fn+ctrl twice to start a turn that ends when you
+    /// Fifth channel: tap fn+ctrl twice to start a turn that ends when you
     /// stop talking rather than when you let go of a key.
     private lazy var handsFreeDoubleTapMonitor = ModifierDoubleTapMonitor(
         shortcutProvider: { ModifierDoubleTapPreferences.handsFreeShortcut },
@@ -501,6 +500,7 @@ final class CompanionManager: ObservableObject {
     /// Watches the mic level during a hands-free turn so it can stop on
     /// silence. Nil whenever no hands-free turn is running.
     private var handsFreeSilenceCancellable: AnyCancellable?
+    private var usageBrainsCancellable: AnyCancellable?
     private var handsFreeTurnStartedAt: Date?
     private var handsFreeHasHeardSpeech = false
     private var handsFreeSilenceStartedAt: Date?
@@ -1108,6 +1108,7 @@ final class CompanionManager: ObservableObject {
     @Published var selectedBrain: AgentBrain = AgentBrain.fromUserDefaults() {
         didSet {
             UserDefaults.standard.set(selectedBrain.rawValue, forKey: "selectedAgentBrain")
+            syncUsageBrains()
             if let executor = selectedBrain.executor {
                 defaultHeadlessExecutor = executor
             }
@@ -2150,7 +2151,6 @@ final class CompanionManager: ObservableObject {
 
     private var shortcutTransitionCancellable: AnyCancellable?
     private var dictateTransitionCancellable: AnyCancellable?
-    private var spatialTransitionCancellable: AnyCancellable?
     private var chatTransitionCancellable: AnyCancellable?
     private var voiceStateCancellable: AnyCancellable?
     private var computerUseTakeBackCancellable: AnyCancellable?
@@ -2222,7 +2222,23 @@ final class CompanionManager: ObservableObject {
     /// Sign-in state per executor, refreshed off the main actor. The launcher
     /// reads this cache instead of probing on the spawn path, because a probe
     /// spawns a process and the spawn path must never block on one.
-    @Published fileprivate(set) var headlessExecutorReadiness: [HeadlessExecutor: HeadlessExecutorReadiness] = [:]
+    @Published fileprivate(set) var headlessExecutorReadiness: [HeadlessExecutor: HeadlessExecutorReadiness] = [:] {
+        didSet { syncUsageBrains() }
+    }
+
+    /// Usage shows the selected brain plus every brain account that is signed
+    /// in, either to its CLI or to HeyMate's own agent engine.
+    func syncUsageBrains(engineProviders: [MateAgentSetupController.Provider]? = nil) {
+        var providers = Set(selectedBrain.usageProvider.map { [$0] } ?? [])
+        for (executor, readiness) in headlessExecutorReadiness where readiness.state == .ready || readiness.state == .usingAPIKey {
+            if let provider = executor.usageProvider { providers.insert(provider) }
+        }
+        let engineUsage: [String: NotchUsageProvider] = ["openai-codex": .codex, "anthropic": .claude]
+        for engine in engineProviders ?? MateAgentSetupController.shared.providers where engine.authenticated {
+            if let provider = engineUsage[engine.id] { providers.insert(provider) }
+        }
+        NotchUsageStore.shared.brainFocus = providers
+    }
 
     func readiness(for executor: HeadlessExecutor) -> HeadlessExecutorReadiness {
         headlessExecutorReadiness[executor] ?? .indeterminate()
@@ -2248,14 +2264,6 @@ final class CompanionManager: ObservableObject {
     @Published var dictateShortcutOption: PushToTalkShortcut.Option = PushToTalkShortcut.dictate {
         didSet {
             PushToTalkShortcut.dictate = dictateShortcutOption
-        }
-    }
-
-    /// The spatial-selection shortcut: hold, drag a freehand region, and
-    /// that region becomes priority context for the next Talk/dictate send.
-    @Published var spatialSelectShortcutOption: PushToTalkShortcut.Option = PushToTalkShortcut.spatialSelect {
-        didSet {
-            PushToTalkShortcut.spatialSelect = spatialSelectShortcutOption
         }
     }
 
@@ -3111,6 +3119,9 @@ final class CompanionManager: ObservableObject {
     let explainerWindowController = ExplainerWindowController()
 
     func start() {
+        syncUsageBrains()
+        usageBrainsCancellable = MateAgentSetupController.shared.$providers
+            .sink { [weak self] in self?.syncUsageBrains(engineProviders: $0) }
         floatingAgentWindowController.start(manager: self)
         model3DWindowController.onAskAboutPart = { [weak self] title, part in
             self?.askAboutModelPart(part, inModel: title)
@@ -3140,7 +3151,6 @@ final class CompanionManager: ObservableObject {
         bindAudioPowerLevel()
         bindShortcutTransitions()
         bindDictateShortcutTransitions()
-        bindSpatialShortcutTransitions()
         bindChatShortcutTransitions()
         bindDoubleTapShortcuts()
         startNotchActivityCenter()
@@ -3206,6 +3216,11 @@ final class CompanionManager: ObservableObject {
         isOverlayVisible = true
     }
 
+    func hideCursorOverlay() {
+        overlayWindowManager.hideOverlay()
+        isOverlayVisible = false
+    }
+
     func clearPointingTarget() {
         pointingTarget = nil
     }
@@ -3226,7 +3241,6 @@ final class CompanionManager: ObservableObject {
         pendingDictateStartTask?.cancel()
         pendingDictateStartTask = nil
         dictateTransitionCancellable?.cancel()
-        spatialTransitionCancellable?.cancel()
         chatTransitionCancellable?.cancel()
         textDoubleTapCancellable?.cancel()
         handsFreeDoubleTapCancellable?.cancel()
@@ -3323,7 +3337,7 @@ final class CompanionManager: ObservableObject {
     /// Every global keyboard shortcut channel at once.
     private func setKeyboardShortcutsListening(_ listening: Bool) {
         let shortcuts: [any KeyboardShortcutChannel] = [
-            talkShortcutMonitor, dictateShortcutMonitor, spatialShortcutMonitor, chatShortcutMonitor,
+            talkShortcutMonitor, dictateShortcutMonitor, chatShortcutMonitor,
             textDoubleTapMonitor, handsFreeDoubleTapMonitor,
         ]
         for shortcut in shortcuts {
@@ -3447,14 +3461,6 @@ final class CompanionManager: ObservableObject {
             }
     }
 
-    private func bindSpatialShortcutTransitions() {
-        spatialTransitionCancellable = spatialShortcutMonitor
-            .shortcutTransitionPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] transition in
-                self?.handleSpatialTransition(transition)
-            }
-    }
 
     private func bindChatShortcutTransitions() {
         chatTransitionCancellable = chatShortcutMonitor
@@ -3604,53 +3610,6 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Spatial channel: press starts freehand capture on the cursor's screen
-    /// (the overlay temporarily accepts mouse events); release finalizes the
-    /// polygon and returns the overlay to click-through.
-    private func handleSpatialTransition(_ transition: PushToTalkShortcut.Transition) {
-        switch transition {
-        case .pressed:
-            guard !voiceDictation.isDictationInProgress else { return }
-            guard case .idle = state else { return }
-
-            // A fresh gesture replaces any previous selection.
-            clearSpatialSelection()
-            NotificationCenter.default.post(name: .heyMateDismissPanel, object: nil)
-            dispatch(.startListening(.spatial))
-
-            // When persistent deployment is off, the cursor is docked and no
-            // overlay window exists yet — beginSpatialCapture would find no
-            // target window and silently no-op. Deploy the overlay for the
-            // gesture, then undock it again afterward if it wasn't already up.
-            let overlayWasAlreadyVisible = isOverlayVisible
-            if !overlayWasAlreadyVisible {
-                showCursorOverlay()
-            }
-
-            overlayWindowManager.beginSpatialCapture { [weak self] draftPoints in
-                self?.spatialDraftPoints = draftPoints
-            } completion: { [weak self] screenFrame, normalizedSelection in
-                guard let self else { return }
-                if let screenFrame, let normalizedSelection {
-                    self.spatialSelectionScreenFrame = screenFrame
-                    self.activeSpatialSelection = normalizedSelection
-                    HeyMateLog.log("🔲 Spatial selection captured on \(screenFrame): \(normalizedSelection.bounds)")
-                }
-                self.spatialDraftPoints = []
-                self.overlayWindowManager.endSpatialCapture()
-                if !overlayWasAlreadyVisible && !self.isCursorCompanionEnabled {
-                    self.overlayWindowManager.hideOverlay()
-                    self.isOverlayVisible = false
-                }
-                self.dispatch(.interactionFinished)
-            }
-        case .released:
-            overlayWindowManager.finishSpatialCapture()
-        case .none:
-            break
-        }
-    }
-
     /// Escape path: wipes annotations AND any in-progress/completed spatial
     /// selection together — one gesture, one semantic.
     func cancelSpatialContextAndAnnotations() {
@@ -3705,6 +3664,9 @@ final class CompanionManager: ObservableObject {
             guard !voiceDictation.isDictationInProgress else { return }
             guard hasMicrophonePermission else { return }
 
+            // Capture before HeyMate changes its own panels or visual state.
+            let insertionTarget = DictationInserter.captureTarget()
+
             // Cancel any in-flight response/TTS — one interaction at a time.
             currentResponseTask?.cancel()
             voiceSynthesisClient.stopPlayback()
@@ -3713,6 +3675,7 @@ final class CompanionManager: ObservableObject {
             clearAnnotations()
 
             inputModeOfActiveSession = .dictate
+            DictationInserter.prepareForDictation()
             dispatch(.startListening(.dictate))
             NotificationCenter.default.post(name: .heyMateDismissPanel, object: nil)
 
@@ -3724,7 +3687,7 @@ final class CompanionManager: ObservableObject {
                         // Partial transcripts are hidden (waveform-only UI)
                     },
                     onSubmit: { [weak self] finalTranscript in
-                        self?.processDictationTranscript(finalTranscript)
+                        self?.processDictationTranscript(finalTranscript, target: insertionTarget)
                     }
                 )
             }
@@ -3747,7 +3710,7 @@ final class CompanionManager: ObservableObject {
 
     /// Routes a finalized dictation transcript through Literal cleanup or the
     /// Smart screen-aware rewrite, then inserts into the focused text field.
-    func processDictationTranscript(_ finalTranscript: String) {
+    func processDictationTranscript(_ finalTranscript: String, target: DictationInsertionTarget? = nil) {
         let trimmedTranscript = finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTranscript.isEmpty else {
             // Nothing spoken — return to idle without touching any field.
@@ -3830,22 +3793,29 @@ final class CompanionManager: ObservableObject {
                 guard !Task.isCancelled else { return }
 
                 if !textToInsert.isEmpty {
+                    let outcome: InsertionOutcome
                     if let dictationInsertionOverride {
-                        _ = await dictationInsertionOverride(textToInsert)
-                        dispatch(.interactionFinished)
-                        scheduleTransientHideIfNeeded()
-                        return
+                        outcome = await dictationInsertionOverride(textToInsert)
+                    } else {
+                        DictationCorrectionLearner.shared.stop()
+                        outcome = await DictationInserter.insert(textToInsert, target: target)
                     }
-                    DictationCorrectionLearner.shared.stop()
-                    let outcome = await DictationInserter.insert(textToInsert)
                     HeyMateLog.log("✍️ Dictation insert (\(insertionContextSummary)): \(outcome)")
                     if Self.insertionLanded(outcome) {
                         // Give the target app a beat to apply the text before
                         // the learner snapshots the field.
                         try? await Task.sleep(for: .milliseconds(250))
-                        if let element = DictationInserter.focusedElementForObservation() {
+                        if dictationInsertionOverride == nil,
+                           let element = DictationInserter.focusedElementForObservation() {
                             DictationCorrectionLearner.shared.observe(element, inserted: textToInsert)
                         }
+                    } else {
+                        // Keep failed dictation recoverable without replacing
+                        // the clipboard or silently discarding the utterance.
+                        let draft = currentChat.draftText ?? ""
+                        updateCurrentDraft(draft.isEmpty ? textToInsert : draft + "\n" + textToInsert)
+                        commandBarFeedback = "Dictation couldn't reach the text field. Your words are saved in the HeyMate draft."
+                        lingerCursorCaption(textToInsert, keepingProgress: "Couldn't insert. Copy your words here; saved in HeyMate draft.")
                     }
                 }
 

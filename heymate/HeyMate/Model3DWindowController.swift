@@ -111,8 +111,7 @@ struct Model3DCardView: View {
                     Image(systemName: "xmark")
                         .font(DS.Fonts.micro)
                         .foregroundColor(DS.Colors.textSecondary)
-                        .frame(width: 18, height: 18)
-                        .contentShape(Rectangle())
+                        .dsIconHitArea()
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Close model")

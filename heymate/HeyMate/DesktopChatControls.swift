@@ -106,6 +106,7 @@ struct ChatAttachmentPreviewStrip: View {
                                 .foregroundColor(.white)
                                 .frame(width: 17, height: 17)
                                 .background(Circle().fill(Color.black.opacity(0.72)))
+                                .dsIconHitArea()
                         }
                         .buttonStyle(.plain)
                         .pointerCursor()

@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { WebSocket } from 'ws';
 import { HeyMateHarness } from '../src/harness.mjs';
-import { startServer, sameToken } from '../src/server.mjs';
+import { startServer, sameToken, loginFailureReason } from '../src/server.mjs';
 import { FileCredentials } from '../src/credentials.mjs';
 import { createModelAccess, createPiSession } from '../src/pi-session.mjs';
 import { saveJSON } from '../src/store.mjs';
@@ -252,6 +252,38 @@ for (const provider of ['openai-codex', 'anthropic']) {
     assert.equal((await server.harness.dispatch(f.peer, 'setup.runtime_check')).ok, true);
   });
 }
+
+test('sign-in failures report fixed reasons and never echo provider bodies', async t => {
+  assert.equal(loginFailureReason(new Error('Token exchange request failed. details=HTTP request failed. status=400; body=private-fixture')), 'code_rejected');
+  assert.equal(loginFailureReason(new Error('OAuth state mismatch')), 'code_mismatch');
+  assert.equal(loginFailureReason(new Error('Missing authorization code')), 'code_missing');
+  assert.equal(loginFailureReason(new Error('Token exchange request failed. details=fetch failed')), 'network');
+  assert.equal(loginFailureReason(new Error('private-fixture')), 'unknown');
+  const f = await fixture(t);
+  f.access.runtime.login = async (slug, type, interaction) => {
+    await interaction.prompt({ type: 'select', options: [{ id: 'copy_code' }] });
+    interaction.notify({ type: 'auth_url', url: 'https://claude.ai/oauth/authorize?state=fixture&code_challenge=fixture' });
+    await interaction.prompt({ type: 'manual_code' });
+    throw new Error('Token exchange request failed. details=HTTP request failed. status=400; body=private-fixture');
+  };
+  const token = 'owner-token-for-subscription-test-123456';
+  const server = await startServer({ home: f.home, token, access: f.access });
+  t.after(() => server.close());
+  const request = async (route, method = 'GET', data) => {
+    const response = await fetch(`http://127.0.0.1:${server.port}${route}`, { method,
+      headers: { 'X-HeyMate-Agent-Token': token }, body: data && JSON.stringify(data) });
+    assert.equal(response.status, 200); return response.json();
+  };
+  const start = await request('/api/providers/oauth/anthropic/start', 'POST');
+  await request(`/api/providers/oauth/sessions/${start.session_id}/code`, 'POST', { code: 'fixture#state' });
+  let poll;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    poll = await request(`/api/providers/oauth/anthropic/poll/${start.session_id}`);
+    if (poll.status !== 'pending') break;
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  assert.deepEqual(poll, { session_id: start.session_id, status: 'error', reason: 'code_rejected' });
+});
 
 test('subscription switch closes idle model session and keeps durable chat history', async t => {
   const f = await fixture(t), state = await f.harness.get(f.id);

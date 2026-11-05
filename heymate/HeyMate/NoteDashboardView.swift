@@ -166,8 +166,6 @@ struct RoutineEditorView: View {
                 else { Button("Pause") { actions.pause(routine.id) } }
                 Button("Run now") { actions.runNow(routine.id) }.disabled(control.isRunning)
             }
-            Text("Intervals are set in whole hours or a daily time; the list shows the stored interval in minutes.")
-                .font(DS.Fonts.caption).foregroundColor(DS.Colors.textTertiary)
             Spacer()
         }
         .padding(DS.Spacing.lg).frame(maxWidth: .infinity, alignment: .topLeading)

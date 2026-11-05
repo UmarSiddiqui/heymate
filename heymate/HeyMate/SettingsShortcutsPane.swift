@@ -48,8 +48,7 @@ struct SettingsShortcutsPane: View {
         [
             .talk: companionManager.talkShortcutOption,
             .chat: companionManager.chatShortcutOption,
-            .dictate: companionManager.dictateShortcutOption,
-            .region: companionManager.spatialSelectShortcutOption
+            .dictate: companionManager.dictateShortcutOption
         ]
     }
 
@@ -58,16 +57,14 @@ struct SettingsShortcutsPane: View {
         case .talk: return $companionManager.talkShortcutOption
         case .chat: return $companionManager.chatShortcutOption
         case .dictate: return $companionManager.dictateShortcutOption
-        case .region: return $companionManager.spatialSelectShortcutOption
         }
     }
 
     private func subtitle(for role: SettingsShortcutRole) -> String {
         switch role {
-        case .talk: return "Hold and ask about anything on your screen."
+        case .talk: return "Hold and ask about anything on your screen. Drag while holding to circle part of it."
         case .chat: return "Press to drop the notch chat, ready for typing."
         case .dictate: return "Hold to type what you say into the field you're in."
-        case .region: return "Hold and circle part of the screen to ask about just that."
         }
     }
 
@@ -78,10 +75,7 @@ struct SettingsShortcutsPane: View {
 
     private var holdToTalkSection: some View {
         let conflicts = SettingsShortcutRole.conflictingRoles(in: assignments)
-        return SettingsSection(
-            "Hold to talk",
-            footer: "Work from anywhere on your Mac."
-        ) {
+        return SettingsSection("Hold to talk") {
             ForEach(Array(SettingsShortcutRole.allCases.enumerated()), id: \.element) { index, role in
                 if index > 0 {
                     SettingsDivider()
@@ -129,13 +123,9 @@ struct SettingsShortcutsPane: View {
         }
 
     private var doubleTapSection: some View {
-        SettingsSection(
-            "Double-tap",
-            footer: "A quick press and release with no other key. Holding the keys works as before."
-        ) {
+        SettingsSection("Double-tap") {
             SettingsToggleRow(
                 SettingsItem.doubleTapText.title,
-                subtitle: "Double-tap to open the typed ask box from anywhere.",
                 item: .doubleTapText,
                 isOn: $isTextDoubleTapEnabled
             )
@@ -152,7 +142,7 @@ struct SettingsShortcutsPane: View {
 
             SettingsToggleRow(
                 SettingsItem.doubleTapHandsFree.title,
-                subtitle: "Talk without holding a key; it ends when you stop speaking.",
+                subtitle: "Ends when you stop speaking.",
                 item: .doubleTapHandsFree,
                 isOn: $isHandsFreeDoubleTapEnabled
             )

@@ -30,24 +30,24 @@ struct MateDocumentPreview: View {
                     Button {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(text, forType: .string)
-                    } label: { Image(systemName: "doc.on.doc") }
+                    } label: { Image(systemName: "doc.on.doc").dsIconHitArea() }
                     .help("Copy document")
                     .accessibilityLabel("Copy document")
                 }
                 Button { NSWorkspace.shared.open(url) } label: {
-                    Image(systemName: "arrow.up.forward.square")
+                    Image(systemName: "arrow.up.forward.square").dsIconHitArea()
                 }
                 .help("Open in default app")
                 .accessibilityLabel("Open in default app")
                 Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: {
-                    Image(systemName: "folder")
+                    Image(systemName: "folder").dsIconHitArea()
                 }
                 .help("Show in Finder")
                 .accessibilityLabel("Show in Finder")
-                Button { expanded = true } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
+                Button { expanded = true } label: { Image(systemName: "arrow.up.left.and.arrow.down.right").dsIconHitArea() }
                     .help("Expand preview")
                     .accessibilityLabel("Expand preview")
-                Button(action: onClose) { Image(systemName: "xmark") }
+                Button(action: onClose) { Image(systemName: "xmark").dsIconHitArea() }
                     .help("Close preview")
                     .accessibilityLabel("Close preview")
             }

@@ -129,10 +129,6 @@ struct SettingsPage<Content: View>: View {
                 .tracking(-0.5)
                 .foregroundColor(DS.Colors.textPrimary)
                 .accessibilityAddTraits(.isHeader)
-            Text(tab.subtitle)
-                .font(DS.Fonts.bodyLarge)
-                .foregroundColor(DS.Colors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.bottom, DS.Spacing.xs)
     }
@@ -759,6 +755,64 @@ struct SettingsDisclosureRow<Content: View>: View {
         .clipped()
         .settingsAnchor(item)
     }
+}
+
+/// The system `DisclosureGroup` on macOS only toggles from its tiny
+/// triangle. This style makes the whole header row the button: title,
+/// chevron and the space between, with a hover fill so it reads as one.
+struct DSDisclosureGroupStyle: DisclosureGroupStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        DSDisclosureGroupBody(configuration: configuration)
+    }
+}
+
+private struct DSDisclosureGroupBody: View {
+    let configuration: DisclosureGroupStyleConfiguration
+
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @State private var isHovered = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(accessibilityReduceMotion ? DS.Animation.reducedMotionFade : DS.Animation.settingsDisclosure) {
+                    configuration.isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: DS.Spacing.sm) {
+                    Image(systemName: "chevron.right")
+                        .font(DS.Glyph.small)
+                        .foregroundColor(isHovered ? DS.Colors.textSecondary : DS.Colors.textTertiary)
+                        .rotationEffect(.degrees(configuration.isExpanded ? 90 : 0))
+                        .frame(width: 12)
+                        .accessibilityHidden(true)
+                    configuration.label
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(minHeight: DS.ControlSize.regular)
+                .padding(.horizontal, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous)
+                        .fill(isHovered ? DS.Colors.surface2.opacity(0.6) : Color.clear)
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            .onHover { isHovered = $0 }
+            .accessibilityValue(configuration.isExpanded ? "Expanded" : "Collapsed")
+
+            if configuration.isExpanded {
+                configuration.content
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .transition(accessibilityReduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+}
+
+extension DisclosureGroupStyle where Self == DSDisclosureGroupStyle {
+    static var ds: DSDisclosureGroupStyle { DSDisclosureGroupStyle() }
 }
 
 // MARK: - Frosted chrome

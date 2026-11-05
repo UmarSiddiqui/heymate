@@ -78,6 +78,7 @@ struct ConnectorToolApprovalCard: View {
                         .foregroundColor(request.risk.tintColor)
                 }
             }
+            .disclosureGroupStyle(.ds)
 
             HStack(spacing: 8) {
                 Spacer(minLength: 0)

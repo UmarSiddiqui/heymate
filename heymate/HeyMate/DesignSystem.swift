@@ -38,17 +38,65 @@ struct WorkspaceBackground: View {
     @Environment(\.workspaceGradientHeight) private var height
 
     var body: some View {
-        if height > 0 {
-            GeometryReader { proxy in
-                LinearGradient(colors: [.black, DS.Colors.homeBackground],
-                               startPoint: .top, endPoint: .bottom)
+        Group {
+            if height > 0 {
+                GeometryReader { proxy in
+                    ZStack(alignment: .top) {
+                        // Deep at the top, easing into the charcoal the
+                        // transcript sits on, then a touch darker at the
+                        // floor so the composer has somewhere to rest.
+                        LinearGradient(stops: [.init(color: .black, location: 0),
+                                               .init(color: Color(hex: "#141414"), location: 0.22),
+                                               .init(color: DS.Colors.homeBackground, location: 0.62),
+                                               .init(color: Color(hex: "#1A1A1A"), location: 1)],
+                                       startPoint: .top, endPoint: .bottom)
+                        // A faint sheen along the top edge, like light on matte paint.
+                        LinearGradient(colors: [Color.white.opacity(0.035), .clear],
+                                       startPoint: .top, endPoint: .bottom)
+                            .frame(height: min(height * 0.35, 280))
+                    }
                     .frame(width: proxy.size.width, height: height)
                     .offset(y: -proxy.frame(in: .named(Self.coordinateSpace)).minY)
+                }
+                .clipped()
+            } else {
+                DS.Colors.homeBackground
             }
-            .clipped()
-            .allowsHitTesting(false)
-        } else {
-            DS.Colors.homeBackground
+        }
+        .overlay(WorkspaceGrain())
+        .allowsHitTesting(false)
+    }
+}
+
+/// A fine, fixed film grain over the matte background. Neutral, and too
+/// faint to read as texture; it keeps large dark fills from banding.
+struct WorkspaceGrain: View {
+    private static let tile: CGImage? = {
+        let side = 128
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
+        var seed: UInt32 = 0x9E37_79B9
+        for index in 0..<(side * side) {
+            seed = seed &* 1_664_525 &+ 1_013_904_223
+            let level = UInt8(truncatingIfNeeded: seed >> 24)
+            // Premultiplied white at a low, varying alpha.
+            let alpha = UInt8(Int(level) * 9 / 255)
+            pixels[index * 4] = alpha
+            pixels[index * 4 + 1] = alpha
+            pixels[index * 4 + 2] = alpha
+            pixels[index * 4 + 3] = alpha
+        }
+        guard let provider = CGDataProvider(data: Data(pixels) as CFData) else { return nil }
+        return CGImage(width: side, height: side, bitsPerComponent: 8, bitsPerPixel: 32,
+                       bytesPerRow: side * 4, space: CGColorSpaceCreateDeviceRGB(),
+                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                       provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+    }()
+
+    var body: some View {
+        if let tile = Self.tile {
+            Image(decorative: tile, scale: 2)
+                .resizable(resizingMode: .tile)
+                .accessibilityHidden(true)
         }
     }
 }
@@ -971,6 +1019,9 @@ struct DSToolbarIconButtonStyle: ButtonStyle {
     /// live mic) rather than merely selected. Glyph turns `textOnAccent`.
     var activeFill: Color?
     var isDestructiveOnHover = false
+    /// Sits on a light `DSGlassSurface` (a selected row): ink glyphs and
+    /// ink-tinted hover fill instead of theme surfaces.
+    var onGlass = false
 
     func makeBody(configuration: Configuration) -> some View {
         DSToolbarIconButton(
@@ -978,7 +1029,8 @@ struct DSToolbarIconButtonStyle: ButtonStyle {
             size: size,
             isActive: isActive,
             activeFill: activeFill,
-            isDestructiveOnHover: isDestructiveOnHover
+            isDestructiveOnHover: isDestructiveOnHover,
+            onGlass: onGlass
         )
     }
 }
@@ -989,6 +1041,7 @@ private struct DSToolbarIconButton: View {
     let isActive: Bool
     let activeFill: Color?
     let isDestructiveOnHover: Bool
+    let onGlass: Bool
 
     @State private var isHovered = false
     @Environment(\.isEnabled) private var isEnabled
@@ -1008,6 +1061,10 @@ private struct DSToolbarIconButton: View {
 
     private var fill: Color {
         if isActive, let activeFill { return activeFill.opacity(configuration.isPressed ? 0.85 : 1) }
+        if onGlass {
+            if configuration.isPressed || isActive { return DS.Colors.glassInk.opacity(0.16) }
+            return isHovered ? DS.Colors.glassInk.opacity(0.10) : .clear
+        }
         if configuration.isPressed || isActive { return DS.Colors.surface3 }
         return isHovered ? DS.Colors.surface2 : .clear
     }
@@ -1015,6 +1072,7 @@ private struct DSToolbarIconButton: View {
     private var foreground: Color {
         if isActive && activeFill != nil { return DS.Colors.textOnAccent }
         if isHovered && isDestructiveOnHover { return DS.Colors.destructiveText }
+        if onGlass { return DS.Colors.glassInk.opacity(isHovered || isActive ? 1 : 0.68) }
         return isHovered || isActive ? DS.Colors.textPrimary : DS.Colors.textSecondary
     }
 }
@@ -1137,13 +1195,15 @@ extension View {
         size: CGFloat = DS.ControlSize.regular,
         isActive: Bool = false,
         activeFill: Color? = nil,
-        isDestructiveOnHover: Bool = false
+        isDestructiveOnHover: Bool = false,
+        onGlass: Bool = false
     ) -> some View {
         buttonStyle(DSToolbarIconButtonStyle(
             size: size,
             isActive: isActive,
             activeFill: activeFill,
-            isDestructiveOnHover: isDestructiveOnHover
+            isDestructiveOnHover: isDestructiveOnHover,
+            onGlass: onGlass
         ))
     }
 
@@ -1160,6 +1220,13 @@ extension View {
             tooltip: tooltip,
             tooltipAlignment: tooltipAlignment
         ))
+    }
+
+    /// Pads a bare glyph label (an `xmark`, a chevron) out to a clickable
+    /// square, so a plain-style button isn't only as big as its pixels.
+    func dsIconHitArea(_ side: CGFloat = DS.ControlSize.small) -> some View {
+        frame(minWidth: side, minHeight: side)
+            .contentShape(Rectangle())
     }
 
     /// Shows the pointing hand over this view. Disabled controls pass
@@ -1258,6 +1325,30 @@ struct DSGlassSurface: View {
         .shadow(color: Color.black.opacity(isPressed ? 0.12 : 0.28), radius: isPressed ? 2 : 5, y: isPressed ? 1 : 3)
         .shadow(color: Color(hex: "#A9CCFF").opacity(isHovered && !isPressed ? 0.15 : 0), radius: 9, y: 1)
         .allowsHitTesting(false)
+    }
+}
+
+/// The surface an assistant reply sits on: a quiet step above the
+/// background with a hairline edge and a lit top rim, so a reply reads as
+/// one bubble without competing with the user's glass bubble.
+struct ChatReplySurface: View {
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous)
+        shape.fill(Color.white.opacity(0.045))
+            .overlay(shape.strokeBorder(
+                LinearGradient(colors: [Color.white.opacity(0.10), Color.white.opacity(0.04)],
+                               startPoint: .top, endPoint: .bottom),
+                lineWidth: 1))
+            .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
+            .allowsHitTesting(false)
+    }
+}
+
+extension View {
+    func chatReplyBubble() -> some View {
+        padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(ChatReplySurface())
     }
 }
 

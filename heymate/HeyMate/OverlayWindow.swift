@@ -13,10 +13,12 @@ import SwiftUI
 
 /// A borderless, clear window covering one screen. It sits above menus and
 /// pop-ups, follows the user across Spaces and full-screen apps, and never
-/// takes focus or clicks.
-final class OverlayWindow: NSWindow {
+/// takes focus or clicks. A non-activating panel, so the one time it does
+/// take the mouse (circling while holding the talk keys) HeyMate doesn't
+/// come forward and the app being asked about stays frontmost.
+final class OverlayWindow: NSPanel {
     init(screen: NSScreen) {
-        super.init(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        super.init(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false

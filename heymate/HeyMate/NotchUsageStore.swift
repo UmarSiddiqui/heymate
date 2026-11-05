@@ -158,9 +158,13 @@ nonisolated enum NotchUsageParser {
         switch provider {
         case .codex:
             let limits = root["rate_limit"] as? [String: Any] ?? [:]
-            for (id, title) in [("primary_window", "Session"), ("secondary_window", "Weekly")] {
+            for (id, fallback) in [("primary_window", "Session"), ("secondary_window", "Weekly")] {
                 if let window = limits[id] as? [String: Any] {
-                    add(id, title, percent: window["used_percent"], reset: window["reset_at"])
+                    // The plan decides what each window is (a 5h session, a week, a month),
+                    // so the title comes from the length Codex sent, as upstream labels it.
+                    let seconds = number(window["limit_window_seconds"]).flatMap { $0 > 0 && $0.isFinite ? $0 : nil }
+                    add(id, seconds.map(codexTitle) ?? fallback, percent: window["used_percent"], reset: window["reset_at"])
+                    if let seconds, let index = windows.indices.last, windows[index].id == id { windows[index].duration = seconds }
                 }
             }
         case .claude:
@@ -182,6 +186,17 @@ nonisolated enum NotchUsageParser {
         }
         guard !windows.isEmpty else { throw NotchUsageFailure.unavailable }
         return windows
+    }
+    /// Upstream `CodexUsage.label(windowSeconds:)`, in HeyMate's short titles.
+    static func codexTitle(_ seconds: Double) -> String {
+        let minutes = seconds / 60
+        if minutes < 60 { return "\(Int(minutes))m" }
+        if minutes < 60 * 24 { return "\(Int(minutes / 60)) hours" }
+        switch Int((minutes / (60 * 24)).rounded()) {
+        case 7: return "Weekly"
+        case 30: return "Monthly"
+        case let days: return "\(days) days"
+        }
     }
     static func value(at path: String, in root: Any) -> Any? {
         var current: Any? = root
@@ -236,8 +251,14 @@ final class NotchUsageStore: ObservableObject {
     var providers: [NotchUsageProvider] {
         CNProviderOrder.arrange(NotchUsageProvider.allCases + customProviders.map { NotchUsageProvider(rawValue: $0.id) }, by: providerOrder, id: \.rawValue)
     }
+    /// Set by the app to the usage providers of the selected brain and every
+    /// signed-in brain account. When set, Usage shows and polls only those;
+    /// nil (tests, previews) keeps every connected provider.
+    @Published var brainFocus: Set<NotchUsageProvider>? = nil {
+        didSet { if brainFocus != oldValue, timer != nil { refresh() } }
+    }
     var displayedProviders: [NotchUsageProvider] {
-        let connected = providers.filter { enabled.contains($0) }
+        let connected = providers.filter { provider in enabled.contains(provider) && (brainFocus?.contains(provider) ?? true) }
         guard ringOrder == .remaining else { return connected }
         return connected.enumerated().sorted {
             let left = headline($0.element)?.usedPercent
@@ -278,10 +299,20 @@ final class NotchUsageStore: ObservableObject {
     private let defaults: UserDefaults
     private let client: URLSession
     private let fetchReading: @Sendable (NotchUsageProvider, Bool, URLSession) async throws -> NotchUsageReading
+    /// Claude Code's own `/usage`, tried before the rate-limited endpoint.
+    private let claudeCLIReading: (@Sendable () async throws -> NotchUsageReading)?
+    /// One `claude` subprocess per this interval on timer refreshes.
+    static let claudeCLIInterval: TimeInterval = 240
 
-    init(defaults: UserDefaults = .standard, fetchReading: (@Sendable (NotchUsageProvider, Bool, URLSession) async throws -> NotchUsageReading)? = nil) {
+    init(defaults: UserDefaults = .standard, fetchReading: (@Sendable (NotchUsageProvider, Bool, URLSession) async throws -> NotchUsageReading)? = nil,
+         claudeCLIReading: (@Sendable () async throws -> NotchUsageReading)? = nil) {
         self.defaults = defaults
         self.fetchReading = fetchReading ?? { provider, interactive, client in try await Self.fetch(provider, interactive: interactive, client: client) }
+        // Injected readers and hosted tests never spawn the real CLI.
+        self.claudeCLIReading = claudeCLIReading ?? (fetchReading == nil && !HeyMateDataDirectory.isHostingTests ? {
+            guard let cli = CNClaudeUsageCLI.locate() else { throw NotchUsageFailure.unavailable }
+            return try await cli.reading()
+        } : nil)
         showsIdleUsage = defaults.object(forKey: "heymate.notch.showsIdleUsage") as? Bool ?? true
         showsRemaining = defaults.bool(forKey: "heymate.notch.showsRemaining")
         showsWeeklyRing = defaults.bool(forKey: "heymate.notch.showsWeeklyRing")
@@ -414,11 +445,22 @@ final class NotchUsageStore: ObservableObject {
     private func persistCustom() {
         if let data = try? JSONEncoder().encode(customProviders) { defaults.set(data, forKey: Self.customKey) }
     }
-    func refresh() { for provider in enabled { refresh(provider) } }
+    /// Timer refresh: only what Usage shows, and Claude's CLI no more than once per interval.
+    func refresh() {
+        for provider in brainFocus == nil ? Array(enabled) : displayedProviders {
+            if provider == .claude, claudeCLIReading != nil, status[provider] == nil,
+               let fetched = readings[provider]?.fetchedAt, Date().timeIntervalSince(fetched) < Self.claudeCLIInterval { continue }
+            refresh(provider)
+        }
+    }
     func refresh(_ provider: NotchUsageProvider, interactive: Bool = false) {
         guard enabled.contains(provider), tasks[provider] == nil else { return }
         let retryKey = "heymate.notch.usageRetry.\(provider.rawValue)"
-        if defaults.double(forKey: retryKey) > Date().timeIntervalSince1970 {
+        let retryAt = defaults.double(forKey: retryKey)
+        let endpointHeld = retryAt > Date().timeIntervalSince1970
+        // The CLI does not share the endpoint's backoff, so Claude still reads.
+        let claudeCLI = provider == .claude ? claudeCLIReading : nil
+        if endpointHeld && claudeCLI == nil {
             status[provider] = "Rate limited — waiting to retry"
             return
         }
@@ -437,7 +479,11 @@ final class NotchUsageStore: ObservableObject {
                 let client = self.client
                 let fetchReading = self.fetchReading
                 let worker = Task.detached(priority: .utility) {
-                    try await fetchReading(provider, interactive, client)
+                    if let claudeCLI {
+                        do { return try await claudeCLI() } catch is CancellationError { throw CancellationError() } catch {}
+                        if endpointHeld { throw NotchUsageFailure.rateLimited(retryAt - Date().timeIntervalSince1970) }
+                    }
+                    return try await fetchReading(provider, interactive, client)
                 }
                 let reading = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
                 try Task.checkCancellation()

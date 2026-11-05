@@ -85,6 +85,7 @@ struct TaskProgressDisclosure: View {
                 Text("\(entries.count) progress \(entries.count == 1 ? "update" : "updates")")
                     .font(DS.Fonts.caption).foregroundStyle(DS.Colors.textSecondary)
             }
+            .disclosureGroupStyle(.ds)
             .accessibilityLabel("Progress for \(run.title), \(entries.count) updates")
         }
     }
@@ -270,8 +271,6 @@ struct TaskUpdatesPopover: View {
                 }.frame(maxHeight: 380)
             }
             if let error { Text(error).font(DS.Fonts.caption).foregroundStyle(DS.Colors.warningText) }
-            Text("Dismissing an update keeps its task and result in chat.")
-                .font(DS.Fonts.micro).foregroundStyle(DS.Colors.textTertiary)
         }.padding(18).frame(width: 340).foregroundStyle(DS.Colors.textPrimary)
     }
 

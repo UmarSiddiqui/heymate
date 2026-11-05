@@ -9,7 +9,8 @@
 //
 //  Headings render as a short bold line: the reading prompt asks for none,
 //  but agent and job replies use them, and raw "## Findings" read as noise.
-//  Tables are not supported; a chat column is too narrow.
+//  Markdown tables are not drawn; a reply that needs one writes an
+//  ```openui block instead (see `OpenUILang.swift`), drawn as real UI.
 //
 
 import SwiftUI
@@ -17,6 +18,8 @@ import SwiftUI
 nonisolated enum ChatMarkdownSegment: Equatable {
     case prose(String)
     case code(String)
+    /// An ```openui block: OpenUI Lang source, drawn by `OpenUIView`.
+    case ui(String)
 }
 
 nonisolated enum ChatProseBlock: Equatable {
@@ -36,6 +39,7 @@ nonisolated enum ChatMarkdownParser {
         var proseLines: [String] = []
         var codeLines: [String] = []
         var isInsideCodeBlock = false
+        var isInsideUIBlock = false
 
         func flushProse() {
             let prose = proseLines.joined(separator: "\n").trimmingCharacters(in: .newlines)
@@ -44,16 +48,21 @@ nonisolated enum ChatMarkdownParser {
         }
 
         func flushCode() {
-            segments.append(.code(codeLines.joined(separator: "\n")))
+            let body = codeLines.joined(separator: "\n")
+            segments.append(isInsideUIBlock ? .ui(body) : .code(body))
             codeLines = []
         }
 
         for line in text.components(separatedBy: "\n") {
-            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") {
                 if isInsideCodeBlock {
                     flushCode()
+                    isInsideUIBlock = false
                 } else {
                     flushProse()
+                    let language = trimmed.dropFirst(3).trimmingCharacters(in: .whitespaces).lowercased()
+                    isInsideUIBlock = OpenUILangParser.fenceLanguages.contains(language)
                 }
                 isInsideCodeBlock.toggle()
                 continue
@@ -141,6 +150,7 @@ nonisolated enum ChatWordReveal {
         case listItem(marker: String, text: String)
         case quote(String)
         case code(String)
+        case ui(String)
     }
 
     static func blocks(from text: String) -> [Block] {
@@ -157,16 +167,18 @@ nonisolated enum ChatWordReveal {
                 }
             case .code(let code):
                 return [.code(code)]
+            case .ui(let source):
+                return [.ui(source)]
             }
         }
     }
 
-    /// Words a block counts for. A code block appears whole, as one step.
+    /// Words a block counts for. A code or UI block appears whole, as one step.
     static func wordCount(of block: Block) -> Int {
         switch block {
         case .body(let text), .heading(let text), .listItem(_, let text), .quote(let text):
             return wordCount(in: String(ChatMarkdownParser.inlineAttributedString(from: text).characters))
-        case .code:
+        case .code, .ui:
             return 1
         }
     }
@@ -266,19 +278,12 @@ struct ChatMarkdownText: View {
                         }
                         .opacity(budget == 0 ? 0 : 1)
                 case .code(let code):
-                    ScrollView(.horizontal, showsIndicators: true) {
-                        Text(code)
-                            .font(DS.Fonts.code)
-                            .foregroundColor(DS.Colors.textPrimary)
-                            .fixedSize(horizontal: true, vertical: true)
-                            .padding(10)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                            .fill(DS.Colors.surface2)
-                    )
-                    .opacity(budget == 0 ? 0 : 1)
+                    ChatCodeBlock(code: code)
+                        .opacity(budget == 0 ? 0 : 1)
+                case .ui(let source):
+                    OpenUIView(source: source)
+                        .opacity(budget == 0 ? 0 : 1)
+                        .animation(.easeOut(duration: DS.Animation.normal), value: budget == 0)
                 }
             }
         }
@@ -291,5 +296,60 @@ struct ChatMarkdownText: View {
     private func revealed(_ attributed: AttributedString, budget: Int?) -> AttributedString {
         guard let budget else { return attributed }
         return ChatWordReveal.hidingWords(after: budget, in: attributed)
+    }
+}
+
+/// A fenced code block with a copy button that shows on hover.
+struct ChatCodeBlock: View {
+    let code: String
+    @State private var isHovered = false
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: true) {
+            Text(code)
+                .font(DS.Fonts.code)
+                .foregroundColor(DS.Colors.textPrimary)
+                .fixedSize(horizontal: true, vertical: true)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 11)
+                .padding(.trailing, 28)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                .fill(DS.Colors.background.opacity(0.7))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                .strokeBorder(DS.Colors.hairline, lineWidth: 1)
+        )
+        .overlay(alignment: .topTrailing) {
+            ChatCopyButton(label: "Copy code") { code }
+                .padding(5)
+                .opacity(isHovered ? 1 : 0)
+        }
+        .onHover { isHovered = $0 }
+        .animation(.easeOut(duration: DS.Animation.fast), value: isHovered)
+    }
+}
+
+/// A small copy glyph that turns into a checkmark for a moment.
+struct ChatCopyButton: View {
+    let label: String
+    let text: () -> String
+    @State private var didCopy = false
+
+    var body: some View {
+        ChatMessageActionButton(
+            systemImage: didCopy ? "checkmark" : "doc.on.doc",
+            label: didCopy ? "Copied" : label
+        ) {
+            ChatReplyClipboard.copy(text())
+            didCopy = true
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 1_400_000_000)
+                didCopy = false
+            }
+        }
     }
 }

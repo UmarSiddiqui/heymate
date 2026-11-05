@@ -81,12 +81,6 @@ nonisolated enum PushToTalkShortcut {
         set { store(newValue, "dictateShortcutOption") }
     }
 
-    /// Held while the user draws a region on screen to use as context.
-    static var spatialSelect: Option {
-        get { stored("spatialSelectShortcutOption", default: .shiftControl) }
-        set { store(newValue, "spatialSelectShortcutOption") }
-    }
-
     /// Toggles the compact notch chat; a press, not a hold.
     static var chat: Option {
         get { stored("chatShortcutOption", default: .controlCommand) }

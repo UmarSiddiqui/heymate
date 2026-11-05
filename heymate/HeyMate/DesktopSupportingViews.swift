@@ -24,7 +24,7 @@ struct DesktopMemoryView: View {
     var body: some View {
         DesktopPage(
             title: "Memory",
-            subtitle: "Text only, stored on this Mac. Screenshots are never retained — the store has no field to put them in."
+            subtitle: "Text only, on this Mac. Screenshots are never kept."
         ) {
             DesktopCard(title: "Behavior") {
                 VStack(alignment: .leading, spacing: 10) {
@@ -33,7 +33,7 @@ struct DesktopMemoryView: View {
                     Toggle(isOn: $companionManager.rememberConversationsEnabled) {
                         SettingsRowLabel(
                             title: SettingsItem.saveChats.title,
-                            subtitle: "Turning this off stops new saves but does not delete chats already stored."
+                            subtitle: "Off stops new saves; stored chats stay."
                         )
                     }
                     .toggleStyle(DSSwitchToggleStyle())
@@ -164,6 +164,7 @@ struct DesktopMemoryView: View {
                 } label: {
                     Image(systemName: "trash")
                         .foregroundColor(DS.Colors.destructiveText)
+                        .dsIconHitArea()
                 }
                 .buttonStyle(.plain)
                 .pointerCursor()

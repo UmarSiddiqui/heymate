@@ -77,6 +77,36 @@ struct UISnapshotTests {
         }
     }
 
+    /// A silent-mode reply carrying an OpenUI block, in the reply bubble.
+    @Test(.enabled(if: outputDirectory != nil))
+    func richReply() throws {
+        let manager = Self.sampleManager()
+        let reply = """
+        **Pro** is the better fit: you're past the free limits on two of three counts, and yearly billing saves 17%.
+        ```openui
+        root = Stack([usage, plans, note, next])
+        usage = Row([Stat("Seats", "8", "+3 this month"), Stat("Storage", "41 GB", "of 50 GB"), Stat("API calls", "1.2M", "-4% vs Sept")])
+        plans = Table(["Plan", "Monthly", "Yearly", "Seats"], [["Free", "$0", "$0", "3"], ["Pro", "$12", "$120", "25"], ["Team", "$20", "$200", "Unlimited"]])
+        note = Callout("Storage hits the cap in about 9 days at this pace.", "warning", "Heads up")
+        next = Row([Button("Switch to Pro", @ToAssistant("switch me to the pro plan"), "primary"), Button("Compare features", @ToAssistant("compare pro and team features")), Link("Pricing page", "https://example.com/pricing")])
+        ```
+        ```bash
+        heymate plan switch --to pro --yearly
+        ```
+        """
+        let now = Date()
+        manager.currentChat.messages = [
+            ChatMessage(id: UUID(), role: .user, text: "Which plan should we be on?", createdAt: now.addingTimeInterval(-120)),
+            ChatMessage(id: UUID(), role: .assistant, text: reply, createdAt: now.addingTimeInterval(-110))
+        ]
+        try Self.render(
+            MateHomeView(companionManager: manager, isCompactLayout: false, onOpenSection: { _ in }),
+            size: CGSize(width: 1180, height: 900),
+            dark: true,
+            name: "rich-reply-dark"
+        )
+    }
+
     @Test(.enabled(if: outputDirectory != nil))
     func settings() throws {
         let manager = Self.sampleManager()

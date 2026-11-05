@@ -26,7 +26,7 @@ struct ComposioKeyRow: View {
         VStack(alignment: .leading, spacing: 6) {
             SettingsSecretKeyRow(
                 title: "Composio API key",
-                subtitle: "Composio signs HeyMate in to apps like Gmail and Slack. Its free tier is enough to start. Stored in a private file only your Mac account can read.",
+                subtitle: "Signs HeyMate in to apps like Gmail and Slack. The free tier is enough.",
                 item: nil,
                 placeholder: "Composio API key",
                 isStored: composioConnections.isConfigured,

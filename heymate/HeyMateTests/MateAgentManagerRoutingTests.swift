@@ -6,6 +6,21 @@ import Testing
 @Suite(.serialized)
 struct MateAgentManagerRoutingTests {
     enum RetiredPreference: String { case pi, native }
+    @Test func failedDictationPreservesWordsAndExistingDraft() async throws {
+        let fixture = try Fixture(engine: .pi)
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        manager.updateCurrentDraft("existing draft")
+        manager.dictationInsertionOverride = { _ in .failed("no resolvable focused field") }
+        manager.processDictationTranscript("words that must survive")
+        let task = try #require(manager.currentResponseTask)
+        await task.value
+        #expect(manager.currentChat.draftText == "existing draft\nwords that must survive")
+        #expect(manager.savedChats.first(where: { $0.id == manager.currentChat.id })?.draftText
+            == "existing draft\nwords that must survive")
+        #expect(manager.commandBarFeedback?.contains("saved") == true)
+        #expect(fixture.client.requests.isEmpty)
+    }
     /// Finalized dictation text only: no mic, screen, AX or pasteboard access.
     @Test func mateAgentSmartPreferenceUsesLiteralSyntheticInsertionWithoutNativeClient() async throws {
         let fixture = try Fixture(engine: .pi)

@@ -36,11 +36,11 @@ struct SettingsVoicePane: View {
                 .settingsAnchor(.onDeviceVoice)
             SettingsToggleRow(
                 SettingsItem.captions.title,
-                subtitle: "HeyMate's words appear in the notch. With the notch off, show them at the bottom of the screen instead of beside the cursor.",
+                subtitle: "In the notch, or at the bottom of the screen when the notch is off.",
                 item: .captions,
                 isOn: $showsBottomCaptions
             )
-            DisclosureGroup("Advanced", isExpanded: $showsAdvanced) {
+            DisclosureGroup("Advanced", isExpanded: $showsAdvanced.withDisclosureSound()) {
                 VStack(alignment: .leading, spacing: DS.SettingsLayout.sectionSpacing) {
                     listenAndSpeakSection.id(credentialsRevision)
                     elevenLabsSection
@@ -49,6 +49,8 @@ struct SettingsVoicePane: View {
                 }
                 .padding(.top, DS.Spacing.md)
             }
+            .disclosureGroupStyle(.ds)
+            .font(DS.Fonts.control)
             .foregroundStyle(DS.Colors.textSecondary)
         }
         .onAppear {
@@ -74,14 +76,14 @@ struct SettingsVoicePane: View {
         SettingsSection("Talking") {
             SettingsToggleRow(
                 SettingsItem.silentMode.title,
-                subtitle: "Type instead of talking, and read replies instead of hearing them. Type /silent anywhere to switch.",
+                subtitle: "Type and read instead of talk and listen. Type /silent to switch.",
                 item: .silentMode,
                 isOn: $companionManager.isSilentModeEnabled
             )
             SettingsDivider()
             SettingsRow(
                 SettingsItem.dictationMode.title,
-                subtitle: "Literal dictation types your original words. Smart rewriting is currently unavailable.",
+                subtitle: "Smart rewriting isn't available yet.",
                 item: .dictationMode
             ) {
                 DSSegmentedControl(
@@ -109,14 +111,12 @@ struct SettingsVoicePane: View {
             SettingsDivider()
             SettingsToggleRow(
                 SettingsItem.focusedWindow.title,
-                subtitle: "Sharper, faster answers from the app in front of you.",
                 item: .focusedWindow,
                 isOn: $companionManager.talkUsesFocusedWindowContext
             )
             SettingsDivider()
             SettingsToggleRow(
                 SettingsItem.interactionSounds.title,
-                subtitle: "A soft blip and chime as HeyMate listens and answers.",
                 item: .interactionSounds,
                 isOn: $companionManager.isUISoundEnabled
             )
@@ -143,7 +143,6 @@ struct SettingsVoicePane: View {
     private var microphoneSection: some View {
         SettingsSection(
             "Microphone",
-            footer: "Falls back to the system default if this device is unplugged."
         ) {
             SettingsRow(
                 SettingsItem.microphone.title,
@@ -195,7 +194,6 @@ struct SettingsVoicePane: View {
         let isIdle = companionManager.voiceState == .idle
         return SettingsSection(
             "Listen & speak",
-            footer: "Local voice is free and private. ElevenLabs uses your API key; if unavailable, HeyMate uses local voice."
         ) {
             SettingsRow(
                 SettingsItem.listenProvider.title,
@@ -379,10 +377,7 @@ struct SpeechSpeedRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SettingsRowLabel(
-                title: SettingsItem.speechSpeed.title,
-                subtitle: "Takes effect on the next spoken reply."
-            )
+            SettingsRowLabel(title: SettingsItem.speechSpeed.title)
             HStack(spacing: 6) {
                 ForEach(SpeechStylePreferences.speedChoices, id: \.self) { choice in
                     let isSelected = abs(choice - speed) < 0.01

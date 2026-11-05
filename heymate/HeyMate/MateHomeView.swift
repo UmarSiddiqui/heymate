@@ -475,29 +475,32 @@ struct MateHomeView: View {
 
     private func chatRow(_ session: ChatSession, selected: Bool) -> some View {
         let isSaved = companionManager.savedChats.contains { $0.id == session.id }
+        let mate = companionManager.mates.first(where: { $0.id == (session.mateID ?? companionManager.mateDirectory.defaultMateID) })
         return HStack(spacing: 10) {
-            if let mate = companionManager.mates.first(where: { $0.id == (session.mateID ?? companionManager.mateDirectory.defaultMateID) }) {
-                mateFaceEditorButton(mate, size: 38)
-            }
             Button {
                 openMainChat(session)
             } label: {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(session.title)
-                            .font(DS.Fonts.headline)
-                            .foregroundColor(selected ? DS.Colors.glassInk : DS.Colors.textPrimary)
-                            .lineLimit(1)
-                        Spacer(minLength: 2)
-                        Text(MateRailPreview.timestamp(session.updatedAt))
-                            .font(DS.Fonts.caption)
-                            .foregroundColor(selected ? DS.Colors.glassInk.opacity(0.7) : DS.Colors.textTertiary)
+                HStack(spacing: 10) {
+                    if let mate {
+                        railFace(mate, size: 38)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(session.title)
+                                .font(DS.Fonts.headline)
+                                .foregroundColor(selected ? DS.Colors.glassInk : DS.Colors.textPrimary)
+                                .lineLimit(1)
+                            Spacer(minLength: 2)
+                            Text(MateRailPreview.timestamp(session.updatedAt))
+                                .font(DS.Fonts.caption)
+                                .foregroundColor(selected ? DS.Colors.glassInk.opacity(0.7) : DS.Colors.textTertiary)
+                                .lineLimit(1)
+                        }
+                        Text(session.previewText.isEmpty ? "Start a conversation" : session.previewText)
+                            .font(DS.Fonts.body)
+                            .foregroundColor(selected ? DS.Colors.glassInk.opacity(0.78) : DS.Colors.textSecondary)
                             .lineLimit(1)
                     }
-                    Text(session.previewText.isEmpty ? "Start a conversation" : session.previewText)
-                        .font(DS.Fonts.body)
-                        .foregroundColor(selected ? DS.Colors.glassInk.opacity(0.78) : DS.Colors.textSecondary)
-                        .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -562,6 +565,7 @@ struct MateHomeView: View {
                                 suggestedRow(suggestion)
                             }
                         }
+                        .disclosureGroupStyle(.ds)
                         .font(DS.Fonts.control)
                         .foregroundStyle(DS.Colors.textSecondary)
                         .padding(.horizontal, 8)
@@ -698,11 +702,11 @@ struct MateHomeView: View {
             defaultMateID: companionManager.mateDirectory.defaultMateID
         )
         return HStack(alignment: .center, spacing: 4) {
-            mateFaceEditorButton(mate, size: 38)
             Button {
                 openMateFromRow(mate)
             } label: {
                 HStack(alignment: .center, spacing: 10) {
+                    railFace(mate, size: 38)
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
                             Text(mate.name)
@@ -743,18 +747,20 @@ struct MateHomeView: View {
             // Row tools appear on hover only, so names and jobs get the
             // rail's full width the rest of the time.
             if hoveredRailMateID == mate.id {
-                mateRailControl("Edit", systemImage: "pencil") {
+                mateRailControl("Edit", systemImage: "pencil", onGlass: selected) {
                     beginMateSettings(mate)
                 }
                 mateRailControl(
                     mate.pinned ? "Unpin" : "Pin",
-                    systemImage: mate.pinned ? "pin.fill" : "pin"
+                    systemImage: mate.pinned ? "pin.fill" : "pin",
+                    onGlass: selected
                 ) {
                     companionManager.toggleMatePinned(id: mate.id)
                 }
                 mateRailControl(
                     mate.unreadCount > 0 ? "Mark as Read" : "Mark as Unread",
-                    systemImage: mate.unreadCount > 0 ? "envelope.open" : "envelope"
+                    systemImage: mate.unreadCount > 0 ? "envelope.open" : "envelope",
+                    onGlass: selected
                 ) {
                     if mate.unreadCount > 0 {
                         companionManager.markMateRead(id: mate.id)
@@ -813,13 +819,14 @@ struct MateHomeView: View {
     private func mateRailControl(
         _ title: String,
         systemImage: String,
+        onGlass: Bool,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(DS.Glyph.small)
         }
-        .dsToolbarIconButtonStyle(size: DS.ControlSize.small)
+        .dsToolbarIconButtonStyle(size: DS.ControlSize.small, onGlass: onGlass)
         .help(title)
         .accessibilityLabel(title)
     }
@@ -834,6 +841,14 @@ struct MateHomeView: View {
 
     private func beginMateSettings(_ mate: Mate) {
         settingsMate = mate
+    }
+
+    /// Rail faces are part of the row's open button; the character editor
+    /// lives on the chat header face and the row's Edit tool.
+    private func railFace(_ mate: Mate, size: CGFloat) -> some View {
+        MateFaceView(mate: mate, size: size)
+            .allowsHitTesting(false)
+            .frame(width: size, height: size)
     }
 
     private func mateFaceEditorButton(_ mate: Mate, size: CGFloat) -> some View {
@@ -1362,6 +1377,14 @@ struct MateHomeView: View {
                     .padding(.bottom, 10 + composerDockHeight)
                 }
             }
+            // Buttons inside an OpenUI reply send their words as the next
+            // message, the same as a follow-up chip.
+            .environment(\.chatReplyAction) { action in
+                switch action {
+                case .send(let text): _ = companionManager.sendTypedMessage(text)
+                case .open(let url): NSWorkspace.shared.open(url)
+                }
+            }
         }
     }
 
@@ -1477,9 +1500,6 @@ struct MateHomeView: View {
                     .pointerCursor()
                     .accessibilityLabel("Dismiss starter suggestion")
             }
-            Text("Edit the message, then send when you're ready.")
-                .font(DS.Fonts.caption)
-                .foregroundColor(DS.Colors.textSecondary)
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: DS.CornerRadius.medium).fill(DS.Colors.surface2))
@@ -1599,6 +1619,7 @@ struct MateHomeView: View {
                                 }
                                 .frame(maxHeight: 180)
                             }
+                            .disclosureGroupStyle(.ds)
                             .font(DS.Fonts.caption)
                             .foregroundColor(DS.Colors.textTertiary)
                         }
@@ -1606,6 +1627,8 @@ struct MateHomeView: View {
                         CueWordReveal(text: message.visibleText, bornAt: message.createdAt) { visibleWords in
                             ChatMarkdownText(text: message.visibleText, visibleWordCount: visibleWords)
                         }
+                        .chatReplyBubble()
+                        .chatReplyCopyMenu(message.visibleText)
                         .cueMotion(.messageReceived, bornAt: message.createdAt, anchor: .topLeading)
                         .cueMotion(.question, part: .item(0), bornAt: message.createdAt, anchor: .topLeading)
                         if let chrome = companionManager.harnessReplyChrome[message.id] {
@@ -1658,6 +1681,7 @@ struct MateHomeView: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 6) {
                 ChatMarkdownText(text: companionManager.streamingAssistantText)
+                    .chatReplyBubble()
                 Label("Replying", systemImage: "ellipsis")
                     .font(DS.Fonts.micro)
                     .foregroundColor(DS.Colors.textTertiary)

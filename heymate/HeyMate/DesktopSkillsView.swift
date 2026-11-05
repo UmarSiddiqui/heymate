@@ -62,7 +62,6 @@ struct DesktopSkillsView: View {
     var body: some View {
         DesktopPage(
             title: "Skills",
-            subtitle: "Review what HeyMate may add to a prompt. Active skills run in priority order.",
             accessory: AnyView(headerActions)
         ) {
             activeConstellation
@@ -178,10 +177,6 @@ struct DesktopSkillsView: View {
                             .padding(.horizontal, 10)
                             .padding(.vertical, 6)
                             .background(DS.Colors.surface3, in: Capsule())
-                    } else if !activeSkills.isEmpty {
-                        Text("Hover a node for its name")
-                            .font(DS.Fonts.caption)
-                            .foregroundColor(DS.Colors.textTertiary)
                     }
                     Spacer(minLength: 0)
                 }

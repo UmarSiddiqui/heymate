@@ -183,6 +183,82 @@ struct NotchCodenotchIntegrationTests {
         #expect(defaults.data(forKey: "heymate.notch.usage.kimi") == nil)
         transient.stop(); auth.stop()
     }
+    @Test func codexWindowTitlesFollowTheLengthCodexSent() throws {
+        let weeklyOnly = try NotchUsageParser.parse(data(#"{"rate_limit":{"primary_window":{"used_percent":6,"limit_window_seconds":604800,"reset_at":1793900000}}}"#), provider: .codex)
+        #expect(weeklyOnly.map(\.title) == ["Weekly"])
+        #expect(weeklyOnly.first?.duration == 604800)
+        let paid = try NotchUsageParser.parse(data(#"{"rate_limit":{"primary_window":{"used_percent":20,"limit_window_seconds":18000},"secondary_window":{"used_percent":40,"limit_window_seconds":604800}}}"#), provider: .codex)
+        #expect(paid.map(\.title) == ["5 hours", "Weekly"])
+        let unlabeled = try NotchUsageParser.parse(data(#"{"rate_limit":{"primary_window":{"used_percent":1}}}"#), provider: .codex)
+        #expect(unlabeled.map(\.title) == ["Session"])
+    }
+    @Test func claudeUsageCLIParsesWindowsWithEndpointIDs() throws {
+        let now = Date(timeIntervalSince1970: 1_793_800_000) // 2026-11-05 UTC
+        let text = """
+        You are currently using your subscription to power your Claude Code usage
+
+        Current session: 31% used · resets Nov 5 at 5:40am (Australia/Perth)
+        Current week (all models): 82% used · resets Nov 6 at 7am (Australia/Perth)
+        Current week (Fable): 12% used
+
+        Last 24h · 152 requests · 2 sessions
+          71%  Start fresh when you switch tasks · run /clear
+        """
+        let windows = try CNClaudeUsageCLI.parse(text, now: now)
+        #expect(windows.map(\.id) == ["five_hour", "seven_day", "seven_day_fable"])
+        #expect(windows.map(\.usedPercent) == [31, 82, 12])
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Australia/Perth")!
+        let reset = try #require(windows[1].resetsAt)
+        #expect(calendar.dateComponents([.year, .month, .day, .hour, .minute], from: reset)
+                == DateComponents(year: 2026, month: 11, day: 6, hour: 7, minute: 0))
+        #expect(windows[2].resetsAt == nil)
+        #expect(throws: (any Error).self) { try CNClaudeUsageCLI.parse("Total cost: $0.00", now: now) }
+    }
+    @MainActor @Test func brainFocusShowsAndPollsOnlySignedInBrains() async throws {
+        let suite = "cn-brain-\(UUID())", defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(["codex", "claude", "kimi"], forKey: "heymate.notch.usageProviders.v1")
+        let counter = FetchCounter(), reading = fixture()
+        let store = NotchUsageStore(defaults: defaults, fetchReading: { provider, interactive, _ in
+            await counter.add(provider, interactive: interactive); return reading
+        })
+        #expect(store.displayedProviders.count == 3)
+        // Codex selected, Claude signed in too: both show, Kimi does not.
+        store.brainFocus = [.codex, .claude]
+        #expect(store.displayedProviders == [.codex, .claude])
+        #expect(store.idleProviders == [.codex, .claude])
+        store.refresh()
+        await waitUntil { !store.refreshing.contains(.claude) && !store.refreshing.contains(.codex) }
+        #expect(Set(await counter.calls) == [.codex, .claude])
+        store.brainFocus = []
+        #expect(store.displayedProviders.isEmpty)
+        store.stop()
+    }
+    @MainActor @Test func claudeCLIReadsThroughEndpointBackoff() async throws {
+        let suite = "cn-claude-cli-\(UUID())", defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(["claude"], forKey: "heymate.notch.usageProviders.v1")
+        defaults.set(Date().addingTimeInterval(300).timeIntervalSince1970, forKey: "heymate.notch.usageRetry.claude")
+        let counter = FetchCounter(), reading = fixture()
+        let store = NotchUsageStore(defaults: defaults, fetchReading: { provider, interactive, _ in
+            await counter.add(provider, interactive: interactive); return reading
+        }, claudeCLIReading: { reading })
+        store.refresh(.claude)
+        await waitUntil { !store.refreshing.contains(.claude) }
+        #expect(await counter.calls.isEmpty) // The rate-limited endpoint was not asked.
+        #expect(store.readings[.claude] != nil)
+        #expect(store.status[.claude] == nil)
+        let failing = NotchUsageStore(defaults: defaults, fetchReading: { provider, interactive, _ in
+            await counter.add(provider, interactive: interactive); return reading
+        }, claudeCLIReading: { throw NotchUsageFailure.unavailable })
+        defaults.set(Date().addingTimeInterval(300).timeIntervalSince1970, forKey: "heymate.notch.usageRetry.claude")
+        failing.refresh(.claude)
+        await waitUntil { !failing.refreshing.contains(.claude) }
+        #expect(await counter.calls.isEmpty) // CLI failure still honours the endpoint backoff.
+        #expect(failing.status[.claude]?.contains("Rate limited") == true)
+        store.stop(); failing.stop()
+    }
     @Test func retryAfterHonorsSecondsAndHTTPDates() {
         let url = URL(string: "https://api.kimi.com")!, now = Date(timeIntervalSince1970: 0)
         let seconds = HTTPURLResponse(url: url, statusCode: 429, httpVersion: nil, headerFields: ["Retry-After": "600"])

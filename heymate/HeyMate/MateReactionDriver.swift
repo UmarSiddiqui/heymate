@@ -54,6 +54,8 @@ extension View {
     }
 
     /// Click to say hello. Taps pass through to any enclosing button.
+    /// When reactions are off the gesture is masked out entirely: even an
+    /// inert double-tap recognizer swallows the click a picker button needs.
     func mateReactionTaps(enabled: Bool, size: CGFloat, driver: MateReactionDriver, greeting: MateFaceReaction = .wink) -> some View {
         simultaneousGesture(
             SpatialTapGesture(count: 2).onEnded { _ in
@@ -64,7 +66,8 @@ extension View {
                 guard enabled else { return }
                 let reaction = MateFaceReaction.forTap(count: 1, normalizedY: value.location.y / max(size, 1))
                 driver.play(reaction == .wink ? greeting : reaction)
-            })
+            }),
+            including: enabled ? .all : .subviews
         )
     }
 }
