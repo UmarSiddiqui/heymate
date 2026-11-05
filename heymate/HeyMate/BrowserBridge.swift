@@ -241,6 +241,8 @@ struct BrowserElement: Equatable {
 /// rules). Added to a turn's instructions only when use_chrome is offered.
 enum BrowserGuide {
     static let text = """
+    Parallel website work defaults to use_chrome: this chat has its own owned tabs, group, command queue and approval grant in the user's signed-in Chrome profile. Other mates can work concurrently. Cookies, account sign-ins and website storage are shared; page ownership is separate. Never use another mate's owned tab, even if its ID appears in old chat text. Two mates working on the same website account can still change the same server data; coordinate such writes.
+    Only when the user explicitly requests a clean profile without shared sign-ins, use_browser opens a separate temporary Chrome profile for this chat. It has one page: open navigates it. Every returned snapshot replaces all refs. Extract reads only the viewport; scroll to read further. Use visible page buttons instead of keyboard submission. keep preserves a result or sign-in page across turns; profiles close after four idle minutes, on cancellation, or on end, deleting their sign-ins. End unneeded workers; up to four clean profiles run at once. Never report a closed profile's page as still open. If either route is unavailable, report that blocker; never silently switch profiles. The following rules apply to both tools; personal-tab grouping instructions apply only to use_chrome.
     Websites in the user's Chrome (use_chrome):
     Which way: the user's words decide first. "in Chrome", "on the site", "open the page", "show me", "click", "fill in" mean Chrome; don't swap in a connector. Otherwise a URL or a site's name is the target, not the method: account data from a connected app goes through that app, public facts through web search, and Chrome is for work only the page can do. Website work never goes through computer use or scripting the browser.
     Setup: don't check first, go straight to open (or tabs for their own tab). If Chrome isn't connected, do the parts that don't need the site, say in one line that the rest needs Chrome set up in HeyMate Settings, and stop; never reach the site another way. Talk like a person ("I'm opening it in a tab next to yours"), never ops, refs or snapshots.
@@ -332,8 +334,9 @@ enum BrowserResultText {
                 let title = tab["title"] as? String ?? ""
                 let url = tab["url"] as? String ?? ""
                 let id = tab["id"] as? Int ?? 0
-                let owned = (tab["owned"] as? Bool) == true ? " (HeyMate group)" : ""
-                return "tab \(id)\(owned): \(title) — \(url)"
+                let owned = (tab["owned"] as? Bool) == true ? " (this chat's group)" : ""
+                let current = (tab["active"] as? Bool) == true ? " (current)" : ""
+                return "tab \(id)\(owned)\(current): \(title) — \(url)"
             }.joined(separator: "\n")
         }
         if body["text"] != nil || body["elements"] != nil {
@@ -396,9 +399,15 @@ final class BrowserBridge: ObservableObject {
     @Published private(set) var extensionVersion: String?
 
     private var server: BrowserSocketServer?
-    private var pending: [String: CheckedContinuation<[String: Any], Never>] = [:]
-    private var elementsByTab: [Int: [BrowserElement]] = [:]
-    private var grantedUntil: Date?
+    private struct Pending {
+        let owner: String
+        let scope: String
+        let continuation: CheckedContinuation<[String: Any], Never>
+    }
+    private var pending: [String: Pending] = [:]
+    private var elementsByOwner: [String: [Int: [BrowserElement]]] = [:]
+    private var grants: [String: Date] = [:]
+    private var protocolVersion = 0
 
     private init() {}
 
@@ -419,6 +428,10 @@ final class BrowserBridge: ObservableObject {
     /// Runs one use_chrome call. `approve` shows a card and returns the answer.
     func perform(
         arguments: [String: Any],
+        owner: String,
+        scope: String,
+        groupTitle: String,
+        isActive: @escaping () -> Bool,
         approve: (_ summary: String, _ everyTime: Bool) async -> Bool
     ) async -> (text: String, isError: Bool) {
         let command: BrowserCommand
@@ -427,17 +440,19 @@ final class BrowserBridge: ObservableObject {
         case .success(let made): command = made
         }
         guard isConnected, server != nil else { return (Self.notConnectedMessage(), true) }
+        guard protocolVersion >= 4 else { return ("Reload the HeyMate extension in chrome://extensions once to enable separate browser workers. Your Chrome sign-ins stay in place.", true) }
+        guard !Task.isCancelled, isActive() else { return ("Browser turn expired.", true) }
 
         let element: BrowserElement? = {
             switch command {
             case .click(let tab, let ref), .type(let tab, let ref, _, _):
-                return elementsByTab[tab]?.first(where: { $0.ref == ref })
+                return elementsByOwner[owner]?[tab]?.first(where: { $0.ref == ref })
             default:
                 return nil
             }
         }()
         var uploadDestination: String?
-        let hasGrant = grantedUntil.map { $0 > Date() } ?? false
+        let hasGrant = grants[owner].map { $0 > Date() } ?? false
         switch BrowserApproval.decide(command, element: element, mode: ApprovalMode.current(), hasGrant: hasGrant) {
         case .allow:
             break
@@ -447,11 +462,12 @@ final class BrowserBridge: ObservableObject {
             guard await approve(Self.summary(of: command, element: element), false) else {
                 return ("The user did not let HeyMate use Chrome for this.", true)
             }
-            grantedUntil = Date().addingTimeInterval(Self.grantSeconds)
+            guard !Task.isCancelled, isActive() else { return ("Browser turn expired.", true) }
+            grants[owner] = Date().addingTimeInterval(Self.grantSeconds)
         case .askEveryTime(let summary):
             var prompt = summary
             if case .upload(let tab, _, _) = command {
-                let observed = await send(.snapshot(tabID: tab))
+                let observed = await send(.snapshot(tabID: tab), owner: owner, scope: scope, groupTitle: groupTitle)
                 guard (observed["ok"] as? Bool) != false,
                       let page = observed["result"] as? [String: Any], let address = page["url"] as? String else {
                     return ("Read the destination page before uploading files.", true)
@@ -464,19 +480,22 @@ final class BrowserBridge: ObservableObject {
             }
         }
 
+        guard !Task.isCancelled, isActive() else { return ("Browser turn expired.", true) }
+
         if case .upload(_, _, let paths) = command {
             guard paths.allSatisfy(Self.readableUploadFile) else {
                 return ("Upload requires readable regular files. Directories, missing files and device files are refused.", true)
             }
         }
-        let result = await send(command, expectedURL: uploadDestination)
+        let result = await send(command, owner: owner, scope: scope, groupTitle: groupTitle, expectedURL: uploadDestination)
+        guard !Task.isCancelled, isActive() else { return ("Browser turn expired; outcome remains unverified.", true) }
         if command.changesSomething || { if case .scroll = command { return true }; return false }() {
             NotificationCenter.default.post(name: Notification.Name("HeyMateBrowserPageChanged"), object: nil)
         }
         // Every action answers with the settled page now: its elements are the ones the next click is judged by.
         if let tab = command.tabID ?? ((result["result"] as? [String: Any])?["tabId"] as? Int) {
-            if let elements = BrowserResultText.elements(in: result) { elementsByTab[tab] = elements }
-            else if case .click = command { elementsByTab[tab] = nil }
+            if let elements = BrowserResultText.elements(in: result) { elementsByOwner[owner, default: [:]][tab] = elements }
+            else if case .click = command { elementsByOwner[owner]?[tab] = nil }
         }
         let text = BrowserResultText.format(result)
         return (text, result["error"] != nil || (result["ok"] as? Bool) == false)
@@ -504,25 +523,54 @@ final class BrowserBridge: ObservableObject {
 
     static var extensionFolderPath: String { extensionDirectory().path }
 
-    private func send(_ command: BrowserCommand, expectedURL: String? = nil) async -> [String: Any] {
+    func finishTurn(owner: String, scope: String, cancelled: Bool) {
+        elementsByOwner[owner] = nil
+        if cancelled {
+            cancel(owner: owner, scope: scope)
+        } else if isConnected, protocolVersion >= 4 {
+            Task { _ = await send(.end, owner: owner, scope: scope, groupTitle: "HeyMate") }
+        }
+    }
+
+    private func cancel(owner: String, scope: String) {
+        grants[owner] = nil
+        write(["type": "cancel", "owner": owner, "scope": scope])
+        for (id, request) in pending where request.owner == owner && request.scope == scope {
+            pending[id] = nil
+            request.continuation.resume(returning: ["error": "Browser turn cancelled. Outcome remains unverified."])
+        }
+    }
+
+    private func write(_ wire: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: ["message": wire]),
+              let line = String(data: data, encoding: .utf8) else { return }
+        server?.send(line + "\n")
+    }
+
+    private func send(_ command: BrowserCommand, owner: String, scope: String, groupTitle: String, expectedURL: String? = nil) async -> [String: Any] {
+        guard !Task.isCancelled else { return ["error": "Browser turn cancelled."] }
         let id = UUID().uuidString
         var wire = command.wire
         wire["expectedURL"] = expectedURL
         wire["type"] = "command"
         wire["id"] = id
-        guard let data = try? JSONSerialization.data(withJSONObject: ["message": wire]),
-              let line = String(data: data, encoding: .utf8) else {
-            return ["error": "Couldn't send that to Chrome."]
-        }
-        return await withCheckedContinuation { continuation in
-            pending[id] = continuation
-            server?.send(line + "\n")
+        wire["owner"] = owner
+        wire["scope"] = scope
+        wire["groupTitle"] = groupTitle
+        return await withTaskCancellationHandler {
+          await withCheckedContinuation { continuation in
+            guard !Task.isCancelled else { continuation.resume(returning: ["error": "Browser turn cancelled."]); return }
+            pending[id] = Pending(owner: owner, scope: scope, continuation: continuation)
+            write(wire)
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds({ if case .download = command { return 65 }; return 25 }()))
-                if let continuation = self.pending.removeValue(forKey: id) {
-                    continuation.resume(returning: ["error": "Chrome didn't answer in time. The page may still have changed."])
+                if self.pending[id] != nil {
+                    self.cancel(owner: owner, scope: scope)
                 }
             }
+          }
+        } onCancel: {
+            Task { @MainActor in self.cancel(owner: owner, scope: scope) }
         }
     }
 
@@ -535,10 +583,11 @@ final class BrowserBridge: ObservableObject {
         case "hello":
             isConnected = true
             extensionVersion = message["version"] as? String
+            protocolVersion = message["protocol"] as? Int ?? 0
             server?.send(#"{"message":{"type":"ready","selected":true}}"# + "\n")
         case "result":
-            guard let id = message["id"] as? String, let continuation = pending.removeValue(forKey: id) else { return }
-            continuation.resume(returning: message)
+            guard let id = message["id"] as? String, let request = pending.removeValue(forKey: id) else { return }
+            request.continuation.resume(returning: message)
         default:
             break
         }
@@ -546,11 +595,13 @@ final class BrowserBridge: ObservableObject {
 
     private func lostConnection() {
         isConnected = false
-        elementsByTab = [:]
+        elementsByOwner = [:]
+        grants = [:]
+        protocolVersion = 0
         let waiting = pending
         pending = [:]
-        for continuation in waiting.values {
-            continuation.resume(returning: ["error": "Chrome disconnected."])
+        for request in waiting.values {
+            request.continuation.resume(returning: ["error": "Chrome disconnected."])
         }
     }
 
@@ -565,7 +616,7 @@ final class BrowserBridge: ObservableObject {
         case .download(let url): return "Download from \(url.host ?? url.absoluteString)"
         case .dialog: return "Answer the page dialog"
         case .close: return "Close a HeyMate tab"
-        case .end: return "Close the HeyMate tabs"
+        case .end: return "Close this chat's HeyMate tabs"
         case .press(_, let key): return "Press \(key) in a HeyMate tab"
         case .back: return "Go back in a HeyMate tab"
         case .tabs, .snapshot, .scroll, .show, .extract, .waitFor: return "Look at Chrome"

@@ -15,6 +15,8 @@ function adapter(execute) {
     async restore() {}
     async execute(request) { requests.push(request); return execute(request); }
     async stop() {}
+    async end() {}
+    async claim() {}
     downloadStarted(item) { this.lastDownload = item; }
     downloadWillBegin(tabId, event) { this.lastPageDownload = { tabId, event }; }
     async filenameFor() { return this.determineFilename(); }
@@ -93,18 +95,81 @@ test('end is serialized after in-flight action and next command gets fresh task'
 test('recovered engine refuses cross-owner claims and closing user tabs', async () => {
   const engine = new BrowserBridge({});
   engine.tasks.add('other/turn'); engine.owners.set('other/turn', 'other'); engine.ownedTabs.set(7, 'other');
-  await assert.rejects(engine.execute({ task: 'mine/turn', owner: 'mine', operation: 'snapshot', tabId: 7 }), /another running/);
+  await assert.rejects(engine.execute({ task: 'mine/turn', owner: 'mine', operation: 'snapshot', tabId: 7 }), /another browser worker/);
   await assert.rejects(engine.execute({ task: 'mine/turn', owner: 'mine', operation: 'close', tabId: 99 }), /Only a tab/);
 });
-test('recovered engine tidy preserves current and moved-out tabs; closes owned background tab', async () => {
-  const removed = [], tabs = new Map([[1, { id: 1, groupId: 5 }], [2, { id: 2, groupId: 8 }], [3, { id: 3, groupId: 5 }]]);
-  const engine = new BrowserBridge({ tabs: { get: async id => tabs.get(id), remove: async id => removed.push(id) } });
+
+test('different native owners progress concurrently; each owner keeps ordered actions', async () => {
+  let finish;
+  const h = adapter(request => request.owner === 'a' && request.operation === 'open' ? new Promise(resolve => { finish = resolve; }) : { tabs: [] });
+  const first = h.command('open', { owner: 'a', scope: 'a1', groupTitle: 'HeyMate · A', url: 'https://fixture.test/' });
+  while (!finish) await new Promise(setImmediate);
+  const queued = h.command('tabs', { owner: 'a', scope: 'a1' });
+  const other = await h.command('tabs', { owner: 'b', scope: 'b1' });
+  assert.equal(other.ok, true);
+  assert.deepEqual(h.requests.map(r => r.owner), ['a', 'b']);
+  assert.notEqual(h.requests[0].task, h.requests[1].task);
+  assert.equal(h.requests[0].groupTitle, 'HeyMate · A');
+  finish({ snapshot }); await first; await queued;
+  assert.equal(h.requests[2].owner, 'a');
+  assert.equal(h.requests[0].task, h.requests[2].task);
+});
+
+test('native cancellation blocks queued actions for only its owner and scope', async () => {
+  let finish;
+  const h = adapter(request => request.operation === 'click' ? new Promise(resolve => { finish = resolve; }) : { tabs: [] });
+  const first = h.command('click', { owner: 'a', scope: 'a1', tabId: 7, ref: 12 });
+  while (!finish) await new Promise(setImmediate);
+  const queued = h.command('type', { owner: 'a', scope: 'a1', tabId: 7, ref: 12, text: 'must not run' });
+  const connection = h.connections.at(-1);
+  await connection.onMessage.listeners[0]({ type: 'cancel', owner: 'a', scope: 'a1' });
+  assert.equal((await h.command('tabs', { owner: 'b', scope: 'b1' })).ok, true);
+  finish({ snapshot }); await first;
+  assert.equal((await queued).ok, false);
+  assert.equal(h.requests.some(r => r.operation === 'batch'), false);
+  assert.equal((await h.command('tabs', { owner: 'a', scope: 'a2' })).ok, true);
+});
+
+test('late cleanup from superseded native turn cannot end replacement worker', async () => {
+  const h = adapter(async () => ({ tabs: [] }));
+  await h.command('tabs', { owner: 'a', scope: 'a1' });
+  await h.command('end', { owner: 'a', scope: 'a1' });
+  await h.command('tabs', { owner: 'a', scope: 'a2' });
+  const count = h.requests.length;
+  assert.equal((await h.command('end', { owner: 'a', scope: 'a1' })).ok, false);
+  assert.equal(h.requests.length, count);
+  await h.command('tabs', { owner: 'a', scope: 'a2' });
+  assert.equal(h.requests.at(-1).task, h.requests[count - 1].task);
+});
+
+test('owned pages remain private after owner ends; tabs exclude other owners and claims', async () => {
+  const engine = new BrowserBridge({ tabs: { query: async () => [
+    { id: 1, url: 'https://a.test' }, { id: 2, url: 'https://b.test' }, { id: 3, url: 'https://user.test' }
+  ] } });
+  engine.current = async () => null;
+  engine.ownedTabs.set(1, 'a'); engine.ownedTabs.set(2, 'b');
+  const result = await engine.execute({ task: 'b1', owner: 'b', operation: 'tabs' });
+  assert.deepEqual(result.tabs.map(t => t.id), [2, 3]);
+  await assert.rejects(engine.execute({ task: 'b1', owner: 'b', operation: 'snapshot', tabId: 1 }), /another browser worker/);
+  engine.tasks.add('a1'); engine.owners.set('a1', 'a'); engine.claims.set(3, 'a1');
+  assert.deepEqual((await engine.execute({ task: 'b1', owner: 'b', operation: 'tabs' })).tabs.map(t => t.id), [2]);
+});
+test('tidy preserves ownership of the current grouped tab and closes owned background tabs', async () => {
+  const removed = [], tabs = new Map([[1, { id: 1, groupId: 5, url: 'https://a.test' }], [2, { id: 2, groupId: 8, url: 'https://user.test' }], [3, { id: 3, groupId: 5, url: 'https://b.test' }]]);
+  const engine = new BrowserBridge({ tabs: {
+    get: async id => tabs.get(id),
+    query: async () => [...tabs.values()],
+    remove: async id => { removed.push(id); tabs.delete(id); }
+  } });
   engine.current = async () => ({ id: 1 }); engine.fold = async () => {};
   engine.tasks.add('mine/turn'); engine.owners.set('mine/turn', 'mine'); engine.homes.set('mine', { groupId: 5 });
   for (const id of tabs.keys()) engine.ownedTabs.set(id, 'mine');
   const result = await engine.execute({ task: 'mine/turn', operation: 'end', tidy: true });
   assert.deepEqual(result.closed, [3]); assert.deepEqual(removed, [3]);
-  assert.equal(engine.ownedTabs.size, 0);
+  assert.deepEqual([...engine.ownedTabs], [[1, 'mine']]);
+  const foreign = await engine.execute({ task: 'other/turn', owner: 'other', operation: 'tabs' });
+  assert.deepEqual(foreign.tabs.map(tab => tab.id), [2]);
+  await assert.rejects(engine.execute({ task: 'other/turn', owner: 'other', operation: 'snapshot', tabId: 1 }), /another browser worker/);
 });
 
 test('file adapter routes keep, upload, download and dialog; upload destination is pinned', async () => {

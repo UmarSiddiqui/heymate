@@ -280,6 +280,62 @@ try {
     const { targetInfos } = await cdp('Target.getTargets');
     assert.equal(targetInfos.some(t => t.targetId === targets.get(keptTab)), false);
   });
+  const ownerA = { owner: 'mate-a/chat-a', scope: 'parallel-a', groupTitle: 'HeyMate · A' };
+  const ownerB = { owner: 'mate-b/chat-b', scope: 'parallel-b', groupTitle: 'HeyMate · B' };
+  let pageA, pageB;
+  await check('parallel mates get separate groups and filtered owned tab lists', async () => {
+    [pageA, pageB] = await Promise.all([ok('open', { ...ownerA, url: `${site}/form` }), ok('open', { ...ownerB, url: `${site}/form` })]);
+    assert.notEqual(groupOf.get(pageA.tabId), groupOf.get(pageB.tabId));
+    assert.equal(groups.get(groupOf.get(pageA.tabId)).title, ownerA.groupTitle);
+    const a = await ok('tabs', ownerA), b = await ok('tabs', ownerB);
+    assert.equal(a.tabs.some(t => t.id === pageB.tabId), false);
+    assert.equal(b.tabs.some(t => t.id === pageA.tabId), false);
+    assert.equal(a.tabs.find(t => t.id === pageA.tabId).owned, true);
+  });
+  await check('separate owned tabs share profile cookies and local storage', async () => {
+    await inPage(pageA.tabId, "document.cookie='heymateShared=fixture;path=/';localStorage.setItem('heymateShared','fixture')");
+    assert.match(await inPage(pageB.tabId, 'document.cookie'), /heymateShared=fixture/);
+    assert.equal(await inPage(pageB.tabId, "localStorage.getItem('heymateShared')"), 'fixture');
+  });
+  await check('one mate can type and save while another waits for page text', async () => {
+    let completed = false;
+    const waiting = ok('wait_for', { ...ownerA, tabId: pageA.tabId, text: 'Parallel ready', timeout: 8000 }).finally(() => { completed = true; });
+    // The waited-for text is injected only AFTER B completes its real input.
+    // A global command queue therefore fails this check rather than seeming fast.
+    const typed = await ok('type', { ...ownerB, tabId: pageB.tabId, ref: ref(pageB, 'textbox', 'Name'), text: 'Mate B' });
+    pageB = await ok('click', { ...ownerB, tabId: pageB.tabId, ref: ref(typed, 'button', 'Save') });
+    assert.match(pageB.text, /Saved: Mate B/); assert.equal(completed, false);
+    await inPage(pageA.tabId, "document.body.append(document.createTextNode('Parallel ready'))");
+    pageA = await waiting;
+  });
+  await check('foreign tabs and page refs cannot read, navigate, show or close another mate page', async () => {
+    for (const op of ['snapshot', 'navigate', 'show', 'close']) await fails(op, { ...ownerB, tabId: pageA.tabId, url: `${site}/next` }, /another browser worker/);
+    await fails('click', { ...ownerB, tabId: pageB.tabId, ref: ref(pageA, 'button', 'Save') }, /Unknown|stale/);
+    assert.equal((await ok('snapshot', { ...ownerA, tabId: pageA.tabId })).url, `${site}/form`);
+  });
+  await check('ending one mate preserves its kept page and leaves other mate running', async () => {
+    await ok('keep', { ...ownerA, tabId: pageA.tabId, why: 'result' });
+    await ok('end', ownerA);
+    await fails('snapshot', { ...ownerB, tabId: pageA.tabId }, /another browser worker/);
+    assert.match((await ok('snapshot', { ...ownerB, tabId: pageB.tabId })).text, /Saved: Mate B/);
+    await ok('tabs', { ...ownerA, scope: 'parallel-a-next' });
+    const ended = await ok('end', { ...ownerA, scope: 'parallel-a-next' });
+    assert.ok(ended.closed.includes(pageA.tabId));
+    assert.equal((await ok('snapshot', { ...ownerB, tabId: pageB.tabId })).url, `${site}/form`);
+  });
+  await check('cancelling one mate blocks its queued input without stopping another mate', async () => {
+    const identity = { ...ownerA, scope: 'parallel-a-cancel' };
+    const page = await ok('open', { ...identity, url: `${site}/form` });
+    const waiting = command('wait_for', { ...identity, tabId: page.tabId, text: 'Never present', timeout: 8000 });
+    const queued = command('type', { ...identity, tabId: page.tabId, ref: ref(page, 'textbox', 'Name'), text: 'Must not type' });
+    await new Promise(r => setTimeout(r, 100));
+    await native.at(-1).onMessage.listeners[0]({ type: 'cancel', owner: identity.owner, scope: identity.scope });
+    assert.equal((await waiting).ok, false); assert.equal((await queued).ok, false);
+    assert.equal(await inPage(page.tabId, 'document.querySelector("#name").value'), '');
+    assert.equal((await ok('snapshot', { ...ownerB, tabId: pageB.tabId })).url, `${site}/form`);
+    await ok('end', { ...ownerA, scope: 'parallel-a-cleanup' });
+    await ok('end', ownerB);
+  });
 } finally {
   ws.close(); server.close();
   await new Promise(r => { browser.once('exit', r); browser.kill(); });
@@ -287,4 +343,9 @@ try {
   const failed = checks.filter(c => c[0] !== 'ok').length;
   console.log(`${checks.length - failed}/${checks.length} live checks passed`);
   process.exitCode = failed ? 1 : 0;
+  if (process.env.HEYMATE_BROWSER_EVIDENCE) fs.writeFileSync(process.env.HEYMATE_BROWSER_EVIDENCE, JSON.stringify({
+    passed: failed === 0, checks: checks.map(([status, name, error]) => ({ name, passed: status === 'ok', ...(error ? { error } : {}) })),
+    limits: ['Disposable Chrome profile with synthetic sign-in cookie; no personal account sign-ins read.',
+      'Production background.js and mate-core.mjs with Chrome/CDP; chrome.* adapter, not installed extension native messaging.']
+  }, null, 2) + '\n');
 }

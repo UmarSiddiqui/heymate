@@ -288,3 +288,71 @@ path to reproduce the synthetic comparison in
 `memory-recall-comparison-2026-11-05.json`: twelve older relevant facts among
 1,012 records, comparing the old newest-eight selection with relevance search.
 This measures lexical retrieval, not end-to-end model accuracy.
+
+## Parallel browser workers
+
+The default follows the user's chosen mode: `use_chrome` keeps the existing
+Chrome profile and sign-ins, with separate owners for each native mate/chat.
+The app supplies that identity and a random per-turn capability; model arguments
+cannot choose them. Extension 0.5.1 / protocol 4 orders each owner's commands
+while different owners progress concurrently. Each chat has a named tab group,
+its own approval grant and approval-element cache. Other owners' tabs and active
+claims are omitted from discovery. Owned pages remain private even after their
+owner ends, including kept results. Unowned user tabs can be claimed by one
+active task at a time. `show` must pass ownership checks too.
+
+Cookies, local storage, sign-ins, account settings and server-side state remain
+shared. Separate tab ownership does not isolate concurrent writes to the same
+website account. No personal profile is copied, replaced or signed out.
+
+Scope revocation ends only that owner's task. Cancellation/timeout immediately
+stops its engine task and blocks queued actions; it cannot undo an input or
+request already delivered to a website. Such outcomes remain unverified.
+Normal completion tidies only that owner's unkept background tabs. A current
+tab left in the mate's group stays open and keeps its owner. Moving a tab out
+of the group lets it return to the user at cleanup. A late cleanup for an older scope cannot end its
+replacement. Disconnect clears app-side grants and stops all extension tasks.
+Legacy globally-owned tabs become user tabs on migration and stay open.
+
+After installing the app, reload the unpacked HeyMate extension once in
+`chrome://extensions` (version 0.5.1). Old protocol versions are refused instead
+of silently collapsing all mates into one worker. Chrome's existing sign-ins
+stay in place. The app copies updated extension files into its existing data
+folder at startup; it does not restart Chrome to reload an unpacked extension.
+
+`use_browser` is an optional clean-profile route, offered only for an explicit
+user request for separate sign-ins. Each chat receives a separate owned Cua MCP
+process and `isolated_new` Chromium profile, exact PID/window binding, opaque
+native tab/ref mapping, a command queue and an approval grant. Four clean workers
+may run at once. They each navigate one page; keyboard submission and file
+transfers are not offered. Page reads use `semantic_v2` viewport outlines, not
+full-document extraction. `keep` retains a page between turns; four minutes of
+inactivity, cancellation, app shutdown or `end` closes it and removes its
+throwaway sign-ins. Preparation is trusted native code; no raw setup capability
+or profile path is given to models. There is no automatic switch between shared
+and clean profiles.
+
+For clean workers, Cua transport shutdown closes stdin so Cua runs its owned
+browser/profile cleanup. Sending SIGTERM skipped that cleanup on the reviewed
+0.38 driver. The native-drive transport keeps its existing immediate termination
+policy. Live clean-profile tests verify actual browser exit, profile removal,
+and cancellation during a delayed navigation with no later page effect.
+
+Checks without installing or launching another HeyMate GUI:
+
+```bash
+node --test scripts/browser_core_tests.mjs scripts/browser_port_tests.mjs
+CHROME_PATH='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' node scripts/browser_live_check.mjs
+bash script/test_browser_workers.sh
+HEYMATE_BROWSER_LIVE=1 HEYMATE_BROWSER_FIXTURE="$PWD/scripts/fixtures/browser-workers.py" bash script/test_browser_workers.sh
+bash script/test_cua_client.sh
+```
+
+Disposable shared-profile checks run production extension code against real
+Chrome/CDP with a `chrome.*` adapter. They verify shared synthetic
+cookies/storage, separate groups, actual concurrent progress, foreign tab/ref
+refusal, per-owner end and cancellation. A separate signed-in check ran two mates
+through the installed app and extension, confirming concurrent input and tab
+ownership against loopback fixtures. Clean-profile live checks use the production
+Swift worker pool/client and real Cua with loopback fixtures. See
+`parallel-browser-workers-2026-11-05.json` for recorded evidence and limits.

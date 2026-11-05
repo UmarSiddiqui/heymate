@@ -74,10 +74,15 @@ final class CompanionManager: ObservableObject {
     func registerTalkToolScope(owner: AgentChatOwner, completion: HeyMateRequestCompletionState) -> String {
         let token = UUID().uuidString
         talkToolScopes[token] = (owner, completion)
+        IsolatedBrowserWorkers.shared.beginTurn(owner: IsolatedBrowserWorkers.ownerKey(owner), scope: token)
         return token
     }
 
     func revokeTalkToolScope(_ token: String) {
+        if let scope = talkToolScopes[token] {
+            IsolatedBrowserWorkers.shared.finishTurn(owner: IsolatedBrowserWorkers.ownerKey(scope.owner), scope: token, cancelled: Task.isCancelled)
+            BrowserBridge.shared.finishTurn(owner: IsolatedBrowserWorkers.ownerKey(scope.owner), scope: token, cancelled: Task.isCancelled)
+        }
         talkToolScopes[token] = nil
         talkGmailEvidence[token] = nil
     }
@@ -114,7 +119,7 @@ final class CompanionManager: ObservableObject {
               }) else { return ("This conversation tool scope expired or the connector is unavailable.", true) }
         let result = await executeTalkTool(.init(toolUseIdentifier: UUID().uuidString, toolName: name,
             inputArgumentsJSON: String(data: (try? JSONSerialization.data(withJSONObject: arguments)) ?? Data("{}".utf8), encoding: .utf8) ?? "{}"),
-            availableTalkTools: [tool], completion: scope.completion, resultOwner: scope.owner)
+            availableTalkTools: [tool], completion: scope.completion, resultOwner: scope.owner, browserScope: token)
         guard ownsActiveResponse(scope.completion) else { return ("This reply was cancelled. Outcome remains unverified.", true) }
         if !result.isError {
             for (kind, ids) in MateAgentGmailVerification.verifiedActions(tool: name, arguments: arguments, result: result.text) {
@@ -3226,6 +3231,7 @@ final class CompanionManager: ObservableObject {
     }
 
     func stop() {
+        IsolatedBrowserWorkers.shared.stopAll()
         floatingAgentWindowController.stop()
         mateRoutineScheduler.stop()
         stopExternalControlBridge()
@@ -4700,7 +4706,8 @@ final class CompanionManager: ObservableObject {
         _ toolCall: AssistantToolCall,
         availableTalkTools: [TalkTool],
         completion: HeyMateRequestCompletionState,
-        resultOwner: AgentChatOwner
+        resultOwner: AgentChatOwner,
+        browserScope: String
     ) async -> (text: String, isError: Bool) {
         guard let matchedTool = TalkToolCatalog.tool(named: toolCall.toolName, in: availableTalkTools) else {
             return ("No tool named \(toolCall.toolName).", true)
@@ -4710,11 +4717,26 @@ final class CompanionManager: ObservableObject {
 
         switch matchedTool.origin {
         case .local:
+            if toolCall.toolName == TalkToolCatalog.useBrowserToolName {
+                return await IsolatedBrowserWorkers.shared.perform(arguments: arguments,
+                    owner: IsolatedBrowserWorkers.ownerKey(resultOwner), scope: browserScope) { summary, everyTime in
+                    guard self.ownsActiveResponse(completion) else { return false }
+                    let approved = await self.connectorToolCoordinator.requestApproval(for: ConnectorToolApprovalRequest(
+                        connectorDisplayName: "Isolated Chrome", toolName: TalkToolCatalog.useBrowserToolName,
+                        argumentsSummary: TalkToolCatalog.argumentsSummary(arguments),
+                        risk: everyTime ? .externalSideEffect : .reversibleWrite, actions: [summary]))
+                    return approved && !Task.isCancelled && self.ownsActiveResponse(completion)
+                }
+            }
             if toolCall.toolName == TalkToolCatalog.useChromeToolName {
-                return await BrowserBridge.shared.perform(arguments: arguments) { summary, everyTime in
+                let browserOwner = IsolatedBrowserWorkers.ownerKey(resultOwner)
+                let mateName = mateDirectory.mates.first(where: { $0.id == resultOwner.mateID })?.name ?? "Mate"
+                return await BrowserBridge.shared.perform(arguments: arguments, owner: browserOwner, scope: browserScope,
+                    groupTitle: "HeyMate · " + mateName,
+                    isActive: { self.talkToolScopes[browserScope] != nil && self.ownsActiveResponse(completion) }) { summary, everyTime in
                     let approved = await self.connectorToolCoordinator.requestApproval(
                         for: ConnectorToolApprovalRequest(
-                            connectorDisplayName: "Chrome",
+                            connectorDisplayName: mateName + " · Chrome",
                             toolName: TalkToolCatalog.useChromeToolName,
                             argumentsSummary: TalkToolCatalog.argumentsSummary(arguments),
                             risk: everyTime ? .externalSideEffect : .reversibleWrite,

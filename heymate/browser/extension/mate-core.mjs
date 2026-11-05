@@ -216,8 +216,16 @@ export class BrowserBridge {
         if (holder !== owner || this.kept.has(id)) continue;
         try {
           const tab = await this.api.tabs.get(id);
-          if (id !== current?.id && tab.groupId === home?.groupId) { await this.api.tabs.remove(id); closed.push(id); }
-        } catch { /* tab already closed */ }
+          if (tab.groupId === home?.groupId) {
+            // The current tab survives cleanup, so it must retain its owner.
+            if (id === current?.id) continue;
+            await this.api.tabs.remove(id);
+            closed.push(id);
+          }
+        } catch (error) {
+          // A transient Chrome error is not proof that the tab is gone.
+          if (!/^No tab with id:/i.test(error?.message ?? '')) continue;
+        }
         this.ownedTabs.delete(id);
       }
     }
@@ -328,7 +336,7 @@ export class BrowserBridge {
     this.assert(task);
     if (this.cleanups.has(id)) throw Error('Tab debugger cleanup is pending. Use another tab or reconnect after cleanup.');
     const owner = this.owner(task), other = this.claims.get(id), owned = this.ownedTabs.get(id);
-    if ((other && other !== task && this.tasks.has(other)) || (owned && owned !== owner && [...this.tasks].some(t => this.owner(t) === owned))) throw Error('Tab belongs to another running browser task.');
+    if ((other && other !== task && this.tasks.has(other)) || (owned && owned !== owner)) throw Error('Tab belongs to another browser worker.');
     if (other && other !== task) await this.release(id, other);
     if (this.cleanups.has(id)) throw Error('Tab debugger cleanup is pending. Use another tab or reconnect after cleanup.');
     this.assert(task); this.claims.set(id, task);
@@ -517,7 +525,10 @@ export class BrowserBridge {
     if (typeof request.cursorColor === 'string') this.colors.set(task, request.cursorColor);
     if (request.operation === 'tabs') {
       const current = await this.current(), tabs = await this.api.tabs.query({}); this.assert(task);
-      return { tabs: tabs.filter(t => !t.incognito && /^https?:\/\//.test(t.url ?? '')).map(t => ({ ...t, current: t.id === current?.id })) };
+      return { tabs: tabs.filter(t => !t.incognito && /^https?:\/\//.test(t.url ?? '') &&
+        (!this.ownedTabs.has(t.id) || this.ownedTabs.get(t.id) === owner) &&
+        (!this.claims.has(t.id) || this.claims.get(t.id) === task || !this.tasks.has(this.claims.get(t.id))))
+        .map(t => ({ ...t, current: t.id === current?.id })) };
     }
     if (request.operation === 'download') return this.download(task, request.url);
     let id = request.tabId, opened = false;
