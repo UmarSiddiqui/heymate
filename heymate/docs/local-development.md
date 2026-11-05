@@ -251,3 +251,40 @@ runtime so a late side effect cannot occur. A structured `effect:refused` is a
 failure even when Cua omits `isError`. These tests reproduced a late-action bug
 before the client fix. See `cua-broader-checks-2026-11-05.json` for evidence and
 permission-identity limits.
+
+## Local memory retrieval
+
+`memory.json` remains the authoritative, editable text store. Optional
+`updatedAt` and `sourceConversationID` fields preserve correction dates and
+source links without inventing provenance for old records. Completed mate
+chats refresh only their own rolling summary when saving is enabled. These
+summaries retain the most recent 800 characters; they are context, not proof
+that an action succeeded.
+
+`FileMemoryRepository.recall` filters ownership before creating a disposable
+in-memory SQLite FTS5 index. Scope filtering therefore also applies to BM25's
+corpus statistics. Search uses normalized, parameter-bound terms, with a local
+lexical fallback if FTS5 is unavailable. Existing shared durable records stay
+shared; private records are not automatically promoted. Mate `AGENTS.md` files
+remain separate and unchanged.
+
+The prompt selects up to eight records, reserves room for up to two stable
+preferences, and caps the entire memory block at 6,000 characters and each
+memory's text at 1,000. A substantive query does not fill empty slots with
+unrelated project facts. Short continuation requests retain recent scoped
+context. This character budget is not an exact provider-token budget.
+
+Any mutation discards the derived index. Forgetting and manual corrections also
+invalidate pending extraction, preventing an old asynchronous result from
+restoring forgotten facts. Deduplication checks the current store and owner.
+Deleting a memory does not delete saved chats or workspace `AGENTS.md`; those
+can still contain the original conversation or notes. There is no persistent
+search database, embedding copy, cloud memory service, or automatic semantic
+contradiction resolver in this version.
+
+Run `bash script/test_memory_core.sh` for production storage/index/retrieval
+tests with disposable data. Set `HEYMATE_MEMORY_EVIDENCE` to an absolute output
+path to reproduce the synthetic comparison in
+`memory-recall-comparison-2026-11-05.json`: twelve older relevant facts among
+1,012 records, comparing the old newest-eight selection with relevance search.
+This measures lexical retrieval, not end-to-end model accuracy.

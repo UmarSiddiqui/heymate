@@ -38,6 +38,9 @@ nonisolated struct MemoryItem: Codable, Equatable, Identifiable {
     /// have no provable owner: retain them for inspection, but never replay
     /// them into a mate's conversation.
     var mateID: UUID? = nil
+    /// Optional metadata keeps legacy JSON readable without inventing sources.
+    var updatedAt: Date? = nil
+    var sourceConversationID: UUID? = nil
 }
 
 nonisolated enum MemoryContext {
@@ -89,6 +92,10 @@ final class FileMemoryRepository: MemoryRepository {
     /// reads so loadAll() never hits disk; every mutation persists before
     /// returning, so a new instance always observes prior mutations.
     private var items: [MemoryItem]
+    private var searchIndex: MemorySearchIndex?
+    private var indexedItems: [MemoryItem] = []
+    /// Invalidates pending extraction after forgetting or a manual correction.
+    private(set) var forgettingRevision: UInt64 = 0
 
     init(fileURL: URL, maxSessionSummaries: Int = 20) {
         self.fileURL = fileURL
@@ -112,7 +119,39 @@ final class FileMemoryRepository: MemoryRepository {
         items.sorted { $0.createdAt < $1.createdAt }
     }
 
+    /// Ownership is applied before index construction, including BM25 corpus
+    /// statistics. Another mate's private text never enters this search.
+    func recall(query: String, for mateID: UUID?, limit: Int = MemoryRecall.defaultLimit) -> [MemoryItem] {
+        let eligible = MemoryContext.items(loadAll(), for: mateID)
+        if indexedItems != eligible {
+            searchIndex = try? MemorySearchIndex(items: eligible)
+            indexedItems = eligible
+        }
+        let terms = MemoryRecall.terms(query)
+        let ranked = searchIndex?.rankedIDs(terms: terms, limit: 256)
+        return MemoryRecall.select(items: eligible, query: query, rankedIDs: ranked, limit: limit)
+    }
+
+    private func invalidateSearch() {
+        searchIndex = nil
+        indexedItems = []
+    }
+
+    /// A delayed extractor must not undo forgetting or a human correction.
+    @discardableResult
+    func appendExtracted(_ proposals: [MemoryItem], ifUnchangedSince revision: UInt64) -> Bool {
+        guard revision == forgettingRevision else { return false }
+        let fresh = Self.proposedAppends(proposals, existing: items)
+        guard !fresh.isEmpty else { return false }
+        invalidateSearch()
+        items.append(contentsOf: fresh)
+        trimExcessSessionSummaries()
+        persist()
+        return true
+    }
+
     func append(_ item: MemoryItem) {
+        invalidateSearch()
         items.append(item)
         trimExcessSessionSummaries()
         persist()
@@ -120,23 +159,29 @@ final class FileMemoryRepository: MemoryRepository {
 
     /// Refreshes only this mate's rolling context in one write. Legacy
     /// unowned records stay intact, and another mate's summary is untouched.
-    func updateSessionSummary(mateID: UUID, text: String, now: Date = Date()) {
+    func updateSessionSummary(mateID: UUID, text: String, now: Date = Date(), sourceConversationID: UUID? = nil) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        invalidateSearch()
         items.removeAll { $0.kind == .sessionSummary && $0.mateID == mateID }
         items.append(MemoryItem(
-            id: UUID(), kind: .sessionSummary, text: trimmed, createdAt: now, mateID: mateID
+            id: UUID(), kind: .sessionSummary, text: trimmed, createdAt: now, mateID: mateID,
+            sourceConversationID: sourceConversationID
         ))
         trimExcessSessionSummaries()
         persist()
     }
 
     func delete(id: UUID) {
+        forgettingRevision &+= 1
+        invalidateSearch()
         items.removeAll { $0.id == id }
         persist()
     }
 
     func deleteAll() {
+        forgettingRevision &+= 1
+        invalidateSearch()
         items.removeAll()
         persist()
     }
@@ -148,6 +193,9 @@ final class FileMemoryRepository: MemoryRepository {
             return
         }
         items[index].text = trimmed
+        items[index].updatedAt = Date()
+        forgettingRevision &+= 1
+        invalidateSearch()
         persist()
     }
 
@@ -165,11 +213,13 @@ final class FileMemoryRepository: MemoryRepository {
             let text = candidate.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { continue }
             let alreadyHeld = existing.contains { stored in
-                stored.kind == candidate.kind && textsAreSameMemory(candidate.text, stored.text)
+                stored.kind == candidate.kind && stored.mateID == candidate.mateID
+                    && textsAreSameMemory(candidate.text, stored.text)
             }
             if alreadyHeld { continue }
             let alreadyAccepted = accepted.contains { prior in
-                prior.kind == candidate.kind && textsAreSameMemory(candidate.text, prior.text)
+                prior.kind == candidate.kind && prior.mateID == candidate.mateID
+                    && textsAreSameMemory(candidate.text, prior.text)
             }
             if alreadyAccepted { continue }
             if text == candidate.text {
@@ -180,7 +230,9 @@ final class FileMemoryRepository: MemoryRepository {
                     kind: candidate.kind,
                     text: text,
                     createdAt: candidate.createdAt,
-                    mateID: candidate.mateID
+                    mateID: candidate.mateID,
+                    updatedAt: candidate.updatedAt,
+                    sourceConversationID: candidate.sourceConversationID
                 ))
             }
         }

@@ -2618,6 +2618,12 @@ final class CompanionManager: ObservableObject {
         if rememberConversationsEnabled {
             chatHistoryStore.upsert(session)
             savedChats = chatHistoryStore.loadAll()
+            // Completed mate chats also need bounded, owner-scoped continuity
+            // across new chats; this never writes another mate's summary.
+            let owner = session.mateID ?? mateDirectory.defaultMateID
+            let digest = session.messages.suffix(6).map { "\($0.role.rawValue): \($0.text)" }.joined(separator: "\n")
+            memoryRepository.updateSessionSummary(mateID: owner, text: String(digest.suffix(800)), sourceConversationID: session.id)
+            memoryItems = memoryRepository.loadAll()
         } else {
             ephemeralIndependentChats[chatID] = session
         }
@@ -2820,8 +2826,8 @@ final class CompanionManager: ObservableObject {
     /// Replaces this mate's rolling session-summary item with a fresh digest
     /// of recent exchanges. One item instead of one-per-turn keeps the list
     /// inspectable rather than spammy.
-    private func updateRollingSessionSummary() {
-        guard rememberConversationsEnabled, let owner = memoryOwnerForTurn else { return }
+    private func updateRollingSessionSummary(ownerID: UUID?, conversationID: UUID) {
+        guard rememberConversationsEnabled, let owner = ownerID else { return }
 
         let recentExchanges = conversationHistory.suffix(6)
         guard !recentExchanges.isEmpty else { return }
@@ -2831,22 +2837,16 @@ final class CompanionManager: ObservableObject {
             "user: \(exchange.userTranscript)\n\(speakerName): \(exchange.assistantResponse)"
         }
         .joined(separator: "\n---\n")
-        let truncated = String(digest.prefix(800))
+        let truncated = String(digest.suffix(800))
 
-        memoryRepository.updateSessionSummary(mateID: owner, text: truncated)
+        memoryRepository.updateSessionSummary(mateID: owner, text: truncated, sourceConversationID: conversationID)
         memoryItems = memoryRepository.loadAll()
     }
 
     /// Pure prompt-block builders so prompt composition stays testable.
     nonisolated static func memoryPromptBlock(items: [MemoryItem], limit: Int = 8) -> String? {
-        guard !items.isEmpty else { return nil }
-        let lines = items.suffix(limit).reversed().map { item in
-            "- [\(item.kind.rawValue)] \(item.text.replacingOccurrences(of: "\n", with: " "))"
-        }
-        return """
-        things you remember from earlier (saved on this Mac, deletable in settings):
-        \(lines.joined(separator: "\n"))
-        """
+        guard limit > 0 else { return nil }
+        return MemoryRecall.promptBlock(items: Array(items.suffix(limit).reversed()))
     }
 
     /// Anchors a vague follow-up ("okay", "what now", "next") to the most
@@ -4140,13 +4140,9 @@ final class CompanionManager: ObservableObject {
                 sections.append("Loaded skills:\n" + skillLines.joined(separator: "\n"))
 
             case .memory:
-                let scopedMemory = MemoryContext.items(memoryItems, for: memoryOwnerForTurn)
-                guard !scopedMemory.isEmpty else {
-                    sections.append("Remembered notes: none.")
-                    continue
-                }
-                let memoryLines = scopedMemory.map { "- \($0.text)" }
-                sections.append("Remembered notes:\n" + memoryLines.joined(separator: "\n"))
+                // The turn builder supplies one bounded, scoped memory block.
+                // Do not duplicate it in the stored user message for @memory.
+                break
 
             case .clipboard:
                 let clipboardText = NSPasteboard.general.string(forType: .string)?
@@ -4159,7 +4155,7 @@ final class CompanionManager: ObservableObject {
             }
         }
 
-        return "\n\n" + sections.joined(separator: "\n\n")
+        return sections.isEmpty ? "" : "\n\n" + sections.joined(separator: "\n\n")
     }
 
     /// Shared front door for push-to-talk. Already inside the Talk pipeline,
@@ -4314,7 +4310,8 @@ final class CompanionManager: ObservableObject {
         let speakingMate = speakingMateForTurn()
         let turnMemoryOwner = memoryOwnerForTurn
         let turnIdentity = mateIdentityBlock(for: speakingMate) ?? ""
-        let turnMemoryBlock = Self.memoryPromptBlock(items: MemoryContext.items(memoryItems, for: turnMemoryOwner))
+        let turnMemories = memoryRepository.recall(query: transcript, for: turnMemoryOwner)
+        let turnMemoryBlock = MemoryRecall.promptBlock(items: turnMemories)
         let turnSelectedFrame = spatialSelectionScreenFrame
         let turnSelectionFragment = spatialSelectionPromptFragment()
         let turnFrontmostExcluded = isFrontmostAppScreenExcluded
@@ -4595,8 +4592,8 @@ final class CompanionManager: ObservableObject {
                         ephemeralIndependentChats[turnSession.id] = currentChat
                     }
                     if let delivery { try serveClient?.acknowledgeDelivery(delivery.id) }
-                    rememberFinishedTalkExchange(user: transcript, assistant: shownText)
-                    updateRollingSessionSummary()
+                    rememberFinishedTalkExchange(user: transcript, assistant: shownText, conversationID: turnSession.id)
+                    updateRollingSessionSummary(ownerID: turnMemoryOwner, conversationID: turnSession.id)
                     if activeRoutineTurn != nil {
                         completeActiveRoutineTurn(.success(fullResponseText))
                     } else if activeHandoffMateID != nil {
@@ -5651,22 +5648,24 @@ extension CompanionManager {
         conversationClient(for: brain)
     }
 
-    fileprivate func rememberFinishedTalkExchange(user: String, assistant: String) {
+    fileprivate func rememberFinishedTalkExchange(user: String, assistant: String, conversationID: UUID) {
         guard rememberConversationsEnabled, isHeyMateTalkTurn else { return }
         let existing = memoryItems
         let owner = MemoryContext.heyMateTalkOwnerID
+        let forgettingRevision = memoryRepository.forgettingRevision
         Task { [weak self] in
-            guard let self else { return }
+            guard let self, self.rememberConversationsEnabled,
+                  self.memoryRepository.forgettingRevision == forgettingRevision else { return }
             let proposed = await self.memoryExtractor.extract(
                 user: user,
                 assistant: assistant,
                 existing: existing,
-                ownerMateID: owner
+                ownerMateID: owner,
+                sourceConversationID: conversationID
             )
-            guard !proposed.isEmpty else { return }
-            for item in proposed {
-                self.memoryRepository.append(item)
-            }
+            guard !proposed.isEmpty, self.rememberConversationsEnabled,
+                  self.memoryRepository.forgettingRevision == forgettingRevision else { return }
+            self.memoryRepository.appendExtracted(proposed, ifUnchangedSince: forgettingRevision)
             self.memoryItems = self.memoryRepository.loadAll()
         }
     }

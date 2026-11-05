@@ -1,0 +1,14 @@
+{
+  "cloud_service": false,
+  "cold_recall_ms": 23.99897575378418,
+  "embeddings": false,
+  "memory_core_tests_passed": 35,
+  "persistent_search_copy": false,
+  "previous_last_eight_hits": 0,
+  "queries": 12,
+  "records": 1012,
+  "relevance_hits": 12,
+  "scope": "Synthetic lexical retrieval cases, not model accuracy or a semantic-memory benchmark.",
+  "total_recall_ms": 51.14603042602539,
+  "verified_local_install": true
+}
