@@ -173,7 +173,6 @@ jobs:
         env:
           HEYMATE_SECURE_TIMESTAMP: "YES"
         run: |
-          python3 heymate/scripts/wake-word/prepare_native.py
           xcodebuild \
             -project "$PROJECT" \
             -scheme "$SCHEME" \
