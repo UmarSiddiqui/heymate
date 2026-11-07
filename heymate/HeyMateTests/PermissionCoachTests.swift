@@ -96,6 +96,17 @@ struct PermissionCoachTests {
         #expect(PermissionCoachCue(permission: .accessibility, phase: .recovery, step: 3).caption.contains("off and on"))
     }
 
+    @Test func neverNamesASwitchItCouldNotFind() {
+        var guiding = PermissionCoachCue(permission: .inputMonitoring, phase: .guiding, step: 1)
+        guiding.foundSwitch = false
+        #expect(guiding.caption.contains("find HeyMate"))
+        #expect(!guiding.caption.contains("next to HeyMate"))
+        var recovery = PermissionCoachCue(permission: .inputMonitoring, phase: .recovery, step: 2)
+        recovery.foundSwitch = false
+        #expect(recovery.caption.contains("find HeyMate"))
+        #expect(!recovery.caption.contains("this switch"))
+    }
+
     // MARK: Finding the switch
 
     private func element(_ role: String, _ label: String, _ frame: CGRect) -> AccessibleElement {
@@ -108,16 +119,18 @@ struct PermissionCoachTests {
         let toggle = element(kAXCheckBoxRole as String, "HeyMate", CGRect(x: 660, y: 404, width: 26, height: 20))
         let other = element(kAXCheckBoxRole as String, "Terminal", CGRect(x: 660, y: 440, width: 26, height: 20))
         let window = CGRect(x: 200, y: 100, width: 700, height: 600)
-        #expect(PermissionCoachAnchor.switchPoint(elements: [other, row, toggle], settingsWindow: window) == CGPoint(x: 673, y: 414))
-        #expect(PermissionCoachAnchor.switchPoint(elements: [other, row], settingsWindow: window) == CGPoint(x: 672, y: 414))
+        #expect(PermissionCoachAnchor.switchPoint(elements: [other, row, toggle], settingsWindow: window)
+            == .init(point: CGPoint(x: 673, y: 414), exact: true))
+        #expect(PermissionCoachAnchor.switchPoint(elements: [other, row], settingsWindow: window)
+            == .init(point: CGPoint(x: 672, y: 414), exact: true))
     }
 
-    @Test func fallsBackToTheSwitchColumnOfTheWindow() {
+    @Test func withoutHeyMatesRowPointsAtTheListNotAnotherAppsSwitch() {
         let window = CGRect(x: 200, y: 100, width: 700, height: 600)
-        #expect(PermissionCoachAnchor.switchPoint(elements: [], settingsWindow: window) == CGPoint(x: 856, y: 550))
+        let other = element(kAXCheckBoxRole as String, "ChatGPT", CGRect(x: 856, y: 540, width: 26, height: 20))
+        let spot = PermissionCoachAnchor.switchPoint(elements: [other], settingsWindow: window)
+        #expect(spot == .init(point: CGPoint(x: 585, y: 400), exact: false))
         #expect(PermissionCoachAnchor.switchPoint(elements: [], settingsWindow: nil) == nil)
-        let short = CGRect(x: 0, y: 0, width: 400, height: 220)
-        #expect(PermissionCoachAnchor.estimatedSwitch(in: short) == CGPoint(x: 356, y: 110))
     }
 
     @Test func flipsWindowBoundsIntoAppKitSpace() {

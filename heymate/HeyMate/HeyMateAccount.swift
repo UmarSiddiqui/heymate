@@ -10,42 +10,63 @@ protocol AccountSessionStoring {
 }
 
 /// Dedicated service: never shares account tokens with connector credentials.
+///
+/// The keychain trusts the app that wrote an item by its code signature.
+/// Builds up to 1.0.85 were self-signed, so after the move to Developer ID
+/// reading their "…firebase.v1" item made macOS ask for the login keychain
+/// password at launch. `kSecUseAuthenticationUIFail` does not stop that
+/// legacy-keychain prompt (checked on macOS 27), so v1 is never touched:
+/// tokens live in a v2 item this signer creates, and people sign in once.
 @MainActor
 final class AccountKeychainStore: AccountSessionStoring {
-    private let service = "com.heymate.account.firebase.v1"
-    private var query: [String: Any] {
+    private let service = "com.heymate.account.firebase.v2"
+
+    private func item(_ service: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
          kSecAttrService as String: service,
          kSecAttrAccount as String: "session"]
     }
 
+    /// Lookups that fail instead of showing the keychain password dialog.
+    private func query(_ service: String) -> [String: Any] {
+        var query = item(service)
+        query[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail
+        return query
+    }
+
     func read() throws -> FirebaseAccountTokens? {
-        var request = query
+        var request = query(service)
         request[kSecReturnData as String] = true
         request[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
         let status = SecItemCopyMatching(request as CFDictionary, &result)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = result as? Data,
-              let tokens = try? JSONDecoder().decode(FirebaseAccountTokens.self, from: data) else {
+        switch status {
+        case errSecSuccess:
+            guard let data = result as? Data,
+                  let tokens = try? JSONDecoder().decode(FirebaseAccountTokens.self, from: data) else {
+                throw FirebaseAccountError.persistence
+            }
+            return tokens
+        case errSecItemNotFound, errSecInteractionNotAllowed, errSecAuthFailed:
+            return nil
+        default:
             throw FirebaseAccountError.persistence
         }
-        return tokens
     }
 
     func save(_ tokens: FirebaseAccountTokens) throws {
         let data = try JSONEncoder().encode(tokens)
-        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        let status = SecItemUpdate(query(service) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
         if status == errSecSuccess { return }
         guard status == errSecItemNotFound else { throw FirebaseAccountError.persistence }
-        var item = query
-        item[kSecValueData as String] = data
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        guard SecItemAdd(item as CFDictionary, nil) == errSecSuccess else { throw FirebaseAccountError.persistence }
+        var newItem = item(service)
+        newItem[kSecValueData as String] = data
+        newItem[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        guard SecItemAdd(newItem as CFDictionary, nil) == errSecSuccess else { throw FirebaseAccountError.persistence }
     }
 
     func clear() throws {
-        let status = SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(query(service) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw FirebaseAccountError.persistence }
     }
 }
