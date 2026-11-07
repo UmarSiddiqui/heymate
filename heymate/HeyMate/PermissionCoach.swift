@@ -39,12 +39,17 @@ nonisolated struct PermissionCoachCue: Equatable {
     /// Bumped on every phase change, so the overlay restarts its clock
     /// even when the same phase repeats (a second recovery nudge).
     var step: Int
+    /// False while HeyMate can't read System Settings (no Accessibility
+    /// yet) and only knows where the app list is, not HeyMate's row.
+    var foundSwitch = true
 
     var caption: String {
         switch phase {
-        case .guiding: return "flip the switch next to HeyMate"
+        case .guiding:
+            return foundSwitch ? "flip the switch next to HeyMate" : "find HeyMate in this list, then flip its switch"
         case .success: return "got it!"
-        case .recovery: return "still off. try this switch, or off and on again"
+        case .recovery:
+            return foundSwitch ? "still off. try this switch, or off and on again" : "still off. find HeyMate in the list and flip it"
         }
     }
 }
@@ -195,23 +200,31 @@ nonisolated enum PermissionCoachTimeline {
 // MARK: - Where the switch is
 
 nonisolated enum PermissionCoachAnchor {
-    /// The switch to point at, in AppKit global coordinates. A real AX
-    /// switch labelled HeyMate wins; a HeyMate row points at its right end;
-    /// failing both, the switch column near the top of the app list.
-    static func switchPoint(elements: [AccessibleElement], settingsWindow: CGRect?) -> CGPoint? {
-        let heyMate = elements.filter { $0.label.lowercased().contains("heymate") }
-        if let toggle = heyMate.first(where: { $0.role == kAXCheckBoxRole as String }) {
-            return CGPoint(x: toggle.frame.midX, y: toggle.frame.midY)
-        }
-        if let row = heyMate.first {
-            return CGPoint(x: row.frame.maxX - 28, y: row.frame.midY)
-        }
-        return settingsWindow.map(estimatedSwitch(in:))
+    struct Spot: Equatable {
+        var point: CGPoint
+        /// True only when the point is HeyMate's own switch or row.
+        var exact: Bool
     }
 
-    /// Privacy panes list apps under a header, with switches at the right.
-    static func estimatedSwitch(in window: CGRect) -> CGPoint {
-        CGPoint(x: window.maxX - 44, y: window.maxY - min(150, window.height / 2))
+    /// Where to point, in AppKit global coordinates. A real AX switch
+    /// labelled HeyMate wins; a HeyMate row points at its right end. Without
+    /// either (no Accessibility yet, so System Settings can't be read) it
+    /// points at the app list itself, never at a switch it can't name.
+    static func switchPoint(elements: [AccessibleElement], settingsWindow: CGRect?) -> Spot? {
+        let heyMate = elements.filter { $0.label.lowercased().contains("heymate") }
+        if let toggle = heyMate.first(where: { $0.role == kAXCheckBoxRole as String }) {
+            return Spot(point: CGPoint(x: toggle.frame.midX, y: toggle.frame.midY), exact: true)
+        }
+        if let row = heyMate.first {
+            return Spot(point: CGPoint(x: row.frame.maxX - 28, y: row.frame.midY), exact: true)
+        }
+        return settingsWindow.map { Spot(point: appList(in: $0), exact: false) }
+    }
+
+    /// Privacy panes show the app list right of a sidebar that takes about
+    /// a third of the window. The middle of that list, by the app names.
+    static func appList(in window: CGRect) -> CGPoint {
+        CGPoint(x: window.minX + window.width * 0.55, y: window.midY)
     }
 
     /// Converts a CGWindowList bounds rect (origin top-left of the primary
@@ -268,34 +281,36 @@ final class PermissionCoachDirector {
         func waited() -> TimeInterval { Date().timeIntervalSince(began) }
 
         // Wait for System Settings to put its window up.
-        var point: CGPoint?
-        while point == nil, waited() < PermissionCoachTimeline.windowSearchLimit {
-            point = Self.locateSwitch()
-            if point == nil { try? await Task.sleep(for: .milliseconds(400)) }
+        var found: PermissionCoachAnchor.Spot?
+        while found == nil, waited() < PermissionCoachTimeline.windowSearchLimit {
+            found = Self.locateSwitch()
+            if found == nil { try? await Task.sleep(for: .milliseconds(400)) }
             guard !Task.isCancelled, !guide.isGranted(permission) else { return }
         }
-        guard let point else {
+        guard let found else {
             HeyMateLog.log("🧭 Permission coach: no System Settings window for \(permission.title)")
             return
         }
 
         var step = 0
-        func show(_ phase: PermissionCoachCue.Phase, at spot: CGPoint) {
+        func show(_ phase: PermissionCoachCue.Phase, at spot: PermissionCoachAnchor.Spot) {
             step += 1
-            let cue = PermissionCoachCue(permission: permission, phase: phase, step: step)
+            var cue = PermissionCoachCue(permission: permission, phase: phase, step: step)
+            cue.foundSwitch = spot.exact
             manager.permissionCoachCue = cue
             if !manager.overlayWindowManager.isShowingOverlay() {
                 manager.overlayWindowManager.hasShownOverlayBefore = true
                 manager.overlayWindowManager.showOverlay(onScreens: NSScreen.screens, companionManager: manager)
             }
-            let display = CompanionManager.nearestOnScreenPoint(to: spot)
+            let display = CompanionManager.nearestOnScreenPoint(to: spot.point)
             manager.pointingTarget = CursorPointingTarget(location: display.point, displayFrame: display.display, caption: cue.caption)
         }
 
-        HeyMateLog.log("🧭 Permission coach: pointing at \(permission.title) switch")
-        show(.guiding, at: point)
-        var spot = point
+        HeyMateLog.log("🧭 Permission coach: pointing at \(permission.title) \(found.exact ? "switch" : "app list (HeyMate's row not readable)")")
+        show(.guiding, at: found)
+        var spot = found
         var nudges = 0
+        var ticks = 0
         while !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
@@ -305,6 +320,15 @@ final class PermissionCoachDirector {
                 break
             }
             if waited() >= PermissionCoachTimeline.giveUpAfter { break }
+            // Accessibility often lands mid-coach; move to the real switch
+            // as soon as System Settings becomes readable.
+            ticks += 1
+            if !spot.exact, ticks.isMultiple(of: 4), let exact = Self.locateSwitch(), exact.exact {
+                HeyMateLog.log("🧭 Permission coach: found HeyMate's \(permission.title) switch")
+                spot = exact
+                show(.guiding, at: spot)
+                continue
+            }
             let windowOpen = Self.settingsWindowFrame() != nil
             if !windowOpen || PermissionCoachTimeline.isRecoveryDue(waited: waited(), nudgesShown: nudges) {
                 nudges += 1
@@ -349,7 +373,7 @@ final class PermissionCoachDirector {
         }
     }
 
-    private static func locateSwitch() -> CGPoint? {
+    private static func locateSwitch() -> PermissionCoachAnchor.Spot? {
         guard let window = settingsWindowFrame() else { return nil }
         let elements = settingsApplication().map {
             AccessibilityElementFinder.actionableElements(matching: "HeyMate", inApplicationWithProcessIdentifier: $0.processIdentifier)
