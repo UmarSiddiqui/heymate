@@ -19,7 +19,7 @@ That overlap matters: bringing your own AI subscription is not unique to HeyMate
 | How do I interact? | Push-to-talk, spoken guidance, a desktop pointer, and specialist mates. | AI chat, commands, agents, and extension-driven workflows; see the AI overview linked above. |
 | Can I use an existing subscription? | Claude Code, Codex, and other configured routes; provider limits apply. | Claude or ChatGPT via CLI on a paid Raycast plan, per its subscription guide. |
 | What do I pay for the app? | MIT licensed; no HeyMate subscription. Optional services can charge. | Raycast AI is part of paid Pro plans; check current terms rather than assuming a fixed price. |
-| What should I verify? | Provider vision support, required permissions, and current self-signed installer caveats. | Plan access, current system requirements, supported models, and required extensions. |
+| What should I verify? | Provider vision support, required permissions, and current installer requirements. | Plan access, current system requirements, supported models, and required extensions. |
 
 Raycast plan and feature statements above come from its [official AI overview](https://www.raycast.com/core-features/ai). HeyMate requirements and signing details are documented in the [project README](https://github.com/UmarSiddiqui/heymate).
 
@@ -27,7 +27,7 @@ Raycast plan and feature statements above come from its [official AI overview](h
 
 Try HeyMate if your question is often “what am I looking at, and what should I try next?” Its guided-learning pattern lets you perform the task while the assistant explains the current step. A named mate can also keep a recurring role and habits, while optional notch tools keep small utilities nearby.
 
-HeyMate supports macOS 14.2 or later on Apple silicon and Intel; screen guidance still needs a vision-capable provider. Current builds are self-signed rather than Apple Developer ID signed or notarized. Those installation tradeoffs belong in the decision alongside the absence of a HeyMate subscription.
+HeyMate supports macOS 14.2 or later on Apple silicon and Intel; screen guidance still needs a vision-capable provider. Builds are Developer ID signed and notarized by Apple, and there is no HeyMate subscription.
 
 ## When Raycast may be the better choice
 

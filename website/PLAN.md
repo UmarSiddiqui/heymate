@@ -11,7 +11,7 @@
 1. Follow this document literally. Copy is final unless marked `[TBD]`.
 2. Price is **free**. Never show a price, "Buy", "Pro", or "Pricing" nav item. The primary CTA is **Download free**.
 3. Every image slot in §6 has an ID (`IMG-xx`). Reference IDs in code comments so assets can be swapped later.
-4. Never claim a feature not in §2. Never claim "works offline", "end-to-end encrypted", "App Store", or "notarized" — none are true yet.
+4. Never claim a feature not in §2. Never claim "works offline", "end-to-end encrypted", or "App Store" — none are true yet. Builds are Developer ID signed and notarized (since 2026-11-07).
 5. Aesthetic = Apple product page. Dark obsidian default. One accent: HeyMate nebula violet. No gradients on text, no glassmorphism cards except the nav, no emoji, no stock-photo people.
 6. Ship a single static page (`index.html`) + `privacy.html`. No backend, no analytics until the user adds a key.
 

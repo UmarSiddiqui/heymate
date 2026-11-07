@@ -36,8 +36,8 @@
 
 ## Install
 
-Download the DMG and drag HeyMate into Applications. Current builds use a stable self-signed certificate; they are not Apple Developer ID-signed or notarized. If macOS blocks first launch, review the app and use System Settings > Privacy & Security > Open Anyway if choosing to proceed.
+Download the DMG and drag HeyMate into Applications. Builds are signed with Apple Developer ID and notarized by Apple, so macOS opens HeyMate without a security warning.
 
-Alternative installers are `brew install umarsiddiqui/tap/heymate` or the script at https://sayheymate.com/install.sh. Inspect the script before running it; it replaces /Applications/HeyMate.app and removes quarantine. This does not provide notarization.
+Alternative installers are `brew install umarsiddiqui/tap/heymate` or the script at https://sayheymate.com/install.sh. Inspect the script before running it; it replaces /Applications/HeyMate.app.
 
 Grant the requested permissions, complete the selected provider's CLI sign-in, and try a small task with sample content. No comparative superiority, reliability percentage, or active-user count is established by this summary.

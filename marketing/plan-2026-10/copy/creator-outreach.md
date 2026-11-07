@@ -17,7 +17,7 @@ I build HeyMate, a free, open-source Mac app that lives in the notch. You hold C
 
 I think it could fit a [their format, e.g. "hidden Mac apps" roundup / tutorial workflow] video. Here's a 20-second unedited recording: [Clip A link].
 
-If you'd like to try it, I can send setup notes. It isn't notarized yet, so first launch needs one "Open Anyway" step. No obligation to cover it, and honest criticism is genuinely useful to me.
+If you'd like to try it, I can send setup notes. No obligation to cover it, and honest criticism is genuinely useful to me.
 
 Thanks either way,
 Umar

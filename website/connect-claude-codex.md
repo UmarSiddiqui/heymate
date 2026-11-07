@@ -8,7 +8,7 @@ By Umar Siddiqui. Updated November 1, 2026.
 
 You need macOS 14.2 or later on an Apple silicon or Intel Mac. Download [HeyMate.dmg](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg) from the project’s GitHub releases and drag HeyMate into Applications.
 
-Current builds use a stable self-signed certificate and are not Apple Developer ID signed or notarized. If macOS blocks first launch, review the app and use System Settings > Privacy & Security > Open Anyway only if you choose to proceed.
+Builds are signed with Apple Developer ID and notarized by Apple, so macOS opens HeyMate without a security warning.
 
 For questions about your screen, select a vision-capable provider. An AI subscription does not automatically mean every available model supports screen images.
 

@@ -26,7 +26,7 @@ Keep private analytics evidence separate from public launch copy. Treat the chec
 
 ## Before a broad launch
 
-1. Test installation and first-run permissions on a fresh Mac account. Current builds are self-signed and not notarized; document that friction clearly. A terminal installer is not notarization.
+1. Test installation and first-run permissions on a fresh Mac account. Builds are Developer ID signed and notarized by Apple (since 2026-11-07).
 2. Collect end-to-end task evidence through the pilot. The current publishing deliverable is the user-requested recreated demo; it does not establish task success. Do not restart live capture as a publication requirement for that animation.
 3. Verify two named mates behave differently, retain the right context, and remain distinct after switching chats and relaunching. Do not advertise a polished persona experience from configuration fields alone.
 4. Resolve the current release-blocking bugs and review overlapping PRs. On 11 October the only open PR was [#14: detach CLI pipe readers at EOF](https://github.com/UmarSiddiqui/heymate/pull/14); recheck before editing related code.

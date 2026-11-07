@@ -61,7 +61,7 @@ A few things I cared about:
 • Private by default. The screen is captured only when you ask, chat history keeps text and not screenshots, and voice can run fully on-device.
 • Open source. MIT licensed, native SwiftUI, macOS 14.2+.
 
-Honest limits: it isn't notarized yet (no Apple Developer ID), so first launch needs "Open Anyway" or the Homebrew cask. And pointing is only as good as the vision model you use.
+Honest limits: pointing is only as good as the vision model you use.
 
 What's the first thing you'd ask it about on your screen?
 ```
