@@ -273,7 +273,7 @@ jobs:
           <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
             <channel>
               <title>HeyMate</title>
-              <link>https://sayheymate.vercel.app</link>
+              <link>https://sayheymate.com</link>
               <language>en</language>
               <item>
                 <title>HeyMate $VERSION</title>

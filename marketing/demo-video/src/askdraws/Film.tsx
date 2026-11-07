@@ -248,7 +248,7 @@ const EndCard: React.FC = () => {
 			<div style={{position: 'absolute', left: 0, right: 0, top: v ? 900 : 530, textAlign: 'center'}}>
 				<Line text="HeyMate." start={0} size={v ? 150 : 150} style={{letterSpacing: -7}} />
 				<Line text="Free and open source. For your Mac." start={at(26.32) - base} size={v ? 42 : 40} weight={500} color="#c9d0db" stagger={2} style={{marginTop: 26, letterSpacing: -0.3}} />
-				<div style={{marginTop: 46, display: 'inline-block', padding: '20px 34px', borderRadius: 40, fontSize: 30, fontWeight: 600, color: C.ink, background: C.paper, opacity: ease(f, 50, 20), transform: `translateY(${(1 - ease(f, 50, 20)) * 20}px)`}}>sayheymate.vercel.app</div>
+				<div style={{marginTop: 46, display: 'inline-block', padding: '20px 34px', borderRadius: 40, fontSize: 30, fontWeight: 600, color: C.ink, background: C.paper, opacity: ease(f, 50, 20), transform: `translateY(${(1 - ease(f, 50, 20)) * 20}px)`}}>sayheymate.com</div>
 			</div>
 		</AbsoluteFill>
 	);

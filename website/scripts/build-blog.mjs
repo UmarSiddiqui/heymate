@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { posts } from './blog-posts.mjs';
 const root = fileURLToPath(new URL('..', import.meta.url));
-const origin = 'https://sayheymate.vercel.app';
+const origin = 'https://sayheymate.com';
 const date = '2026-11-01';
 const bySlug = new Map(posts.map(post => [post.slug, post]));
 const escape = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');

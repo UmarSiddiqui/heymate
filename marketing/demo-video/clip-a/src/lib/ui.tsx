@@ -236,7 +236,7 @@ export const EndCard: React.FC = () => {
       <div style={{marginTop: 22 * k, color: COLORS.text2, fontSize: 32 * k, fontWeight: 500, display: 'flex', flexDirection: vertical ? 'column' : 'row', gap: 10 * k, alignItems: 'center', ...item(14)}}>
         <span>Free and open source</span>
         {vertical ? null : <span style={{color: COLORS.text3}}>·</span>}
-        <span style={{color: COLORS.accentText}}>sayheymate.vercel.app</span>
+        <span style={{color: COLORS.accentText}}>sayheymate.com</span>
       </div>
       <div
         style={{

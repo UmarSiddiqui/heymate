@@ -2,7 +2,7 @@
 
 Meet your open-source AI companion for Mac in a new 60-second film. Ask about your screen, see ideas take shape, and give your own little crew the busywork.
 
-[Watch the 60-second film](https://sayheymate.vercel.app/assets/video/heymate-launch-60s-v1.mp4)
+[Watch the 60-second film](https://sayheymate.com/assets/video/heymate-launch-60s-v1.mp4)
 
 ## Film transcript
 
@@ -13,7 +13,7 @@ Meet your open-source AI companion for Mac in a new 60-second film. Ask about yo
 - **00:28** See ideas take shape: a 3D board, a camera connection diagram, and a recipe sketch. Recorded footage condensed and sped up.
 - **00:40** Your own little crew. Give mates roles, personalities, and routines. An example inbox task shows delegated work.
 - **00:48** Your AI. Your choice. ChatGPT via Codex, Claude via Claude Code, OpenCode, your API, or a local model. Provider limits apply.
-- **00:54** A little company. A lot of help. HeyMate is free and open source for Mac. Visit sayheymate.vercel.app.
+- **00:54** A little company. A lot of help. HeyMate is free and open source for Mac. Visit sayheymate.com.
 
 By the HeyMate project. Published 2026-11-01. Category: Launch.
 
@@ -55,11 +55,11 @@ Available tools depend on the provider and apps you connect. For computer contro
 
 Bring ChatGPT through Codex, Claude through Claude Code, or OpenCode. You can also configure your own API or a local model. HeyMate is free and open source, with no HeyMate subscription; your provider’s usage limits and any connected service fees still apply.
 
-You choose the access as well as the AI. Relevant screen context goes to your selected provider, while chat history stays on your Mac. On-device speech is available. The [privacy guide](https://sayheymate.vercel.app/privacy) explains those paths in more detail.
+You choose the access as well as the AI. Relevant screen context goes to your selected provider, while chat history stays on your Mac. On-device speech is available. The [privacy guide](https://sayheymate.com/privacy) explains those paths in more detail.
 
 ## Say hey
 
-Start with one question in an app you already use. [Connect your AI](https://sayheymate.vercel.app/connect-claude-codex), review the [permissions](https://sayheymate.vercel.app/permissions), and ask for help with the next small thing. You do not need an elaborate workflow to begin.
+Start with one question in an app you already use. [Connect your AI](https://sayheymate.com/connect-claude-codex), review the [permissions](https://sayheymate.com/permissions), and ask for help with the next small thing. You do not need an elaborate workflow to begin.
 
 Film notes: this edit combines real screen recordings, product images, and labeled illustrated interactions. Some footage is condensed or sped up; an original score replaces the recorded audio. The Keynote excerpts omit waiting time and one repeated step. The mate task shown is an example.
 
@@ -67,8 +67,8 @@ Film notes: this edit combines real screen recordings, product images, and label
 
 ## Related reading
 
-- [Learn a Mac app with AI guidance, one step at a time](https://sayheymate.vercel.app/blog/learn-mac-apps-with-ai)
-- [Ask HeyMate for diagrams and visual explanations on your desktop](https://sayheymate.vercel.app/blog/visual-explanations-on-mac)
-- [Build a weekly research brief with a specialist HeyMate](https://sayheymate.vercel.app/blog/ai-weekly-research-brief)
+- [Learn a Mac app with AI guidance, one step at a time](https://sayheymate.com/blog/learn-mac-apps-with-ai)
+- [Ask HeyMate for diagrams and visual explanations on your desktop](https://sayheymate.com/blog/visual-explanations-on-mac)
+- [Build a weekly research brief with a specialist HeyMate](https://sayheymate.com/blog/ai-weekly-research-brief)
 
-[Set up HeyMate](https://sayheymate.vercel.app/connect-claude-codex) · [Privacy](https://sayheymate.vercel.app/privacy) · [Permissions](https://sayheymate.vercel.app/permissions)
+[Set up HeyMate](https://sayheymate.com/connect-claude-codex) · [Privacy](https://sayheymate.com/privacy) · [Permissions](https://sayheymate.com/permissions)

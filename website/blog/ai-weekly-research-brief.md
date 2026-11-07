@@ -38,16 +38,16 @@ Research depends on the provider’s tools and the integrations you configure. I
 
 A feature launch does not prove adoption, product quality, or revenue. Ask for the exact evidence behind business implications. If the brief is intended for a client or team, review the sources yourself before sharing. Use a stable format so missing dates and unsupported comparisons stand out instead of being hidden by polished prose.
 
-For a meeting-focused version, see [meeting preparation](https://sayheymate.vercel.app/blog/ai-meeting-prep-mac). For a tool choice, see [HeyMate versus Claude Cowork](https://sayheymate.vercel.app/blog/heymate-vs-claude-cowork), including where the products overlap.
+For a meeting-focused version, see [meeting preparation](https://sayheymate.com/blog/ai-meeting-prep-mac). For a tool choice, see [HeyMate versus Claude Cowork](https://sayheymate.com/blog/heymate-vs-claude-cowork), including where the products overlap.
 
 ## Understand background work and cost
 
-Enabled routines and approved jobs can run in the background. That is different from an app that acts only while you hold a hotkey. Provider limits and optional connector fees still apply, even though HeyMate adds no subscription fee. Review [privacy and storage](https://sayheymate.vercel.app/privacy) and use only the accounts and sources you intend to expose.
+Enabled routines and approved jobs can run in the background. That is different from an app that acts only while you hold a hotkey. Provider limits and optional connector fees still apply, even though HeyMate adds no subscription fee. Review [privacy and storage](https://sayheymate.com/privacy) and use only the accounts and sources you intend to expose.
 
 ## Related reading
 
-- [Prepare for meetings on Mac with a source-backed AI brief](https://sayheymate.vercel.app/blog/ai-meeting-prep-mac)
-- [HeyMate vs Claude Cowork: choose your desktop AI workflow](https://sayheymate.vercel.app/blog/heymate-vs-claude-cowork)
-- [How to choose an open-source AI assistant for Mac](https://sayheymate.vercel.app/blog/choose-open-source-ai-assistant-mac)
+- [Prepare for meetings on Mac with a source-backed AI brief](https://sayheymate.com/blog/ai-meeting-prep-mac)
+- [HeyMate vs Claude Cowork: choose your desktop AI workflow](https://sayheymate.com/blog/heymate-vs-claude-cowork)
+- [How to choose an open-source AI assistant for Mac](https://sayheymate.com/blog/choose-open-source-ai-assistant-mac)
 
-[Set up HeyMate](https://sayheymate.vercel.app/connect-claude-codex) · [Privacy](https://sayheymate.vercel.app/privacy) · [Permissions](https://sayheymate.vercel.app/permissions)
+[Set up HeyMate](https://sayheymate.com/connect-claude-codex) · [Privacy](https://sayheymate.com/privacy) · [Permissions](https://sayheymate.com/permissions)

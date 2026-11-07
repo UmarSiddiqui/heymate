@@ -44,14 +44,14 @@ HeyMate’s workspace snapshots support some local undo flows, not universal rec
 
 ## Choose a simpler tool when the rule is fixed
 
-If you repeatedly apply the same known transformation, an explicit automation or file-search workflow may be easier to inspect and maintain. Read [HeyMate versus Apple Shortcuts](https://sayheymate.vercel.app/blog/heymate-vs-apple-shortcuts) and [HeyMate versus Alfred](https://sayheymate.vercel.app/blog/heymate-vs-alfred) for those tradeoffs.
+If you repeatedly apply the same known transformation, an explicit automation or file-search workflow may be easier to inspect and maintain. Read [HeyMate versus Apple Shortcuts](https://sayheymate.com/blog/heymate-vs-apple-shortcuts) and [HeyMate versus Alfred](https://sayheymate.com/blog/heymate-vs-alfred) for those tradeoffs.
 
-Before working on private files, review [what leaves your Mac](https://sayheymate.vercel.app/privacy). HeyMate is open source, but connected AI providers and services have their own processing and retention rules.
+Before working on private files, review [what leaves your Mac](https://sayheymate.com/privacy). HeyMate is open source, but connected AI providers and services have their own processing and retention rules.
 
 ## Related reading
 
-- [HeyMate vs Alfred: AI guidance or repeatable Mac workflows?](https://sayheymate.vercel.app/blog/heymate-vs-alfred)
-- [HeyMate vs Apple Shortcuts: conversation or a defined automation?](https://sayheymate.vercel.app/blog/heymate-vs-apple-shortcuts)
-- [Understand terminal errors with HeyMate before changing code](https://sayheymate.vercel.app/blog/explain-terminal-errors-with-ai)
+- [HeyMate vs Alfred: AI guidance or repeatable Mac workflows?](https://sayheymate.com/blog/heymate-vs-alfred)
+- [HeyMate vs Apple Shortcuts: conversation or a defined automation?](https://sayheymate.com/blog/heymate-vs-apple-shortcuts)
+- [Understand terminal errors with HeyMate before changing code](https://sayheymate.com/blog/explain-terminal-errors-with-ai)
 
-[Set up HeyMate](https://sayheymate.vercel.app/connect-claude-codex) · [Privacy](https://sayheymate.vercel.app/privacy) · [Permissions](https://sayheymate.vercel.app/permissions)
+[Set up HeyMate](https://sayheymate.com/connect-claude-codex) · [Privacy](https://sayheymate.com/privacy) · [Permissions](https://sayheymate.com/permissions)

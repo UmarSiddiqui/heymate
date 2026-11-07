@@ -21,7 +21,7 @@ Free and open source (MIT) · native SwiftUI · macOS 14.2+
 
 [badges unchanged]
 
-[**Download for Mac**](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg) · `brew install umarsiddiqui/tap/heymate` · [Website](https://sayheymate.vercel.app) · [Changelog](https://sayheymate.vercel.app/changelog)
+[**Download for Mac**](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg) · `brew install umarsiddiqui/tap/heymate` · [Website](https://sayheymate.com) · [Changelog](https://sayheymate.com/changelog)
 
 <br>
 

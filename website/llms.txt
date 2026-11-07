@@ -6,41 +6,41 @@ HeyMate runs on Apple silicon and Intel Macs. Screen guidance needs a vision-cap
 
 ## Product and setup
 
-- [Product facts](https://sayheymate.vercel.app/index.md): Capabilities, system requirements, provider support, privacy, storage, and installation caveats.
-- [Website](https://sayheymate.vercel.app/): Product overview and real app recordings.
-- [Getting started](https://sayheymate.vercel.app/how-to-use-heymate): Installation, provider sign-in, and first task.
-- [Permissions](https://sayheymate.vercel.app/permissions): macOS permissions and computer control.
-- [Privacy](https://sayheymate.vercel.app/privacy): Local data, provider processing, and analytics.
+- [Product facts](https://sayheymate.com/index.md): Capabilities, system requirements, provider support, privacy, storage, and installation caveats.
+- [Website](https://sayheymate.com/): Product overview and real app recordings.
+- [Getting started](https://sayheymate.com/how-to-use-heymate): Installation, provider sign-in, and first task.
+- [Permissions](https://sayheymate.com/permissions): macOS permissions and computer control.
+- [Privacy](https://sayheymate.com/privacy): Local data, provider processing, and analytics.
 
-- [Connect Claude or Codex](https://sayheymate.vercel.app/connect-claude-codex.md): Provider sign-in, prerequisites, cost, and troubleshooting.
-- [Screen guidance walkthrough](https://sayheymate.vercel.app/screen-guidance.md): Permissions, example prompts, control choices, and privacy.
+- [Connect Claude or Codex](https://sayheymate.com/connect-claude-codex.md): Provider sign-in, prerequisites, cost, and troubleshooting.
+- [Screen guidance walkthrough](https://sayheymate.com/screen-guidance.md): Permissions, example prompts, control choices, and privacy.
 
 ## Source and releases
 
 - [Source code](https://github.com/UmarSiddiqui/heymate): Public source repository.
 - [Download HeyMate.dmg](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg): Latest Mac installer.
 - [Releases](https://github.com/UmarSiddiqui/heymate/releases): Version-specific changes and release assets.
-- [Changelog](https://sayheymate.vercel.app/changelog): Website release history.
+- [Changelog](https://sayheymate.com/changelog): Website release history.
 
 <!-- blog:start -->
 ## Use cases and comparisons
 
-- [All guides](https://sayheymate.vercel.app/blog/index.md): Browse practical workflows and project-published comparisons.
-- [Meet HeyMate. A little company. A lot of help.](https://sayheymate.vercel.app/blog/meet-heymate.md): Meet HeyMate.
-- [Learn a Mac app with AI guidance, one step at a time](https://sayheymate.vercel.app/blog/learn-mac-apps-with-ai.md): Learning apps.
-- [Use HeyMate for a focused Figma or website design review](https://sayheymate.vercel.app/blog/ai-design-review-figma.md): Design.
-- [Understand terminal errors with HeyMate before changing code](https://sayheymate.vercel.app/blog/explain-terminal-errors-with-ai.md): Development.
-- [Organize Mac files with AI: plan first, move second](https://sayheymate.vercel.app/blog/organize-files-with-ai-on-mac.md): Files.
-- [Build a weekly research brief with a specialist HeyMate](https://sayheymate.vercel.app/blog/ai-weekly-research-brief.md): Research.
-- [Draft better email on Mac with HeyMate and a review step](https://sayheymate.vercel.app/blog/draft-email-with-ai-on-mac.md): Writing.
-- [Prepare for meetings on Mac with a source-backed AI brief](https://sayheymate.vercel.app/blog/ai-meeting-prep-mac.md): Planning.
-- [Create a study tutor mate that helps you practice on Mac](https://sayheymate.vercel.app/blog/ai-study-tutor-mac.md): Learning.
-- [Ask HeyMate for diagrams and visual explanations on your desktop](https://sayheymate.vercel.app/blog/visual-explanations-on-mac.md): Visual answers.
-- [HeyMate vs Raycast: which Mac AI workflow fits you?](https://sayheymate.vercel.app/blog/heymate-vs-raycast.md): Raycast alternative.
-- [HeyMate vs Alfred: AI guidance or repeatable Mac workflows?](https://sayheymate.vercel.app/blog/heymate-vs-alfred.md): Alfred alternative.
-- [HeyMate vs Claude Cowork: choose your desktop AI workflow](https://sayheymate.vercel.app/blog/heymate-vs-claude-cowork.md): Claude Cowork alternative.
-- [HeyMate vs Apple Shortcuts: conversation or a defined automation?](https://sayheymate.vercel.app/blog/heymate-vs-apple-shortcuts.md): Mac automation.
-- [How to choose an open-source AI assistant for Mac](https://sayheymate.vercel.app/blog/choose-open-source-ai-assistant-mac.md): Buying guide.
+- [All guides](https://sayheymate.com/blog/index.md): Browse practical workflows and project-published comparisons.
+- [Meet HeyMate. A little company. A lot of help.](https://sayheymate.com/blog/meet-heymate.md): Meet HeyMate.
+- [Learn a Mac app with AI guidance, one step at a time](https://sayheymate.com/blog/learn-mac-apps-with-ai.md): Learning apps.
+- [Use HeyMate for a focused Figma or website design review](https://sayheymate.com/blog/ai-design-review-figma.md): Design.
+- [Understand terminal errors with HeyMate before changing code](https://sayheymate.com/blog/explain-terminal-errors-with-ai.md): Development.
+- [Organize Mac files with AI: plan first, move second](https://sayheymate.com/blog/organize-files-with-ai-on-mac.md): Files.
+- [Build a weekly research brief with a specialist HeyMate](https://sayheymate.com/blog/ai-weekly-research-brief.md): Research.
+- [Draft better email on Mac with HeyMate and a review step](https://sayheymate.com/blog/draft-email-with-ai-on-mac.md): Writing.
+- [Prepare for meetings on Mac with a source-backed AI brief](https://sayheymate.com/blog/ai-meeting-prep-mac.md): Planning.
+- [Create a study tutor mate that helps you practice on Mac](https://sayheymate.com/blog/ai-study-tutor-mac.md): Learning.
+- [Ask HeyMate for diagrams and visual explanations on your desktop](https://sayheymate.com/blog/visual-explanations-on-mac.md): Visual answers.
+- [HeyMate vs Raycast: which Mac AI workflow fits you?](https://sayheymate.com/blog/heymate-vs-raycast.md): Raycast alternative.
+- [HeyMate vs Alfred: AI guidance or repeatable Mac workflows?](https://sayheymate.com/blog/heymate-vs-alfred.md): Alfred alternative.
+- [HeyMate vs Claude Cowork: choose your desktop AI workflow](https://sayheymate.com/blog/heymate-vs-claude-cowork.md): Claude Cowork alternative.
+- [HeyMate vs Apple Shortcuts: conversation or a defined automation?](https://sayheymate.com/blog/heymate-vs-apple-shortcuts.md): Mac automation.
+- [How to choose an open-source AI assistant for Mac](https://sayheymate.com/blog/choose-open-source-ai-assistant-mac.md): Buying guide.
 <!-- blog:end -->
 
 ## Optional

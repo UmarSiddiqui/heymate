@@ -44,7 +44,7 @@ macOS, Productivity, Artificial Intelligence, Open Source, Menu Bar Apps (if ava
 
 ## Links
 
-- Website: `https://sayheymate.vercel.app/?utm_source=ph&utm_medium=listing&utm_campaign=ph_launch`
+- Website: `https://sayheymate.com/?utm_source=ph&utm_medium=listing&utm_campaign=ph_launch`
 - GitHub: `https://github.com/UmarSiddiqui/heymate`
 - Pricing: Free
 

@@ -43,14 +43,14 @@ For Figma work, inspect the actual spacing and typography values rather than cop
 
 ## Keep client work and permissions in view
 
-Relevant screen images go to your selected AI provider. Use a sample frame or approved project material, and read the [privacy explanation](https://sayheymate.vercel.app/privacy). Connected app access is separate from simply looking at a Figma window; it depends on the tools and accounts you configure.
+Relevant screen images go to your selected AI provider. Use a sample frame or approved project material, and read the [privacy explanation](https://sayheymate.com/privacy). Connected app access is separate from simply looking at a Figma window; it depends on the tools and accounts you configure.
 
-Start with the [screen guidance walkthrough](https://sayheymate.vercel.app/screen-guidance). For broader software practice, see [learning a Mac app with AI](https://sayheymate.vercel.app/blog/learn-mac-apps-with-ai). Results depend on the model and the context it can actually see.
+Start with the [screen guidance walkthrough](https://sayheymate.com/screen-guidance). For broader software practice, see [learning a Mac app with AI](https://sayheymate.com/blog/learn-mac-apps-with-ai). Results depend on the model and the context it can actually see.
 
 ## Related reading
 
-- [Learn a Mac app with AI guidance, one step at a time](https://sayheymate.vercel.app/blog/learn-mac-apps-with-ai)
-- [Ask HeyMate for diagrams and visual explanations on your desktop](https://sayheymate.vercel.app/blog/visual-explanations-on-mac)
-- [HeyMate vs Raycast: which Mac AI workflow fits you?](https://sayheymate.vercel.app/blog/heymate-vs-raycast)
+- [Learn a Mac app with AI guidance, one step at a time](https://sayheymate.com/blog/learn-mac-apps-with-ai)
+- [Ask HeyMate for diagrams and visual explanations on your desktop](https://sayheymate.com/blog/visual-explanations-on-mac)
+- [HeyMate vs Raycast: which Mac AI workflow fits you?](https://sayheymate.com/blog/heymate-vs-raycast)
 
-[Set up HeyMate](https://sayheymate.vercel.app/connect-claude-codex) · [Privacy](https://sayheymate.vercel.app/privacy) · [Permissions](https://sayheymate.vercel.app/permissions)
+[Set up HeyMate](https://sayheymate.com/connect-claude-codex) · [Privacy](https://sayheymate.com/privacy) · [Permissions](https://sayheymate.com/permissions)
