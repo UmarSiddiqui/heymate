@@ -4580,6 +4580,12 @@ final class CompanionManager: ObservableObject {
                             .filter { !$0.isEmpty }.joined(separator: " ")
                         shownText = said + (ExplainerParser.onlyPoints(drawn.program ?? "") ? "\n\n(Pointed it out.)" : "\n\n(Drew an explanation.)")
                     }
+                    // The person got an answer (foreground or background chat).
+                    // Routine turns run unattended, so they don't count as value.
+                    if activeRoutineTurn == nil,
+                       !shownText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        HeyMateAnalytics.track(.aiResponseReceived(characterCount: shownText.count))
+                    }
                     if independentChat && !ownsCurrentResponse(completion) {
                         if drawn.program != nil {
                             let said = ([drawn.text.trimmingCharacters(in: .whitespacesAndNewlines)] + drawn.lines)
