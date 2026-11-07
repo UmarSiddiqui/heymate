@@ -639,7 +639,8 @@
     refreshHits();
     if (!result.left) setTimeout(() => post('empty', null), 600);
   }
-  (function loop() { paint(); requestAnimationFrame(loop); })();
+  // Every engine call and timer already drains render ops. No perpetual idle RAF.
+  // Active glides and 3D stages keep their own animation/backpressure loops.
 
   globalThis.HeyMateCanvas = {
     screenSampling,

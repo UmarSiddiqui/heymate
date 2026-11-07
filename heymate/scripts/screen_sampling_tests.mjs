@@ -93,3 +93,17 @@ test('busyness of any area costs the same on a full-size screen', () => {
   for (let k = 0; k < 2000; k++) sampling.busyFor(k % 500, k % 300, 2400, 1500);
   assert.ok(performance.now() - start < 200, 'busyFor scanned the area');
 });
+
+test('idle 2D host schedules no perpetual animation frames', () => {
+  let frames = 0;
+  const context = {
+    document: { createElement: () => ({ getContext: () => ({}) }) },
+    requestAnimationFrame() { frames++; }, setInterval() {},
+    performance: { now: () => 0 }, console,
+  };
+  context.window = context;
+  vm.runInNewContext(readFileSync(new URL('../HeyMate/mate-host.js', import.meta.url), 'utf8'), context);
+  assert.equal(frames, 0, 'idle host must not request frames; active motion owns its own loop');
+  context.HeyMateCanvas.screenChanged();
+  assert.equal(frames, 0);
+});

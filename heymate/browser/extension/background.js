@@ -74,6 +74,7 @@ async function onMessage(message, connection) {
     if (port !== connection) return;
     try {
       await restored;
+      if (port !== connection) return;
       if (cancelled.has(key)) throw Error("Browser turn cancelled; queued action was not run.");
       const previousScope = latestScopes.get(owner);
       if (previousScope && previousScope !== scope) cancelled.add(JSON.stringify([owner, previousScope]));
@@ -81,7 +82,10 @@ async function onMessage(message, connection) {
       let worker = workers.get(owner);
       if (worker && worker.scope !== scope) {
         await bridge.end(worker.task, true, "native turn ended");
+        // Cleanup yields to cancellation and native-host reconnects.
+        if (port !== connection) return;
         workers.delete(owner); worker = null;
+        if (cancelled.has(key)) throw Error("Browser turn cancelled; queued action was not run.");
       }
       if (!worker) { worker = { scope, task: crypto.randomUUID() }; workers.set(owner, worker); }
       const result = await run(message, owner, worker);

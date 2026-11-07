@@ -8,14 +8,14 @@ import { BrowserBridge, snapshotLines } from '../browser/extension/mate-core.mjs
 const source = fs.readFileSync(new URL('../browser/extension/background.js', import.meta.url), 'utf8')
   .replace(/^import .*from "\.\/mate-core.mjs";$/m, '');
 const event = () => ({ listeners: [], addListener(fn) { this.listeners.push(fn); } });
-function adapter(execute) {
+function adapter(execute, end = async () => {}) {
   const connections = [], requests = [];
   class Engine {
     ownedTabs = new Map();
     async restore() {}
     async execute(request) { requests.push(request); return execute(request); }
     async stop() {}
-    async end() {}
+    async end(...args) { return end(...args); }
     async claim() {}
     downloadStarted(item) { this.lastDownload = item; }
     downloadWillBegin(tabId, event) { this.lastPageDownload = { tabId, event }; }
@@ -141,6 +141,38 @@ test('late cleanup from superseded native turn cannot end replacement worker', a
   await h.command('tabs', { owner: 'a', scope: 'a2' });
   assert.equal(h.requests.at(-1).task, h.requests[count - 1].task);
 });
+
+for (const interruption of ['cancellation', 'disconnect']) {
+  test(`${interruption} during previous-turn cleanup blocks the next browser command`, async () => {
+    let cleanupStarted, finishCleanup;
+    const started = new Promise(resolve => { cleanupStarted = resolve; });
+    const cleanup = new Promise(resolve => { finishCleanup = resolve; });
+    const h = adapter(async () => ({ tabs: [], snapshot }), async () => {
+      cleanupStarted();
+      await cleanup;
+    });
+    await h.command('tabs', { owner: 'a', scope: 'a1' });
+    const connection = h.connections[0];
+    const opening = h.command('open', { owner: 'a', scope: 'a2', url: snapshot.url });
+    await started;
+    if (interruption === 'cancellation') {
+      await connection.onMessage.listeners[0]({ type: 'cancel', owner: 'a', scope: 'a2' });
+    } else {
+      connection.onDisconnect.listeners[0]();
+      vm.runInContext('connect()', h.context);
+    }
+    finishCleanup();
+    const reply = await opening;
+    assert.deepEqual(h.requests.map(request => request.operation), ['tabs']);
+    if (interruption === 'cancellation') {
+      assert.equal(reply.ok, false);
+      assert.match(reply.error, /cancelled/);
+    } else {
+      assert.equal(reply, undefined);
+    }
+    assert.equal((await h.command('tabs', { owner: 'a', scope: 'a3' })).ok, true);
+  });
+}
 
 test('owned pages remain private after owner ends; tabs exclude other owners and claims', async () => {
   const engine = new BrowserBridge({ tabs: { query: async () => [
