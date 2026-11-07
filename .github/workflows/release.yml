@@ -252,6 +252,25 @@ jobs:
         # tools run, so those tools cannot use it.
         run: security delete-keychain "$RUNNER_TEMP/heymate-signing.keychain-db" 2>/dev/null || true
 
+      - name: Notarize and staple HeyMate.app
+        # A ticket stapled only to the DMG stays behind when people drag the
+        # app to Applications. Without its own ticket, Gatekeeper must look the
+        # app up online, and when that lookup fails it says "Apple could not
+        # verify HeyMate is free of malware". Staple the app before packaging.
+        env:
+          NOTARY_KEY_P8_BASE64: ${{ secrets.NOTARY_KEY_P8_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          APP="$DERIVED_DATA/Build/Products/Release/$APP_NAME.app"
+          ZIP="$RUNNER_TEMP/$APP_NAME-notarize.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+          .github/scripts/notarize.sh "$ZIP" notary/app
+          rm -f "$ZIP"
+          xcrun stapler staple "$APP"
+          xcrun stapler validate "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
       - name: Package HeyMate.dmg
         run: |
           APP="$DERIVED_DATA/Build/Products/Release/$APP_NAME.app"
@@ -296,13 +315,8 @@ jobs:
           NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
         run: |
           DMG="dist/$APP_NAME.dmg"
-          for NAME in NOTARY_KEY_P8_BASE64 NOTARY_KEY_ID NOTARY_ISSUER_ID; do
-            [ -n "${!NAME}" ] || { echo "::error::$NAME secret is not set in the release environment"; exit 1; }
-          done
-
           KEYCHAIN="$RUNNER_TEMP/heymate-dmg-signing.keychain-db"
-          NOTARY_DIR=$(mktemp -d)
-          trap 'security delete-keychain "$KEYCHAIN" 2>/dev/null || true; rm -rf "$NOTARY_DIR"' EXIT
+          trap 'security delete-keychain "$KEYCHAIN" 2>/dev/null || true' EXIT
           IDENTITY=$(.github/scripts/import-signing-identity.sh "$KEYCHAIN")
           codesign --force --sign "$IDENTITY" --timestamp "$DMG"
           security delete-keychain "$KEYCHAIN"
@@ -310,21 +324,7 @@ jobs:
           heymate_dmg_requirement="anchor apple generic and certificate leaf[subject.OU] = \"$HEYMATE_TEAM_ID\""
           codesign --verify --strict -R="$heymate_dmg_requirement" "$DMG"
 
-          KEY_PATH="$NOTARY_DIR/AuthKey_$NOTARY_KEY_ID.p8"
-          (umask 077; printf '%s' "$NOTARY_KEY_P8_BASE64" | base64 --decode > "$KEY_PATH")
-          NOTARY_AUTH=(--key "$KEY_PATH" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID")
-          mkdir -p notary
-          xcrun notarytool submit "$DMG" "${NOTARY_AUTH[@]}" --wait --timeout 45m --output-format json \
-            > notary/result.json || true
-          cat notary/result.json
-          NOTARY_ID=$(/usr/bin/plutil -extract id raw notary/result.json 2>/dev/null || true)
-          NOTARY_STATUS=$(/usr/bin/plutil -extract status raw notary/result.json 2>/dev/null || true)
-          [ -n "$NOTARY_ID" ] || { echo "::error::Notarization submission failed; no submission ID"; exit 1; }
-          # Kept whatever the outcome, so a rejection can be diagnosed.
-          xcrun notarytool log "$NOTARY_ID" "${NOTARY_AUTH[@]}" notary/log.json || true
-          cat notary/log.json 2>/dev/null || true
-          [ "$NOTARY_STATUS" = "Accepted" ] \
-            || { echo "::error::Notarization status is ${NOTARY_STATUS:-unknown} (submission $NOTARY_ID)"; exit 1; }
+          .github/scripts/notarize.sh "$DMG" notary/dmg
 
           xcrun stapler staple "$DMG"
           xcrun stapler validate "$DMG"
@@ -335,6 +335,11 @@ jobs:
           hdiutil attach "$DMG" -readonly -nobrowse -mountpoint "$MOUNT" >/dev/null
           spctl --assess --type execute --verbose=2 "$MOUNT/$APP_NAME.app" \
             || { hdiutil detach "$MOUNT" >/dev/null; echo "::error::Gatekeeper rejects the app inside $APP_NAME.dmg"; exit 1; }
+          # spctl can pass on an online lookup alone. Apple's distribution
+          # check fails when the dragged-out app carries no ticket of its own.
+          xcrun stapler validate "$MOUNT/$APP_NAME.app" \
+            && syspolicy_check distribution "$MOUNT/$APP_NAME.app" \
+            || { hdiutil detach "$MOUNT" >/dev/null; echo "::error::The app inside $APP_NAME.dmg fails Apple's distribution check"; exit 1; }
           hdiutil detach "$MOUNT" >/dev/null
           # Checksum and Sparkle signature must cover the stapled bytes.
           (cd dist && shasum -a 256 "$APP_NAME.dmg" > "$APP_NAME.dmg.sha256")
