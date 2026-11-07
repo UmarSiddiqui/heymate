@@ -173,6 +173,7 @@ jobs:
         env:
           HEYMATE_SECURE_TIMESTAMP: "YES"
         run: |
+          python3 heymate/scripts/wake-word/prepare_native.py
           xcodebuild \
             -project "$PROJECT" \
             -scheme "$SCHEME" \
@@ -200,6 +201,25 @@ jobs:
               exit 1
             }
           grep -E "\*\* BUILD" build.log
+
+      - name: Re-sign Sparkle helpers with secure timestamps
+        # Xcode re-signs Sparkle's nested helpers on copy without honouring
+        # OTHER_CODE_SIGN_FLAGS, so they lack the secure timestamp notarization
+        # requires. Re-sign inside-out (Sparkle's documented order), then
+        # re-seal the app so its signature covers the new nested signatures.
+        run: |
+          APP="$DERIVED_DATA/Build/Products/Release/$APP_NAME.app"
+          IDENTITY="${{ steps.signing.outputs.identity }}"
+          SPARKLE="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"
+          test -d "$SPARKLE"
+          codesign -f -s "$IDENTITY" -o runtime --timestamp "$SPARKLE/XPCServices/Installer.xpc"
+          codesign -f -s "$IDENTITY" -o runtime --timestamp --preserve-metadata=entitlements "$SPARKLE/XPCServices/Downloader.xpc"
+          codesign -f -s "$IDENTITY" -o runtime --timestamp "$SPARKLE/Autoupdate"
+          codesign -f -s "$IDENTITY" -o runtime --timestamp "$SPARKLE/Updater.app"
+          codesign -f -s "$IDENTITY" -o runtime --timestamp "$APP/Contents/Frameworks/Sparkle.framework"
+          codesign -f -s "$IDENTITY" -o runtime --timestamp \
+            --preserve-metadata=identifier,entitlements,requirements,flags "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
 
       - name: Verify the app, Pi harness and embedded agent runner
         run: |
