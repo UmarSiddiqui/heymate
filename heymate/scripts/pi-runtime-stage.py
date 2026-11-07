@@ -76,6 +76,21 @@ def verify(root, expected_arch=None, pristine=False):
     return manifest
 
 
+def secure_timestamp():
+    # Notarization rejects nested code without a secure timestamp. Release CI
+    # sets HEYMATE_SECURE_TIMESTAMP=YES; local builds skip the network round trip.
+    return os.environ.get('HEYMATE_SECURE_TIMESTAMP') == 'YES'
+
+
+def timestamp_flag():
+    return '--timestamp' if secure_timestamp() else '--timestamp=none'
+
+
+def has_secure_timestamp(binary):
+    details = subprocess.run(['/usr/bin/codesign', '-dvv', str(binary)], capture_output=True, text=True)
+    return details.returncode == 0 and any(line.startswith('Timestamp=') for line in details.stderr.splitlines())
+
+
 def signed_by(root, manifest, identity):
     if 'payloads' in manifest:
         return all(signed_by(root / relative, json.loads((root / relative / 'manifest.json').read_text()), identity)
@@ -89,6 +104,8 @@ def signed_by(root, manifest, identity):
     for relative in manifest['nativeImages']:
         binary = root / relative
         if subprocess.run(['/usr/bin/codesign', '--verify', '--strict', str(binary)], capture_output=True).returncode:
+            return False
+        if secure_timestamp() and not has_secure_timestamp(binary):
             return False
         with tempfile.TemporaryDirectory(prefix='heymate-pi-cert-') as scratch:
             prefix = pathlib.Path(scratch) / 'certificate'
@@ -136,7 +153,7 @@ def sign(root, manifest):
         return
     entitlements = pathlib.Path(__file__).with_name('pi-node.entitlements')
     for relative in manifest['nativeImages']:
-        args = ['/usr/bin/codesign', '--force', '--sign', identity, '--options', 'runtime', '--timestamp=none']
+        args = ['/usr/bin/codesign', '--force', '--sign', identity, '--options', 'runtime', timestamp_flag()]
         if relative == 'bin/node':
             args += ['--entitlements', str(entitlements)]
         subprocess.run(args + [str(root / relative)], check=True)

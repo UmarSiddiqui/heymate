@@ -1,11 +1,13 @@
 # Builds HeyMate on every push to main that touches the app, and publishes it
 # as a GitHub Release with a downloadable HeyMate.dmg and grouped release notes.
 #
-# Builds are signed with a self-signed certificate held in repo secrets
-# (HEYMATE_SIGNING_P12_BASE64 / HEYMATE_SIGNING_P12_PASSWORD). It is not an
-# Apple Developer ID, so users still open the first launch with
-# Control-click → Open, but every release carries the same designated
-# requirement and macOS keeps the user's permission grants across updates.
+# Builds are signed with HeyMate's Developer ID Application certificate
+# (team 7YQZYBU8Y7), notarized by Apple, and the DMG is stapled, so Gatekeeper
+# opens it without warnings. The designated requirement names Apple's anchor
+# and the team ID, so macOS keeps the user's permission grants across updates.
+# Secrets live in the `release` environment: DEVELOPER_ID_P12_BASE64,
+# DEVELOPER_ID_P12_PASSWORD, NOTARY_KEY_P8_BASE64, NOTARY_KEY_ID,
+# NOTARY_ISSUER_ID, SPARKLE_PRIVATE_KEY.
 # See .github/scripts/import-signing-identity.sh.
 #
 # Version: MARKETING_VERSION from the Xcode project + the workflow run number,
@@ -82,6 +84,9 @@ jobs:
       SCHEME: HeyMate
       DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
       APP_NAME: HeyMate
+      # Apple Developer team that owns the Developer ID certificate. Changing
+      # it changes the designated requirement and resets users' permissions.
+      HEYMATE_TEAM_ID: 7YQZYBU8Y7
       # Public ingestion token. Runtime consent remains off by default.
       POSTHOG_API_KEY: ${{ vars.POSTHOG_API_KEY }}
       POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
@@ -152,16 +157,21 @@ jobs:
       - name: Import the signing identity
         id: signing
         env:
-          HEYMATE_SIGNING_P12_BASE64: ${{ secrets.HEYMATE_SIGNING_P12_BASE64 }}
-          HEYMATE_SIGNING_P12_PASSWORD: ${{ secrets.HEYMATE_SIGNING_P12_PASSWORD }}
+          DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
         run: |
           IDENTITY=$(.github/scripts/import-signing-identity.sh "$RUNNER_TEMP/heymate-signing.keychain-db")
           echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
 
-      - name: Build (universal, self-signed)
+      - name: Build (universal, Developer ID)
         # Xcode now defaults ENABLE_CODE_COVERAGE to YES, and Swift packages
         # only pick up the override from the command line. Instrumented
         # binaries write an LLVM profile error to every agent runner log.
+        # Notarization needs a secure timestamp on every signature: --timestamp
+        # covers Xcode's own signing, HEYMATE_SECURE_TIMESTAMP the nested Pi and
+        # Phonon code signed by the staging scripts.
+        env:
+          HEYMATE_SECURE_TIMESTAMP: "YES"
         run: |
           xcodebuild \
             -project "$PROJECT" \
@@ -175,7 +185,8 @@ jobs:
             ENABLE_CODE_COVERAGE=NO \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="${{ steps.signing.outputs.identity }}" \
-            DEVELOPMENT_TEAM= \
+            DEVELOPMENT_TEAM="$HEYMATE_TEAM_ID" \
+            OTHER_CODE_SIGN_FLAGS='$(inherited) --timestamp' \
             PROVISIONING_PROFILE_SPECIFIER= \
             MARKETING_VERSION="${{ steps.version.outputs.version }}" \
             CURRENT_PROJECT_VERSION="${{ steps.version.outputs.build }}" \
@@ -202,8 +213,11 @@ jobs:
           # Verify the seal after everything above has run the bundled code.
           codesign --verify --deep --strict --verbose=2 "$APP"
           # Permissions survive updates only while this requirement stays put.
-          codesign -dr - "$APP" 2>&1 | grep -q 'certificate root = H"a5bc67c8702a1027e762f26cf4f3400686fe7d5e"' \
-            || { echo "::error::HeyMate is not signed with the HeyMate Open Source Signing certificate"; codesign -dr - "$APP"; exit 1; }
+          heymate_require_developer_id "$APP" "$HEYMATE_TEAM_ID" \
+            || { echo "::error::HeyMate is not signed with the team $HEYMATE_TEAM_ID Developer ID certificate"; exit 1; }
+          heymate_require_hardened_runtime "$APP"
+          heymate_require_notarizable_bundle "$APP" \
+            || { echo "::error::Nested code would fail notarization (see list above)"; exit 1; }
           # Coverage-instrumented code would print an LLVM profile error into
           # every agent runner log, so empty logs would never be cleaned up.
           for BINARY in "$APP/Contents/MacOS/$APP_NAME" "$APP/Contents/Helpers/HeyMateAgentRunner"; do
@@ -250,6 +264,60 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$MOUNT/$APP_NAME.app" \
             || { hdiutil detach "$MOUNT" >/dev/null; echo "::error::The app inside $APP_NAME.dmg fails its code signature check"; exit 1; }
           hdiutil detach "$MOUNT" >/dev/null
+          ls -la dist
+
+      - name: Sign, notarize and staple HeyMate.dmg
+        # The signing keychain was deleted before create-dmg ran. Import the
+        # identity again only for the DMG signature, then delete it at once.
+        env:
+          DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          NOTARY_KEY_P8_BASE64: ${{ secrets.NOTARY_KEY_P8_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          DMG="dist/$APP_NAME.dmg"
+          for NAME in NOTARY_KEY_P8_BASE64 NOTARY_KEY_ID NOTARY_ISSUER_ID; do
+            [ -n "${!NAME}" ] || { echo "::error::$NAME secret is not set in the release environment"; exit 1; }
+          done
+
+          KEYCHAIN="$RUNNER_TEMP/heymate-dmg-signing.keychain-db"
+          NOTARY_DIR=$(mktemp -d)
+          trap 'security delete-keychain "$KEYCHAIN" 2>/dev/null || true; rm -rf "$NOTARY_DIR"' EXIT
+          IDENTITY=$(.github/scripts/import-signing-identity.sh "$KEYCHAIN")
+          codesign --force --sign "$IDENTITY" --timestamp "$DMG"
+          security delete-keychain "$KEYCHAIN"
+          codesign --verify --strict --verbose=2 "$DMG"
+          heymate_dmg_requirement="anchor apple generic and certificate leaf[subject.OU] = \"$HEYMATE_TEAM_ID\""
+          codesign --verify --strict -R="$heymate_dmg_requirement" "$DMG"
+
+          KEY_PATH="$NOTARY_DIR/AuthKey_$NOTARY_KEY_ID.p8"
+          (umask 077; printf '%s' "$NOTARY_KEY_P8_BASE64" | base64 --decode > "$KEY_PATH")
+          NOTARY_AUTH=(--key "$KEY_PATH" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID")
+          mkdir -p notary
+          xcrun notarytool submit "$DMG" "${NOTARY_AUTH[@]}" --wait --timeout 45m --output-format json \
+            > notary/result.json || true
+          cat notary/result.json
+          NOTARY_ID=$(/usr/bin/plutil -extract id raw notary/result.json 2>/dev/null || true)
+          NOTARY_STATUS=$(/usr/bin/plutil -extract status raw notary/result.json 2>/dev/null || true)
+          [ -n "$NOTARY_ID" ] || { echo "::error::Notarization submission failed; no submission ID"; exit 1; }
+          # Kept whatever the outcome, so a rejection can be diagnosed.
+          xcrun notarytool log "$NOTARY_ID" "${NOTARY_AUTH[@]}" notary/log.json || true
+          cat notary/log.json 2>/dev/null || true
+          [ "$NOTARY_STATUS" = "Accepted" ] \
+            || { echo "::error::Notarization status is ${NOTARY_STATUS:-unknown} (submission $NOTARY_ID)"; exit 1; }
+
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
+          codesign --verify --strict --verbose=2 "$DMG"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG"
+          # Check Gatekeeper accepts the app people actually drag out.
+          MOUNT=$(mktemp -d)
+          hdiutil attach "$DMG" -readonly -nobrowse -mountpoint "$MOUNT" >/dev/null
+          spctl --assess --type execute --verbose=2 "$MOUNT/$APP_NAME.app" \
+            || { hdiutil detach "$MOUNT" >/dev/null; echo "::error::Gatekeeper rejects the app inside $APP_NAME.dmg"; exit 1; }
+          hdiutil detach "$MOUNT" >/dev/null
+          # Checksum and Sparkle signature must cover the stapled bytes.
           (cd dist && shasum -a 256 "$APP_NAME.dmg" > "$APP_NAME.dmg.sha256")
           ls -la dist
 
