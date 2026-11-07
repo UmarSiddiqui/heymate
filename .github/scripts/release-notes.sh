@@ -32,7 +32,7 @@ echo "## Download"
 echo
 echo "**[HeyMate.dmg](${REPO_URL}/releases/download/v${VERSION}/HeyMate.dmg)**: open it and drag HeyMate into Applications."
 echo
-echo "Alternative installers: \`brew install umarsiddiqui/tap/heymate\`, or inspect the [installer source](${REPO_URL}/blob/main/website/install.sh) before running \`curl -fsSL https://sayheymate.vercel.app/install.sh | bash\`."
+echo "Alternative installers: \`brew install umarsiddiqui/tap/heymate\`, or inspect the [installer source](${REPO_URL}/blob/main/website/install.sh) before running \`curl -fsSL https://sayheymate.com/install.sh | bash\`."
 echo
 echo "This build uses HeyMate's stable self-signed certificate. It is not signed with Apple Developer ID or notarized by Apple. If macOS blocks first launch, review the app and use **System Settings > Privacy & Security > Open Anyway** if you choose to proceed. The Terminal installer removes quarantine; this does not provide notarization. Requires macOS 14.2 or later (Apple silicon or Intel)."
 echo

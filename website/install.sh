@@ -1,5 +1,5 @@
 #!/bin/bash
-# HeyMate installer. Usage: curl -fsSL https://sayheymate.vercel.app/install.sh | bash
+# HeyMate installer. Usage: curl -fsSL https://sayheymate.com/install.sh | bash
 #
 # Downloads the latest HeyMate.dmg with curl, which does not set the macOS
 # quarantine flag, so Gatekeeper never shows "could not verify HeyMate is free

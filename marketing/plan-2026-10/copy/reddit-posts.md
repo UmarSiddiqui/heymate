@@ -40,7 +40,7 @@ Free, MIT licensed. You need your own Claude or ChatGPT plan (or a local or API 
 Honest caveats: builds are self-signed and not notarized, so first launch needs Open Anyway (or use the Homebrew cask). macOS 14.2+.
 
 Links
-Site: https://sayheymate.vercel.app/?utm_source=reddit&utm_medium=community&utm_campaign=macapps_nov
+Site: https://sayheymate.com/?utm_source=reddit&utm_medium=community&utm_campaign=macapps_nov
 Source: https://github.com/UmarSiddiqui/heymate
 Brew: brew install umarsiddiqui/tap/heymate
 ```
@@ -85,7 +85,7 @@ How Claude helped build it
 Free, MIT, native SwiftUI, macOS 14.2+. ChatGPT through Codex works too. Self-signed (not notarized), so first launch needs Open Anyway or the brew cask.
 
 Source: https://github.com/UmarSiddiqui/heymate
-Site: https://sayheymate.vercel.app/?utm_source=reddit&utm_medium=community&utm_campaign=claudeai_oct
+Site: https://sayheymate.com/?utm_source=reddit&utm_medium=community&utm_campaign=claudeai_oct
 
 What would you ask it first?
 ```

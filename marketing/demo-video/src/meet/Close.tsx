@@ -73,7 +73,7 @@ export const MeetClose: React.FC = () => {
           {vertical ? 'Free & open source · macOS 14.2+\nClaude, ChatGPT, your API key, or local models' : 'Free & open source  ·  macOS 14.2+  ·  Claude, ChatGPT, your API key, or local models'}
         </div>
         <div style={{marginTop: 16, fontSize: vertical ? 32 : 28, fontWeight: 600, color: COLORS.accentText, ...riseStyle(urlIn, 16, 4)}}>
-          sayheymate.vercel.app
+          sayheymate.com
         </div>
       </div>
       <Buddy x={bx} y={by} size={vertical ? 60 : 52} opacity={ease(t, [1.25, 1.45])} wave={ease(t, [1.9, 2.1]) * (1 - ease(t, [3.0, 3.4]))} tilt={(1 - Math.min(1, park)) * -25} />

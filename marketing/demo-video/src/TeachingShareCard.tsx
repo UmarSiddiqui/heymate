@@ -25,7 +25,7 @@ export const TeachingShareCard: React.FC = () => {
         Desktop apps and websites. Free and open source.
       </div>
       <div style={{marginTop: 'auto', paddingTop: 22, borderTop: `1px solid ${TEACHING.line}`, display: 'flex', justifyContent: 'space-between', fontSize: 26}}>
-        <span style={{fontWeight: 600, color: TEACHING.blue}}>sayheymate.vercel.app</span>
+        <span style={{fontWeight: 600, color: TEACHING.blue}}>sayheymate.com</span>
         <span style={{color: TEACHING.muted}}>Available for macOS</span>
       </div>
     </AbsoluteFill>

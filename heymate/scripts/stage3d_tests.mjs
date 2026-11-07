@@ -6,7 +6,7 @@ import test from 'node:test';
 const sources = new URL('../HeyMate/', import.meta.url);
 
 function stageHarness(width = 300, height = 500, look = null, nativeMetal = false) {
-  const messages = [];
+  const messages = [], errors = [];
   let now = 1000, nextFrame;
   class Element {
     constructor(tag, attrs = {}) { this.tagName = tag; this.nodeType = 1; this.attrs = attrs; this.style = {}; this.children = []; this.id = attrs.id; }
@@ -16,7 +16,7 @@ function stageHarness(width = 300, height = 500, look = null, nativeMetal = fals
     remove() {}
     getBoundingClientRect() { return { left: parseFloat(this.style.left) || 0, top: parseFloat(this.style.top) || 0, width, height }; }
   }
-  const context = vm.createContext({ console, performance: { now: () => now },
+  const context = vm.createContext({ console: { ...console, error: (...args) => errors.push(args) }, performance: { now: () => now },
     window: { devicePixelRatio: 1, webkit: { messageHandlers: { heymate: { postMessage: message => messages.push(message) } } } },
     __heymateNativeMetal: nativeMetal,
     document: { createElement: tag => new Element(tag), createElementNS: (_, tag) => new Element(tag) },
@@ -47,7 +47,7 @@ function stageHarness(width = 300, height = 500, look = null, nativeMetal = fals
   root.children.push(new Element('label3d', { 'data-stage': 'stage', 'data-label': JSON.stringify({follow:'blade',text:'Fan blade',side:'left'}) }));
   const points = [];
   context.MateStage3D.attach(root, { onBuild: (x,y,name) => points.push({ x,y,name }) });
-  return { points, messages, context, stage: context.MateStage3D.stages.get('stage'), tick(time) { now = time; nextFrame(); } };
+  return { points, messages, errors, context, stage: context.MateStage3D.stages.get('stage'), tick(time) { now = time; nextFrame(); } };
 }
 
 test('same-beat grouped parts retain parent and final-size bounds', () => {
@@ -156,6 +156,18 @@ test('native studio sends physical shader style; hidden geometry survives being 
   assert.equal(restored.geometries.length, 0);
   assert.deepEqual(Array.from(restored.meshes[0].cut), [1,0,0,0]);
   assert.equal(restored.meshes[0].bands.length, 2);
+});
+
+test('native Metal startup failure acknowledges the frame and stops that stage', () => {
+  const h = stageHarness(300, 500, 'illustrated', true);
+  h.tick(1800);
+  const first = h.messages[0].body;
+  h.context.MateMetal.presented(first.id, 'Metal unavailable', true);
+  assert.equal(h.stage.renderer.inFlight, false);
+  assert.deepEqual(h.errors, [['[Metal3D]', 'Metal unavailable']]);
+  h.tick(1900);
+  h.tick(2000);
+  assert.equal(h.messages.filter(message => message.body.op === 'frame').length, 1);
 });
 
 test('bundled Metal source stays byte-identical to davinci.metal', () => {

@@ -1,6 +1,41 @@
 {
   "cleanUrls": true,
   "trailingSlash": false,
+  "redirects": [
+    {
+      "source": "/((?!api/).*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "www.sayheymate.com"
+        }
+      ],
+      "destination": "https://sayheymate.com/$1",
+      "permanent": true
+    },
+    {
+      "source": "/((?!api/).*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "sayheymate.vercel.app"
+        }
+      ],
+      "destination": "https://sayheymate.com/$1",
+      "permanent": true
+    },
+    {
+      "source": "/((?!api/).*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "getheymate.vercel.app"
+        }
+      ],
+      "destination": "https://sayheymate.com/$1",
+      "permanent": true
+    }
+  ],
   "headers": [
     {
       "source": "/blog/(.*).md",

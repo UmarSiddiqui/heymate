@@ -6,7 +6,7 @@ Your open-source AI assistant for Mac. Talk about your screen, see answers take 
 
 [![Latest release](https://img.shields.io/github/v/release/UmarSiddiqui/heymate?label=download&color=3380FF)](https://github.com/UmarSiddiqui/heymate/releases/latest) [![Release build](https://img.shields.io/github/actions/workflow/status/UmarSiddiqui/heymate/release.yml?branch=main&label=build)](https://github.com/UmarSiddiqui/heymate/actions/workflows/release.yml) ![macOS 14.2+](https://img.shields.io/badge/macOS-14.2%2B-111113?logo=apple) [![MIT license](https://img.shields.io/badge/license-MIT-34D399)](LICENSE)
 
-[**Download for Mac**](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg) · [Website](https://sayheymate.vercel.app) · [Blog & guides](https://sayheymate.vercel.app/blog) · [Changelog](https://sayheymate.vercel.app/changelog)
+[**Download for Mac**](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg) · [Website](https://sayheymate.com) · [Blog & guides](https://sayheymate.com/blog) · [Changelog](https://sayheymate.com/changelog)
 
 Free and open source · Apple silicon and Intel · Bring your own AI
 
@@ -29,15 +29,15 @@ Drawings, diagrams, and 3D graphics appear over your desktop. Click a preview to
 <table>
   <tr>
     <td width="33%" align="center">
-      <a href="https://sayheymate.vercel.app/assets/video/visual-answers/biryani.mp4"><img src="website/assets/video/visual-answers/biryani.png" width="280" alt="Watch HeyMate draw a chicken biryani recipe"></a><br>
+      <a href="https://sayheymate.com/assets/video/visual-answers/biryani.mp4"><img src="website/assets/video/visual-answers/biryani.png" width="280" alt="Watch HeyMate draw a chicken biryani recipe"></a><br>
       <strong>Explain it</strong><br><sub>“How do I cook chicken biryani?”</sub>
     </td>
     <td width="33%" align="center">
-      <a href="https://sayheymate.vercel.app/assets/video/visual-answers/camera.mp4"><img src="website/assets/video/visual-answers/camera.png" width="280" alt="Watch HeyMate diagram a Raspberry Pi camera connection"></a><br>
+      <a href="https://sayheymate.com/assets/video/visual-answers/camera.mp4"><img src="website/assets/video/visual-answers/camera.png" width="280" alt="Watch HeyMate diagram a Raspberry Pi camera connection"></a><br>
       <strong>Connect the dots</strong><br><sub>“Where does the camera connect?”</sub>
     </td>
     <td width="33%" align="center">
-      <a href="https://sayheymate.vercel.app/assets/video/visual-answers/board.mp4"><img src="website/assets/video/visual-answers/board.png" width="280" alt="Watch HeyMate show a labelled circuit board in 3D"></a><br>
+      <a href="https://sayheymate.com/assets/video/visual-answers/board.mp4"><img src="website/assets/video/visual-answers/board.png" width="280" alt="Watch HeyMate show a labelled circuit board in 3D"></a><br>
       <strong>See it in 3D</strong><br><sub>“Show me the board in 3D.”</sub>
     </td>
   </tr>
@@ -73,7 +73,7 @@ Parakeet listening downloads once; Phonon speaking is bundled. Both run locally 
 
 HeyMate adds no subscription fee or model metering. Provider limits and optional API, voice, and connector charges apply. Features vary by provider, model, and connected tools. Screen guidance needs a vision-capable provider.
 
-[Connect Claude or ChatGPT (Codex)](https://sayheymate.vercel.app/connect-claude-codex) · [Explore workflows](https://sayheymate.vercel.app/how-to-use-heymate)
+[Connect Claude or ChatGPT (Codex)](https://sayheymate.com/connect-claude-codex) · [Explore workflows](https://sayheymate.com/how-to-use-heymate)
 
 ## Get started
 
@@ -106,7 +106,7 @@ Chats and memory live on your Mac. Relevant questions and screen context go to y
 
 </details>
 
-[Permissions](https://sayheymate.vercel.app/permissions) · [Privacy details](https://sayheymate.vercel.app/privacy)
+[Permissions](https://sayheymate.com/permissions) · [Privacy details](https://sayheymate.com/privacy)
 
 <details>
 <summary><strong>Build and contribute</strong></summary>

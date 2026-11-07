@@ -1,0 +1,207 @@
+{
+  "date": "2026-11-05",
+  "selected_mode": "Shared Chrome sign-ins; separate owned tabs per mate/chat",
+  "shared_profile": {
+    "passed": true,
+    "checks": [
+      {
+        "name": "open a new tab: settled page with numbered controls, in the HeyMate group",
+        "passed": true
+      },
+      {
+        "name": "type, then click: the page changed as a user would have made it change",
+        "passed": true
+      },
+      {
+        "name": "HeyMate's pointer is on the page and the earlier build's is gone",
+        "passed": true
+      },
+      {
+        "name": "a covered control, a password field and a disabled button are refused",
+        "passed": true
+      },
+      {
+        "name": "a stale reference is refused after the page changes",
+        "passed": true
+      },
+      {
+        "name": "back returns to the form; extract reads text, links and tables",
+        "passed": true
+      },
+      {
+        "name": "scroll moves the page",
+        "passed": true
+      },
+      {
+        "name": "wait_for waits for late text",
+        "passed": true
+      },
+      {
+        "name": "a page dialog blocks other actions until answered explicitly",
+        "passed": true
+      },
+      {
+        "name": "upload sets a file input to the approved file",
+        "passed": true
+      },
+      {
+        "name": "the user using the page takes it over",
+        "passed": true
+      },
+      {
+        "name": "after a takeover the turn can still be ended, and the next one works",
+        "passed": true
+      },
+      {
+        "name": "a real page download is attributed without DownloadItem.tabId and saves the expected bytes",
+        "passed": true
+      },
+      {
+        "name": "end tidies the turn: its background tab closes, a kept tab stays without the pointer",
+        "passed": true
+      },
+      {
+        "name": "an unrenewed keep expires in the next real browser turn",
+        "passed": true
+      },
+      {
+        "name": "parallel mates get separate groups and filtered owned tab lists",
+        "passed": true
+      },
+      {
+        "name": "separate owned tabs share profile cookies and local storage",
+        "passed": true
+      },
+      {
+        "name": "one mate can type and save while another waits for page text",
+        "passed": true
+      },
+      {
+        "name": "foreign tabs and page refs cannot read, navigate, show or close another mate page",
+        "passed": true
+      },
+      {
+        "name": "ending one mate preserves its kept page and leaves other mate running",
+        "passed": true
+      },
+      {
+        "name": "cancelling one mate blocks its queued input without stopping another mate",
+        "passed": true
+      }
+    ],
+    "limits": [
+      "Disposable Chrome profile with synthetic sign-in cookie; no personal account sign-ins read.",
+      "Production background.js and mate-core.mjs with Chrome/CDP; chrome.* adapter, not installed extension native messaging."
+    ]
+  },
+  "javascript_regression_tests": {
+    "passed": 35,
+    "failed": 0,
+    "command": "node --test scripts/browser_core_tests.mjs scripts/browser_port_tests.mjs"
+  },
+  "native_bridge": {
+    "transport": "Production Swift BrowserBridge and Unix socket; synthetic native host in disposable data root",
+    "verified": [
+      "owner-scoped approval grants",
+      "external-action approval floor",
+      "cancel one pending owner without cancelling another",
+      "wire includes native owner/scope/group",
+      "reject protocol 3; require protocol 4"
+    ]
+  },
+  "clean_profile_option": {
+    "default": false,
+    "requested_explicitly_only": true,
+    "maximum_active_workers": 4,
+    "idle_seconds": 240,
+    "driver_version": "0.38.0",
+    "verified": [
+      "distinct owned Chrome PIDs and Cua sessions",
+      "separate cookies and local storage",
+      "foreign native tab refused",
+      "form effect checked by loopback page event",
+      "cancel during delayed navigation with no late page effect",
+      "other worker survives cancellation",
+      "owned browser exits and profile is removed on cancellation and explicit end"
+    ],
+    "cleanup_fix": "Use transport EOF for Cua owned-profile cleanup; SIGTERM left browser alive in initial live test."
+  },
+  "limits": [
+    "Cookie and storage sharing were checked with synthetic values. The signed-in Chrome run exercised loopback pages.",
+    "Shared profile means cookies, local storage and server-side account state are shared; owned-tab isolation is not account isolation.",
+    "Disposable shared-profile checks use a chrome.* adapter over CDP. The separate signed-in run exercised the installed extension and native host.",
+    "After an app update, reload the unpacked extension to 0.5.1 for the ownership fix. The app requires protocol 4.",
+    "Cancellation cannot undo website actions already delivered.",
+    "Post-install actual HeyMate screenshot probe returned No display available for capture; permission APIs reported grants. No TCC reset or signer change attempted."
+  ],
+  "verified_local_install": true,
+  "swift_worker_tests": {
+    "passed": 9,
+    "failed": 0,
+    "skipped": 0,
+    "includes_real_clean_profiles": true,
+    "includes_production_native_socket": true
+  },
+  "cua_transport_regressions": {
+    "passed": 3,
+    "failed": 0
+  },
+  "app_and_tests_compile": true,
+  "post_install": {
+    "canonical_instances": 1,
+    "health": true,
+    "local_endpoint_owned_by_canonical_app": true,
+    "signature_and_27_nested_executables_verified": true,
+    "permission_api_checks_granted": true,
+    "actual_heymate_screen_capture_succeeded": false,
+    "capture_error": "No display available for capture",
+    "capture_error_http_status": 500,
+    "screen_capture_kit_shareable_displays_empty": true,
+    "core_graphics_online_displays": 1,
+    "capture_files_created": 0,
+    "capture_content_inspected": false,
+    "bundled_and_copied_extension_version": "0.5.0",
+    "bundled_and_copied_extension_matches_source": true,
+    "personal_chrome_extension_connection_verified": false,
+    "extension_reload_required_once": true
+  },
+  "signed_in_chrome_live_test": {
+    "version_tested": "0.5.1",
+    "mates": [
+      "Searchy",
+      "Marky"
+    ],
+    "same_signed_in_chrome_profile": true,
+    "real_native_messaging_and_app_tool_calls": true,
+    "fixture": "Two loopback pages that record input events and release a shared completion marker once both expected inputs arrive.",
+    "initial_version": "0.5.0",
+    "initial_regression": "Turn cleanup dropped ownership of a still-open current tab in its mate group. The other mate listed it after the original turn ended.",
+    "fix": "Keep ownership of the current tab if it remains in the mate group. Keep ownership when Chrome reports a transient cleanup error.",
+    "regression_test_failed_before_fix": true,
+    "verified_signed_local_install": true,
+    "browser_unit_checks_passed": 35,
+    "disposable_chrome_checks_passed": 21,
+    "separate_groups_observed_in_chrome": true,
+    "expected_markers_recorded_by_correct_pages": true,
+    "marky_typed_during_searchy_wait": true,
+    "searchy_wait_utc": [
+      "2026-11-05T14:27:19.432Z",
+      "2026-11-05T14:27:26.144Z"
+    ],
+    "marky_type_utc": [
+      "2026-11-05T14:27:24.574Z",
+      "2026-11-05T14:27:24.906Z"
+    ],
+    "foreground_tab_retained_owner_without_keep": true,
+    "post_turn_foreign_tab_hidden_both_directions": true,
+    "post_turn_foreign_snapshot_refused_both_directions": true,
+    "refusal": "Tab belongs to another browser worker.",
+    "own_snapshot_succeeded_both_directions": true,
+    "observations": [
+      "The initial click-based check hit the page takeover guard. The successful retest recorded input events without requiring a click.",
+      "The open response omitted the tab ID when it returned a page snapshot. Both mates recovered using the scoped tabs list.",
+      "After the explicit show call selected Searchy’s tab, extra keystrokes reached its field. The trace shows no mate typing action at that time.",
+      "The fixture tabs remain visible because Chrome prompts to delete their synced groups when closing the last tab."
+    ]
+  }
+}

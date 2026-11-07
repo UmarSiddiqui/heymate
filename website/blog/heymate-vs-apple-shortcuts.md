@@ -37,18 +37,18 @@ If you need help understanding the Shortcuts interface itself, HeyMate can discu
 
 A fixed sequence can still send something to the wrong place if its input is wrong. A model-driven task can still misinterpret a goal. Review the destination and effect of messages, deletions, purchases, and remote changes regardless of which tool starts them. Do not assume that all actions can be undone.
 
-HeyMate supports configurable integrations, including Apple apps and local tools. Access depends on what you enable. Relevant questions and screen context can go to your selected provider, and enabled routines or approved jobs can run in the background. Read the [permissions guide](https://sayheymate.vercel.app/permissions) and [privacy details](https://sayheymate.vercel.app/privacy).
+HeyMate supports configurable integrations, including Apple apps and local tools. Access depends on what you enable. Relevant questions and screen context can go to your selected provider, and enabled routines or approved jobs can run in the background. Read the [permissions guide](https://sayheymate.com/permissions) and [privacy details](https://sayheymate.com/privacy).
 
 ## Choose the smallest workflow that does the job
 
 For a stable routine, the simplest explicit automation may be enough. For learning and questions about changing context, try the conversational route. You can keep both: use a mate to clarify an unfamiliar task, then use a defined shortcut once the process is understood.
 
-This comparison is published by the HeyMate project using Apple documentation checked November 1, 2026. It is not affiliated with Apple. For related examples, read [file organization](https://sayheymate.vercel.app/blog/organize-files-with-ai-on-mac) and [learning a Mac app](https://sayheymate.vercel.app/blog/learn-mac-apps-with-ai).
+This comparison is published by the HeyMate project using Apple documentation checked November 1, 2026. It is not affiliated with Apple. For related examples, read [file organization](https://sayheymate.com/blog/organize-files-with-ai-on-mac) and [learning a Mac app](https://sayheymate.com/blog/learn-mac-apps-with-ai).
 
 ## Related reading
 
-- [HeyMate vs Alfred: AI guidance or repeatable Mac workflows?](https://sayheymate.vercel.app/blog/heymate-vs-alfred)
-- [Organize Mac files with AI: plan first, move second](https://sayheymate.vercel.app/blog/organize-files-with-ai-on-mac)
-- [Learn a Mac app with AI guidance, one step at a time](https://sayheymate.vercel.app/blog/learn-mac-apps-with-ai)
+- [HeyMate vs Alfred: AI guidance or repeatable Mac workflows?](https://sayheymate.com/blog/heymate-vs-alfred)
+- [Organize Mac files with AI: plan first, move second](https://sayheymate.com/blog/organize-files-with-ai-on-mac)
+- [Learn a Mac app with AI guidance, one step at a time](https://sayheymate.com/blog/learn-mac-apps-with-ai)
 
-[Set up HeyMate](https://sayheymate.vercel.app/connect-claude-codex) · [Privacy](https://sayheymate.vercel.app/privacy) · [Permissions](https://sayheymate.vercel.app/permissions)
+[Set up HeyMate](https://sayheymate.com/connect-claude-codex) · [Privacy](https://sayheymate.com/privacy) · [Permissions](https://sayheymate.com/permissions)

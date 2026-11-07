@@ -39,7 +39,7 @@ For 9:16 and 4:5 cuts, crop around the notch-to-pointer path. Don't crop away th
   2. 2–5 s: the ⌃⌥ keycaps overlay appears; add it in post as a small bottom-left overlay. The notch shows the listening waveform. Caption your question: "What does 'Sampling rate' change here?"
   3. 5–8 s: release the keys. The typing dots show in the notch.
   4. 8–18 s: HeyMate speaks the answer, with the caption burned in, and the pointer moves to the toggle and rests there.
-  5. 18–22 s: hold on the result. End card: "Hold ⌃⌥ and ask · sayheymate.vercel.app".
+  5. 18–22 s: hold on the result. End card: "Hold ⌃⌥ and ask · sayheymate.com".
 - **Check:** the pointer lands on the right control first time. Re-record rather than cut around a miss.
 
 ### Clip B: "Here I asked…" in a different app (week 2)

@@ -27,7 +27,7 @@ The Alfred examples refer to its documented [snippets](https://www.alfredapp.com
 
 HeyMate offers push-to-talk questions, spoken answers, screen guidance, and specialist mates. You can ask for one step at a time while you learn an app, or review a plan before an approved coding job. Its AI routes include Claude Code, Codex, OpenCode, and a custom Anthropic-compatible API; capabilities vary by route.
 
-The app is MIT licensed and adds no subscription fee, but AI providers and optional services can charge separately. It runs on macOS 14.2 or later on Apple silicon and Intel. Current builds use a stable self-signed certificate and are not Apple notarized. Read the [setup guide](https://sayheymate.vercel.app/connect-claude-codex) before deciding whether that fits your machine.
+The app is MIT licensed and adds no subscription fee, but AI providers and optional services can charge separately. It runs on macOS 14.2 or later on Apple silicon and Intel. Current builds use a stable self-signed certificate and are not Apple notarized. Read the [setup guide](https://sayheymate.com/connect-claude-codex) before deciding whether that fits your machine.
 
 ## Where a fixed workflow wins
 
@@ -41,14 +41,14 @@ Try this prompt:
 
 > Help me decide whether this task needs AI interpretation or a fixed workflow. Describe the input, the output, and every decision point. If there are no variable decisions, suggest a repeatable approach instead of an agent.
 
-Compare the effort to set up, inspect, and correct the task. Review tool permissions and data handling, especially for private files or clipboard contents. See [file organization](https://sayheymate.vercel.app/blog/organize-files-with-ai-on-mac) and [email drafting](https://sayheymate.vercel.app/blog/draft-email-with-ai-on-mac) for examples.
+Compare the effort to set up, inspect, and correct the task. Review tool permissions and data handling, especially for private files or clipboard contents. See [file organization](https://sayheymate.com/blog/organize-files-with-ai-on-mac) and [email drafting](https://sayheymate.com/blog/draft-email-with-ai-on-mac) for examples.
 
 Published by the HeyMate project, with no affiliation or endorsement from Alfred. Consult Alfred’s current documentation for features and Powerpack terms.
 
 ## Related reading
 
-- [HeyMate vs Apple Shortcuts: conversation or a defined automation?](https://sayheymate.vercel.app/blog/heymate-vs-apple-shortcuts)
-- [Organize Mac files with AI: plan first, move second](https://sayheymate.vercel.app/blog/organize-files-with-ai-on-mac)
-- [Draft better email on Mac with HeyMate and a review step](https://sayheymate.vercel.app/blog/draft-email-with-ai-on-mac)
+- [HeyMate vs Apple Shortcuts: conversation or a defined automation?](https://sayheymate.com/blog/heymate-vs-apple-shortcuts)
+- [Organize Mac files with AI: plan first, move second](https://sayheymate.com/blog/organize-files-with-ai-on-mac)
+- [Draft better email on Mac with HeyMate and a review step](https://sayheymate.com/blog/draft-email-with-ai-on-mac)
 
-[Set up HeyMate](https://sayheymate.vercel.app/connect-claude-codex) · [Privacy](https://sayheymate.vercel.app/privacy) · [Permissions](https://sayheymate.vercel.app/permissions)
+[Set up HeyMate](https://sayheymate.com/connect-claude-codex) · [Privacy](https://sayheymate.com/privacy) · [Permissions](https://sayheymate.com/permissions)

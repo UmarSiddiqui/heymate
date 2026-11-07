@@ -11,6 +11,7 @@
       this.shadowMap = {};
       this.sent = new Set();
       this.inFlight = false;
+      this.unavailable = false;
       active.set(this.token, this);
     }
     setPixelRatio() {}
@@ -24,6 +25,7 @@
       post({ op: 'remove', id: this.token });
     }
     render(scene, camera) {
+      if (this.unavailable) return;
       scene.updateMatrixWorld(true); camera.updateMatrixWorld(true);
       // One outstanding GPU frame per stage. Geometry never enters an unbounded message queue.
       if (this.inFlight || !this.stage) return;
@@ -65,9 +67,12 @@
     }
   }
   globalThis.MateMetal = { create: canvas => new MetalStage(canvas),
-    presented(id, error) {
+    presented(id, error, unavailable = false) {
       const renderer = active.get(id);
-      if (renderer) renderer.inFlight = false;
+      if (renderer) {
+        renderer.inFlight = false;
+        if (unavailable) renderer.unavailable = true;
+      }
       if (error) console.error('[Metal3D]', error);
     }
   };

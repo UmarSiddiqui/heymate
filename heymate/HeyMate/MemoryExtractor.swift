@@ -87,7 +87,8 @@ final class MemoryExtractor {
         user: String,
         assistant: String,
         existing: [MemoryItem],
-        ownerMateID: UUID?
+        ownerMateID: UUID?,
+        sourceConversationID: UUID? = nil
     ) async -> [MemoryItem] {
         let exchange = Self.exchangeText(user: user, assistant: assistant)
         guard !exchange.isEmpty else { return [] }
@@ -106,7 +107,8 @@ final class MemoryExtractor {
                 kind: memory.kind,
                 text: memory.text,
                 createdAt: now,
-                mateID: ownerMateID
+                mateID: ownerMateID,
+                sourceConversationID: sourceConversationID
             )
         }
         return FileMemoryRepository.proposedAppends(candidates, existing: existing)

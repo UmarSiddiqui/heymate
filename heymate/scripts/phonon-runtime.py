@@ -152,8 +152,11 @@ def stage(source, destination):
         for name in manifest['nativeImages']:
             file = destination / name
             if not file.is_symlink():
+                # Notarization rejects nested code without a secure timestamp;
+                # release CI sets HEYMATE_SECURE_TIMESTAMP=YES.
+                timestamp = '--timestamp' if os.environ.get('HEYMATE_SECURE_TIMESTAMP') == 'YES' else '--timestamp=none'
                 subprocess.run(['/usr/bin/codesign', '--force', '--sign', identity,
-                                '--options', 'runtime', '--timestamp=none', str(file)], check=True)
+                                '--options', 'runtime', timestamp, str(file)], check=True)
     build_dir, wrapper = os.environ.get('TARGET_BUILD_DIR'), os.environ.get('WRAPPER_NAME')
     if build_dir and wrapper:
         (Path(build_dir) / wrapper).touch()

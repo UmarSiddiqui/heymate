@@ -41,7 +41,7 @@ A few design choices that might be interesting here:
 
 Native SwiftUI, MIT licensed, macOS 14.2+. Works on Macs without a notch (it becomes a small pill at the top).
 
-Rough edges, honestly: builds are self-signed, not notarized (I don't have a Developer ID), so first launch needs "Open Anyway" or the brew/curl installer. It asks for several permissions (mic, screen recording, accessibility, input monitoring), and each is explained at sayheymate.vercel.app/permissions. Pointing is only as good as the vision model, and it does sometimes point at the wrong thing.
+Rough edges, honestly: builds are self-signed, not notarized (I don't have a Developer ID), so first launch needs "Open Anyway" or the brew/curl installer. It asks for several permissions (mic, screen recording, accessibility, input monitoring), and each is explained at sayheymate.com/permissions. Pointing is only as good as the vision model, and it does sometimes point at the wrong thing.
 
 I'd love to hear where it breaks for you, and what you'd ask it first.
 ```

@@ -17,13 +17,22 @@ const bridge = new BrowserBridge(chrome, undefined, { store: {
   load: async () => (await chrome.storage.session.get("heymateTabs")).heymateTabs ?? null,
   save: (state) => chrome.storage.session.set({ heymateTabs: state }),
 } });
-const restored = bridge.restore();
+const restored = bridge.restore().then(async () => {
+  // Legacy builds had one global owner. Leave those pages open as user tabs;
+  // never assign historical tabs to an arbitrary new mate.
+  let changed = false;
+  for (const [id, owner] of bridge.ownedTabs) if (owner === OWNER) {
+    bridge.ownedTabs.delete(id); bridge.kept?.delete(id); changed = true;
+  }
+  if (changed) { bridge.homes?.delete(OWNER); await bridge.persist?.(); }
+});
 bridge.cursor = true;
 
-// One turn of work in Chrome. `end` finishes it (its tabs tidied) and the next request starts a fresh one.
-let task = crypto.randomUUID();
+// Native capabilities bind lanes to mate/chat owners and turns. Each owner is
+// ordered; different owners progress independently through the same profile.
+const workers = new Map(), lanes = new Map(), cancelled = new Set(), latestScopes = new Map();
 let port = null;
-let commands = Promise.resolve();
+let barrier = Promise.resolve();
 
 function connect() {
   if (port) return;
@@ -43,30 +52,52 @@ function connect() {
     // Stop in-flight work now; queue the new identity after cleanup. A stopped
     // engine task can never be reused after the native host reconnects.
     const stopped = bridge.stop("the connection to the HeyMate app dropped").catch(error => console.warn("HeyMate browser cleanup failed", error));
-    commands = commands.catch(() => {}).then(() => stopped).finally(() => { task = crypto.randomUUID(); });
+    barrier = stopped;
+    workers.clear(); lanes.clear(); cancelled.clear(); latestScopes.clear();
   });
-  port.postMessage({ type: "hello", protocol: 3, version: chrome.runtime.getManifest().version });
+  port.postMessage({ type: "hello", protocol: 4, version: chrome.runtime.getManifest().version });
 }
 
 async function onMessage(message, connection) {
-  if (!message || message.type !== "command") return;
+  if (!message || port !== connection || !["command", "cancel"].includes(message.type)) return;
+  const owner = message.owner ?? OWNER, scope = message.scope ?? "legacy";
+  if (typeof owner !== "string" || !owner || owner.length > 200 || typeof scope !== "string" || !scope || scope.length > 100) return;
+  const key = JSON.stringify([owner, scope]);
+  if (message.type === "cancel") {
+    cancelled.add(key);
+    const worker = workers.get(owner);
+    if (worker?.scope === scope) await bridge.end(worker.task, false, "native turn cancelled");
+    return;
+  }
   const id = message.id;
-  // Serialize turn boundaries as well as actions. Replies belong only to the
-  // connection which issued them, never a newer native host.
-  commands = commands.catch(() => {}).then(async () => {
+  const lane = (lanes.get(owner) ?? barrier).catch(() => {}).then(async () => {
     if (port !== connection) return;
     try {
       await restored;
-      const result = await run(message);
+      if (port !== connection) return;
+      if (cancelled.has(key)) throw Error("Browser turn cancelled; queued action was not run.");
+      const previousScope = latestScopes.get(owner);
+      if (previousScope && previousScope !== scope) cancelled.add(JSON.stringify([owner, previousScope]));
+      latestScopes.set(owner, scope);
+      let worker = workers.get(owner);
+      if (worker && worker.scope !== scope) {
+        await bridge.end(worker.task, true, "native turn ended");
+        // Cleanup yields to cancellation and native-host reconnects.
+        if (port !== connection) return;
+        workers.delete(owner); worker = null;
+        if (cancelled.has(key)) throw Error("Browser turn cancelled; queued action was not run.");
+      }
+      if (!worker) { worker = { scope, task: crypto.randomUUID() }; workers.set(owner, worker); }
+      const result = await run(message, owner, worker);
       if (port === connection) connection.postMessage({ type: "result", id, ok: true, result });
     } catch (error) {
       if (port === connection) connection.postMessage({ type: "result", id, ok: false, error: String(error && error.message ? error.message : error) });
     }
   });
-  return commands;
+  lanes.set(owner, lane);
+  try { await lane; } finally { if (lanes.get(owner) === lane) lanes.delete(owner); }
 }
 
-const request = (operation, fields = {}) => bridge.execute({ task, owner: OWNER, groupTitle: GROUP_TITLE, cursorColor: CURSOR, operation, ...fields });
 const engineRef = (ref) => (typeof ref === "string" && /^e\d+$/.test(ref) ? ref : `e${Number(ref)}`);
 const EDITABLE = new Set(["textbox", "searchbox", "combobox", "textarea", "spinbutton", "listbox"]);
 
@@ -102,11 +133,14 @@ function settled(out, extra) {
   return extra;
 }
 
-async function run(message) {
+async function run(message, owner, worker) {
+  const task = worker.task;
+  const request = (operation, fields = {}) => bridge.execute({ task, owner,
+    groupTitle: message.groupTitle || GROUP_TITLE, cursorColor: CURSOR, operation, ...fields });
   switch (message.op) {
     case "tabs": {
       const out = await request("tabs");
-      const owned = (tabId) => bridge.ownedTabs.has(tabId);
+      const owned = (tabId) => bridge.ownedTabs.get(tabId) === owner;
       return { tabs: out.tabs.slice(0, 60).map((tab) => ({ id: tab.id, title: tab.title || "", url: tab.url, owned: owned(tab.id), active: tab.current === true })) };
     }
     case "open": {
@@ -151,6 +185,9 @@ async function run(message) {
     case "dialog":
       return settled(await request("dialog", { tabId: message.tabId, accept: message.accept, text: message.text }), { tabId: message.tabId, dialogAnswered: true });
     case "show": {
+      // Showing a window is an action too: never bypass another worker's claim.
+      await request("tabs");
+      await bridge.claim(task, message.tabId);
       const tab = await chrome.tabs.get(message.tabId);
       await chrome.tabs.update(tab.id, { active: true });
       await chrome.windows.update(tab.windowId, { focused: true });
@@ -162,7 +199,7 @@ async function run(message) {
     }
     case "end": {
       const out = await request("end", { tidy: true });
-      task = crypto.randomUUID();
+      if (workers.get(owner) === worker) workers.delete(owner);
       return { closed: out.closed ?? [] };
     }
     default:

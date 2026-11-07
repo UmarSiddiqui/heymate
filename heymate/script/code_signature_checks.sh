@@ -44,6 +44,52 @@ heymate_reject_get_task_allow() {
   fi
 }
 
+# Release builds must be signed by HeyMate's Developer ID Application
+# certificate. This requirement is what keeps TCC grants across updates, so a
+# different signer must fail the release rather than reach users.
+heymate_require_developer_id() {
+  local code_path="$1" team_id="$2"
+  local requirement="anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = \"$team_id\""
+  if ! codesign --verify --strict -R="$requirement" "$code_path"; then
+    echo "$code_path is not signed with a Developer ID Application certificate for team $team_id" >&2
+    codesign -dr - "$code_path" >&2 || true
+    return 1
+  fi
+}
+
+# Notarization rejects any Mach-O without a secure timestamp, and any
+# executable without the hardened runtime. Checking up front gives a clear
+# list instead of a rejected submission.
+heymate_require_notarizable_bundle() {
+  local bundle="$1"
+  local failures=0 file kind details
+  while IFS= read -r -d '' file; do
+    kind=$(file -b "$file")
+    case "$kind" in *Mach-O*) ;; *) continue ;; esac
+    if ! details=$(codesign -dvv "$file" 2>&1); then
+      echo "Unsigned Mach-O: $file" >&2
+      failures=$((failures + 1))
+      continue
+    fi
+    if ! printf '%s\n' "$details" | grep -q '^Timestamp='; then
+      echo "No secure timestamp: $file" >&2
+      failures=$((failures + 1))
+    fi
+    case "$kind" in
+      *executable*)
+        if ! printf '%s\n' "$details" | grep -q 'flags=.*runtime'; then
+          echo "Hardened runtime missing: $file" >&2
+          failures=$((failures + 1))
+        fi
+        ;;
+    esac
+  done < <(find "$bundle" -type f -print0)
+  if [ "$failures" -gt 0 ]; then
+    echo "$failures nested signature problem(s) would fail notarization" >&2
+    return 1
+  fi
+}
+
 heymate_verify_embedded_agent_runner() {
   local app_bundle="$1"
   local verification_mode="${2:-debug}"

@@ -1,0 +1,437 @@
+{
+  "baseline": {
+    "version": "cua-driver 0.34.0",
+    "embedded_startup_ms": 87.7,
+    "tool_count": 58,
+    "permissions": {
+      "accessibility": true,
+      "screen_recording": true
+    },
+    "permission_identity": "invoking host; not HeyMate or standalone daemon",
+    "screen_size": {
+      "successful_calls": 20,
+      "failed_calls": 0,
+      "median_ms": 0.69,
+      "p90_ms": 1.69
+    },
+    "fixture": {
+      "default_structured_elements": 4,
+      "explicit_structured_elements": 4,
+      "actions": [
+        {
+          "name": "background_button_click",
+          "tool_succeeded": true,
+          "verified_in_app": true,
+          "elapsed_ms": 1194.9
+        },
+        {
+          "name": "background_button_click",
+          "tool_succeeded": true,
+          "verified_in_app": true,
+          "elapsed_ms": 1168.6
+        },
+        {
+          "name": "background_button_click",
+          "tool_succeeded": true,
+          "verified_in_app": true,
+          "elapsed_ms": 1205.36
+        },
+        {
+          "name": "background_text_insertion",
+          "tool_succeeded": true,
+          "verified_in_app": true,
+          "elapsed_ms": 1579.97
+        },
+        {
+          "name": "background_native_value_replacement",
+          "tool_succeeded": true,
+          "driver_readback_confirmed": true,
+          "verified_in_app": true,
+          "elapsed_ms": 1121.9
+        }
+      ],
+      "frontmost_unchanged": true
+    }
+  },
+  "candidate": {
+    "version": "cua-driver 0.38.0",
+    "embedded_startup_ms": 86.68,
+    "tool_count": 62,
+    "permissions": {
+      "accessibility": true,
+      "screen_recording": true
+    },
+    "permission_identity": "invoking host; not HeyMate or standalone daemon",
+    "screen_size": {
+      "successful_calls": 20,
+      "failed_calls": 0,
+      "median_ms": 0.68,
+      "p90_ms": 2.23
+    },
+    "fixture": {
+      "default_structured_elements": 0,
+      "explicit_structured_elements": 4,
+      "actions": [
+        {
+          "name": "background_button_click",
+          "tool_succeeded": true,
+          "verified_in_app": true,
+          "elapsed_ms": 617.94
+        },
+        {
+          "name": "background_button_click",
+          "tool_succeeded": true,
+          "verified_in_app": true,
+          "elapsed_ms": 582.86
+        },
+        {
+          "name": "background_button_click",
+          "tool_succeeded": true,
+          "verified_in_app": true,
+          "elapsed_ms": 566.9
+        },
+        {
+          "name": "background_text_insertion",
+          "tool_succeeded": true,
+          "verified_in_app": true,
+          "elapsed_ms": 394.43
+        },
+        {
+          "name": "background_native_value_replacement",
+          "tool_succeeded": true,
+          "driver_readback_confirmed": true,
+          "verified_in_app": true,
+          "elapsed_ms": 366.66
+        }
+      ],
+      "frontmost_unchanged": true
+    }
+  },
+  "contract": {
+    "missing_approved_tools": [],
+    "changed_input_schemas": [
+      "browser_click",
+      "browser_pointer",
+      "click",
+      "double_click",
+      "drag",
+      "get_window_state",
+      "hotkey",
+      "launch_app",
+      "list_sessions",
+      "list_windows",
+      "move_cursor",
+      "press_key",
+      "right_click",
+      "scroll",
+      "set_agent_cursor_motion",
+      "set_value",
+      "start_session",
+      "type_text",
+      "verify_state"
+    ],
+    "potential_breaking_changes": [],
+    "new_tools_not_automatically_approved": [
+      "browser_select",
+      "get_guide",
+      "run_script",
+      "run_steps"
+    ],
+    "scope": "Tool presence and top-level schema checks; nested constraints and behavior require review."
+  },
+  "limitations": [
+    "No capture, installer, or permission prompts; actions only in optional synthetic fixture.",
+    "No end-to-end task or HeyMate permission-continuity claim; foreground identity checked only before/after fixture actions.",
+    "Baseline runs first; timings are exploratory, not randomized benchmarks."
+  ],
+  "integrity": {
+    "installer_sha256": "0be0bd269056a7c0c5b15e77ff6c64c880267d091957c97efc19103380e4aeb7",
+    "universal_archive_sha256": "121cf20cafd2cfa69dd720e8967350c6406b22e558be6889de7a1ae3343b6d4b",
+    "mutual_designated_requirements_verified": true,
+    "team_id": "YCK386LBJ7"
+  },
+  "schema_structure_review": [
+    {
+      "tool": "browser_click",
+      "added_properties": [],
+      "changed_properties": []
+    },
+    {
+      "tool": "browser_pointer",
+      "added_properties": [],
+      "changed_properties": []
+    },
+    {
+      "tool": "click",
+      "added_properties": [],
+      "changed_properties": [
+        "target"
+      ]
+    },
+    {
+      "tool": "double_click",
+      "added_properties": [],
+      "changed_properties": []
+    },
+    {
+      "tool": "drag",
+      "added_properties": [],
+      "changed_properties": [
+        "target"
+      ]
+    },
+    {
+      "tool": "get_window_state",
+      "added_properties": [
+        "display_only",
+        "full_output",
+        "since",
+        "tree_format",
+        "verbose"
+      ],
+      "changed_properties": []
+    },
+    {
+      "tool": "hotkey",
+      "added_properties": [],
+      "changed_properties": [
+        "target"
+      ]
+    },
+    {
+      "tool": "launch_app",
+      "added_properties": [],
+      "changed_properties": []
+    },
+    {
+      "tool": "list_sessions",
+      "added_properties": [],
+      "changed_properties": [
+        "limit"
+      ]
+    },
+    {
+      "tool": "list_windows",
+      "added_properties": [
+        "app"
+      ],
+      "changed_properties": []
+    },
+    {
+      "tool": "move_cursor",
+      "added_properties": [
+        "delivery_mode"
+      ],
+      "changed_properties": [
+        "target"
+      ]
+    },
+    {
+      "tool": "press_key",
+      "added_properties": [],
+      "changed_properties": [
+        "target"
+      ]
+    },
+    {
+      "tool": "right_click",
+      "added_properties": [],
+      "changed_properties": []
+    },
+    {
+      "tool": "scroll",
+      "added_properties": [],
+      "changed_properties": [
+        "target"
+      ]
+    },
+    {
+      "tool": "set_agent_cursor_motion",
+      "added_properties": [],
+      "changed_properties": [
+        "arc_flow",
+        "arc_size",
+        "dwell_after_click_ms",
+        "effects",
+        "end_handle",
+        "glide_duration_ms",
+        "idle_hide_ms",
+        "spring",
+        "start_handle",
+        "timing",
+        "turn_radius"
+      ]
+    },
+    {
+      "tool": "set_value",
+      "added_properties": [],
+      "changed_properties": []
+    },
+    {
+      "tool": "start_session",
+      "added_properties": [],
+      "changed_properties": [
+        "cursor_motion",
+        "cursor_theme"
+      ]
+    },
+    {
+      "tool": "type_text",
+      "added_properties": [],
+      "changed_properties": [
+        "target"
+      ]
+    },
+    {
+      "tool": "verify_state",
+      "added_properties": [],
+      "changed_properties": [
+        "expect",
+        "include_screenshot"
+      ]
+    }
+  ],
+  "legacy_replacement_diagnostic": {
+    "baseline": {
+      "name": "background_select_all_and_replace",
+      "tool_succeeded": true,
+      "verified_in_app": false,
+      "elapsed_ms": 7895.96
+    },
+    "candidate": {
+      "name": "background_select_all_and_replace",
+      "tool_succeeded": true,
+      "verified_in_app": false,
+      "elapsed_ms": 4035.7
+    }
+  },
+  "execution_fix": "Complete, native window-rooted AXTextField trees use set_value and require effect:confirmed plus value_readback evidence. Web-area ancestry, partial trees, and unknown ancestry keep the previous route.",
+  "post_install_comparison": {
+    "baseline": {
+      "version": "cua-driver 0.34.0",
+      "embedded_startup_ms": 69.76,
+      "tool_count": 58,
+      "permissions": {
+        "accessibility": true,
+        "screen_recording": true
+      },
+      "permission_identity": "invoking host; not HeyMate or standalone daemon",
+      "screen_size": {
+        "successful_calls": 20,
+        "failed_calls": 0,
+        "median_ms": 0.62,
+        "p90_ms": 3.17
+      },
+      "fixture": {
+        "default_structured_elements": 4,
+        "explicit_structured_elements": 4,
+        "actions": [
+          {
+            "name": "background_button_click",
+            "tool_succeeded": true,
+            "verified_in_app": true,
+            "elapsed_ms": 1142.81
+          },
+          {
+            "name": "background_button_click",
+            "tool_succeeded": true,
+            "verified_in_app": true,
+            "elapsed_ms": 1178.26
+          },
+          {
+            "name": "background_button_click",
+            "tool_succeeded": true,
+            "verified_in_app": true,
+            "elapsed_ms": 1187.33
+          },
+          {
+            "name": "background_text_insertion",
+            "tool_succeeded": true,
+            "verified_in_app": true,
+            "elapsed_ms": 1301.45
+          },
+          {
+            "name": "background_native_value_replacement",
+            "tool_succeeded": true,
+            "driver_readback_confirmed": true,
+            "verified_in_app": true,
+            "elapsed_ms": 1088.81
+          }
+        ],
+        "frontmost_unchanged": true
+      }
+    },
+    "candidate": {
+      "version": "cua-driver 0.38.0",
+      "embedded_startup_ms": 92.15,
+      "tool_count": 62,
+      "permissions": {
+        "accessibility": true,
+        "screen_recording": true
+      },
+      "permission_identity": "invoking host; not HeyMate or standalone daemon",
+      "screen_size": {
+        "successful_calls": 20,
+        "failed_calls": 0,
+        "median_ms": 0.62,
+        "p90_ms": 0.77
+      },
+      "fixture": {
+        "default_structured_elements": 0,
+        "explicit_structured_elements": 4,
+        "actions": [
+          {
+            "name": "background_button_click",
+            "tool_succeeded": true,
+            "verified_in_app": true,
+            "elapsed_ms": 621.23
+          },
+          {
+            "name": "background_button_click",
+            "tool_succeeded": true,
+            "verified_in_app": true,
+            "elapsed_ms": 598.71
+          },
+          {
+            "name": "background_button_click",
+            "tool_succeeded": true,
+            "verified_in_app": true,
+            "elapsed_ms": 588.66
+          },
+          {
+            "name": "background_text_insertion",
+            "tool_succeeded": true,
+            "verified_in_app": true,
+            "elapsed_ms": 385.85
+          },
+          {
+            "name": "background_native_value_replacement",
+            "tool_succeeded": true,
+            "driver_readback_confirmed": true,
+            "verified_in_app": true,
+            "elapsed_ms": 393.76
+          }
+        ],
+        "frontmost_unchanged": true
+      }
+    }
+  },
+  "local_install": {
+    "driver_version": "0.38.0",
+    "driver_signature_verified": true,
+    "installer_reported_compatible_requirements": true,
+    "tcc_reset_performed": false,
+    "heymate_signature_preflight_passed": true,
+    "canonical_app_running": true,
+    "canonical_app_health_passed": true,
+    "startup_permission_checks": {
+      "accessibility": true,
+      "input_monitoring": true,
+      "screen_recording": true,
+      "microphone": true,
+      "screen_content": true
+    },
+    "standalone_driver_permission_status": "unknown: daemon not running, same as baseline",
+    "full_chrome_drag_capture_regressions_run": false
+  }
+}

@@ -46,12 +46,12 @@ Try this prompt:
 
 A prepared brief does not mean HeyMate recorded, transcribed, or attended the meeting. Do not assume those capabilities from this example. The workflow is about context you provide or make available through configured tools. Provider limits, connector access, and retention rules still apply.
 
-Read [privacy and storage](https://sayheymate.vercel.app/privacy), then use the [email drafting workflow](https://sayheymate.vercel.app/blog/draft-email-with-ai-on-mac) for a reviewed response or the [research brief workflow](https://sayheymate.vercel.app/blog/ai-weekly-research-brief) for recurring background research.
+Read [privacy and storage](https://sayheymate.com/privacy), then use the [email drafting workflow](https://sayheymate.com/blog/draft-email-with-ai-on-mac) for a reviewed response or the [research brief workflow](https://sayheymate.com/blog/ai-weekly-research-brief) for recurring background research.
 
 ## Related reading
 
-- [Build a weekly research brief with a specialist HeyMate](https://sayheymate.vercel.app/blog/ai-weekly-research-brief)
-- [Draft better email on Mac with HeyMate and a review step](https://sayheymate.vercel.app/blog/draft-email-with-ai-on-mac)
-- [HeyMate vs Claude Cowork: choose your desktop AI workflow](https://sayheymate.vercel.app/blog/heymate-vs-claude-cowork)
+- [Build a weekly research brief with a specialist HeyMate](https://sayheymate.com/blog/ai-weekly-research-brief)
+- [Draft better email on Mac with HeyMate and a review step](https://sayheymate.com/blog/draft-email-with-ai-on-mac)
+- [HeyMate vs Claude Cowork: choose your desktop AI workflow](https://sayheymate.com/blog/heymate-vs-claude-cowork)
 
-[Set up HeyMate](https://sayheymate.vercel.app/connect-claude-codex) · [Privacy](https://sayheymate.vercel.app/privacy) · [Permissions](https://sayheymate.vercel.app/permissions)
+[Set up HeyMate](https://sayheymate.com/connect-claude-codex) · [Privacy](https://sayheymate.com/privacy) · [Permissions](https://sayheymate.com/permissions)

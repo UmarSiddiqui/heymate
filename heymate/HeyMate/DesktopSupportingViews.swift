@@ -142,12 +142,19 @@ struct DesktopMemoryView: View {
                     Text(item.text)
                         .font(DS.Fonts.body)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text(item.createdAt.formatted(date: .abbreviated, time: .shortened))
+                    Text((item.updatedAt == nil ? "Saved " : "Edited ") + (item.updatedAt ?? item.createdAt).formatted(date: .abbreviated, time: .shortened))
                         .font(DS.Fonts.micro)
                         .foregroundColor(DS.Colors.textTertiary)
                     Text(memoryScopeLabel(item))
                         .font(DS.Fonts.micro)
                         .foregroundColor(DS.Colors.textTertiary)
+                    if let conversationID = item.sourceConversationID,
+                       conversationID == companionManager.currentChat.id || companionManager.savedChats.contains(where: { $0.id == conversationID }) {
+                        Button("View conversation") { companionManager.openChat(id: conversationID) }
+                            .buttonStyle(.plain)
+                            .font(DS.Fonts.micro)
+                            .foregroundColor(DS.Colors.textSecondary)
+                    }
                 }
                 Spacer(minLength: 0)
                 Button("Edit") {
@@ -175,6 +182,7 @@ struct DesktopMemoryView: View {
     }
 
     private func memoryScopeLabel(_ item: MemoryItem) -> String {
+        if item.mateID == MemoryContext.heyMateTalkOwnerID { return "Only HeyMate Talk" }
         if let mateID = item.mateID {
             let name = companionManager.mates.first { $0.id == mateID }?.name ?? "Deleted agent"
             return "Only \(name)"
@@ -203,8 +211,9 @@ struct DesktopMemoryView: View {
 
     private func memoryExportText(_ items: [MemoryItem]) -> String {
         items.map { item in
-            let stamp = item.createdAt.formatted(date: .abbreviated, time: .shortened)
-            return "\(stamp) · \(memoryScopeLabel(item))\n\(item.text)"
+            let stamp = (item.updatedAt ?? item.createdAt).formatted(date: .abbreviated, time: .shortened)
+            let source = item.sourceConversationID.map { "\nConversation: \($0.uuidString)" } ?? ""
+            return "\(stamp) · \(memoryScopeLabel(item))\n\(item.text)\(source)"
         }
         .joined(separator: "\n\n")
     }

@@ -26,7 +26,7 @@ export const launchPost = {
       ['00:28', 'See ideas take shape: a 3D board, a camera connection diagram, and a recipe sketch. Recorded footage condensed and sped up.'],
       ['00:40', 'Your own little crew. Give mates roles, personalities, and routines. An example inbox task shows delegated work.'],
       ['00:48', 'Your AI. Your choice. ChatGPT via Codex, Claude via Claude Code, OpenCode, your API, or a local model. Provider limits apply.'],
-      ['00:54', 'A little company. A lot of help. HeyMate is free and open source for Mac. Visit sayheymate.vercel.app.'],
+      ['00:54', 'A little company. A lot of help. HeyMate is free and open source for Mac. Visit sayheymate.com.'],
     ],
   },
   description: 'Meet your open-source AI companion for Mac in a new 60-second film. Ask about your screen, see ideas take shape, and give your own little crew the busywork.',

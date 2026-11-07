@@ -220,20 +220,6 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
         guard let native = Self.resource("mate-draw-native"), let engine = Self.resource("mate-draw-engine"),
               let pieces = Self.resource("mate-draw-pieces"), !scripts.contains(nil) else { return }
 
-        let overlay: DaVinciMetalOverlay
-        do {
-            guard let url = Bundle.main.url(forResource: "DaVinciShaders", withExtension: "txt") else {
-                throw NativeMetalError.invalid("Missing DaVinci shader resource")
-            }
-            overlay = try DaVinciMetalOverlay(frame: CGRect(origin: .zero, size: screenFrame.size),
-                                              source: String(contentsOf: url, encoding: .utf8))
-        } catch {
-            NSLog("[Explainer] native Metal initialization failed: %@", error.localizedDescription)
-            return
-        }
-        overlay.onPresented = { [weak self] id, error in
-            self?.run("MateMetal.presented(\(Self.jsString(id)), \(error.map(Self.jsString) ?? "null"))")
-        }
         let configuration = WKWebViewConfiguration()
         configuration.userContentController.addUserScript(WKUserScript(source: "globalThis.__heymateNativeMetal = true; globalThis.__heymateMetalSession = \(Self.jsString(UUID().uuidString));",
             injectionTime: .atDocumentStart, forMainFrameOnly: true))
@@ -261,7 +247,6 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
         content.wantsLayer = true
         webView.autoresizingMask = [.width, .height]
         content.addSubview(webView)
-        content.addSubview(overlay)
         let clearButton = NSButton(title: "Clear", target: self, action: #selector(clearDrawing))
         clearButton.wantsLayer = true
         clearButton.image = NSImage(systemSymbolName: "eraser", accessibilityDescription: nil)
@@ -283,7 +268,6 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
         self.controlsPanel = controls
         self.clearButton = clearButton
         panel.contentView = content
-        self.metalOverlay = overlay
         panel.setFrame(screenFrame, display: false)
         panel.orderFrontRegardless()
         panel.addChildWindow(controls, ordered: .above)
@@ -399,10 +383,38 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
         }
     }
 
+    private func ensureMetalOverlay() throws -> DaVinciMetalOverlay {
+        if let metalOverlay { return metalOverlay }
+        guard let content = panel?.contentView else {
+            throw NativeMetalError.invalid("Missing Explainer content view")
+        }
+        guard let url = Bundle.main.url(forResource: "DaVinciShaders", withExtension: "txt") else {
+            throw NativeMetalError.invalid("Missing DaVinci shader resource")
+        }
+        let overlay = try DaVinciMetalOverlay(frame: content.bounds, source: String(contentsOf: url, encoding: .utf8))
+        overlay.onPresented = { [weak self] id, error in
+            self?.run("MateMetal.presented(\(Self.jsString(id)), \(error.map(Self.jsString) ?? "null"))")
+        }
+        content.addSubview(overlay)
+        metalOverlay = overlay
+        return overlay
+    }
+
     private func received(_ type: String, _ payload: Any?) {
         switch type {
         case "metal3d":
-            if let fields = payload as? [String: Any] { metalOverlay?.receive(fields) }
+            guard let fields = payload as? [String: Any], let id = fields["id"] as? String else { return }
+            guard fields["op"] as? String == "frame" else {
+                metalOverlay?.receive(fields)
+                return
+            }
+            do {
+                try ensureMetalOverlay().receive(fields)
+            } catch {
+                let detail = error.localizedDescription
+                NSLog("[Explainer] native Metal initialization failed: %@", detail)
+                run("MateMetal.presented(\(Self.jsString(id)), \(Self.jsString(detail)), true)")
+            }
         case "hitRects":
             hitRects = (payload as? [[Double]] ?? []).compactMap { r in r.count == 4 ? CGRect(x: r[0], y: r[1], width: r[2], height: r[3]) : nil }
         case "pointAt":

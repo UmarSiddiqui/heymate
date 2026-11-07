@@ -16,13 +16,13 @@ Try this prompt:
 
 ## See the actual examples
 
-![HeyMate drawing a Raspberry Pi camera connection explanation over a desktop.](https://sayheymate.vercel.app/assets/video/visual-answers/camera-960.webp)
+![HeyMate drawing a Raspberry Pi camera connection explanation over a desktop.](https://sayheymate.com/assets/video/visual-answers/camera-960.webp)
 
 Actual HeyMate example. Generated diagrams need independent verification.
 
-- [Chicken biryani explanation](https://sayheymate.vercel.app/assets/video/visual-answers/biryani.mp4): a 2D sketch of ingredients and layers.
-- [Raspberry Pi camera diagram](https://sayheymate.vercel.app/assets/video/visual-answers/camera.mp4): a drawn explanation of the board, connector, and cable.
-- [3D board explanation](https://sayheymate.vercel.app/assets/video/visual-answers/board.mp4): a view of the board’s shape, ports, and parts.
+- [Chicken biryani explanation](https://sayheymate.com/assets/video/visual-answers/biryani.mp4): a 2D sketch of ingredients and layers.
+- [Raspberry Pi camera diagram](https://sayheymate.com/assets/video/visual-answers/camera.mp4): a drawn explanation of the board, connector, and cable.
+- [3D board explanation](https://sayheymate.com/assets/video/visual-answers/board.mp4): a view of the board’s shape, ports, and parts.
 
 The website recordings are actual HeyMate examples, condensed and sped up, with silent previews. They show the output for those questions; they are not a guarantee that every future question will produce the same quality or that the labels are technically authoritative.
 
@@ -42,14 +42,14 @@ A visual explanation can help you understand official instructions, but it shoul
 
 ## Try a small question on your Mac
 
-Use sample material and a compatible provider, then ask one question with a clear learning goal. If you need the assistant to interpret the current screen, use a vision-capable provider and review [screen permissions](https://sayheymate.vercel.app/permissions). The optional Apple Intelligence provider in HeyMate is text-only and cannot see your screen.
+Use sample material and a compatible provider, then ask one question with a clear learning goal. If you need the assistant to interpret the current screen, use a vision-capable provider and review [screen permissions](https://sayheymate.com/permissions). The optional Apple Intelligence provider in HeyMate is text-only and cannot see your screen.
 
-Explore the [recorded visual answers](https://sayheymate.vercel.app/#visual-answers), [provider connection guide](https://sayheymate.vercel.app/connect-claude-codex), and [privacy details](https://sayheymate.vercel.app/privacy). Questions and context go to the selected provider when required; open-source app code does not make every provider interaction local.
+Explore the [recorded visual answers](https://sayheymate.com/#visual-answers), [provider connection guide](https://sayheymate.com/connect-claude-codex), and [privacy details](https://sayheymate.com/privacy). Questions and context go to the selected provider when required; open-source app code does not make every provider interaction local.
 
 ## Related reading
 
-- [Create a study tutor mate that helps you practice on Mac](https://sayheymate.vercel.app/blog/ai-study-tutor-mac)
-- [Use HeyMate for a focused Figma or website design review](https://sayheymate.vercel.app/blog/ai-design-review-figma)
-- [Learn a Mac app with AI guidance, one step at a time](https://sayheymate.vercel.app/blog/learn-mac-apps-with-ai)
+- [Create a study tutor mate that helps you practice on Mac](https://sayheymate.com/blog/ai-study-tutor-mac)
+- [Use HeyMate for a focused Figma or website design review](https://sayheymate.com/blog/ai-design-review-figma)
+- [Learn a Mac app with AI guidance, one step at a time](https://sayheymate.com/blog/learn-mac-apps-with-ai)
 
-[Set up HeyMate](https://sayheymate.vercel.app/connect-claude-codex) · [Privacy](https://sayheymate.vercel.app/privacy) · [Permissions](https://sayheymate.vercel.app/permissions)
+[Set up HeyMate](https://sayheymate.com/connect-claude-codex) · [Privacy](https://sayheymate.com/privacy) · [Permissions](https://sayheymate.com/permissions)
