@@ -34,7 +34,7 @@ echo "**[HeyMate.dmg](${REPO_URL}/releases/download/v${VERSION}/HeyMate.dmg)**: 
 echo
 echo "Alternative installers: \`brew install umarsiddiqui/tap/heymate\`, or inspect the [installer source](${REPO_URL}/blob/main/website/install.sh) before running \`curl -fsSL https://sayheymate.com/install.sh | bash\`."
 echo
-echo "This build uses HeyMate's stable self-signed certificate. It is not signed with Apple Developer ID or notarized by Apple. If macOS blocks first launch, review the app and use **System Settings > Privacy & Security > Open Anyway** if you choose to proceed. The Terminal installer removes quarantine; this does not provide notarization. Requires macOS 14.2 or later (Apple silicon or Intel)."
+echo "Signed with Apple Developer ID and notarized by Apple. Requires macOS 14.2 or later (Apple silicon or Intel)."
 echo
 
 if [ ${#features[@]} -gt 0 ]; then
