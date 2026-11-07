@@ -119,7 +119,7 @@ for (const post of posts) {
     <aside class="blog-answer" aria-label="At a glance"><p>${escape(post.answer)}</p></aside>
     ${sections}
     <h2 id="related-reading">Related reading</h2><ul>${related.map(item => `<li><a href="/blog/${item.slug}">${escape(item.title)}</a></li>`).join('')}</ul>
-    <div class="blog-next"><h2>Try it with one small task.</h2><p>HeyMate is free and open source for macOS 14.2 and later. Bring your own AI; provider limits and optional service fees apply. Current builds are self-signed and not Apple notarized.</p><p><a class="download-button" href="/connect-claude-codex">Set up HeyMate on Mac <span aria-hidden="true">↗</span></a></p></div>
+    <div class="blog-next"><h2>Try it with one small task.</h2><p>HeyMate is free and open source for macOS 14.2 and later. Bring your own AI; provider limits and optional service fees apply. Builds are Developer ID signed and notarized by Apple.</p><p><a class="download-button" href="/connect-claude-codex">Set up HeyMate on Mac <span aria-hidden="true">↗</span></a></p></div>
     </article></div>
   </main>`;
   await fs.writeFile(path.join(root, 'blog', post.slug + '.html'), layout({title: post.title, description: post.description, canonical, markdown: canonical + '.md', schema, content, article: true, image: post.image, imageAlt: post.imageAlt}));

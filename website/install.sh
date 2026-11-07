@@ -1,9 +1,9 @@
 #!/bin/bash
 # HeyMate installer. Usage: curl -fsSL https://sayheymate.com/install.sh | bash
 #
-# Downloads the latest HeyMate.dmg with curl, which does not set the macOS
-# quarantine flag, so Gatekeeper never shows "could not verify HeyMate is free
-# of malware". Source: https://github.com/UmarSiddiqui/heymate
+# Downloads the latest HeyMate.dmg (Developer ID signed and notarized by
+# Apple) and copies HeyMate into /Applications.
+# Source: https://github.com/UmarSiddiqui/heymate
 set -euo pipefail
 
 URL="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg"
@@ -52,9 +52,6 @@ else
   sudo rm -rf "$DEST/$APP"
   sudo cp -R "$MOUNT/$APP" "$DEST/"
 fi
-
-# Belt and braces: make sure no quarantine flag is left on the installed app.
-xattr -dr com.apple.quarantine "$DEST/$APP" 2>/dev/null || sudo xattr -dr com.apple.quarantine "$DEST/$APP" 2>/dev/null || true
 
 echo "Installed. Opening HeyMate..."
 open "$DEST/$APP"

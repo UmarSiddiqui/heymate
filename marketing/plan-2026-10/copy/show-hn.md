@@ -41,7 +41,7 @@ A few design choices that might be interesting here:
 
 Native SwiftUI, MIT licensed, macOS 14.2+. Works on Macs without a notch (it becomes a small pill at the top).
 
-Rough edges, honestly: builds are self-signed, not notarized (I don't have a Developer ID), so first launch needs "Open Anyway" or the brew/curl installer. It asks for several permissions (mic, screen recording, accessibility, input monitoring), and each is explained at sayheymate.com/permissions. Pointing is only as good as the vision model, and it does sometimes point at the wrong thing.
+Rough edges, honestly: it asks for several permissions (mic, screen recording, accessibility, input monitoring), and each is explained at sayheymate.com/permissions. Pointing is only as good as the vision model, and it does sometimes point at the wrong thing.
 
 I'd love to hear where it breaks for you, and what you'd ask it first.
 ```
@@ -58,5 +58,4 @@ Keep these short when you reply, and edit them in your own voice.
 
 - **"Why not just use the ChatGPT or Claude desktop app?"** "You can. HeyMate is for when you don't want to switch windows or paste a screenshot. It's one key-hold from any app, it answers out loud, and it points at the spot. It uses those same subscriptions underneath."
 - **"Is the screen sent to the cloud?"** "Yes, to whichever model provider you picked, only when you ask (and between steps of a walkthrough). Nothing goes to me; HeyMate has no server for your chats. If you want it to stay on the machine, point it at a local vision model through the OpenAI-compatible option."
-- **"Not notarized? No thanks."** "Fair. A Developer ID costs money I've chosen not to spend on a free project yet. The source and the release workflow are public, each release ships a SHA-256, and you can build it yourself in Xcode."
 - **"How is this different from ReferenceRenderer / Mate?"** **Don't post this until you've decided the ReferenceRenderer question in PLAN.md §7.** Neutral draft: "Similar idea: push-to-talk, it looks at the screen, a pointer. HeyMate is MIT-licensed, runs on your existing subscription rather than its own plans, and has agents and routines. I'd rather people try both than take my word on a comparison." Don't add a feature checklist, and make no claims about their privacy or pricing beyond what their own site states.

@@ -27,7 +27,7 @@ Cowork execution and account details above come from its [official getting-start
 
 HeyMate is a fit when you want to learn a visible Mac task while doing the work yourself, or prefer an open-source companion whose code you can inspect. You can keep named mates with roles and habits, and choose among supported provider routes instead of committing every task to one vendor environment.
 
-That does not make every interaction local or every provider equally capable. Screen guidance needs vision support. HeyMate chat history is local, but relevant questions and screen images can go to the selected provider. Some integrations write temporary screenshots. Current installers are self-signed and not Apple notarized; that tradeoff should be explicit.
+That does not make every interaction local or every provider equally capable. Screen guidance needs vision support. HeyMate chat history is local, but relevant questions and screen images can go to the selected provider. Some integrations write temporary screenshots. Installers are Developer ID signed and notarized by Apple.
 
 ## Why you might choose Cowork
 

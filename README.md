@@ -89,7 +89,7 @@ Or install with Homebrew:
 brew install umarsiddiqui/tap/heymate
 ```
 
-Current builds use a stable self-signed certificate and are **not Apple Developer ID-signed or notarized**. If macOS blocks the first launch, review the app and use **System Settings → Privacy & Security → Open Anyway** if you choose to proceed.
+Builds are signed with **Apple Developer ID and notarized by Apple**, so macOS opens HeyMate without a security warning.
 
 ## Helpful. With boundaries.
 

@@ -27,7 +27,7 @@ The Alfred examples refer to its documented [snippets](https://www.alfredapp.com
 
 HeyMate offers push-to-talk questions, spoken answers, screen guidance, and specialist mates. You can ask for one step at a time while you learn an app, or review a plan before an approved coding job. Its AI routes include Claude Code, Codex, OpenCode, and a custom Anthropic-compatible API; capabilities vary by route.
 
-The app is MIT licensed and adds no subscription fee, but AI providers and optional services can charge separately. It runs on macOS 14.2 or later on Apple silicon and Intel. Current builds use a stable self-signed certificate and are not Apple notarized. Read the [setup guide](https://sayheymate.com/connect-claude-codex) before deciding whether that fits your machine.
+The app is MIT licensed and adds no subscription fee, but AI providers and optional services can charge separately. It runs on macOS 14.2 or later on Apple silicon and Intel. Builds are Developer ID signed and notarized by Apple. Read the [setup guide](https://sayheymate.com/connect-claude-codex) before deciding whether that fits your machine.
 
 ## Where a fixed workflow wins
 

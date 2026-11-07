@@ -37,7 +37,7 @@ It uses your existing Claude or ChatGPT subscription through the official Claude
 
 Pricing
 Free, MIT licensed. You need your own Claude or ChatGPT plan (or a local or API model). Provider limits apply.
-Honest caveats: builds are self-signed and not notarized, so first launch needs Open Anyway (or use the Homebrew cask). macOS 14.2+.
+Builds are Developer ID signed and notarized by Apple. macOS 14.2+.
 
 Links
 Site: https://sayheymate.com/?utm_source=reddit&utm_medium=community&utm_campaign=macapps_nov
@@ -82,7 +82,7 @@ Other things it does with the same plan
 How Claude helped build it
 [1 to 3 honest sentences: what you used Claude or Claude Code for while building it, plus one prompt you used. The showcase rules historically asked for this, so check Rule 7.]
 
-Free, MIT, native SwiftUI, macOS 14.2+. ChatGPT through Codex works too. Self-signed (not notarized), so first launch needs Open Anyway or the brew cask.
+Free, MIT, native SwiftUI, macOS 14.2+. ChatGPT through Codex works too. Developer ID signed and notarized.
 
 Source: https://github.com/UmarSiddiqui/heymate
 Site: https://sayheymate.com/?utm_source=reddit&utm_medium=community&utm_campaign=claudeai_oct

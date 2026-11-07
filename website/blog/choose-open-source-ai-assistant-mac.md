@@ -4,7 +4,7 @@ Evaluate Mac AI assistants by workflow, provider access, privacy, permissions, i
 
 By the HeyMate project. Published 2026-11-01. Category: Choosing tools.
 
-> Choose by the task you want to complete and the access you are comfortable granting. Open-source app code helps inspection, but it does not guarantee local processing, correct answers, private providers, or a notarized installer.
+> Choose by the task you want to complete and the access you are comfortable granting. Open-source app code helps inspection, but it does not guarantee local processing, correct answers, or private providers.
 
 ## Start with the interaction you need
 
@@ -31,7 +31,7 @@ In HeyMate, local history stores text, while relevant questions and screen image
 
 ## Review installation and access
 
-HeyMate supports macOS 14.2 or later on Apple silicon and Intel. Current builds use a stable self-signed certificate and are not Apple Developer ID signed or notarized. That differs from a polished installation experience you may expect from another vendor. Read the [setup guide](https://sayheymate.com/connect-claude-codex) and decide whether the tradeoff is acceptable.
+HeyMate supports macOS 14.2 or later on Apple silicon and Intel. Builds are Developer ID signed and notarized by Apple, so installation works like any other Mac app download. Read the [setup guide](https://sayheymate.com/connect-claude-codex) and decide whether the tradeoff is acceptable.
 
 For any assistant, review the permissions the chosen task needs. A question about text need not become broad access to your entire desktop. Screen guidance needs a vision-capable provider and appropriate permissions. Connected tools have their own account scope, and local undo cannot reverse every external action.
 
