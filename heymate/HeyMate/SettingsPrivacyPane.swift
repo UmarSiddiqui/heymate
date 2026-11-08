@@ -17,6 +17,9 @@ struct SettingsPrivacyPane: View {
     @ObservedObject private var presencePreferences = AppPresencePreferences.shared
 
     @ObservedObject private var analytics = HeyMateAnalytics.shared
+    @ObservedObject private var crashDiagnostics = HeyMateAnalytics.crashes
+    @State private var diagnosticsPreview: String?
+    @State private var diagnosticsError: String?
 
     @State private var newBundleIdentifier = ""
     @State private var bundleIdentifierError: String?
@@ -36,6 +39,22 @@ struct SettingsPrivacyPane: View {
             dangerZoneSection
         }
         .onAppear(perform: refreshPersistedError)
+        .sheet(isPresented: Binding(get: { diagnosticsPreview != nil }, set: { if !$0 { diagnosticsPreview = nil } })) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Diagnostics preview").font(.headline)
+                Text("Local only. Shows the most recent sanitized event, or a labeled example. Previewing never sends data.")
+                ScrollView {
+                    Text(diagnosticsPreview ?? "").font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if let diagnosticsError { Text(diagnosticsError).foregroundStyle(.red) }
+                HStack {
+                    Button("Export JSON…", action: exportDiagnosticsPreview)
+                    Spacer()
+                    Button("Done") { diagnosticsPreview = nil }.keyboardShortcut(.defaultAction)
+                }
+            }.padding(24).frame(width: 680, height: 500)
+        }
         .onReceive(NotificationCenter.default.publisher(for: LocalDataErase.persistFailedNotification)) { _ in
             refreshPersistedError()
         }
@@ -209,14 +228,45 @@ struct SettingsPrivacyPane: View {
     }
 
     private var analyticsSection: some View {
-        SettingsSection("Help improve HeyMate", footer: UsageAnalytics.disclosure + " Turning this off cancels pending sends; data already received by PostHog stays in aggregate reports.") {
+        SettingsSection("Help improve HeyMate", footer: "Both choices are off by default and independent. Turning either off cancels its pending sends, clears its queue and deletes its local ID. Delivered data cannot be recalled here. Configured destinations retain diagnostics for up to 30 days. Preview and export stay on this Mac.") {
             SettingsToggleRow(
                 SettingsItem.usageAnalytics.title,
-                subtitle: analytics.isAvailable ? "Help us understand what gets used and whether people come back." : "Unavailable in this build. Nothing is sent.",
+                subtitle: analytics.isAvailable ? UsageAnalytics.disclosure : "Unavailable in this build. Nothing is sent. " + UsageAnalytics.disclosure,
                 item: .usageAnalytics,
                 isOn: Binding(get: { analytics.isOptedIn }, set: { analytics.setOptedIn($0) })
             )
             .disabled(!analytics.isAvailable && !analytics.isOptedIn)
+            SettingsDivider()
+            SettingsToggleRow(
+                SettingsItem.crashReports.title,
+                subtitle: crashDiagnostics.isAvailable ? UsageAnalytics.crashDisclosure : "Unavailable in this build. Nothing is sent. " + UsageAnalytics.crashDisclosure,
+                item: .crashReports,
+                isOn: Binding(get: { crashDiagnostics.isOptedIn }, set: { crashDiagnostics.setOptedIn($0) })
+            )
+            .disabled(!crashDiagnostics.isAvailable && !crashDiagnostics.isOptedIn)
+            SettingsDivider()
+            SettingsRow("What diagnostics contain", subtitle: "Inspect or export sanitized JSON locally, including when sending is disabled.") {
+                Button("Product preview") { showDiagnosticsPreview(analytics) }
+                Button("Crash preview") { showDiagnosticsPreview(crashDiagnostics) }
+            }
+        }
+    }
+
+    private func showDiagnosticsPreview(_ diagnostics: UsageAnalytics) {
+        diagnosticsError = nil
+        do { diagnosticsPreview = String(decoding: try diagnostics.previewData(), as: UTF8.self) }
+        catch { diagnosticsPreview = ""; diagnosticsError = "Couldn't create the diagnostics preview." }
+    }
+
+    private func exportDiagnosticsPreview() {
+        guard let diagnosticsPreview else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "heymate-diagnostics.json"
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            do { try Data(diagnosticsPreview.utf8).write(to: url, options: .atomic) }
+            catch { diagnosticsError = "Couldn't export the diagnostics preview." }
         }
     }
 
@@ -226,7 +276,7 @@ struct SettingsPrivacyPane: View {
         SettingsSection {
             SettingsDisclosureRow(
                 SettingsItem.whatLeavesThisMac.title,
-                subtitle: "AI requests go to your chosen provider. Optional usage counts go to PostHog only with your consent.",
+                subtitle: "AI requests go to your chosen provider. Product diagnostics and crash summaries each need separate consent and a configured destination.",
                 isExpanded: $showsDataFlowDetails
             ) {
             SettingsDivider()

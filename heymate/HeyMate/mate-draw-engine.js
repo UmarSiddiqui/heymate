@@ -498,6 +498,17 @@
         // The pieces set this when the app draws windows: a figure that would stand on paper gets a window instead.
         __card3d: null,
         W: w, H: h, PI: Math.PI,
+        named(name, draw) {
+          const first = marks.length, value = draw(), selection = [];
+          for (let i = first; i < marks.length; i++) {
+            const mark = marks[i];
+            if (!mark.id) mark.id = `hm:${curTurn}:${name}:${i}`;
+            selection.push(mark.id);
+          }
+          const handle = value && typeof value === 'object' ? value : {};
+          Object.defineProperty(handle, '__marks', { value: selection, configurable: true });
+          return handle;
+        },
       }, Object.fromEntries(MATH.map(k => [k, Math[k]])), vec, {
         lerp: (a, b, t) => a + t * (b - a), range: n => Array.from({ length: n }, (_, k) => k),
         step: n => { curStep = n; },
@@ -625,8 +636,8 @@
         const ink = needsCard || host ? MATE_HEX.ink : inkFor ? inkFor(x, y, stageW, stageH) : '#FFFFFF';
         const left = Math.max(4, x - 10), top = Math.max(4, y - 10);
         const card = [left, top, Math.min(w - 4, x + stageW + 10) - left, Math.min(h - 4, y + stageH + 10) - top];
-        // a figure always turns a little (0.5 to 2): one standing still does not read as 3D
-        const camera = { tilt: fin(o.tilt) ? Math.min(80, Math.max(-80, o.tilt)) : 15, fov: fin(o.fov) ? o.fov : 35, spin: fin(o.spin) ? Math.max(0.5, Math.min(2, o.spin)) : 0.7 };
+        // Respect a still view for faces, labels and deliberate compositions.
+        const camera = { tilt: fin(o.tilt) ? Math.min(80, Math.max(-80, o.tilt)) : 15, fov: fin(o.fov) ? o.fov : 35, spin: fin(o.spin) ? Math.max(0, Math.min(2, o.spin)) : 0.7 };
         const stage = push({ do: 'stage3d', id: sid, at: [x, y], w: stageW, h: stageH, ink, card: needsCard && !asWindow ? card : null, cardWindow: host ? host.inner : undefined, camera });
         if (look) stage.look = look;
         return { sid, ink };
@@ -803,6 +814,7 @@
         if (![x, y, figW, figH].every(fin) || figW < 24 || figH < 24) { warn('figure() needs a place: x, y, width and height in pixels (at least 24 each way)'); return null; }
         const { sid, ink } = standStage(x, y, figW, figH, o, 'studio');
         let parts = 0, labels = 0, group = null;
+        const rootParts = new Set();
         const motion = (target, kind, fields) => push({ do: 'motion3d', stage: sid, op: { target: target.id, kind, ...fields } });
         const poseOf = id => { const all = sink.anim || (sink.anim = {}); return all[id] || (all[id] = {}); };
 
@@ -975,6 +987,7 @@
             if (name) m.name = i === 0 ? name : `${name} ${place.reflect ? 'mirror' : i + 1}`;
             m.params = shape;
             push(m);
+            if (!parent) rootParts.add(m.id);
             const preview = hostCall('__shape3d');
             if (kind !== 'group' && preview) preview(kind, m.recipe);
             first = first || m;
@@ -1021,6 +1034,18 @@
           sink.ticks = sink.ticks || {};
         sink.ticks[m.id] = fn;
           return { id: m.id };
+        };
+        // All three origins are joints in figure space. The rod stands along Y,
+        // and the crank pin starts radius units above the crank's Z axis.
+        f.sliderCrank = ({ piston, rod, crank, radius, rodLength, period = 2 } = {}) => {
+          const ids = [piston?.id, rod?.id, crank?.id];
+          if (new Set(ids).size !== 3 || !ids.every(id => rootParts.has(id)) ||
+              ![radius, rodLength, period].every(fin) || radius < 0.001 ||
+              rodLength <= radius || rodLength > 100 || period < 0.25 || period > 60) {
+            warn('sliderCrank() needs three distinct root parts, 0.001 <= radius < rodLength <= 100, and a period of 0.25 to 60 seconds');
+            return null;
+          }
+          return motion(crank, 'sliderCrank', { piston: ids[0], rod: ids[1], radius, rodLength, period });
         };
         // Up to six live numbers shown with the figure (a speed, a temperature); null takes one away.
         f.readout = values => {
@@ -1317,6 +1342,20 @@
       };
       const options = o => (o && typeof o === 'object' ? o : {});
       Object.assign(api, {
+        editNamed(op, handle, args = []) {
+          if (!['erase','recolor','restyle','move','moveTo','scale','highlight'].includes(op) || !handle) return null;
+          if (handle.kind !== 'part') return api[op](handle.__marks || handle.id, ...args);
+          if (op === 'erase') handle.show = false;
+          else if (op === 'recolor') handle.color = args[0];
+          else if (op === 'highlight') handle.glow = 0.5;
+          else if (op === 'scale') handle.scale *= args[0];
+          else if (op === 'move') handle.pos = [handle.pos[0] + args[0], handle.pos[1] + args[1], handle.pos[2]];
+          else if (op === 'moveTo') handle.pos = [args[0], args[1], handle.pos[2]];
+          else if (op === 'restyle' && args[0] && typeof args[0] === 'object') {
+            for (const key of ['pos','rot','scale','show','glow','color']) if (key in args[0]) handle[key] = args[0][key];
+          }
+          return handle;
+        },
         erase: id => edit({ op: 'erase', id: ids(id) }),
         recolor: (id, c) => edit({ ...(c && typeof c === 'object' ? c : { color: c }), op: 'recolor', id: ids(id) }),
         restyle: (id, o) => edit({ ...options(o), op: 'restyle', id: ids(id) }),

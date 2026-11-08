@@ -24,6 +24,10 @@ actor KokoroSpeechProcess {
     private var pending: (id: UUID, continuation: CheckedContinuation<SpeechRunnerReply, Error>)?
     private var timer: Task<Void, Never>?
     private var reader: Task<Void, Never>?
+    private var diagnosticOutput: FileHandle?
+    private var diagnosticReader: Task<Void, Never>?
+    private var diagnosticTail = Data()
+    private var diagnostic: SpeechFailureCategory = .unknown
     private let executable: URL
     private var ownedService: SpeechOwnedProcess?
 
@@ -64,17 +68,34 @@ actor KokoroSpeechProcess {
     }
 
     func isRunning() -> Bool { process?.isRunning == true }
+    func failureCategory() -> SpeechFailureCategory { diagnostic }
 
     private func startIfNeeded() throws {
         if process?.isRunning == true { return }
         if process != nil { stop(requestID: nil, error: Failure.interrupted) }
         guard FileManager.default.isExecutableFile(atPath: executable.path) else { throw Failure.unavailable }
         let child = Process()
-        let incoming = Pipe(), outgoing = Pipe()
+        let incoming = Pipe(), outgoing = Pipe(), errors = Pipe()
         child.executableURL = executable
         child.standardInput = incoming
         child.standardOutput = outgoing
-        child.standardError = FileHandle.nullDevice
+        child.standardError = errors
+        diagnostic = .unknown
+        diagnosticTail.removeAll()
+        diagnosticOutput = errors.fileHandleForReading
+        let diagnostics = AsyncStream<Data>(bufferingPolicy: .bufferingNewest(4)) { continuation in
+            errors.fileHandleForReading.readabilityHandler = { handle in
+                let chunk = handle.availableData
+                continuation.yield(chunk)
+                if chunk.isEmpty { continuation.finish() }
+            }
+        }
+        diagnosticReader = Task { [weak self] in
+            for await chunk in diagnostics {
+                guard !Task.isCancelled else { return }
+                await self?.receiveDiagnostic(chunk, from: child)
+            }
+        }
         child.terminationHandler = { [weak self] child in
             Task { await self?.terminated(child) }
         }
@@ -125,6 +146,14 @@ actor KokoroSpeechProcess {
         stop(requestID: nil, error: Failure.interrupted)
     }
 
+    private func receiveDiagnostic(_ data: Data, from child: Process) {
+        guard process === child else { return }
+        diagnosticTail.append(data.suffix(8_192))
+        diagnosticTail = Data(diagnosticTail.suffix(8_192))
+        let category = SpeechFailureCategory.classify(String(decoding: diagnosticTail, as: UTF8.self))
+        if category != .unknown { diagnostic = category }
+    }
+
     private func stop(requestID: UUID?, error: Error) {
         if let requestID, pending?.id != requestID { return }
         let child = process
@@ -134,6 +163,12 @@ actor KokoroSpeechProcess {
         service?.terminate(executable: executable.deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Resources/PhononRuntime/ollama"))
         output?.readabilityHandler = nil
+        diagnosticOutput?.readabilityHandler = nil
+        try? diagnosticOutput?.close()
+        diagnosticOutput = nil
+        diagnosticReader?.cancel()
+        diagnosticReader = nil
+        diagnosticTail.removeAll()
         try? input?.close()
         try? output?.close()
         input = nil

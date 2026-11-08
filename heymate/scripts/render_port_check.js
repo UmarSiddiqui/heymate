@@ -113,5 +113,56 @@ scene3d(200,100,760,560,s=>{s.sphere({r:1,color:'#E04B3F',roughness:0.65,metalne
  await page.screenshot({path:'output/playwright/3d-illustrated-port.png'});
  page.off('console',shaderError);
  await page.evaluate(()=>HeyMateCanvas.clear());
- return {passed:['speech beat gating','line durations','continue drawing','real lathe/box/cylinder geometry','labels','tick animation','drag rotation','part picking','SVG move/zoom tracking','clear cleanup','screen change preserves cards and removes stale marks','native illustrated shader GPU compile and visible pixels'],vertices:first.vertices,illustrated};
+ // Exercise the exact piston program taught to the live Talk model. Use a
+ // measured element beneath the overlay for the optional screen highlight.
+ const program = await page.evaluate(async () => {
+  const prompt = await (await fetch('../HeyMate/CompanionPrompts.swift')).text();
+  const example = prompt.split('example, "show me how a piston works in 3d":')[1].split('```')[1];
+  const cylinder = document.createElement('button');
+  cylinder.textContent = 'Cylinder in the source diagram';
+  Object.assign(cylinder.style, {position:'absolute',left:'80px',top:'120px',width:'240px',height:'54px'});
+  document.body.appendChild(cylinder);
+  const {x,y,width,height} = cylinder.getBoundingClientRect();
+  const body = example.replace(/^js\s*/, '').trim();
+  const end = body.indexOf('\n');
+  const highlight = `ring(${x},${y},${width},${height},'Source cylinder');`;
+  HeyMateCanvas.begin({w:innerWidth,h:innerHeight,width:innerWidth});
+  return body.slice(0,end) + '\n' + highlight + body.slice(end);
+ });
+ await page.evaluate(code => {
+  // A say() alone does not release visuals from the following beats.
+  for (let end=120;end<code.length;end+=120) HeyMateCanvas.feed(code.slice(0,end),false);
+  const report=JSON.parse(HeyMateCanvas.feed(code,true));
+  if(report.error || report.lines.length!==3)throw Error(JSON.stringify(report));
+  HeyMateCanvas.line(0);
+ },program);
+ await page.waitForFunction(()=>HeyMateCanvas.state()?.includes('Source cylinder'));
+ await page.waitForFunction(()=>[...MateStage3D.stages.values()][0]?.parts.size===1);
+ check(await page.evaluate(()=>![...MateStage3D.stages.values()][0].motions.length),'motion started before its beat');
+ await page.evaluate(()=>{HeyMateCanvas.lineLength(0,0.5);HeyMateCanvas.line(1)});
+ await page.waitForFunction(()=>[...MateStage3D.stages.values()][0]?.parts.size===5);
+ await page.evaluate(()=>{HeyMateCanvas.lineLength(1,0.5);HeyMateCanvas.line(2);HeyMateCanvas.lineLength(2,0.5);HeyMateCanvas.finish()});
+ await page.waitForFunction(()=>[...MateStage3D.stages.values()][0]?.motions.some(m=>m.kind==='sliderCrank'));
+ const viewport=await page.evaluate(()=>{
+  const stage=[...MateStage3D.stages.values()][0],rect=stage.canvas.getBoundingClientRect();
+  window.pistonStage=stage; window.rodMesh=[...stage.parts.values()].find(part=>part.name==='Connecting rod');
+  window.rodGeometry=rodMesh.geometry;
+  return {x:rect.left+rect.width/2,y:rect.top+rect.height/2};
+ });
+ await page.mouse.move(viewport.x,viewport.y); await page.mouse.wheel(0,-240);
+ await page.waitForFunction(()=>pistonStage.zoom>1);
+ await page.mouse.wheel(0,240);
+ await page.waitForFunction(()=>Math.abs(pistonStage.zoom-1)<0.01);
+ await page.evaluate(()=>{
+  HeyMateCanvas.continue();
+  const edit=JSON.parse(HeyMateCanvas.feed('step(1);say("The same connecting rod is now red.");f.part("st1p6").color = "red";',true));
+  if(edit.error)throw Error(edit.error);
+  HeyMateCanvas.line(0);HeyMateCanvas.lineLength(0,0.5);HeyMateCanvas.finish();
+ });
+ await page.waitForFunction(()=>rodMesh.material.color.r>rodMesh.material.color.g*2);
+ check(await page.evaluate(()=>MateStage3D.stages.size===1 && [...MateStage3D.stages.values()][0]===pistonStage && rodMesh.geometry===rodGeometry && pistonStage.motions.some(m=>m.kind==='sliderCrank')),'edit rebuilt scene or stopped motion');
+ check(await page.evaluate(()=>[...pistonStage.parts.values()].find(part=>part.name==='Cylinder').material.clippingPlanes.length===1),'cutaway cylinder did not open');
+ await page.screenshot({path:'output/playwright/piston-three-beat.png'});
+ await page.evaluate(()=>HeyMateCanvas.clear());
+ return {passed:['speech beat gating','line durations','continue drawing','real lathe/box/cylinder geometry','labels','tick animation','drag rotation','part picking','SVG move/zoom tracking','clear cleanup','screen change preserves cards and removes stale marks','native illustrated shader GPU compile and visible pixels','screen highlight and three-beat piston','viewport wheel zoom','in-place 3D recolor'],vertices:first.vertices,illustrated};
 }

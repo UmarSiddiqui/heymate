@@ -57,7 +57,7 @@
       color: tint ? new THREE.Color(tint) : new THREE.Color(preset.color),
       metalness: spec.metalness != null ? spec.metalness : preset.metalness,
       roughness: spec.roughness != null ? spec.roughness : preset.roughness,
-      side: spec.double || (globalThis.__heymateNativeMetal && spec.cut) ? THREE.DoubleSide : THREE.FrontSide,
+      side: spec.double || spec.cut ? THREE.DoubleSide : THREE.FrontSide,
       flatShading: !!spec.flat,
     });
     const opacity = spec.opacity != null ? spec.opacity : preset.opacity;
@@ -117,8 +117,8 @@ vec3 to_srgb(vec3 c) {
 
 // The normal to light with: the face's own normal for flat-shaded parts (turned to the eye), the far side's
 // normal turned round for double-sided parts seen from behind.
-vec3 lit_normal(vec3 normal, vec3 position, vec3 eye, bool flat, bool doubleSided, bool front) {
-    if (flat) {
+vec3 lit_normal(vec3 normal, vec3 position, vec3 eye, bool flatShading, bool doubleSided, bool front) {
+    if (flatShading) {
         vec3 n = normalize(cross(dFdx(position), dFdy(position)));
         return dot(n, eye - position) < 0.0 ? -n : n;
     }
@@ -324,15 +324,18 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
     rim.position.set(3, 2, -4);
     scene.add(rim);
     const look = element.getAttribute('data-look') || 'illustrated';
-    if (!nativeMetal && look !== 'illustrated') scene.environment = studioEnvironment(renderer);
+    if (!nativeMetal && look !== 'illustrated') {
+      scene.environment = studioEnvironment(renderer);
+      renderer.localClippingEnabled = true;
+    }
     const pivot = new THREE.Group();
     scene.add(pivot);
     const camera = new THREE.PerspectiveCamera(cameraSpec.fov || 35, w / h, 0.01, 1000);
     const stage = {
       id: element.id, element, canvas, labels, leaders, renderer, scene, pivot, camera, w, h,
       tilt: degrees(cameraSpec.tilt != null ? cameraSpec.tilt : 15),
-      spin: cameraSpec.spin ?? 0.7, yaw: 0,
-      parts: new Map(), partOf: new Set(), pending: [], motions: [], labelList: [], ticks: [],
+      spin: cameraSpec.spin ?? 0.7, yaw: 0, zoom: 1,
+      parts: new Map(), partOf: new Set(), pending: [], motions: [], labelList: [], ticks: [], vertexCount: 0,
       born: performance.now(), look, radius: 1, centre: new THREE.Vector3(),
       ink: element.getAttribute('data-ink') || '#2B2E34', key, floor,
     };
@@ -371,6 +374,10 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
   }
 
   function addPart(stage, data, at) {
+    if (stage.parts.size >= 256) {
+      console.warn('[stage3d] part limit reached');
+      return;
+    }
     let obj;
     if (data.kind === 'group') obj = new THREE.Group();
     else {
@@ -378,7 +385,15 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
         const standard = materialFor(data.material);
         const illustrated = stage.look === 'illustrated' && !globalThis.__heymateNativeMetal;
         const material = illustrated ? illustratedMaterial(data.material || {}, standard) : standard;
-        obj = new THREE.Mesh(geometryFor(data.kind, data.recipe || JSON.stringify(data.params || {})), material);
+        const geometry = geometryFor(data.kind, data.recipe || JSON.stringify(data.params || {}));
+        const count = geometry.attributes.position.count;
+        if (stage.vertexCount + count > 1_000_000) {
+          geometry.dispose();
+          material.dispose();
+          throw Error('figure exceeds one million vertices');
+        }
+        stage.vertexCount += count;
+        obj = new THREE.Mesh(geometry, material);
         if (material.userData.mateShader) obj.onBeforeRender = (_renderer, _scene, camera) => syncShader(obj, camera);
       } catch (error) {
         console.warn('[stage3d] part', data.id, error && error.message);
@@ -415,7 +430,7 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
       line.setAttribute(key, value);
     }
     stage.leaders.appendChild(line);
-    const side = data.side || (stage.labelList.length % 2 ? 'left' : 'right');
+    const side = data.side === 'left' || data.side === 'right' ? data.side : null;
     stage.labelList.push({ div: pill, data, line, side, order: null, y: null });
   }
 
@@ -427,7 +442,10 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
     if (seen.has(key) || (tag === 'scene3d' && stages.has(element.id))) return;
     seen.add(key);
     const at = performance.now() + beatDelay(element) * 1000;
-    if (tag === 'scene3d') { makeStage(element); return; }
+    if (tag === 'scene3d') {
+      if (stages.size >= 4) { console.warn('[stage3d] figure limit reached'); return; }
+      makeStage(element); return;
+    }
     const stage = stages.get(element.getAttribute('data-stage'));
     if (!stage) return;
     const queue = run => stage.pending.push({ at, run });
@@ -453,12 +471,29 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
   const motionQuat = new THREE.Quaternion();
   const motionEuler = new THREE.Euler();
 
+  function applySliderCrank(stage, crank, motion, angle) {
+    const piston = stage.parts.get(motion.piston), rod = stage.parts.get(motion.rod);
+    if (!piston || !rod || !piston.visible || !rod.visible || !crank.visible) return;
+    const centre = crank.userData.base;
+    const pinX = -motion.radius * Math.sin(angle);
+    const pinY = motion.radius * Math.cos(angle);
+    const rise = Math.sqrt(motion.rodLength ** 2 - pinX ** 2);
+    crank.rotation.set(0, 0, angle);
+    piston.position.set(centre.x, centre.y + pinY + rise, centre.z);
+    rod.position.set(centre.x + pinX / 2, centre.y + pinY + rise / 2, centre.z);
+    rod.rotation.set(0, 0, Math.atan2(pinX, rise));
+  }
+
   function applyMotion(stage, motion, now) {
     const obj = stage.parts.get(motion.target);
     if (!obj) return;
     const seconds = (now - motion.start) / 1000;
     const pose = obj.userData;
     const period = motion.period || 6;
+    if (motion.kind === 'sliderCrank') {
+      applySliderCrank(stage, obj, motion, seconds / period * Math.PI * 2);
+      return;
+    }
     const axis = motionAxis.set(...(motion.axis || [0, 1, 0])).normalize();
     if (motion.kind === 'spin') {
       motionQuat.setFromEuler(pose.baseRot);
@@ -559,6 +594,7 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
   const visitPoint = new THREE.Vector3();
   function visit(stage, obj) {
     if (!handle || !handle.onBuild || !obj.isMesh) return false;
+    for (let parent = obj; parent; parent = parent.parent) if (!parent.visible) return false;
     const shown = obj.scale.x;
     obj.scale.setScalar(obj.userData.scale || 1);
     obj.updateMatrixWorld(true);
@@ -645,7 +681,7 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
     if (now >= (stage.holdUntil || 0)) stage.yaw += dt * stage.spin * 0.5;
     const vertical = degrees(stage.camera.fov) / 2;
     const horizontal = Math.atan(Math.tan(vertical) * stage.camera.aspect);
-    const distance = stage.radius / Math.sin(Math.min(vertical, horizontal)) * 1.08;
+    const distance = Math.max(stage.radius * 1.1, stage.radius / Math.sin(Math.min(vertical, horizontal)) * 1.08 / stage.zoom);
     stage.camera.position.set(
       stage.centre.x + Math.sin(stage.yaw) * Math.cos(stage.tilt) * distance,
       stage.centre.y + Math.sin(stage.tilt) * distance,
@@ -654,6 +690,24 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
     stage.camera.lookAt(stage.centre);
     stage.scene.updateMatrixWorld(true);
     stage.camera.updateMatrixWorld(true);
+  }
+
+  function clipBrowserFigure(stage) {
+    if (!stage.renderer.localClippingEnabled) return;
+    for (const part of stage.parts.values()) {
+      const spec = part.userData.material;
+      if (!part.isMesh || !Array.isArray(spec?.cut)) continue;
+      if (!part.material.clippingPlanes) part.material.clippingPlanes = [new THREE.Plane()];
+      const [plane] = part.material.clippingPlanes;
+      if (spec.cutFacing) {
+        plane.normal.copy(stage.centre).sub(stage.camera.position).normalize();
+        plane.constant = -stage.centre.dot(plane.normal);
+      } else {
+        const [x, y, z, offset] = spec.cut;
+        plane.normal.set(-x, -y, -z);
+        plane.constant = offset;
+      }
+    }
   }
 
   function tick() {
@@ -670,6 +724,7 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
       for (const motion of stage.motions) applyMotion(stage, motion, now);
       runTicks(stage, now, dt);
       placeCamera(stage, now, dt);
+      clipBrowserFigure(stage);
       stage.parts.forEach(obj => {
         const pose = obj.userData;
         if (!pose.visited && now >= pose.grow && now - (stage.lastVisit || 0) > 380 && visit(stage, obj)) {
@@ -687,7 +742,9 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
     const placed = { left: [], right: [] };
     for (const label of stage.labelList) {
       const target = label.data.follow ? stage.parts.get(label.data.follow) : null;
-      if ((label.data.follow && !target) || (target && !target.visible)) {
+      let hidden = false;
+      for (let parent = target; parent; parent = parent.parent) if (!parent.visible) hidden = true;
+      if ((label.data.follow && !target) || hidden) {
         label.div.style.opacity = '0';
         label.line.setAttribute('opacity', '0');
         continue;
@@ -696,6 +753,13 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
       if (target?.geometry?.boundingBox) target.localToWorld(target.geometry.boundingBox.getCenter(point));
       else if (target) target.getWorldPosition(point);
       point.project(stage.camera);
+      // Match the projected part rather than alternating labels across it.
+      // A small centre dead band prevents side flicker during orbit/animation.
+      if (label.data.side !== 'left' && label.data.side !== 'right') {
+        const side = label.side == null ? (point.x <= 0 ? 'left' : 'right')
+          : point.x < -0.08 ? 'left' : point.x > 0.08 ? 'right' : label.side;
+        if (side !== label.side) { label.side = side; label.order = null; label.y = null; }
+      }
       placed[label.side].push({ label, ax: (point.x + 1) / 2 * stage.w, ay: (1 - point.y) / 2 * stage.h });
     }
     const gap = 32;
@@ -741,12 +805,18 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
     stage.holdUntil = performance.now() + 2500;
   }
 
+  function zoom(stage, delta) {
+    if (!Number.isFinite(delta)) return;
+    stage.zoom = Math.max(0.5, Math.min(3, stage.zoom * Math.exp(-delta * 0.002)));
+    stage.holdUntil = performance.now() + 2500;
+  }
+
   const pickRay = new THREE.Raycaster();
   const pickNdc = new THREE.Vector2();
   const pickView = new THREE.Vector3();
   function hitKept(stage, hit) {
     for (let parent = hit.object; parent; parent = parent.parent) if (!parent.visible) return false;
-    if (!globalThis.__heymateNativeMetal) return true;
+    if (!globalThis.__heymateNativeMetal && !stage.renderer.localClippingEnabled) return true;
     const spec = hit.object.userData.material || {};
     if (spec.cutFacing) {
       pickView.copy(stage.camera.position).sub(stage.centre).normalize();
@@ -767,7 +837,7 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
   }
 
   globalThis.MateStage3D = {
-    stageAt, turn, pick,
+    stageAt, turn, zoom, pick,
     get rects() {
       return [...stages.values()].filter(stage => !stage.suppressed).map(stage => {
         const rect = stage.canvas.getBoundingClientRect();

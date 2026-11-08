@@ -56,7 +56,7 @@ extension CompanionManager {
                 "speed": SpeechStylePreferences.speed,
                 "controlPlaying": LocalControlState.speaker?.isPlaying == true,
                 "replyPlaying": voiceSynthesisClient.isPlaying,
-                "turnInFlight": isMateAgentTurnInFlight,
+                "turnInFlight": isResponseInFlight,
                 "silentMode": isSilentModeEnabled
             ])
         case .draw(let actionsJSON):
@@ -72,9 +72,13 @@ extension CompanionManager {
             return explain(program, streamed: streamed)
         case .drawingState:
             return .ok(await explainerWindowController.rendererState())
-        case .ask(let text, let newChat):
-            if newChat { startNewChat() }
-            sendTranscriptToClaudeWithScreenshot(transcript: text, shouldCaptureScreen: true)
+        case .ask(let text, let newChat, let captureScreen, let asHeyMateTalk):
+            isHeyMateTalkTurn = asHeyMateTalk
+            if newChat {
+                if asHeyMateTalk { heyMateTalkSession = .empty() }
+                else { startNewChat() }
+            }
+            sendTranscriptToClaudeWithScreenshot(transcript: text, shouldCaptureScreen: captureScreen)
             return .accepted(["asked": text])
         case .drawnTour(let text, let interview):
             startNewChat()
@@ -137,7 +141,7 @@ extension CompanionManager {
                     end = program.index(end, offsetBy: 120, limitedBy: program.endIndex) ?? program.endIndex
                     let done = end == program.endIndex
                     self.streamExplainer("```js\n" + String(program[..<end]) + (done ? "\n```" : ""),
-                                         owner: ObjectIdentifier(owner), screenCaptures: [])
+                                         owner: ObjectIdentifier(owner), screenCaptures: [], trustedLegacy: true)
                     if !done { try? await Task.sleep(for: .milliseconds(100)) }
                 }
                 // Keep owner alive until every prefix has been delivered.

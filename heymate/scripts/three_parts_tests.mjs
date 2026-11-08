@@ -38,6 +38,14 @@ function shape(out) {
 }
 const near = (actual, expected, tolerance, label) => assert.ok(Math.abs(actual - expected) <= tolerance, `${label}: ${actual} vs ${expected}`);
 
+test('small torus defaults preserve an open hole for glasses and trim', () => {
+  const lens = shape(build('torus', { r: 0.11, axis: 'z' }));
+  near(lens.hi[0], 0.132, 0.002, 'outer lens radius');
+  near(lens.hi[2], 0.022, 0.002, 'lens tube radius');
+  const explicit = shape(build('torus', { r: 0.11, tube: 0.01, axis: 'z' }));
+  near(explicit.hi[0], 0.12, 0.002, 'explicit tube stays authoritative');
+});
+
 // Parts that must come out closed and facing out, with the volume their recipe implies.
 const SOLIDS = [
   ['box', { w: 1, h: 2, d: 0.5 }, 1],

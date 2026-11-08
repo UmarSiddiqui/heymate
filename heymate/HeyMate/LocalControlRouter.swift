@@ -35,7 +35,7 @@ nonisolated enum LocalControlCommand: Equatable {
     case explain(program: String, streamed: Bool = false)
     case drawingState
     /// Runs a typed question as a Talk turn, as if it had been spoken.
-    case ask(text: String, newChat: Bool)
+    case ask(text: String, newChat: Bool, captureScreen: Bool = true, asHeyMateTalk: Bool = false)
     /// The welcome tour's drawn "show me" step, run outside the tour (ReferenceRenderer's developer test of the drawn tour).
     case drawnTour(text: String, interview: String)
     case clear
@@ -142,7 +142,7 @@ nonisolated enum LocalControlRouter {
             return .accepted(.openNotes)
         case "/ask":
             guard let text = fields.nonBlank("text") else { return .rejected(statusCode: 400, message: "Missing text") }
-            return .accepted(.ask(text: text, newChat: fields.bool("newChat") ?? false))
+            return .accepted(.ask(text: text, newChat: fields.bool("newChat") ?? false, captureScreen: fields.bool("captureScreen") ?? true, asHeyMateTalk: fields.bool("asHeyMateTalk") ?? false))
         case "/tour/show-me":
             return .accepted(.drawnTour(text: fields.nonBlank("text") ?? "Show me how you'd help me",
                                         interview: fields.nonBlank("interview") ?? ""))

@@ -28,9 +28,25 @@ nonisolated struct ScreenSnapshot: Sendable {
     let displayFrame: CGRect
     let screenshotWidthInPixels: Int
     let screenshotHeightInPixels: Int
+    var displayID: CGDirectDisplayID? = nil
+    let captureID = UUID()
+    var capturedAt = Date()
+    var sourceWindowID: CGWindowID? = nil
+    var sourceWindowFrame: CGRect? = nil
 }
 
 enum ScreenCapture {
+    private static var inputMonitor: Any?
+    private static var mostRecentInput = Date.distantPast
+
+    private static func watchInput() {
+        guard inputMonitor == nil else { return }
+        inputMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .scrollWheel]) { _ in
+            MainActor.assumeIsolated { mostRecentInput = Date() }
+        }
+    }
+
+    static func isCurrent(_ capture: ScreenSnapshot) -> Bool { capture.capturedAt >= mostRecentInput }
     enum Failure: LocalizedError, Equatable {
         case permissionRequired
         case captureDisabledInTests
@@ -68,6 +84,8 @@ enum ScreenCapture {
     /// captured in parallel.
     static func allScreens() async throws -> [ScreenSnapshot] {
         try requirePermission()
+        watchInput()
+        let capturedAt = Date()
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard !content.displays.isEmpty else { throw Failure.noDisplay }
 
@@ -101,6 +119,10 @@ enum ScreenCapture {
 
         let snapshots: [ScreenSnapshot] = ordered.enumerated().compactMap { index, entry in
             guard let (image, size) = images[index], let jpeg = jpegData(from: image) else { return nil }
+            let source = content.windows.first { window in
+                window.owningApplication?.bundleIdentifier != ownBundleID && window.windowLayer == 0 &&
+                window.frame.width > 100 && window.frame.height > 100 && window.frame.intersects(entry.display.frame)
+            }
             return ScreenSnapshot(
                 imageData: jpeg,
                 label: label(forDisplayAt: index, of: ordered.count, hasCursor: entry.hasCursor),
@@ -109,7 +131,9 @@ enum ScreenCapture {
                 displayHeightInPoints: Int(entry.frame.height),
                 displayFrame: entry.frame,
                 screenshotWidthInPixels: Int(size.width),
-                screenshotHeightInPixels: Int(size.height)
+                screenshotHeightInPixels: Int(size.height),
+                displayID: entry.display.displayID, capturedAt: capturedAt,
+                sourceWindowID: source?.windowID, sourceWindowFrame: source?.frame
             )
         }
         guard !snapshots.isEmpty else { throw Failure.nothingCaptured }
@@ -122,6 +146,8 @@ enum ScreenCapture {
     /// in front), so choosing this can never leave Talk blind.
     static func focusedWindow() async throws -> [ScreenSnapshot] {
         try requirePermission()
+        watchInput()
+        let capturedAt = Date()
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard !content.displays.isEmpty else { throw Failure.noDisplay }
 
@@ -166,7 +192,9 @@ enum ScreenCapture {
             displayHeightInPoints: height,
             displayFrame: frame,
             screenshotWidthInPixels: Int(size.width),
-            screenshotHeightInPixels: Int(size.height)
+            screenshotHeightInPixels: Int(size.height),
+            displayID: NSScreen.screens.first(where: { $0.frame.intersects(frame) })?.displayID,
+            capturedAt: capturedAt, sourceWindowID: window.windowID, sourceWindowFrame: window.frame
         )]
     }
 

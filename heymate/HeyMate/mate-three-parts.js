@@ -665,7 +665,8 @@
     // Lies flat, its hole along y. A partial arc gets flat ends, like a cut length of hose.
     torus(o) {
       const sweep = sweepOf(o), full = sweep >= TAU - 1e-9;
-      const g = sweepTube(new Circle(size(o.r, 1), sweep), size(o.tube, 0.2), Math.max(8, Math.round(72 * sweep / TAU)), 24, { closed: full, ends: 'flat' });
+      const radius = size(o.r, 1);
+      const g = sweepTube(new Circle(radius, sweep), size(o.tube, radius * 0.2), Math.max(8, Math.round(72 * sweep / TAU)), 24, { closed: full, ends: 'flat' });
       return aim(g, o.axis || 'y');
     },
     capsule(o) {

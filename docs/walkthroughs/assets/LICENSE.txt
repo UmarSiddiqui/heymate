@@ -1,0 +1,13 @@
+sample-logo-a.png, sample-logo-b.png and their *-transparent.png exports are original geometric test artwork
+created for the HeyMate Photopea walkthrough on 2026-11-08. No stock artwork,
+fonts, trademarks, user files or third-party assets were used.
+
+Copyright (c) 2026 Umar Siddiqui / HeyMate contributors.
+Licensed under the MIT License in the repository root (../../../LICENSE).
+Attribution: HeyMate contributors, "Photopea background removal samples".
+The source generator is ../make_photopea_samples.py.
+
+Fresh walkthrough screenshots and Photopea exports in this directory show
+these samples only and document the tested workflow; Photopea's interface
+remains the property of its respective owner. They are not retired HeyMate
+marketing screenshots.

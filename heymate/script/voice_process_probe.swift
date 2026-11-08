@@ -17,6 +17,17 @@ import Foundation
         await worker.stop()
         print("PASS persistent worker: 20 sequential requests")
 
+        try install("while IFS= read -r line; do printf '%s\\n' 'out of memory /Users/PRIVATE token PRIVATE' >&2; printf '%s\\n' '{}'; done\n")
+        _ = try await worker.request(request, timeout: .seconds(2))
+        var category = await worker.failureCategory()
+        for _ in 0..<100 where category == .unknown {
+            try await Task.sleep(for: .milliseconds(5))
+            category = await worker.failureCategory()
+        }
+        precondition(category == .memory)
+        await worker.stop()
+        print("PASS stderr is drained into a fixed category without exposing private text")
+
         try install("read line\nkill -TRAP $$\n")
         do { _ = try await worker.request(request, timeout: .seconds(2)); fatalError("Worker crash was ignored") }
         catch KokoroSpeechProcess.Failure.interrupted { }

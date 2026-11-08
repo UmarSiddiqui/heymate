@@ -22,6 +22,8 @@ Hold <kbd>Control</kbd> + <kbd>Option</kbd>, ask, and let go. HeyMate answers ou
 | “Take it from here.” | With computer control enabled and your approval, clicks and types. Click, type, or press Escape to take over. |
 | “Give me a morning inbox brief.” | A mate handles the job, keeps notes, and can follow a routine. |
 
+Try the [tested Photopea background-removal walkthrough](docs/walkthroughs/photopea-background-removal.md): free sample files, exact prompts, observed recovery steps, and verified transparent PNG exports.
+
 ## Answers you can see
 
 Drawings, diagrams, and 3D graphics appear over your desktop. Click a preview to watch.
@@ -93,7 +95,7 @@ Builds are signed with **Apple Developer ID and notarized by Apple**, so macOS o
 
 ## Helpful. With boundaries.
 
-Chats and memory live on your Mac. Relevant questions and screen context go to your chosen AI provider. Computer control needs your consent; optional usage analytics are off by default.
+Chats and memory live on your Mac. Relevant questions and screen context go to your chosen AI provider. Computer control needs your consent; product diagnostics and crash summaries have separate, default-off consent. Settings includes local payload previews; unconfigured builds send nothing.
 
 <details>
 <summary>Storage, screen capture, and background work</summary>

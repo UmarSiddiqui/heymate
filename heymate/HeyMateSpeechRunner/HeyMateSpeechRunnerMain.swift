@@ -131,7 +131,7 @@ final class PhononServer: @unchecked Sendable {
         child.environment = environment
         child.standardInput = FileHandle.nullDevice
         child.standardOutput = FileHandle.nullDevice
-        child.standardError = FileHandle.nullDevice
+        child.standardError = FileHandle.standardError
         child.terminationHandler = { _ in exit(1) }
         try lock.withLock { try child.run(); process = child }
         let session = URLSession(configuration: .ephemeral)

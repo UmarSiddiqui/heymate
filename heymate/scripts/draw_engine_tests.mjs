@@ -8,6 +8,14 @@ const context = vm.createContext({});
 vm.runInContext(engine, context);
 const G = context.MateDraw.geometry;
 
+test('figure respects stationary and slow cameras', () => {
+  for (const spin of [0, 0.2, 0.7]) {
+    const result = context.MateDraw.runCode(`figure(10,10,300,300,{spin:${spin}});`, 600, 600);
+    assert.equal(result.error, null);
+    assert.equal(result.find(mark => mark.do === 'stage3d').camera.spin, spin);
+  }
+});
+
 const ringOf = d => (String(d).match(/-?\d+\.\d/g) || []).map(Number).reduce((out, v, i) => (i % 2 ? out[out.length - 1].push(v) : out.push([v]), out), []);
 const length = pts => pts.reduce((s, p, i) => (i ? s + Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) : 0), 0);
 // how far a point is from a polyline
@@ -320,4 +328,26 @@ test('a path has a box whatever its commands', () => {
   // a curve's box is the curve's, not its control points'
   const [, y0, , y1] = M.markBox({ do: 'path', d: 'M0 100 C 50 0 150 200 200 100', size: 2 });
   assert.ok(y0 > 60 && y1 < 140, `${y0} ${y1}`);
+});
+
+test('figure emits one bounded declarative slider-crank motion for three distinct parts', () => {
+  const marks = M.runCode(`
+    const f = figure(40, 50, 400, 350);
+    const piston = f.group({name: 'Piston'});
+    const rod = f.box({size: [0.1, 1.2, 0.1], name: 'Rod'});
+    const crank = f.group({name: 'Crank'});
+    f.sliderCrank({piston, rod, crank, radius: 0.3, rodLength: 1.2, period: 2});
+    f.sliderCrank({piston, rod, crank, radius: 2, rodLength: 1.2, period: 2});
+    f.sliderCrank({piston, rod: piston, crank, radius: 0.3, rodLength: 1.2, period: 2});
+    f.sliderCrank({piston, rod, crank, radius: 0.3, rodLength: 1.2, period: 0});
+    const other = figure(50, 50, 300, 300);
+    f.sliderCrank({piston: other.box(), rod, crank, radius: 0.3, rodLength: 1.2, period: 2});
+  `, 1280, 800);
+  assert.equal(marks.error, null);
+  const motions = marks.filter(mark => mark.do === 'motion3d');
+  assert.equal(motions.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(motions[0].op)), {
+    kind: 'sliderCrank', target: 'st1p3', piston: 'st1p1', rod: 'st1p2', radius: 0.3, rodLength: 1.2, period: 2,
+  });
+  assert.equal(marks.filter(mark => mark.do === 'tick3d').length, 0);
 });

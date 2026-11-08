@@ -131,6 +131,7 @@ After a verified local install, run production Phonon checks:
 
 ```bash
 python3 scripts/phonon-runtime-tests.py
+python3 script/test_phonon_transport.py
 python3 script/verify_phonon_lifetime.py
 PROBE_ROUNDS=1000 PROBE_PLAYBACK=1 bash script/verify_phonon.sh
 PROBE_LONG_ONLY=1 bash script/verify_phonon.sh
@@ -252,6 +253,15 @@ runtime so a late side effect cannot occur. A structured `effect:refused` is a
 failure even when Cua omits `isError`. These tests reproduced a late-action bug
 before the client fix. See `cua-broader-checks-2026-11-05.json` for evidence and
 permission-identity limits.
+
+## Optional diagnostics
+
+Product diagnostics and crash summaries have independent, default-off consent.
+No destination is active without the explicit v2 privacy-review build gate.
+See [schema, retention and release review](diagnostics-privacy.md).
+`python3 script/test_diagnostics.py` compiles the production sender and verifies
+both categories against a disposable loopback collector with synthetic data.
+It never uses real crash reports, real user data or production ingestion.
 
 ## Local memory retrieval
 

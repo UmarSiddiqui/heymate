@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Photopea transparency verification</title>
+<style>
+  body { margin: 32px; background: #f4f1eb; color: #242424; font: 18px/1.5 system-ui, sans-serif; }
+  h1 { font-size: 28px; }
+  main { max-width: 900px; margin: auto; }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(240px, 1fr)); gap: 16px; }
+  figure { margin: 0; padding: 16px; border: 1px solid #aaa; }
+  figure.dark { background: #141c27; color: white; }
+  figure.yellow { background: #f8c94b; }
+  img { display: block; width: 100%; max-width: 320px; height: auto; margin: 12px auto; image-rendering: pixelated; }
+  figcaption { text-align: center; }
+  @media(max-width:600px) { .grid { grid-template-columns: 1fr; } }
+</style>
+<main>
+  <h1>Actual Photopea PNG exports</h1>
+  <p>Both outer backgrounds and inner holes reveal each contrasting surface. Original logo colors remain intact.</p>
+  <div class="grid">
+    <figure class="dark"><img src="assets/sample-logo-a-transparent.png" alt="Teal hexagonal logo on dark background"><figcaption>A · guided run · dark</figcaption></figure>
+    <figure class="yellow"><img src="assets/sample-logo-a-transparent.png" alt="Same teal logo on yellow background"><figcaption>A · guided run · yellow</figcaption></figure>
+    <figure class="dark"><img src="assets/sample-logo-b-transparent.png" alt="Purple circular logo on dark background"><figcaption>B · unaided computer repeat · dark</figcaption></figure>
+    <figure class="yellow"><img src="assets/sample-logo-b-transparent.png" alt="Same purple logo on yellow background"><figcaption>B · unaided computer repeat · yellow</figcaption></figure>
+  </div>
+  <p>Pixel check: A has 62,501 transparent background pixels and 14,299 unchanged logo pixels. See <a href="verification.json">full machine-readable verification</a>.</p>
+</main>
+</html>

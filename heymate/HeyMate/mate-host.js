@@ -15,6 +15,7 @@
   'use strict';
   const NS = 'http://www.w3.org/2000/svg';
   const G = {};                        // the canvas's own global, as JavaScriptCore's would be
+  let screenStale = false;
   const nodes = new Map();             // render node number -> painted element
   let root = null, svg = null, defs = null, layers = {}, measureSvg = null;
   const now = () => performance.now() / 1000;
@@ -141,6 +142,7 @@
 
   // ---------------------------------------------------------------- what the canvas asks of its host
   const timers = new Map();
+  const pendingVisibleBeats = new Set(), visibleBeats = new Set();
   const host = {
     now,
     schedule(id, seconds) {
@@ -169,6 +171,7 @@
     // What a mark sounds like (texture, moments, when): HeyMate plays its own sounds for it.
     markSound: (i, json) => { try { post('sound', JSON.parse(json)); } catch (_) {} },
     buttonReady: (i, seconds) => showButton(i, seconds),
+    markDrawn: line => pendingVisibleBeats.add(line),
   };
 
   // ---------------------------------------------------------------- the canvas, in its own global
@@ -420,10 +423,20 @@
   };
   function paint() {
     if (!G.__drainRender) return;
+    // Stale-screen marks are dropped once, when the change happens
+    // (screenChanged). Dropping on every paint erased each new annotation
+    // the instant it was drawn for the rest of the turn after any click,
+    // scroll or app switch. pointForHeardLines still keeps the cursor from
+    // flying to a spot the old screenshot described.
     let ops;
     try { const text = G.__drainRender(); if (!text) return; ops = JSON.parse(text); } catch (err) { console.warn('[mate] drain', err); return; }
     if (window.__mateDebugOps) window.__mateDebugOps.push(...ops);
     for (const op of ops) if (APPLY[op.op]) APPLY[op.op](op);
+    for (const line of pendingVisibleBeats) if (!visibleBeats.has(line)) {
+      visibleBeats.add(line);
+      requestAnimationFrame(() => post('beatVisible', { line: line - lineOffset }));
+    }
+    pendingVisibleBeats.clear();
   }
 
   // The figure()'s tick functions, one frame at a time (the stage calls mateCanvas.tick3d each frame).
@@ -440,6 +453,7 @@
       root.addEventListener('pointermove', onMove);
       root.addEventListener('pointerup', onUp);
       root.addEventListener('pointercancel', onCancel);
+      root.addEventListener('wheel', onWheel, { passive: false });
     }
     if (globalThis.MateStage3D) MateStage3D.reset();
     cardList = []; gesture = null; lastRects = '';
@@ -508,12 +522,13 @@
     return call(() => G.mateCanvas.zoomCard({ marks: card.marks, to: [k, (canvasW - k * w) / 2 - k * x, (canvasH - k * h) / 2 - k * y] }));
   }
 
-  let gesture = null, analysis = null, heardLine = -1, pointed = new Set(), lineOffset = 0;
+  let gesture = null, nativeButton = null, analysis = null, heardLine = -1, pointed = new Set(), lineOffset = 0;
   // Each pointer once, as soon as both its line is being heard and its statement has arrived.
   // Pointers fly HeyMate's cursor; typeText, copyText, openPage and handOff are the app's to carry out, each once,
   // as its line is heard.
   const POINTERS = ['point', 'target', 'hover'], ACTIONS = ['type', 'copy', 'open', 'handoff'];
   function pointForHeardLines() {
+    if (screenStale) return;
     for (const a of (analysis && analysis.actions) || []) {
       if (a.line > heardLine || pointed.has(a.i)) continue;
       if (POINTERS.includes(a.role)) post('pointAt', { x: a.x, y: a.y, box: a.box, label: a.label, role: a.role, w: canvasW, h: canvasH });
@@ -571,6 +586,14 @@
   // ---------------------------------------------------------------- pointer gestures
   // Down on a card starts a drag (once the pointer has moved 3 points), on a 3D stage a turn; up without a drag is a
   // click: a window button, or a 3D part to ask about. A gesture the system cancels puts everything back.
+  function onWheel(ev) {
+    const stage = globalThis.MateStage3D?.stageAt(ev.clientX, ev.clientY);
+    if (!stage) return;
+    ev.preventDefault();
+    post('touched', null);
+    MateStage3D.zoom(stage, ev.deltaY);
+  }
+
   function onDown(ev) {
     if (ev.target && ev.target.closest && ev.target.closest('[data-mate-button]')) return;
     const x = ev.clientX, y = ev.clientY;
@@ -643,11 +666,30 @@
   // Active glides and 3D stages keep their own animation/backpressure loops.
 
   globalThis.HeyMateCanvas = {
+    // Native input windows cover only interactive rectangles. Their events use
+    // the same gesture handlers as the browser fixture, without activating it.
+    input(phase, x, y, deltaY = 0) {
+      if (![x,y,deltaY].every(Number.isFinite)) return;
+      const target = document.elementFromPoint(x,y) || root;
+      const event = {clientX:x,clientY:y,deltaY,target,pointerId:1,preventDefault(){}};
+      if (phase === 'down') {
+        nativeButton = target?.closest?.('[data-mate-button]') || null;
+        onDown(event);
+      } else if (phase === 'move') onMove(event);
+      else if (phase === 'wheel') onWheel(event);
+      else if (phase === 'up') {
+        const button = nativeButton; nativeButton = null;
+        if (button && button === target?.closest?.('[data-mate-button]')) button.click();
+        else onUp(event);
+      }
+    },
     screenSampling,
     // w, h: the canvas in the screenshot's pixels; width: the screen's width in points.
     begin({ w, h, width, ink }) {
       if (!G.mateCanvas) boot();
       clearButtons();
+      visibleBeats.clear(); pendingVisibleBeats.clear();
+      screenStale = false;
       canvasW = w; canvasH = h; heardLine = -1; pointed = new Set(); analysis = null; lineOffset = 0;
       globalThis.__mateUnitPx = (width || w) / w;
       setUp(w, h);
@@ -672,6 +714,8 @@
     // A new turn on the drawing already showing: what was drawn stays, what was still waiting goes, and feed() now
     // takes only the new turn's code (it runs after the earlier turns', so their names still work).
     continue() {
+      visibleBeats.clear(); pendingVisibleBeats.clear();
+      screenStale = false;
       const json = call(() => G.mateCanvas.continueStream({}));
       try { lineOffset = JSON.parse(json).firstLine || 0; } catch (_) {}
       return json;
@@ -689,13 +733,22 @@
     },
     // What is on the drawing now, for the model (its parts with ids like p3, their boxes, what was said), or null.
     state: () => (G.mateCanvas ? G.mateCanvas.state() : null),
+    inspectFigures: () => [...(globalThis.MateStage3D?.stages.values() || [])].map(stage => ({
+      id: stage.id, zoom: stage.zoom, yaw: stage.yaw,
+      motions: stage.motions.map(motion => motion.kind),
+      parts: [...stage.parts.values()].map(part => ({
+        id: part.userData.id, name: part.name, geometry: part.geometry?.uuid || null,
+        color: part.material?.color?.getHexString() || null, visible: part.visible,
+        position: part.position.toArray(),
+      })),
+    })),
     screenChanged: () => call(() => {
+      screenStale = true;
       screenSampling.clear();
       if (!G.mateCanvas) return null;
       // A finished screen annotation must not point at a newly scrolled or
       // switched app. Cards and their attached marks remain useful notes.
-      const result = G.mateCanvas.isFinished()
-        ? G.mateCanvas.keepNotesOnly() : G.mateCanvas.dropPointing();
+      const result = G.mateCanvas.dropPointing();
       analysis = null;
       refreshHits();
       return result;

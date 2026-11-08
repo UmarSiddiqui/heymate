@@ -7,12 +7,18 @@ actor PhononEngine {
     static let shared = PhononEngine()
     private let helper: KokoroSpeechProcess
     private let resources: URL
+    private let modelStore: URL
+    private let platformUnsupportedReason: String?
     private var port: Int?
     private var busy = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
-    init(resources: URL = PhononEngine.resourceURL, helperExecutable: URL? = nil) {
+    init(resources: URL = PhononEngine.resourceURL, helperExecutable: URL? = nil,
+         modelStore: URL = PhononEngine.modelsURL,
+         unsupportedReason: String? = PhononEngine.unsupportedReason) {
         self.resources = resources
+        self.modelStore = modelStore
+        self.platformUnsupportedReason = unsupportedReason
         helper = helperExecutable.map { KokoroSpeechProcess(executable: $0) } ?? KokoroSpeechProcess()
     }
 
@@ -51,7 +57,7 @@ actor PhononEngine {
         defer { leave() }
         await helper.stop()
         port = nil
-        try? FileManager.default.removeItem(at: Self.modelsURL)
+        try? FileManager.default.removeItem(at: modelStore)
     }
 
     /// Audio is signed 16-bit little-endian PCM, mono, 24 kHz. Do not send a
@@ -62,46 +68,70 @@ actor PhononEngine {
         defer { leave() }
         try Task.checkCancellation()
         guard !text.isEmpty, text.count <= 4_096 else { throw Failure.invalidText }
-        let session = URLSession(configuration: .ephemeral)
-        defer { session.invalidateAndCancel() }
-        do {
-            let port = try await serverPort()
-            try Task.checkCancellation()
-            var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/v1/audio/speech")!)
-            request.httpMethod = "POST"
-            request.timeoutInterval = 45
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONSerialization.data(withJSONObject: [
-                "model": "phonon", "voice": voice, "input": text, "response_format": "pcm"
-            ])
-            try await withTaskCancellationHandler {
-                let (bytes, response) = try await session.bytes(for: request)
-                guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw Failure.server }
-                var chunk = [UInt8]()
-                chunk.reserveCapacity(2_400)
-                var total = 0
-                for try await byte in bytes {
-                    chunk.append(byte)
-                    total += 1
-                    guard total <= 24_000 * 2 * 120 else { throw Failure.invalidAudio }
-                    if chunk.count == 2_400 {
-                        try Task.checkCancellation()
-                        try await onChunk(Self.decodePCM(chunk))
-                        chunk.removeAll(keepingCapacity: true)
-                    }
-                }
+        for attempt in 0...1 {
+            var receivedAudio = false
+            let session = URLSession(configuration: .ephemeral)
+            defer { session.invalidateAndCancel() }
+            do {
+                let port = try await serverPort()
                 try Task.checkCancellation()
-                guard total > 0, chunk.count % 2 == 0 else { throw Failure.invalidAudio }
-                if !chunk.isEmpty { try await onChunk(Self.decodePCM(chunk)) }
-            } onCancel: {
-                session.invalidateAndCancel()
+                var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/v1/audio/speech")!)
+                request.httpMethod = "POST"
+                request.timeoutInterval = 45
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.httpBody = try JSONSerialization.data(withJSONObject: [
+                    "model": "phonon", "voice": voice, "input": text, "response_format": "pcm"
+                ])
+                try await withTaskCancellationHandler {
+                    let (bytes, response) = try await session.bytes(for: request)
+                    guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                        // Bound the error body and project it into a fixed category.
+                        // It may contain private text; neither retain nor log it.
+                        var body = [UInt8]()
+                        for try await byte in bytes {
+                            body.append(byte)
+                            if body.count == 8_192 { break }
+                        }
+                        throw Failure.http((response as? HTTPURLResponse)?.statusCode ?? 0,
+                                           SpeechFailureCategory.classify(String(decoding: body, as: UTF8.self)))
+                    }
+                    var chunk = [UInt8]()
+                    chunk.reserveCapacity(2_400)
+                    var total = 0
+                    for try await byte in bytes {
+                        chunk.append(byte)
+                        total += 1
+                        guard total <= 24_000 * 2 * 120 else { throw Failure.invalidAudio }
+                        if chunk.count == 2_400 {
+                            try Task.checkCancellation()
+                            receivedAudio = true
+                            try await onChunk(Self.decodePCM(chunk))
+                            chunk.removeAll(keepingCapacity: true)
+                        }
+                    }
+                    try Task.checkCancellation()
+                    guard total > 0, chunk.count % 2 == 0 else { throw Failure.invalidAudio }
+                    if !chunk.isEmpty { receivedAudio = true; try await onChunk(Self.decodePCM(chunk)) }
+                } onCancel: {
+                    session.invalidateAndCancel()
+                }
+                return
+            } catch {
+                if Task.isCancelled || error is CancellationError { throw CancellationError() }
+                let diagnostic = await helper.failureCategory()
+                var reported = error
+                if case Failure.http(let status, .unknown) = error, diagnostic != .unknown {
+                    reported = Failure.http(status, diagnostic)
+                } else if case KokoroSpeechProcess.Failure.interrupted = error, diagnostic != .unknown {
+                    reported = Failure.helper(diagnostic)
+                }
+                // Failed model processes must not leave a cached dead endpoint.
+                await helper.stop()
+                port = nil
+                if attempt == 0, !receivedAudio, let failure = error as? Failure,
+                   case .http(let status, _) = failure, (500...599).contains(status) { continue }
+                throw reported
             }
-        } catch {
-            if Task.isCancelled || error is CancellationError { throw CancellationError() }
-            // Failed model processes must not leave a cached dead endpoint.
-            await helper.stop()
-            port = nil
-            throw error
         }
     }
 
@@ -112,7 +142,7 @@ actor PhononEngine {
     }
 
     private func serverPort() async throws -> Int {
-        if let reason = Self.unsupportedReason { throw Failure.unavailable(reason) }
+        if let reason = platformUnsupportedReason { throw Failure.unavailable(reason) }
         if let port, await helper.isRunning() { return port }
         guard FileManager.default.fileExists(atPath: resources
             .appendingPathComponent("models/manifests/registry.ollama.ai/library/phonon/latest").path) else {
@@ -120,28 +150,59 @@ actor PhononEngine {
         }
         try installPrivateModels()
         let reply = try await helper.request(SpeechRunnerRequest(
-            operation: "servePhonon", modelDirectory: Self.modelsURL.path), timeout: .seconds(40))
-        guard let port = reply.port, (1...65_535).contains(port) else { throw Failure.server }
+            operation: "servePhonon", modelDirectory: modelStore.path), timeout: .seconds(40))
+        guard let port = reply.port, (1...65_535).contains(port) else { throw Failure.invalidServiceReply }
         self.port = port
         return port
     }
 
-    private func installPrivateModels() throws {
+    func installPrivateModels() throws {
         let source = resources.appendingPathComponent("models")
         let relative = "manifests/registry.ollama.ai/library/phonon/latest"
         let manifest = try Data(contentsOf: source.appendingPathComponent(relative))
-        let marker = Self.modelsURL.appendingPathComponent(".heymate-model-manifest")
+        let marker = modelStore.appendingPathComponent(".heymate-model-manifest")
         let digest = Data(SHA256.hash(data: manifest))
         if (try? Data(contentsOf: marker)) == digest,
-           FileManager.default.fileExists(atPath: Self.modelsURL.appendingPathComponent(relative).path) { return }
+           (try? Data(contentsOf: modelStore.appendingPathComponent(relative))) == manifest,
+           Self.validModelBlobs(in: modelStore, manifest: manifest) { return }
+        guard Self.validModelBlobs(in: source, manifest: manifest) else { throw Failure.modelCorrupt }
         // The server needs a writable model store. Never let it modify signed resources.
-        let staging = Self.modelsURL.deletingLastPathComponent().appendingPathComponent("models-\(UUID().uuidString)")
+        let staging = modelStore.deletingLastPathComponent().appendingPathComponent("models-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: staging) }
         try FileManager.default.createDirectory(at: staging.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.copyItem(at: source, to: staging)
         try digest.write(to: staging.appendingPathComponent(marker.lastPathComponent), options: .atomic)
-        if FileManager.default.fileExists(atPath: Self.modelsURL.path) { try FileManager.default.removeItem(at: Self.modelsURL) }
-        try FileManager.default.moveItem(at: staging, to: Self.modelsURL)
+        let backup = modelStore.deletingLastPathComponent().appendingPathComponent("models-backup-\(UUID().uuidString)")
+        let hadStore = FileManager.default.fileExists(atPath: modelStore.path)
+        if hadStore { try FileManager.default.moveItem(at: modelStore, to: backup) }
+        do { try FileManager.default.moveItem(at: staging, to: modelStore) }
+        catch {
+            if hadStore { try? FileManager.default.moveItem(at: backup, to: modelStore) }
+            throw error
+        }
+        if hadStore { try? FileManager.default.removeItem(at: backup) }
+    }
+
+    nonisolated private static func validModelBlobs(in root: URL, manifest: Data) -> Bool {
+        struct Descriptor: Decodable { let digest: String; let size: Int }
+        struct Manifest: Decodable { let config: Descriptor; let layers: [Descriptor] }
+        guard let manifest = try? JSONDecoder().decode(Manifest.self, from: manifest) else { return false }
+        for blob in [manifest.config] + manifest.layers {
+            let digest = String(blob.digest.dropFirst(7))
+            guard blob.digest.hasPrefix("sha256:"), digest.count == 64,
+                  digest.allSatisfy({ "0123456789abcdef".contains($0) }), blob.size >= 0 else { return false }
+            let file = root.appendingPathComponent("blobs/sha256-" + digest)
+            guard let values = try? file.resourceValues(forKeys: [.isSymbolicLinkKey, .fileSizeKey]),
+                  values.isSymbolicLink != true, values.fileSize == blob.size,
+                  let stream = try? FileHandle(forReadingFrom: file) else { return false }
+            defer { try? stream.close() }
+            var hash = SHA256()
+            do {
+                while let data = try stream.read(upToCount: 1_048_576), !data.isEmpty { hash.update(data: data) }
+            } catch { return false }
+            guard hash.finalize().map({ String(format: "%02x", $0) }).joined() == digest else { return false }
+        }
+        return true
     }
 
     private func enter() async {
@@ -154,12 +215,17 @@ actor PhononEngine {
     }
 
     enum Failure: LocalizedError {
-        case invalidText, invalidAudio, server, unavailable(String)
+        case invalidText, invalidAudio, invalidServiceReply, modelCorrupt, unavailable(String)
+        case http(Int, SpeechFailureCategory)
+        case helper(SpeechFailureCategory)
         var errorDescription: String? {
             switch self {
             case .invalidText: "The text is too long for one speech segment."
             case .invalidAudio: "The local voice returned invalid audio."
-            case .server: "The local voice service stopped responding."
+            case .invalidServiceReply: "The local voice helper returned an invalid service port."
+            case .modelCorrupt: "The bundled speaking model is damaged. Reinstall HeyMate to repair it."
+            case .http(let status, let category): "The local voice request failed (HTTP \(status), \(category.rawValue))."
+            case .helper(let category): "The local voice helper failed (\(category.rawValue))."
             case .unavailable(let reason): reason
             }
         }
