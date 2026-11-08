@@ -12,56 +12,6 @@
 import Foundation
 import Combine
 
-enum DiagnosticsProvider: String, CaseIterable {
-    case codex, claudeCode, openCode, customAPI, onDevice, unknown
-}
-
-enum DiagnosticsFeature: String { case setup, lesson, mate }
-enum DiagnosticsOutcome: String {
-    case completed, skipped, failed, reused, ended, expired
-    case modelReportedComplete = "model_reported_complete"
-}
-enum DiagnosticsFailure: String { case none, permission, provider, speech, unknown }
-
-/// Numeric versions only. Build/SDK metadata is untrusted, even if it happens
-/// to contain letters and digits that look like a harmless identifier.
-enum DiagnosticsSchema {
-    static func version(_ text: String) -> String {
-        let parts = text.split(separator: ".", omittingEmptySubsequences: false)
-        guard (1...4).contains(parts.count), parts.allSatisfy({
-            (1...4).contains($0.count) && $0.allSatisfy { "0123456789".contains($0) }
-        }) else { return "unknown" }
-        return text
-    }
-    static var osVersion: String {
-        let value = ProcessInfo.processInfo.operatingSystemVersion
-        return "\(value.majorVersion).\(value.minorVersion).\(value.patchVersion)"
-    }
-}
-
-struct CrashDiagnosticSummary {
-    enum Kind: String { case badAccess = "bad_access", badInstruction = "bad_instruction", abort, resource, other }
-    let kind: Kind
-    let appVersion: String
-
-    /// Reconstruct a fresh envelope; do not mutate/redact an SDK dictionary.
-    /// Unknown keys, stack frames, account/device identifiers and error text
-    /// are discarded by construction.
-    init(envelope: [String: Any]) {
-        let exception = envelope["exception"] as? [String: Any] ?? [:]
-        switch exception["type"] as? String {
-        case "EXC_BAD_ACCESS": kind = .badAccess
-        case "EXC_BAD_INSTRUCTION": kind = .badInstruction
-        case "EXC_CRASH": kind = .abort
-        case "EXC_RESOURCE": kind = .resource
-        default: kind = .other
-        }
-        let bundle = envelope["bundleInfo"] as? [String: Any] ?? [:]
-        appVersion = DiagnosticsSchema.version(bundle["CFBundleShortVersionString"] as? String ?? "")
-    }
-    var properties: [String: Any] { ["failure_category": kind.rawValue, "crash_app_version": appVersion] }
-}
-
 /// Numeric-only projection of model-derived screen text. The original label and
 /// commentary are deliberately discarded during initialization so neither can
 /// be passed to PostHog or unified logging by accident.
@@ -142,10 +92,6 @@ struct AnalyticsErrorSummary {
 enum HeyMateAnalytics {
 
     enum Event {
-        case diagnostic(feature: DiagnosticsFeature, outcome: DiagnosticsOutcome,
-                        provider: DiagnosticsProvider = .unknown, failure: DiagnosticsFailure = .none,
-                        count: Int = 0, durationMilliseconds: Int = 0)
-        case crash(CrashDiagnosticSummary)
         case appOpened(version: String)
         case notchOpened
         case onboardingStarted
@@ -165,8 +111,6 @@ enum HeyMateAnalytics {
 
         var name: String {
             switch self {
-            case .diagnostic(let feature, _, _, _, _, _): return feature.rawValue + "_outcome"
-            case .crash: return "crash_report"
             case .appOpened: return "app_opened"
             case .notchOpened: return "notch_opened"
             case .onboardingStarted: return "onboarding_started"
@@ -188,11 +132,6 @@ enum HeyMateAnalytics {
 
         var properties: [String: Any]? {
             switch self {
-            case .diagnostic(let feature, let outcome, let provider, let failure, let count, let duration):
-                return ["feature": feature.rawValue, "outcome": outcome.rawValue, "provider": provider.rawValue,
-                        "failure_category": failure.rawValue, "count": min(max(count, 0), 10_000),
-                        "duration_ms": min(max(duration, 0), 3_600_000)]
-            case .crash(let summary): return summary.properties
             case .appOpened(let version): return ["app_version": version]
             case .notchOpened: return nil
             case .onboardingStepViewed(let step): return ["step": step]
@@ -210,14 +149,7 @@ enum HeyMateAnalytics {
     }
 
     static let shared = UsageAnalytics()
-    static let crashes = UsageAnalytics(category: .crash,
-        apiKey: AppBundleConfiguration.stringValue(forKey: "CRASH_DIAGNOSTICS_API_KEY"),
-        host: AppBundleConfiguration.stringValue(forKey: "CRASH_DIAGNOSTICS_HOST"))
-    static func configure() {
-        shared.configure()
-        crashes.configure()
-        crashes.collectCrashReports()
-    }
+    static func configure() { shared.configure() }
     static func track(_ event: Event) { shared.track(event) }
     static func trackAppOpened() {
         track(.appOpened(version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"))
@@ -228,20 +160,12 @@ enum HeyMateAnalytics {
 /// Send only our explicit event schema, without SDK autocapture or device enrichment.
 @MainActor
 final class UsageAnalytics: ObservableObject {
-    enum Category: String { case product, crash }
     static let consentKey = "heymate.analytics.optIn.v1"
     static let identityKey = "heymate.analytics.installID.v1"
-    static let disclosure = "Share setup outcomes, model-reported lesson completion and mate reuse counts with HeyMate via PostHog. Includes app/OS versions, provider category and a random product install ID. No chats, screens, audio, paths or accounts. Off by default; declining changes no features."
-    static let crashDisclosure = "On the next launch, share a summary of new HeyMate macOS crash reports: app/OS versions and a fixed failure category. No stack traces, memory, raw error text or account details. Uses a separate random crash install ID. Off by default; independent of product diagnostics."
+    static let disclosure = "Share usage counts and return visits with HeyMate via PostHog, linked by a random install ID. No messages, screenshots, files, or account details. Off by default; change this any time in Privacy & Data."
 
     @Published private(set) var isOptedIn: Bool
-    var isAvailable: Bool { privacyReviewed && apiKey != nil && endpoint != nil }
-    let category: Category
-    private var consentKey: String { category == .product ? Self.consentKey : "heymate.crashes.optIn.v1" }
-    private var identityKey: String { category == .product ? Self.identityKey : "heymate.crashes.installID.v1" }
-    private var sinceKey: String { "heymate.diagnostics.\(category.rawValue).since.v1" }
-    private var cursorKey: String { "heymate.diagnostics.\(category.rawValue).cursor.v1" }
-    private let privacyReviewed: Bool
+    var isAvailable: Bool { apiKey != nil && endpoint != nil }
     private let defaults: UserDefaults
     private let apiKey: String?
     private let endpoint: URL?
@@ -252,18 +176,14 @@ final class UsageAnalytics: ObservableObject {
     private var worker: Task<Void, Never>?
     private(set) var pendingEvents: [[String: Any]] = []
     private var generation = UUID()
-    private var lastPreviewEvent: [String: Any]?
 
-    init(defaults: UserDefaults = .standard, category: Category = .product,
+    init(defaults: UserDefaults = .standard,
          apiKey: String? = AppBundleConfiguration.stringValue(forKey: "POSTHOG_API_KEY"),
          host: String? = AppBundleConfiguration.stringValue(forKey: "POSTHOG_HOST"),
          version: String = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown",
-         privacyReviewed: Bool = AppBundleConfiguration.stringValue(forKey: "DIAGNOSTICS_PRIVACY_REVIEWED") == "v2",
          now: @escaping () -> Date = Date.init,
          send: ((URLRequest) async throws -> Int)? = nil) {
         self.defaults = defaults
-        self.category = category
-        self.privacyReviewed = privacyReviewed
         let key = apiKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         self.apiKey = key.hasPrefix("phc_") || key.hasPrefix("ph_project_") ? key : nil
         // Only the two documented ingestion hosts. Never send to an arbitrary build URL.
@@ -271,23 +191,22 @@ final class UsageAnalytics: ObservableObject {
         let base = host.isEmpty ? "https://us.i.posthog.com" : host
         self.endpoint = ["https://us.i.posthog.com", "https://eu.i.posthog.com"].contains(base)
             ? URL(string: base + "/batch/") : nil
-        self.version = DiagnosticsSchema.version(version)
+        self.version = version
         self.now = now
         self.sendOverride = send
-        self.isOptedIn = defaults.bool(forKey: category == .product ? Self.consentKey : "heymate.crashes.optIn.v1")
+        self.isOptedIn = defaults.bool(forKey: Self.consentKey)
     }
 
     func configure() {
         // No initialization, identifier creation, or network traffic until an event
         // follows consent. Also forget any identity left by a previous opt-out.
-        if !isOptedIn { defaults.removeObject(forKey: identityKey) }
+        if !isOptedIn { defaults.removeObject(forKey: Self.identityKey) }
     }
 
     func setOptedIn(_ enabled: Bool) {
         guard !enabled || !isOptedIn else { return }
         isOptedIn = enabled
-        defaults.set(enabled, forKey: consentKey)
-        if enabled { defaults.set(now().timeIntervalSince1970, forKey: sinceKey) }
+        defaults.set(enabled, forKey: Self.consentKey)
         if !enabled {
             generation = UUID()
             worker?.cancel()
@@ -295,28 +214,17 @@ final class UsageAnalytics: ObservableObject {
             session?.invalidateAndCancel()
             session = nil
             pendingEvents.removeAll()
-            defaults.removeObject(forKey: identityKey)
-            defaults.removeObject(forKey: sinceKey)
-            defaults.removeObject(forKey: cursorKey)
-            lastPreviewEvent = nil
+            defaults.removeObject(forKey: Self.identityKey)
         }
     }
 
     func track(_ event: HeyMateAnalytics.Event) {
         guard isOptedIn, isAvailable else { return }
-        // Legacy instrumentation remains source compatible but cannot upload.
-        // This deliberately starts with three product features, not every tap.
-        switch (category, event) {
-        case (.product, .diagnostic), (.crash, .crash): break
-        default: return
-        }
-        let id = defaults.string(forKey: identityKey).flatMap(UUID.init(uuidString:))?.uuidString ?? UUID().uuidString
-        defaults.set(id, forKey: identityKey)
+        let id = defaults.string(forKey: Self.identityKey) ?? UUID().uuidString
+        defaults.set(id, forKey: Self.identityKey)
         var properties = event.properties ?? [:]
         properties["app_version"] = version
-        properties["os_version"] = DiagnosticsSchema.osVersion
-        properties["analytics_schema"] = 2
-        properties["diagnostics_category"] = category.rawValue
+        properties["analytics_schema"] = 1
         properties["$process_person_profile"] = false
         properties["$geoip_disable"] = true
         let timestamp = ISO8601DateFormatter().string(from: now())
@@ -326,65 +234,22 @@ final class UsageAnalytics: ObservableObject {
                                   "uuid": UUID().uuidString])
         }
         append(event.name, properties)
-        lastPreviewEvent = pendingEvents.last
+        // Only deliberate interactions count. Never infer use from idle polling.
+        var activityProperties = properties
+        activityProperties["source_event"] = event.name
+        switch event {
+        case .userMessageSent, .notchOpened:
+            append("active_use", activityProperties)
+        default: break
+        }
+        switch event {
+        case .aiResponseReceived:
+            append("value_received", activityProperties)
+        default: break
+        }
         // Bounded, memory-only queue. Never replay pre-consent history.
         if pendingEvents.count > 100 { pendingEvents.removeFirst(pendingEvents.count - 100) }
         startWorker()
-    }
-
-    /// Preview is local and available even when no destination is configured.
-    /// It excludes the public ingestion key and never creates an install ID.
-    func previewData() throws -> Data {
-        let example: HeyMateAnalytics.Event = category == .product
-            ? .diagnostic(feature: .setup, outcome: .completed)
-            : .crash(CrashDiagnosticSummary(envelope: [:]))
-        var properties = example.properties ?? [:]
-        properties["app_version"] = version
-        properties["os_version"] = DiagnosticsSchema.osVersion
-        properties["analytics_schema"] = 2
-        properties["diagnostics_category"] = category.rawValue
-        properties["$process_person_profile"] = false
-        properties["$geoip_disable"] = true
-        let exampleEvent: [String: Any] = ["event": example.name, "properties": properties,
-                                          "distinct_id": "preview-only", "timestamp": "example", "uuid": "preview-only"]
-        return try JSONSerialization.data(withJSONObject: [
-            "category": category.rawValue, "consented": isOptedIn, "configured": isAvailable,
-            "destination": endpoint?.absoluteString ?? "unconfigured", "example": lastPreviewEvent == nil,
-            "payload": lastPreviewEvent ?? exampleEvent
-        ], options: [.prettyPrinted, .sortedKeys])
-    }
-
-    /// macOS owns crash capture. Read only our own new .ips reports, then
-    /// reconstruct the small allowlisted summary. No crash SDK is initialized.
-    func collectCrashReports(directory: URL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Logs/DiagnosticReports")) {
-        guard category == .crash, isOptedIn, isAvailable else { return }
-        let since = defaults.double(forKey: sinceKey)
-        // Legacy/absent consent epochs must not upload historical reports.
-        guard since > 0 else { defaults.set(now().timeIntervalSince1970, forKey: sinceKey); return }
-        let cursor = max(since, defaults.double(forKey: cursorKey))
-        let files = (try? FileManager.default.contentsOfDirectory(at: directory,
-            includingPropertiesForKeys: [.fileSizeKey, .isSymbolicLinkKey])) ?? []
-        var reports: [(Date, CrashDiagnosticSummary)] = []
-        for file in files where file.lastPathComponent.hasPrefix("HeyMate-") && file.pathExtension == "ips" {
-            guard let values = try? file.resourceValues(forKeys: [.fileSizeKey, .isSymbolicLinkKey]),
-                  values.isSymbolicLink != true, (values.fileSize ?? Int.max) <= 2_097_152,
-                  let data = try? Data(contentsOf: file), let newline = data.firstIndex(of: 10),
-                  let report = try? JSONSerialization.jsonObject(with: Data(data[(newline + 1)...])) as? [String: Any],
-                  let bundle = report["bundleInfo"] as? [String: Any],
-                  bundle["CFBundleIdentifier"] as? String == "com.heymate.app",
-                  let timestamp = report["captureTime"] as? String else { continue }
-            let format = DateFormatter()
-            format.locale = Locale(identifier: "en_US_POSIX")
-            format.dateFormat = "yyyy-MM-dd HH:mm:ss.SSSS Z"
-            guard let date = format.date(from: timestamp), date.timeIntervalSince1970 > cursor,
-                  date <= now() else { continue }
-            reports.append((date, CrashDiagnosticSummary(envelope: report)))
-        }
-        for (date, summary) in reports.sorted(by: { $0.0 < $1.0 }).suffix(20) {
-            track(.crash(summary))
-            defaults.set(date.timeIntervalSince1970, forKey: cursorKey)
-        }
     }
 
     private func startWorker() {
@@ -399,7 +264,6 @@ final class UsageAnalytics: ObservableObject {
                 var request = URLRequest(url: endpoint)
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.setValue("HeyMate-Diagnostics/2", forHTTPHeaderField: "User-Agent")
                 request.timeoutInterval = 15
                 request.httpBody = try? JSONSerialization.data(withJSONObject: ["api_key": apiKey, "batch": batch])
                 do {
@@ -410,7 +274,6 @@ final class UsageAnalytics: ObservableObject {
                         if self.session == nil {
                             let configuration = URLSessionConfiguration.ephemeral
                             configuration.httpCookieStorage = nil
-                            configuration.urlCredentialStorage = nil
                             configuration.urlCache = nil
                             self.session = URLSession(configuration: configuration)
                         }

@@ -99,14 +99,10 @@ extension CompanionManager {
                   if case .plan = $0 { return true }
                   return false
               }) else { return }
-        endWalkthrough(outcome: .modelReportedComplete)
+        endWalkthrough()
     }
 
-    func endWalkthrough(outcome: DiagnosticsOutcome = .ended) {
-        if let walkthrough = activeWalkthrough {
-            HeyMateAnalytics.track(.diagnostic(feature: .lesson, outcome: walkthrough.isExpired ? .expired : outcome,
-                provider: DiagnosticsProvider(rawValue: selectedBrain.rawValue) ?? .unknown, count: walkthrough.steps.count))
-        }
+    func endWalkthrough() {
         disarmWalkthroughClickMonitor()
         activeWalkthrough = nil
     }

@@ -63,7 +63,6 @@ jobs:
         run: |
           python3 heymate/scripts/phonon-runtime-tests.py
           python3 heymate/script/test_phonon_transport.py
-          python3 heymate/script/test_diagnostics.py
           bash heymate/script/verify_voice_process.sh
           bash heymate/script/verify_talk_context.sh
           PROBE_PURE_ONLY=1 bash heymate/script/verify_phonon.sh

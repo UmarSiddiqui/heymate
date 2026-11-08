@@ -254,15 +254,6 @@ failure even when Cua omits `isError`. These tests reproduced a late-action bug
 before the client fix. See `cua-broader-checks-2026-11-05.json` for evidence and
 permission-identity limits.
 
-## Optional diagnostics
-
-Product diagnostics and crash summaries have independent, default-off consent.
-No destination is active without the explicit v2 privacy-review build gate.
-See [schema, retention and release review](diagnostics-privacy.md).
-`python3 script/test_diagnostics.py` compiles the production sender and verifies
-both categories against a disposable loopback collector with synthetic data.
-It never uses real crash reports, real user data or production ingestion.
-
 ## Local memory retrieval
 
 `memory.json` remains the authoritative, editable text store. Optional

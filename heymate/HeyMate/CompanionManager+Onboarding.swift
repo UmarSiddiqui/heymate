@@ -51,10 +51,6 @@ extension CompanionManager {
     /// launch and the tour doesn't open by itself again.
     func finishWelcomeTour(openingHome: Bool) {
         onboardingTranscriptSink = nil
-        if !hasCompletedOnboarding {
-            HeyMateAnalytics.track(.diagnostic(feature: .setup, outcome: openingHome ? .completed : .skipped,
-                provider: DiagnosticsProvider(rawValue: selectedBrain.rawValue) ?? .unknown))
-        }
         hasCompletedOnboarding = true
         HeyMateAnalytics.track(.onboardingVideoCompleted)
         cursorGreeting = nil
@@ -144,8 +140,6 @@ extension CompanionManager {
             return spoken
         } catch {
             HeyMateLog.log("⚠️ Welcome tour answer failed: \(error)")
-            HeyMateAnalytics.track(.diagnostic(feature: .setup, outcome: .failed,
-                provider: DiagnosticsProvider(rawValue: selectedBrain.rawValue) ?? .unknown, failure: .unknown))
             return nil
         }
     }

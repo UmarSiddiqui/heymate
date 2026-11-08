@@ -613,7 +613,7 @@ struct OnboardingHelloStep: View {
             }
             if analytics.isAvailable {
                 VStack(alignment: .leading, spacing: 8) {
-                    Toggle("Share product diagnostics", isOn: Binding(
+                    Toggle("Share usage analytics", isOn: Binding(
                         get: { analytics.isOptedIn }, set: { analytics.setOptedIn($0) }
                     ))
                     Text(UsageAnalytics.disclosure)

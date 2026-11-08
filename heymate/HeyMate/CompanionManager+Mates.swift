@@ -65,10 +65,6 @@ extension CompanionManager: MateRoutineRunning {
         let active = independentSession(forMateID: id)
         let newest = [saved, active].compactMap { $0 }.max { $0.updatedAt < $1.updatedAt }
         if let newest {
-            if newest.messages.contains(where: { $0.role == .user }) {
-                HeyMateAnalytics.track(.diagnostic(feature: .mate, outcome: .reused,
-                    provider: DiagnosticsProvider(rawValue: selectedBrain.rawValue) ?? .unknown))
-            }
             currentChat = newest
         } else {
             var session = ChatSession.empty()

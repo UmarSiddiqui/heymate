@@ -95,7 +95,7 @@ Builds are signed with **Apple Developer ID and notarized by Apple**, so macOS o
 
 ## Helpful. With boundaries.
 
-Chats and memory live on your Mac. Relevant questions and screen context go to your chosen AI provider. Computer control needs your consent; product diagnostics and crash summaries have separate, default-off consent. Settings includes local payload previews; unconfigured builds send nothing.
+Chats and memory live on your Mac. Relevant questions and screen context go to your chosen AI provider. Computer control needs your consent; optional usage analytics are off by default.
 
 <details>
 <summary>Storage, screen capture, and background work</summary>
