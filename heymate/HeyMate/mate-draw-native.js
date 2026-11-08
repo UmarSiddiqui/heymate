@@ -379,6 +379,8 @@
     const mark = made[0];
     if (at.i == null || !mark || !d.session) return;
     d.drawn[at.i] = { t: d.session.now(), pen: MateDraw.natural(mark).dur * Math.max(at.pace || 1, 0.35) };
+    const line = d.session.timeline.marks.find(entry => entry.i === at.i)?.line;
+    if (typeof host.markDrawn === 'function' && Number.isInteger(line)) host.markDrawn(line);
     soundFor(mark, at.i);
     buttonDrawn(mark, at.i);
   }

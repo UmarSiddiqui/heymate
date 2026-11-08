@@ -4,11 +4,17 @@
 //
 //  The welcome tour a new person walks through in its own window. Every
 //  step is something they actually do, not a slide: grant a permission,
-//  pick their AI, talk into the mic, answer a few questions, ask about
-//  their screen. HeyMate narrates each step out loud.
+//  pick their AI, say their name, answer a few questions, ask about their
+//  screen, and say yes to their new mates' first jobs. HeyMate narrates
+//  each step out loud. Kept short on purpose: nine steps, a few minutes.
 //
-//      hello → voice → permissions → your AI → mic check → talk (your name)
-//            → interview → show me → point → circle → type → reveal
+//      voice → hello → permissions → your AI → talk (your name) → interview
+//            → show me → ask about your screen → first jobs → reveal
+//
+//  Voice comes first because the tour talks the whole way through; that
+//  step also shows the on-device model download plainly. The mic check is
+//  the talk step itself, circling is part of asking about the screen, and
+//  the typing shortcut is a tip at the end.
 //
 //  Progress is saved per step, so quitting partway resumes there next
 //  launch. Skip ends the tour from anywhere; nothing here blocks HeyMate.
@@ -20,47 +26,108 @@ import Combine
 import SwiftUI
 
 enum OnboardingStep: String, CaseIterable, Identifiable {
-    case hello
+    /// Pick HeyMate's voice and see the on-device download.
     case voice
+    case hello
     case permissions
     case ai
-    case mic
     case talk
     case interview
     case showMe
+    /// Ask about the screen, circling part of it if you like.
     case point
-    case circle
-    case type
-    case firstTask
+    /// The new mates each offer a first job: yes or no.
+    case kickoff
     case reveal
 
     var id: String { rawValue }
+
+    /// A saved step, including ones from the longer tour, so someone
+    /// halfway through an older build resumes at the nearest step.
+    static func restored(_ raw: String) -> OnboardingStep? {
+        if let step = OnboardingStep(rawValue: raw) { return step }
+        switch raw {
+        case "mic": return .talk
+        case "circle": return .point
+        case "type", "firstTask": return .kickoff
+        default: return nil
+        }
+    }
+}
+
+/// The tour's three parts, shown as the progress bar along the top.
+enum OnboardingChapter: CaseIterable, Identifiable {
+    case setUp
+    case meet
+    case tryIt
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .setUp: return "Set up"
+        case .meet: return "Meet"
+        case .tryIt: return "Try it"
+        }
+    }
+
+    var steps: [OnboardingStep] {
+        switch self {
+        case .setUp: return [.voice, .hello, .permissions, .ai]
+        case .meet: return [.talk, .interview]
+        case .tryIt: return [.showMe, .point, .kickoff]
+        }
+    }
+
+    func contains(_ step: OnboardingStep) -> Bool { steps.contains(step) }
+
+    /// The chapter a step belongs to; the closing page counts as the last.
+    static func of(_ step: OnboardingStep) -> OnboardingChapter {
+        allCases.first { $0.contains(step) } ?? .tryIt
+    }
+
+    /// 0…1: how much of this chapter is behind the person at `step`.
+    func progress(at step: OnboardingStep) -> CGFloat {
+        let all = OnboardingStep.allCases
+        guard let current = all.firstIndex(of: step),
+              let first = steps.first.flatMap(all.firstIndex(of:)),
+              let last = steps.last.flatMap(all.firstIndex(of:)) else { return 0 }
+        if current > last { return 1 }
+        if current < first { return 0 }
+        return CGFloat(current - first + 1) / CGFloat(steps.count)
+    }
 }
 
 @MainActor
 final class OnboardingTour: ObservableObject {
-    @Published private(set) var step: OnboardingStep = .hello
+    @Published private(set) var step: OnboardingStep = OnboardingStep.allCases[0]
     /// The step's own task is done, so Continue lights up.
     @Published private(set) var isStepDone = false
     /// A short live note under the step: "listening…", "thinking…".
     @Published private(set) var status: String?
     @Published private(set) var heardName: String? = OnboardingTour.storedName
-    @Published private(set) var interviewLines: [OnboardingInterviewLine] = []
+    @Published private(set) var interviewLines: [OnboardingInterviewLine] =
+        OnboardingInterview.decode(UserDefaults.standard.data(forKey: OnboardingTour.interviewKey))
     @Published private(set) var isInterviewThinking = false
+    /// One-tap answers for the question on screen.
+    @Published private(set) var interviewSuggestions: [String] = []
     @Published private(set) var createdMateNames: [String] = UserDefaults.standard.stringArray(forKey: OnboardingTour.createdMatesKey) ?? []
-    /// What HeyMate said on the point and circle steps.
+    /// First jobs the interview's mates offered, by mate name.
+    @Published private(set) var firstJobs: [String: String] =
+        UserDefaults.standard.dictionary(forKey: OnboardingTour.firstJobsKey) as? [String: String] ?? [:]
+    /// Yes (started) or no for each first job, by mate name.
+    @Published private(set) var kickoffDecisions: [String: Bool] = [:]
+    /// What HeyMate said when asked about the screen.
     @Published private(set) var lastAnswer: String?
+    /// HeyMate's latest line on this step, shown in its speech bubble.
+    /// Set even when the tour is silent, so typing-only people read it.
+    @Published private(set) var speech: String?
     @Published private(set) var hasMarkedRegion = false
     @Published var typedAnswer = ""
-    /// Chose "just type" on the voice step: the tour stops talking, and
+    /// Chose "just type" on the first page: the tour stops talking, and
     /// silent mode comes on when it ends.
     @Published private(set) var prefersTyping = UserDefaults.standard.bool(forKey: OnboardingTour.prefersTypingKey)
-    /// Which sample is playing on the voice step.
-    @Published private(set) var playingSample: VoiceSample?
 
-    enum VoiceSample { case onDevice }
-
-    let micCheck = OnboardingMicCheck()
     let music = OnboardingMusic()
     let companionManager: CompanionManager
     private let voiceClips = OnboardingVoiceClips()
@@ -74,19 +141,24 @@ final class OnboardingTour: ObservableObject {
     /// Mates the interview already made, so a resumed or replayed tour
     /// doesn't make another set.
     static let createdMatesKey = "heymate.onboarding.createdMates"
+    /// The interview so far, so Back, a relaunch or the "show me" step
+    /// never lose what the person said.
+    static let interviewKey = "heymate.onboarding.interview"
+    static let firstJobsKey = "heymate.onboarding.firstJobs"
 
-    private var samplePlayer: AVAudioPlayer?
 
     private var stepTask: Task<Void, Never>?
     private var watchers: Set<AnyCancellable> = []
     private var interviewAnswers = 0
+    /// The AI step asked for a sign-in that hasn't happened yet.
+    private var isAwaitingSignIn = false
     /// A point or circle answer is being worked out; further presses wait.
     private var isAnswering = false
 
     init(companionManager: CompanionManager, restart: Bool) {
         self.companionManager = companionManager
         if !restart, let saved = UserDefaults.standard.string(forKey: Self.progressKey),
-           let resumed = OnboardingStep(rawValue: saved) {
+           let resumed = OnboardingStep.restored(saved) {
             step = resumed
         }
     }
@@ -97,6 +169,16 @@ final class OnboardingTour: ObservableObject {
     static var storedName: String? {
         UserDefaults.standard.string(forKey: nameKey)
     }
+
+    /// Mates the interview made, as they are now: renamed or deleted
+    /// mates follow what the person did after.
+    var createdMates: [Mate] {
+        createdMateNames.compactMap { name in
+            companionManager.mates.first { $0.name == name && !$0.archived }
+        }
+    }
+
+    var interviewAnswerCount: Int { interviewLines.filter { $0.speaker == .user }.count }
 
     var stepIndex: Int { OnboardingStep.allCases.firstIndex(of: step) ?? 0 }
     var stepCount: Int { OnboardingStep.allCases.count }
@@ -111,7 +193,7 @@ final class OnboardingTour: ObservableObject {
     func begin() {
         // A tour starting from the top boots HeyMate up; a resumed one
         // picks up quietly where it left off.
-        if step == .hello {
+        if step == OnboardingStep.allCases[0] {
             HeyMateCue.shared.fire(.boot)
             companionManager.greetWithCursor(Self.cursorGreeting)
         }
@@ -142,6 +224,8 @@ final class OnboardingTour: ObservableObject {
     func finish(openingHome: Bool) {
         leaveStep()
         UserDefaults.standard.removeObject(forKey: Self.progressKey)
+        UserDefaults.standard.removeObject(forKey: Self.interviewKey)
+        UserDefaults.standard.removeObject(forKey: Self.firstJobsKey)
         companionManager.finishWelcomeTour(openingHome: openingHome)
         if prefersTyping { companionManager.isSilentModeEnabled = true }
         if openingHome && !prefersTyping {
@@ -168,6 +252,7 @@ final class OnboardingTour: ObservableObject {
             isStepDone = false
             status = nil
             lastAnswer = nil
+            speech = nil
         }
         UserDefaults.standard.set(newStep.rawValue, forKey: Self.progressKey)
         HeyMateAnalytics.track(.onboardingStepViewed(step: newStep.rawValue))
@@ -177,6 +262,7 @@ final class OnboardingTour: ObservableObject {
 
     private func leaveStep() {
         isAnswering = false
+        isAwaitingSignIn = false
         stepTask?.cancel()
         stepTask = nil
         watchers.removeAll()
@@ -184,14 +270,12 @@ final class OnboardingTour: ObservableObject {
         companionManager.stopSpeaking()
         voiceClips.stop()
         music.setDucked(false)
-        stopSamples()
-        micCheck.stop()
     }
 
     /// Steps that hear the person. The music steps aside for them.
     private static func listens(_ step: OnboardingStep) -> Bool {
         switch step {
-        case .mic, .talk, .interview, .showMe, .point, .circle: return true
+        case .talk, .interview, .showMe, .point: return true
         default: return false
         }
     }
@@ -205,12 +289,14 @@ final class OnboardingTour: ObservableObject {
 
     /// Fire-and-forget line; silent when the person chose typing.
     private func speak(_ line: String) {
+        speech = line
         guard speaksAloud else { return }
         if usesVoiceClips, voiceClips.start(line) { return }
         companionManager.speakLine(line)
     }
 
     private func say(_ line: String) async {
+        speech = line
         guard speaksAloud else { return }
         music.setDucked(true)
         defer { music.setDucked(false) }
@@ -239,21 +325,39 @@ final class OnboardingTour: ObservableObject {
         switch step {
         case .hello:
             markDone()
-            // Let the buddy fade in and say hello before the voice does.
-            try? await Task.sleep(for: .seconds(2.5))
-            guard !Task.isCancelled else { return }
             await say("Hey! I'm your AI mate. This is the start of a great friendship. I live up in your notch, and I'm here for whatever's on your screen. Let me show you around.")
 
         case .voice:
-            markDone()
+            // The tour waits here until hearing and voice are ready, so every
+            // later step works the first time. Start-anyway is on the page.
             let store = OnDeviceVoiceModelStore.shared
             store.refreshInstalledState()
-            if store.speakState.isInstalled {
-                await say("Pick the voice you like. Tap one to hear it.")
-            } else if store.isSupportedOnThisMac {
-                await say("My local voice is downloading. Keep going while it gets ready, or type any time.")
+            if !store.isDownloading, !store.isEverythingInstalled, store.isSupportedOnThisMac {
+                Task { await store.downloadAll() }
+            }
+            let readyAtStart = Self.modelsSettled(store)
+            if readyAtStart { markDone() } else { status = "Getting ready…" }
+            store.objectWillChange
+                .receive(on: RunLoop.main)
+                .sink { [weak self] _ in
+                    guard let self, self.step == .voice, !self.isStepDone, Self.modelsSettled(store) else { return }
+                    if store.lastFailureMessage != nil {
+                        self.markDone("Download stopped. Retry above, or start anyway.")
+                    } else {
+                        self.markDone("All set.")
+                        self.speak("All set. Let's go!")
+                    }
+                }
+                .store(in: &watchers)
+            // Let the buddy's greeting land first.
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
+            if !store.isSupportedOnThisMac {
+                await say("Hi! This Mac can't run my voice, so I'll show my words as text.")
+            } else if readyAtStart || store.speakState.isInstalled {
+                await say("Hi! First, pick how I should sound. Tap a voice to hear it.")
             } else {
-                await say("Local voice is unavailable on this Mac. You can type, or set up ElevenLabs in Settings.")
+                await say("Hi! I'm getting my ears and voice ready on your Mac. It takes a minute, then we'll start.")
             }
 
         case .permissions:
@@ -262,17 +366,15 @@ final class OnboardingTour: ObservableObject {
             await say("First, a few permissions so I can hear you and see your screen. One at a time.")
 
         case .ai:
-            status = "Connect ChatGPT or Claude to continue, or skip setup."
-            return
-
-        case .mic:
-            await say("Can I hear you? Say anything, and watch the bars.")
-            guard !Task.isCancelled else { return }
-            micCheck.start()
-            micCheck.$hasHeardSound
-                .receive(on: RunLoop.main)
-                .sink { [weak self] heard in if heard { self?.markDone("Sounds good.") } }
-                .store(in: &watchers)
+            // The setup pane reports readiness as soon as it appears, so an
+            // already-connected AI has usually marked the step done by now.
+            if isStepDone {
+                await say("You're already connected. Let's keep going.")
+            } else {
+                status = "Connect ChatGPT or Claude to continue, or skip setup."
+                isAwaitingSignIn = true
+                await say("Next, connect your AI. Sign in with ChatGPT or Claude, and I'll work on your plan.")
+            }
 
         case .talk:
             watchListening(prompt: "listening…")
@@ -289,11 +391,6 @@ final class OnboardingTour: ObservableObject {
 
         case .point:
             watchListening(prompt: "listening…")
-            listen { [weak self] transcript in self?.answer(transcript, aboutSelection: false) }
-            await say("I can see your screen when you ask. Hold the keys and ask me what's interesting on it.")
-
-        case .circle:
-            watchListening(prompt: "listening…")
             companionManager.$activeSpatialSelection
                 .receive(on: RunLoop.main)
                 .sink { [weak self] selection in
@@ -306,26 +403,16 @@ final class OnboardingTour: ObservableObject {
                 guard let self else { return }
                 self.answer(transcript, aboutSelection: self.hasMarkedRegion || self.companionManager.activeSpatialSelection != nil)
             }
-            await say("Hold the talk keys, circle anything while you ask about it, then let go.")
+            await say("I can see your screen when you ask. Hold the keys and ask what's interesting. Circle something while you hold them to ask about just that.")
 
-        case .type:
-            guard isTypeShortcutOn else {
-                markDone("Typing is switched off in Settings › Shortcuts.")
-                return
+        case .kickoff:
+            if createdMates.isEmpty {
+                await say("Try one small real task. Type it here, review any approval, then see the result. You can skip this step.")
+            } else if offeredJobs.allSatisfy({ kickoffDecisions[$0.mate.name] != nil }) {
+                markDone()
+            } else {
+                await say("Your new mates already have ideas. Say yes to the ones you want started, and they'll get going while we finish.")
             }
-            let startCount = companionManager.typedComposerSummonCount
-            companionManager.$typedComposerSummonCount
-                .receive(on: RunLoop.main)
-                .sink { [weak self] count in
-                    guard let self, count > startCount, !self.isStepDone else { return }
-                    self.markDone("That's the one.")
-                    self.speak("There it is. Type anything, any time.")
-                }
-                .store(in: &watchers)
-            await say("Not in the mood to talk? Tap the key twice, quickly, and type instead.")
-
-        case .firstTask:
-            await say("Try one small real task. Type it here, review any approval, then see the result. You can skip this step.")
 
         case .reveal:
             markDone()
@@ -333,42 +420,84 @@ final class OnboardingTour: ObservableObject {
             if mates.isEmpty {
                 await say("That's the tour. I'm ready when you are.")
             } else {
-                await say("That's the tour. I made you \(mates.count) mates from what you told me. They're waiting in the sidebar.")
+                let working = kickoffDecisions.values.filter { $0 }.count
+                await say(working > 0
+                    ? "That's the tour. Your mates are working, and they'll report back in their chats."
+                    : "That's the tour. Your \(mates.count) mates are waiting in the sidebar.")
             }
         }
     }
 
+    /// Hearing and voice are both usable, or can't be: installed, failed
+    /// (retry is on the page), or not supported on this Mac.
+    private static func modelsSettled(_ store: OnDeviceVoiceModelStore) -> Bool {
+        if store.isEverythingInstalled || !store.isSupportedOnThisMac { return true }
+        let states = [store.listenState, store.speakState]
+        return states.allSatisfy { state in
+            switch state {
+            case .installed, .unsupported, .failed: return true
+            case .notInstalled, .downloading: return false
+            }
+        }
+    }
+
+    /// Leaves the first step before the models finish; they keep going.
+    func startWithoutWaiting() {
+        guard step == .voice else { return }
+        next()
+    }
+
     func firstTaskFinished() {
-        guard step == .firstTask else { return }
+        guard step == .kickoff else { return }
         markDone("Your result stays in chat.")
     }
 
     func skipFirstTask() {
-        guard step == .firstTask else { return }
+        guard step == .kickoff else { return }
         markDone("Continue whenever you are ready. Work already sent stays in chat.")
     }
 
-    // MARK: Voice
+    // MARK: First jobs
 
-    func playOnDeviceSample() {
-        stopSamples()
-        voiceClips.stop()
-        guard let url = Bundle.main.url(forResource: "OnDeviceVoiceSample", withExtension: "m4a"),
-              let player = try? AVAudioPlayer(contentsOf: url) else { return }
-        samplePlayer = player
-        playingSample = .onDevice
-        player.play()
-        Task { [weak self] in
-            try? await Task.sleep(for: .seconds(player.duration + 0.2))
-            if self?.playingSample == .onDevice { self?.playingSample = nil }
+    /// The interview's mates that offered a first job, in the order made.
+    var offeredJobs: [(mate: Mate, job: String)] {
+        createdMates.compactMap { mate in
+            guard let job = firstJobs[mate.name], !job.isEmpty else { return nil }
+            return (mate, job)
         }
     }
 
-    private func stopSamples() {
-        samplePlayer?.stop()
-        samplePlayer = nil
-        playingSample = nil
+    /// Yes: the job goes to that mate as a handoff, the same way any chat
+    /// hands a mate work. It runs in the mate's own chat under its usual
+    /// approvals; nothing here skips a plan or an approval card.
+    func startFirstJob(for mate: Mate) {
+        guard step == .kickoff, kickoffDecisions[mate.name] == nil, let job = firstJobs[mate.name] else { return }
+        companionManager.enqueueHandoff(
+            MateHandoff(mateID: mate.id, mateName: mate.name, instruction: "Yes, do it: \(job)"),
+            source: "welcome tour"
+        )
+        decide(mate, started: true)
+        speak("On it.")
     }
+
+    func declineFirstJob(for mate: Mate) {
+        guard step == .kickoff, kickoffDecisions[mate.name] == nil else { return }
+        decide(mate, started: false)
+    }
+
+    private func decide(_ mate: Mate, started: Bool) {
+        withAnimation(.easeOut(duration: DS.Animation.normal)) {
+            kickoffDecisions[mate.name] = started
+        }
+        let started = kickoffDecisions.values.filter { $0 }.count
+        if offeredJobs.allSatisfy({ kickoffDecisions[$0.mate.name] != nil }) {
+            markDone(started == 0 ? "No jobs yet. Ask any mate from the sidebar." : "Working. Results land in each mate's chat.")
+        } else if started > 0 {
+            markDone()
+        }
+    }
+
+    // MARK: Voice
 
     /// Starts the download and lets the tour go on; it keeps running in the
     /// background and switches HeyMate to the new voice when it lands.
@@ -383,8 +512,7 @@ final class OnboardingTour: ObservableObject {
         prefersTyping = typing
         UserDefaults.standard.set(typing, forKey: Self.prefersTypingKey)
         if typing {
-            stopSamples()
-            voiceClips.stop()
+                voiceClips.stop()
             companionManager.stopSpeaking()
         }
     }
@@ -393,7 +521,11 @@ final class OnboardingTour: ObservableObject {
     func mateAgentReadinessChanged(_ ready: Bool) {
         guard step == .ai else { return }
         if ready {
+            // Only a sign-in that happens on this step gets a spoken "Connected".
+            let justConnected = !isStepDone && isAwaitingSignIn
+            isAwaitingSignIn = false
             markDone("HeyMate Agent is connected.")
+            if justConnected { speak("Connected. Nice.") }
         } else {
             isStepDone = false
             status = "Connect HeyMate Agent to continue, or skip setup."
@@ -480,47 +612,78 @@ final class OnboardingTour: ObservableObject {
         status = "looking…"
         Task { [weak self] in
             guard let self else { return }
-            let spoken = await self.companionManager.answerTourQuestion(request, aboutSelection: aboutSelection)
+            // A real talk turn; it captures any circled region itself.
+            let spoken = await self.companionManager.runScreenTourStep(request)
             self.isAnswering = false
             guard !Task.isCancelled else { return }
             if aboutSelection { self.hasMarkedRegion = false }
-            self.lastAnswer = spoken
-            self.markDone(spoken == nil ? "I couldn't answer that one. Try again later from the notch." : nil)
-            if spoken == nil {
-                self.status = "I couldn't answer that one. Try again later from the notch."
-            } else {
-                self.status = nil
+            guard let spoken else {
+                // Not done: a failed try is not a demo. They can ask again.
+                self.status = "That didn't go through. Hold the keys and ask again."
+                return
             }
+            self.lastAnswer = spoken.isEmpty ? nil : spoken
+            self.markDone()
+            self.status = nil
         }
     }
 
     // MARK: Interview
 
     private func startInterview() async {
-        if interviewLines.isEmpty, !createdMateNames.isEmpty {
-            interviewLines = [OnboardingInterviewLine(
-                speaker: .heyMate,
-                text: "We already talked. I made you " + createdMateNames.joined(separator: ", ") + "."
-            )]
+        // Already done, in this run or an earlier one: show what came of
+        // it and let them move on. Nothing is asked twice.
+        if !createdMateNames.isEmpty || interviewAnswerCount >= OnboardingInterview.answerCount {
+            interviewSuggestions = []
             markDone()
             return
         }
         if interviewLines.isEmpty {
             let hello = heardName.map { "So, \($0). I'm curious about you." } ?? "I'm curious about you."
-            interviewLines = [
+            setInterviewLines([
                 OnboardingInterviewLine(speaker: .heyMate, text: hello),
                 OnboardingInterviewLine(speaker: .heyMate, text: OnboardingInterview.openingQuestion),
-            ]
-            interviewAnswers = 0
+            ])
+            interviewSuggestions = OnboardingInterview.openingSuggestions
+        } else if interviewSuggestions.isEmpty {
+            interviewSuggestions = fallbackSuggestions(afterAnswers: interviewAnswerCount)
         }
-        if interviewAnswers >= OnboardingInterview.answerCount {
-            markDone()
-            return
-        }
+        interviewAnswers = interviewAnswerCount
         listen { [weak self] transcript in self?.interviewAnswer(transcript) }
         watchListening(prompt: "listening…")
-        let spokenSoFar = interviewLines.suffix(2).map(\.text).joined(separator: " ")
-        await say(spokenSoFar)
+        // Picking up partway: only the question still waiting is said again.
+        let waiting = interviewAnswers == 0
+            ? interviewLines.suffix(2).map(\.text).joined(separator: " ")
+            : interviewLines.last(where: { $0.speaker == .heyMate })?.text ?? ""
+        await say(waiting)
+    }
+
+    private func fallbackSuggestions(afterAnswers answered: Int) -> [String] {
+        if answered == 0 { return OnboardingInterview.openingSuggestions }
+        let index = min(answered - 1, OnboardingInterview.fallbackSuggestions.count - 1)
+        return OnboardingInterview.fallbackSuggestions[index]
+    }
+
+    private func setInterviewLines(_ lines: [OnboardingInterviewLine]) {
+        interviewLines = lines
+        UserDefaults.standard.set(OnboardingInterview.encode(lines), forKey: Self.interviewKey)
+    }
+
+    /// A one-tap answer counts the same as saying or typing it.
+    func chooseSuggestion(_ suggestion: String) {
+        guard step == .interview, !isInterviewThinking, !isStepDone else { return }
+        interviewAnswer(suggestion)
+    }
+
+    /// Moves on without finishing the questions; no mates are made.
+    func skipInterview() {
+        guard step == .interview, !isStepDone else { return }
+        companionManager.onboardingTranscriptSink = nil
+        companionManager.stopSpeaking()
+        voiceClips.stop()
+        interviewSuggestions = []
+        isInterviewThinking = false
+        markDone("Skipped. You can make mates any time from the sidebar.")
     }
 
     func submitTypedAnswer() {
@@ -534,7 +697,8 @@ final class OnboardingTour: ObservableObject {
         guard !isInterviewThinking, !isStepDone else { return }
         companionManager.stopSpeaking()
         withAnimation(.easeOut(duration: DS.Animation.normal)) {
-            interviewLines.append(OnboardingInterviewLine(speaker: .user, text: answer))
+            setInterviewLines(interviewLines + [OnboardingInterviewLine(speaker: .user, text: answer)])
+            interviewSuggestions = []
             isInterviewThinking = true
             status = nil
         }
@@ -544,7 +708,7 @@ final class OnboardingTour: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             let reply = await self.askInterviewer(lines)
-            guard !Task.isCancelled, self.step == .interview else { return }
+            guard !Task.isCancelled, self.step == .interview, !self.isStepDone else { return }
             self.isInterviewThinking = false
             await self.handle(reply, answered: answered)
         }
@@ -569,13 +733,15 @@ final class OnboardingTour: ObservableObject {
     private func handle(_ reply: OnboardingInterviewReply?, answered: Int) async {
         let isLast = answered >= OnboardingInterview.answerCount
         switch reply {
-        case .next(let reaction, let question) where !isLast:
+        case .next(let reaction, let question, let suggestions) where !isLast:
+            interviewSuggestions = suggestions.isEmpty ? fallbackSuggestions(afterAnswers: answered) : suggestions
             await add([reaction, question])
         case .wrapUp(let reaction, let summary, let mates):
-            await add([reaction, summary, "I'll set up a few mates for you while we keep going."])
             createMates(mates)
             markDone()
-        case .next(let reaction, _):
+            let made = createdMateNames.isEmpty ? [] : ["I made you \(createdMateNames.count) mates for that. They're waiting in your sidebar."]
+            await add([reaction, summary] + made)
+        case .next(let reaction, _, _):
             // Asked again past the last answer: wrap up without mates.
             await add([reaction, "Thanks, that helps a lot."])
             markDone()
@@ -586,6 +752,7 @@ final class OnboardingTour: ObservableObject {
                 markDone()
             } else {
                 let question = OnboardingInterview.fallbackQuestions[min(answered - 1, OnboardingInterview.fallbackQuestions.count - 1)]
+                interviewSuggestions = fallbackSuggestions(afterAnswers: answered)
                 await add([reaction, question])
             }
         }
@@ -595,22 +762,48 @@ final class OnboardingTour: ObservableObject {
     private func add(_ lines: [String]) async {
         let lines = lines.filter { !$0.isEmpty }
         withAnimation(.spring(response: 0.38, dampingFraction: 0.85)) {
-            interviewLines.append(contentsOf: lines.map { OnboardingInterviewLine(speaker: .heyMate, text: $0) })
+            setInterviewLines(interviewLines + lines.map { OnboardingInterviewLine(speaker: .heyMate, text: $0) })
         }
         await say(lines.joined(separator: " "))
     }
 
+    #if DEBUG
+    /// Design snapshots only: puts the tour on a step with a given
+    /// interview, without running the step or saving anything.
+    func stageForSnapshot(step: OnboardingStep, lines: [OnboardingInterviewLine] = [], suggestions: [String] = [],
+                          thinking: Bool = false, done: Bool = false, mateNames: [String] = [], name: String? = nil,
+                          speech: String? = nil, answer: String? = nil, status: String? = nil,
+                          jobs: [String: String] = [:], decisions: [String: Bool] = [:]) {
+        self.step = step
+        firstJobs = jobs
+        kickoffDecisions = decisions
+        self.speech = speech
+        lastAnswer = answer
+        self.status = status
+        interviewLines = lines
+        interviewSuggestions = suggestions
+        isInterviewThinking = thinking
+        isStepDone = done
+        createdMateNames = mateNames
+        heardName = name
+    }
+    #endif
+
     private func createMates(_ suggestions: [OnboardingMateSuggestion]) {
         var made: [String] = []
+        var jobs: [String: String] = [:]
         for suggestion in suggestions {
             if let mate = companionManager.createMate(
                 name: suggestion.name, job: suggestion.job, opensChat: false
             ) {
                 made.append(mate.name)
+                if let first = suggestion.firstJob, !first.isEmpty { jobs[mate.name] = first }
             }
         }
         createdMateNames = made
+        firstJobs = jobs
         UserDefaults.standard.set(made, forKey: Self.createdMatesKey)
+        UserDefaults.standard.set(jobs, forKey: Self.firstJobsKey)
         HeyMateLog.log("🎉 Welcome tour made \(made.count) mate(s)")
     }
 }

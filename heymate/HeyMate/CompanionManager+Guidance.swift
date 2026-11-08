@@ -192,21 +192,34 @@ extension CompanionManager {
     /// A reply drawing an explanation is drawn and told while it is still arriving, as ReferenceRenderer does: the overlay
     /// opens at its first say() line, takes the program as it grows, and each line is spoken as soon as it is complete,
     /// its strokes drawn while it is heard.
-    func streamExplainer(_ replySoFar: String, owner: ObjectIdentifier, screenCaptures: [ScreenSnapshot]) {
+    func streamExplainer(_ replySoFar: String, owner: ObjectIdentifier, screenCaptures: [ScreenSnapshot], trustedLegacy: Bool = false, isFinal: Bool = false) {
+        guard trustedLegacy || replySoFar.contains(ExplanationProgram.fence) else { return }
         guard explainerWindowController.dismissedStreamOwner != owner else { return }
-        guard let (code, closed) = ExplainerParser.streamingProgram(in: replySoFar) else { return }
-        let lines = ExplainerParser.sayLines(in: code)
         let explainer = explainerWindowController
+        let screen = screenCaptures.first(where: \.isCursorScreen) ?? screenCaptures.first
+        guard let display = screen.flatMap({ capture in NSScreen.screens.first { $0.displayID == capture.displayID } }) ?? NSScreen.main else { return }
+        let viewport = ExplanationProgram.viewport(
+            captureFrame: screen?.displayFrame ?? display.frame,
+            imageSize: screen.map { CGSize(width: $0.screenshotWidthInPixels, height: $0.screenshotHeightInPixels) } ?? explainer.activeCanvasSize ?? display.frame.size,
+            displayFrame: display.frame, existingFrame: explainer.activeFrame, existingCanvas: explainer.activeCanvasSize)
+        let partial = ExplanationProgram.compile(replySoFar, availableIDs: explainer.commandInventory, projection: viewport.projection)
+        let finalText = isFinal && partial?.closed == false ? replySoFar + "\n```" : replySoFar
+        let compiled = isFinal ? ExplanationProgram.compile(finalText, availableIDs: explainer.commandInventory, projection: viewport.projection) : partial
+        guard let (code, closed) = compiled.map({ ($0.source, $0.closed) }) ?? ExplainerParser.streamingProgram(in: replySoFar) else { return }
+        let lines = compiled?.lines ?? ExplainerParser.sayLines(in: code)
         if explainer.streamOwner != owner {
             // Only a block that speaks is a drawing (code they asked for has no say() lines).
             guard !lines.isEmpty else { return }
-            let screen = screenCaptures.first(where: \.isCursorScreen) ?? screenCaptures.first
-            guard let frame = screen?.displayFrame ?? NSScreen.main?.frame else { return }
-            explainer.beginStream(owner: owner, on: frame, canvas: screen.map { CGSize(width: $0.screenshotWidthInPixels, height: $0.screenshotHeightInPixels) }, screenshot: screen?.imageData)
+            explainer.beginStream(owner: owner, on: viewport.frame, canvas: viewport.canvas, screenshot: nil)
+            explainer.bindCapture(screen)
             explainer.streamSpeaker = Task { [weak self] in await self?.tellStreamingExplainer() }
         }
         explainer.streamLines = lines
         explainer.streamDone = closed
+        if let compiled {
+            if compiled.resetsInventory { explainer.commandInventory = [:] }
+            explainer.commandInventory.merge(compiled.inventory) { _, new in new }
+        }
         explainer.feed(code, done: closed)
     }
 
@@ -222,15 +235,14 @@ extension CompanionManager {
                 continue
             }
             let words = GuidedReplyParser.strippingMarkdownEmphasis(GuidedReplyParser.strippingControlTags(from: explainer.streamLines[k]))
-            explainer.lineStart(k)
             cursorCaptionText = words
-            let startedAt = Date()
-            if !isSilentModeEnabled {
-                do { try await voiceSynthesisClient.speakText(words) } catch {
-                    // Without voice the drawing still follows the sentence's reading time.
-                    HeyMateLog.log("🖍️ Explainer line \(k) not spoken: \(error)")
+            let startedAt: Date
+            do {
+                try await explainer.waitUntilReady()
+                startedAt = try await ExplanationSpeech.start(words, speaker: voiceSynthesisClient, silent: isSilentModeEnabled) {
+                    explainer.lineStart(k)
                 }
-            }
+            } catch { return }
             let minimum = isSilentModeEnabled || !voiceSynthesisClient.isPlaying ? CursorCaptionTiming.readingSeconds(for: words) : 0
             while !Task.isCancelled, voiceSynthesisClient.isPlaying || Date().timeIntervalSince(startedAt) < minimum {
                 try? await Task.sleep(nanoseconds: 80_000_000)
@@ -341,11 +353,9 @@ extension CompanionManager {
                 }
             }
         }
-        if let program = reply.explainerProgram, let speaker = explainerWindowController.streamSpeaker {
+        if reply.explainerProgram != nil, let speaker = explainerWindowController.streamSpeaker {
             // Drawn and told while it streamed in: the whole program is in now, and the reply ends when its last
             // line has been heard.
-            explainerWindowController.streamLines = ExplainerParser.sayLines(in: program)
-            explainerWindowController.feed(program, done: true)
             explainerWindowController.streamDone = true
             isGuidancePointerHeld = true
             dispatch(.beginSpeaking)
@@ -356,9 +366,10 @@ extension CompanionManager {
         }
         if let program = reply.explainerProgram {
             let screen = screenCaptures.first(where: \.isCursorScreen) ?? screenCaptures.first
-            if let frame = screen?.displayFrame ?? NSScreen.main?.frame {
+            if let frame = screen?.displayFrame ?? explainerWindowController.activeFrame ?? NSScreen.main?.frame {
                 explainerWindowController.showOrContinue(program: program, on: frame,
-                                               canvas: screen.map { CGSize(width: $0.screenshotWidthInPixels, height: $0.screenshotHeightInPixels) }, screenshot: screen?.imageData)
+                                               canvas: screen.map { CGSize(width: $0.screenshotWidthInPixels, height: $0.screenshotHeightInPixels) } ?? explainerWindowController.activeCanvasSize, screenshot: screen?.imageData)
+                explainerWindowController.bindCapture(screen)
             }
         }
         let steps = reply.steps.filter { !$0.displayText.isEmpty || $0.pointsSomewhere }
@@ -390,7 +401,6 @@ extension CompanionManager {
         for (stepIndex, step) in steps.enumerated() {
             try Task.checkCancellation()
             let explainerLine = stepIndex >= firstExplainerStep ? stepIndex - firstExplainerStep : nil
-            if let explainerLine { explainerWindowController.lineStart(explainerLine) }
 
             if step.pointsSomewhere, let pointing = step.pointing {
                 // Circles, arrows and cards build one picture across the
@@ -429,9 +439,16 @@ extension CompanionManager {
                 cursorCaptionText = words
             }
 
-            let stepStartedAt = Date()
+            var stepStartedAt = Date()
             if !words.isEmpty {
-                try await voiceSynthesisClient.speakText(words)
+                if let explainerLine {
+                    try await explainerWindowController.waitUntilReady()
+                    stepStartedAt = try await ExplanationSpeech.start(words, speaker: voiceSynthesisClient, silent: isSilentModeEnabled) {
+                        self.explainerWindowController.lineStart(explainerLine)
+                    }
+                } else {
+                    try await voiceSynthesisClient.speakText(words)
+                }
                 try Task.checkCancellation()
                 if !hasBegunSpeaking {
                     hasBegunSpeaking = true

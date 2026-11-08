@@ -15,15 +15,20 @@
 import Foundation
 
 /// One line in the interview, shown as a speech bubble.
-struct OnboardingInterviewLine: Identifiable, Equatable {
-    enum Speaker: Equatable {
+struct OnboardingInterviewLine: Identifiable, Equatable, Codable {
+    enum Speaker: String, Equatable, Codable {
         case heyMate
         case user
     }
 
-    let id = UUID()
+    var id = UUID()
     let speaker: Speaker
     let text: String
+
+    init(speaker: Speaker, text: String) {
+        self.speaker = speaker
+        self.text = text
+    }
 
     static func == (lhs: OnboardingInterviewLine, rhs: OnboardingInterviewLine) -> Bool {
         lhs.speaker == rhs.speaker && lhs.text == rhs.text
@@ -34,12 +39,20 @@ struct OnboardingInterviewLine: Identifiable, Equatable {
 struct OnboardingMateSuggestion: Equatable, Decodable {
     let name: String
     let job: String
+    /// The mate's offer of one first job, in its own voice ("I'll …").
+    /// The person says yes or no to it before the tour ends.
+    var firstJob: String? = nil
+
+    private enum CodingKeys: String, CodingKey {
+        case name, job
+        case firstJob = "first_job"
+    }
 }
 
 /// What the AI sends back after each answer.
 enum OnboardingInterviewReply: Equatable {
-    /// A short reaction, then the next question.
-    case next(reaction: String, question: String)
+    /// A short reaction, the next question, and a few one-tap answers.
+    case next(reaction: String, question: String, suggestions: [String] = [])
     /// A short reaction, one line on what HeyMate took away, and the mates.
     case wrapUp(reaction: String, summary: String, mates: [OnboardingMateSuggestion])
 }
@@ -50,11 +63,24 @@ enum OnboardingInterview {
 
     static let openingQuestion = "What are you working on these days?"
 
+    /// One-tap answers for the opening question. Tapping one is a real
+    /// answer; the AI builds on it like anything typed or said.
+    static let openingSuggestions = ["Building an app", "Studying", "Running a business", "Making content"]
+
     /// Used in order when the AI can't be reached.
     static let fallbackQuestions = [
         "What would you most like to get done this month?",
         "Which apps do you spend most of your day in?",
     ]
+
+    /// One-tap answers for each fallback question, in the same order.
+    static let fallbackSuggestions = [
+        ["Ship a launch", "Clear my inbox", "Learn something new"],
+        ["Chrome and Slack", "Xcode and Terminal", "Figma and Notion"],
+    ]
+
+    /// At most this many one-tap answers show under a question.
+    static let maxSuggestions = 3
 
     static let fallbackReactions = ["Love that.", "Got it.", "Nice."]
 
@@ -65,12 +91,14 @@ enum OnboardingInterview {
 
     keep it warm and short. a reaction is at most ten words and never repeats their words back. a question is at most sixteen words. no emojis.
 
-    after the user has answered \(answerCount) questions, wrap up: one reaction, one sentence on what you took away about them, and exactly three mates for them. a mate is a helper with its own job. each mate has a short friendly name (one or two words, title case, not a person's real name) and a job: one sentence, starting with a verb, about work that mate will do for this user specifically.
+    with each question, give three suggestions: likely answers this user might tap instead of typing, two to five words each, written as the user would say them, specific to what they told you so far.
+
+    after the user has answered \(answerCount) questions, wrap up: one reaction, one sentence on what you took away about them, and exactly three mates for them. a mate is a helper with its own job. each mate has a short friendly name (one or two words, title case, not a person's real name), a job: one sentence, starting with a verb, about work that mate will do for this user specifically, and a first_job: one sentence the mate says to offer a concrete first piece of work it can finish today with web research, files, or drafts, starting with "I'll" (for example "I'll list ten newsletters that cover indie mac apps, with who to contact."). never offer to send, buy, post, or delete anything.
 
     reply with json only, nothing before or after it. while asking:
-    {"reaction": "...", "question": "..."}
+    {"reaction": "...", "question": "...", "suggestions": ["...", "...", "..."]}
     when wrapping up:
-    {"reaction": "...", "summary": "...", "mates": [{"name": "...", "job": "..."}, {"name": "...", "job": "..."}, {"name": "...", "job": "..."}]}
+    {"reaction": "...", "summary": "...", "mates": [{"name": "...", "job": "...", "first_job": "I'll ..."}, {"name": "...", "job": "...", "first_job": "I'll ..."}, {"name": "...", "job": "...", "first_job": "I'll ..."}]}
     """
 
     /// The transcript the AI sees: who said what, in order.
@@ -92,14 +120,29 @@ enum OnboardingInterview {
         let reaction = clean(raw.reaction)
         if let mates = raw.mates {
             let usable = mates
-                .map { OnboardingMateSuggestion(name: clean($0.name), job: clean($0.job)) }
+                .map { mate -> OnboardingMateSuggestion in
+                    let first = clean(mate.firstJob)
+                    return OnboardingMateSuggestion(name: clean(mate.name), job: clean(mate.job),
+                                                    firstJob: first.isEmpty ? nil : first)
+                }
                 .filter { !$0.name.isEmpty && !$0.job.isEmpty }
             guard !usable.isEmpty else { return nil }
             return .wrapUp(reaction: reaction, summary: clean(raw.summary), mates: Array(usable.prefix(3)))
         }
         let question = clean(raw.question)
         guard !question.isEmpty else { return nil }
-        return .next(reaction: reaction, question: question)
+        return .next(reaction: reaction, question: question, suggestions: suggestions(raw.suggestions))
+    }
+
+    /// Short, distinct, non-empty answers; anything sentence-length is
+    /// dropped because it would not read as a tap target.
+    static func suggestions(_ raw: [String]?) -> [String] {
+        var seen = Set<String>()
+        return (raw ?? [])
+            .map { clean($0).trimmingCharacters(in: CharacterSet(charactersIn: ".")) }
+            .filter { !$0.isEmpty && $0.count <= 40 && seen.insert($0.lowercased()).inserted }
+            .prefix(maxSuggestions)
+            .map { $0 }
     }
 
     private struct RawReply: Decodable {
@@ -107,6 +150,20 @@ enum OnboardingInterview {
         let question: String?
         let summary: String?
         let mates: [OnboardingMateSuggestion]?
+        let suggestions: [String]?
+    }
+
+    // MARK: - Saved transcript
+
+    /// The conversation survives quitting partway and going Back, so the
+    /// "show me" step can still build on it and nothing is asked twice.
+    static func encode(_ lines: [OnboardingInterviewLine]) -> Data? {
+        try? JSONEncoder().encode(lines)
+    }
+
+    static func decode(_ data: Data?) -> [OnboardingInterviewLine] {
+        guard let data, let lines = try? JSONDecoder().decode([OnboardingInterviewLine].self, from: data) else { return [] }
+        return lines
     }
 
     private static func clean(_ text: String?) -> String {

@@ -130,7 +130,9 @@ struct VoiceProviderPersistenceTests {
         let phononRuns = PhononEngine.unsupportedReason == nil
         for provider in [VoiceSpeakProvider.macOS, .onDevice] {
             let client = CompanionManager.makeSpeakingClient(for: provider, workerBaseURL: "http://localhost")
-            #expect(phononRuns ? client is PhononTTSClient : client is MacOSSpeechSynthesizerClient)
+            // Never the Mac system voice: a Mac without Phonon stays quiet.
+            #expect(phononRuns ? client is PhononTTSClient : client is QuietTTSClient)
+            #expect(!(client is MacOSSpeechSynthesizerClient))
         }
     }
 

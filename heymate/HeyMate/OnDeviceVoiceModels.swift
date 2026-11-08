@@ -43,7 +43,7 @@ final class OnDeviceVoiceModelStore: ObservableObject {
     static let shared = OnDeviceVoiceModelStore()
 
     /// Rough one-time download, shown before the user commits to it.
-    static let approximateDownloadSizeDescription = "about 500 MB for listening; speaking is included"
+    static let approximateDownloadSizeDescription = "about 460 MB for listening; my voice comes with the app"
 
     @Published private(set) var listenState: OnDeviceVoiceModelState = .notInstalled
     @Published private(set) var speakState: OnDeviceVoiceModelState = .notInstalled
@@ -111,11 +111,13 @@ final class OnDeviceVoiceModelStore: ObservableObject {
         }
     }
 
-    /// Downloads whatever is missing, listen model first because it is the
-    /// one push-to-talk needs.
+    /// Gets both models ready at once. The voice ships inside the app and
+    /// only needs preparing, so it is ready within seconds instead of waiting
+    /// behind the listening download, which push-to-talk needs.
     func downloadAll() async {
-        await downloadListenModel()
-        await downloadSpeakModel()
+        async let listen: Void = downloadListenModel()
+        async let speak: Void = downloadSpeakModel()
+        _ = await (listen, speak)
     }
 
     func downloadListenModel() async {

@@ -1,0 +1,24 @@
+[
+  {
+    "sample": "a",
+    "width": 320,
+    "height": 240,
+    "transparent_background_pixels": 62501,
+    "unchanged_logo_pixels": 14299,
+    "input_sha256": "8c386419296b28669122731ae1a7c676e81e38120ae2404b60d110b69662e666",
+    "export_sha256": "64f5ef3e2e056d74a1210154282fe5efda66f14118e7bbbaf0b60b5683bea9a1",
+    "alpha_mismatches": 0,
+    "color_mismatches": 0
+  },
+  {
+    "sample": "b",
+    "width": 320,
+    "height": 240,
+    "transparent_background_pixels": 59182,
+    "unchanged_logo_pixels": 17618,
+    "input_sha256": "94551b98561687b53d3381cfe350d9e1e2f966959354c31bac310bbb49b347b5",
+    "export_sha256": "e4b226eadf879d0e377ad7c87a57d4a9d0242f8818e9d69557a50e31a32339ef",
+    "alpha_mismatches": 0,
+    "color_mismatches": 0
+  }
+]

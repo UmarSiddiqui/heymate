@@ -1474,9 +1474,10 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Local voice is the default and the only fallback for ElevenLabs.
-    /// Phonon runs in its own process; system speech covers unsupported Macs.
+    /// Phonon runs in its own process. HeyMate never uses the Mac system
+    /// voice: a Mac that can't run Phonon stays quiet and shows the words.
     static func localSpeakingClient() -> any TTSClient {
-        PhononEngine.unsupportedReason == nil ? PhononTTSClient() : MacOSSpeechSynthesizerClient()
+        PhononEngine.unsupportedReason == nil ? PhononTTSClient() : QuietTTSClient()
     }
 
     static func makeSpeakingClient(
@@ -2642,6 +2643,7 @@ final class CompanionManager: ObservableObject {
             mateAgentActivity.append(MateAgentActivityEntry(type: "turn.cancelled"))
         }
         let completion = currentResponseCompletion
+        let cancelDrawing = completion?.didComplete == false && explainerWindowController.streamSpeaker != nil
         if let id = currentResponseChatID { independentChatTurns.removeValue(forKey: id) }
         currentResponseChatID = nil
         completion?.didComplete = true
@@ -2649,6 +2651,7 @@ final class CompanionManager: ObservableObject {
         currentResponseTask = nil
         streamingAssistantText = ""
         voiceSynthesisClient.stopPlayback()
+        if cancelDrawing { explainerWindowController.dismiss() }
         clearCursorCaption()
         clearPointingTarget()
         if activeRoutineTurn != nil {
@@ -4320,6 +4323,7 @@ final class CompanionManager: ObservableObject {
             // the closing `guard !completion.didComplete` below, so the
             // normal ending still dispatches `interactionFinished` first.
             defer {
+                explainerWindowController.releaseTurnHold(ObjectIdentifier(completion))
                 completion.didComplete = true
                 if independentChat, independentChatTurns[turnSession.id]?.completion === completion {
                     independentChatTurns.removeValue(forKey: turnSession.id)
@@ -4332,6 +4336,7 @@ final class CompanionManager: ObservableObject {
                 appendUserMessage(transcript, attachmentNames: imageAttachments.map(\.fileName))
             }
             if ownsCurrentResponse(completion) {
+                explainerWindowController.holdForTurn(ObjectIdentifier(completion))
                 streamingAssistantText = ""
                 dispatch(.beginContextCapture)
             }
@@ -4412,8 +4417,13 @@ final class CompanionManager: ObservableObject {
                     turnContext.append("The user acted while you were thinking.")
                 }
                 // ReferenceRenderer's canvas says what its drawing holds, so a follow-up can build on it or change it.
-                if ownsCurrentResponse(completion), let drawing = await explainerWindowController.drawingState() {
-                    turnContext.append(CompanionPrompts.drawingOnScreen(drawing))
+                if ownsCurrentResponse(completion) {
+                    explainerWindowController.holdForTurn(ObjectIdentifier(completion))
+                    if let drawing = await explainerWindowController.drawingState() {
+                        turnContext.append(CompanionPrompts.drawingOnScreen(drawing))
+                    } else {
+                        turnContext.append("No explanation scene is currently open. Previous drawing ids are unavailable. To revisit an earlier drawing, build a new figure and all its parts.")
+                    }
                 }
                 if let note = independentChat ? turnPendingNote : pendingTurnNote {
                     if !independentChat { pendingTurnNote = nil }
@@ -4510,7 +4520,7 @@ final class CompanionManager: ObservableObject {
                     + (computerUseCoordinator.isEnabled ? "\n\n" + BehaviorContract.computerControlSection : "")
                     + "\n\n" + CompanionPrompts.explainerContract
 
-                let fullResponseText: String
+                let rawResponseText: String
                 let engineUserPrompt = MateAgentServeConversationClient.turnPrompt(
                     request: transcript, contextNote: turnContext.joined(separator: "\n\n"))
                 if let mateAgent = talkClient as? MateAgentServeConversationClient {
@@ -4519,7 +4529,7 @@ final class CompanionManager: ObservableObject {
                     mateAgent.seedMessages = earlier
                 }
 
-                    (fullResponseText, _) = try await talkClient.analyzeImageStreaming(
+                    (rawResponseText, _) = try await talkClient.analyzeImageStreaming(
                         images: labeledImages,
                         systemPrompt: effectiveSystemPrompt,
                         conversationHistory: [],
@@ -4534,8 +4544,13 @@ final class CompanionManager: ObservableObject {
                     )
 
 
+                let fullResponseText = ExplainerParser.validatedTalkReply(rawResponseText, availableIDs: explainerWindowController.commandInventory)
+
                 guard !Task.isCancelled, !completion.didComplete else { return }
 
+                if ownsCurrentResponse(completion) {
+                    streamExplainer(fullResponseText, owner: ObjectIdentifier(completion), screenCaptures: screenCaptures, isFinal: true)
+                }
 
                     // MateAgent has already run its own agent loop. Never interpret
                     // its answer as a second native work/connector invocation.
@@ -4586,12 +4601,7 @@ final class CompanionManager: ObservableObject {
                         completeActiveHandoff(succeeded: true)
                     } else if explainerWindowController.dismissedStreamOwner == ObjectIdentifier(completion) {
                         // Clear dismisses this response's drawing, including its final replay.
-                    } else if isSilentModeEnabled {
-                        if let program = drawn.program {
-                            // Finish the visual stream even when the model omitted its closing fence.
-                            streamExplainer("```js\n" + program + "\n```", owner: ObjectIdentifier(completion), screenCaptures: screenCaptures)
-                        }
-                    } else {
+                    } else if !isSilentModeEnabled {
                         // The reply is already in the chat. A voice that cannot
                         // play must not turn it into a failed turn.
                         do {

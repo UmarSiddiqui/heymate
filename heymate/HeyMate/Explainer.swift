@@ -11,6 +11,7 @@
 
 import AppKit
 import WebKit
+import ApplicationServices
 
 nonisolated enum ExplainerParser {
     // The closing fence is optional: models sometimes end the block with a broken fence (two backticks and noise) or none.
@@ -19,6 +20,14 @@ nonisolated enum ExplainerParser {
 
     /// The reply without its program, the program, and its say() lines in order.
     static func extract(from text: String) -> (text: String, program: String?, lines: [String]) {
+        if let compiled = ExplanationProgram.compile(text), let opening = text.range(of: ExplanationProgram.fence) {
+            let tail = text[opening.upperBound...]
+            let end = tail.range(of: "```")?.upperBound ?? text.endIndex
+            var rest = text
+            rest.removeSubrange(opening.lowerBound..<end)
+            if let error = compiled.error { rest += "\n" + error }
+            return (rest, compiled.lines.isEmpty ? nil : compiled.source, compiled.lines)
+        }
         guard let regex = try? NSRegularExpression(pattern: blockPattern),
               let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
               let blockRange = Range(match.range, in: text),
@@ -36,6 +45,7 @@ nonisolated enum ExplainerParser {
 
     /// The program so far in a reply still streaming in, and whether its block has closed.
     static func streamingProgram(in text: String) -> (code: String, closed: Bool)? {
+        if let compiled = ExplanationProgram.compile(text) { return (compiled.source, compiled.closed) }
         guard let open = text.range(of: "```js\n") ?? text.range(of: "```javascript\n") else { return nil }
         let rest = text[open.upperBound...]
         if let close = rest.range(of: "```") { return (String(rest[..<close.lowerBound]), true) }
@@ -46,6 +56,9 @@ nonisolated enum ExplainerParser {
 
     /// Where a program block still arriving starts, so it is never shown.
     static func openBlockStart(in text: String) -> String.Index? {
+        if let opening = text.range(of: ExplanationProgram.fence) {
+            return text[opening.upperBound...].contains("```") ? nil : opening.lowerBound
+        }
         guard let start = text.range(of: "```js") ?? text.range(of: "```javascript") else { return nil }
         return text[start.upperBound...].contains("```") ? nil : start.lowerBound
     }
@@ -72,6 +85,20 @@ nonisolated enum ExplainerParser {
         let pointers: Set<String> = ["target", "hover", "point"]
         return names.contains(where: pointers.contains) && names.allSatisfy { pointers.contains($0) || $0 == "step" }
     }
+
+    /// Legacy programs remain available to trusted local diagnostics. Talk
+    /// accepts validated command data, including when a model ignores its prompt.
+    static func validatedTalkReply(_ text: String, availableIDs: [String: String] = [:]) -> String {
+        if let compiled = ExplanationProgram.compile(text, availableIDs: availableIDs) {
+            guard let error = compiled.error, let opening = text.range(of: ExplanationProgram.fence) else { return text }
+            let end = text[opening.upperBound...].range(of: "```")?.upperBound ?? text.endIndex
+            let replacement = compiled.rows.isEmpty ? error : ExplanationProgram.fence + compiled.rows.joined(separator: "\n") + "\n```\n" + error
+            return String(text[..<opening.lowerBound]) + replacement + String(text[end...])
+        }
+        let legacy = extract(from: text)
+        guard legacy.program != nil else { return text }
+        return legacy.text + "\nI couldn't show that drawing. Please ask me to draw it again."
+    }
 }
 
 /// The overlay the program draws on. Click-through except over its cards and
@@ -85,6 +112,7 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
     private var metalOverlay: DaVinciMetalOverlay?
     private var clearButton: NSButton?
     private var controlsPanel: NSPanel?
+    private var interactionPanels: [NSPanel] = []
     /// Where the cards and figures are, in the overlay's top-left points: the mouse reaches the page only there.
     private var hitRects: [CGRect] = []
     private var mouseTimer: Timer?
@@ -104,27 +132,151 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
     private var isLoaded = false
     private var pendingScripts: [String] = []
     private var closeTask: Task<Void, Never>?
+    private var heldTurn: ObjectIdentifier?
+
+    func holdForTurn(_ owner: ObjectIdentifier) {
+        guard isShowing else { return }
+        heldTurn = owner
+        closeTask?.cancel()
+        closeTask = nil
+        panel?.orderFrontRegardless()
+    }
+
+    func releaseTurnHold(_ owner: ObjectIdentifier) {
+        guard heldTurn == owner else { return }
+        heldTurn = nil
+        if isShowing { closeLater(after: keepFor ?? 60) }
+    }
     private var screenChangeObservers: [NSObjectProtocol] = []
     private var screenInputMonitor: Any?
     private var screenChangeTask: Task<Void, Never>?
+    private var sourceWindowObserver: AXObserver?
+    /// The source window's frame when watching began. Some apps post moved or
+    /// resized for no real change; those must not clear the annotations.
+    private var sourceWindowElement: AXUIElement?
+    private var sourceWindowAXFrame: CGRect?
+    /// Display frames when the drawing opened.
+    private var screenLayout: [CGRect] = []
+
+    private static func currentScreenLayout() -> [CGRect] { NSScreen.screens.map(\.frame) }
+
+    private static func axFrame(of window: AXUIElement) -> CGRect? {
+        var positionValue: CFTypeRef?, sizeValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &positionValue) == .success,
+              AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeValue) == .success,
+              let positionValue, let sizeValue,
+              CFGetTypeID(positionValue) == AXValueGetTypeID(), CFGetTypeID(sizeValue) == AXValueGetTypeID() else { return nil }
+        var origin = CGPoint.zero, size = CGSize.zero
+        guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &origin),
+              AXValueGetValue(sizeValue as! AXValue, .cgSize, &size) else { return nil }
+        return CGRect(origin: origin, size: size)
+    }
+
+    private func sourceWindowMovedOrResized() {
+        guard let window = sourceWindowElement, let now = Self.axFrame(of: window) else {
+            screenChanged(reason: "source window moved or resized")
+            return
+        }
+        guard let before = sourceWindowAXFrame else { sourceWindowAXFrame = now; return }
+        // Sub-point jitter from live resize bookkeeping is not a move.
+        guard abs(now.minX - before.minX) > 1 || abs(now.minY - before.minY) > 1
+                || abs(now.width - before.width) > 1 || abs(now.height - before.height) > 1 else { return }
+        sourceWindowAXFrame = now
+        screenChanged(reason: "source window moved or resized")
+    }
+    private var captureContext: [String: Any] = [:]
+    private var sourceWindowNumber: CGWindowID?
+    private var sourceWindowBounds: CGRect?
+    private var lastWindowCheck = Date.distantPast
+
+    func bindCapture(_ capture: ScreenSnapshot?) {
+        captureContext = capture.map {
+            ["id": $0.captureID.uuidString, "displayID": $0.displayID.map { NSNumber(value: $0) } ?? NSNull(),
+             "frame": [$0.displayFrame.minX, $0.displayFrame.minY, $0.displayFrame.width, $0.displayFrame.height],
+             "pixelWidth": $0.screenshotWidthInPixels, "pixelHeight": $0.screenshotHeightInPixels]
+        } ?? [:]
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        let source = windows.first { window in
+            guard window[kCGWindowLayer as String] as? Int == 0,
+                  window[kCGWindowOwnerPID as String] as? Int32 != ProcessInfo.processInfo.processIdentifier,
+                  let bounds = window[kCGWindowBounds as String] as? [String: Any],
+                  let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary) else { return false }
+            return frame.width > 100 && frame.height > 100
+        }
+        sourceWindowNumber = capture?.sourceWindowID ?? (source?[kCGWindowNumber as String] as? NSNumber)?.uint32Value
+        sourceWindowBounds = capture?.sourceWindowFrame ?? (source?[kCGWindowBounds as String] as? [String: Any]).flatMap { CGRect(dictionaryRepresentation: $0 as CFDictionary) }
+        if let number = sourceWindowNumber { captureContext["windowID"] = number }
+        let capturedWindow = windows.first { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value == sourceWindowNumber }
+        captureContext["windowOwner"] = capturedWindow?[kCGWindowOwnerName as String] as? String ?? ""
+        watchSourceWindow()
+        if let capture, let frame = panel?.frame {
+            run(Self.projectedScreenshotScript(capture, canvas: canvasSize, overlayFrame: frame))
+        }
+        if let capture, !ScreenCapture.isCurrent(capture) {
+            captureContext["stale"] = true
+            captureContext["staleReason"] = "input after capture"
+            run("HeyMateCanvas.screenChanged()")
+        }
+    }
+
+    private func watchSourceWindow() {
+        if let observer = sourceWindowObserver {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
+        }
+        sourceWindowObserver = nil
+        guard let app = NSWorkspace.shared.frontmostApplication, app.bundleIdentifier != Bundle.main.bundleIdentifier else { return }
+        let element = AXUIElementCreateApplication(app.processIdentifier)
+        var focused: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXFocusedWindowAttribute as CFString, &focused) == .success,
+              let focused, CFGetTypeID(focused) == AXUIElementGetTypeID() else { return }
+        var observer: AXObserver?
+        let result = AXObserverCreate(app.processIdentifier, { _, _, _, context in
+            guard let context else { return }
+            let owner = Unmanaged<ExplainerWindowController>.fromOpaque(context).takeUnretainedValue()
+            MainActor.assumeIsolated { owner.sourceWindowMovedOrResized() }
+        }, &observer)
+        guard result == .success, let observer else { return }
+        let window = unsafeBitCast(focused, to: AXUIElement.self)
+        sourceWindowElement = window
+        sourceWindowAXFrame = Self.axFrame(of: window)
+        for notification in [kAXMovedNotification, kAXResizedNotification] {
+            AXObserverAddNotification(observer, window, notification as CFString, Unmanaged.passUnretained(self).toOpaque())
+        }
+        sourceWindowObserver = observer
+        CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
+    }
 
     private func watchScreenChanges() {
+        screenLayout = Self.currentScreenLayout()
+        screenChangeObservers.append(NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                // This also fires when the Dock or menu bar shifts the visible
+                // area. Only a real display change makes the drawing wrong.
+                guard let self, Self.currentScreenLayout() != self.screenLayout else { return }
+                self.dismiss()
+            }
+        })
         screenChangeObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
         ) { [weak self] notification in
             let identifier = (notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier
             guard identifier != Bundle.main.bundleIdentifier else { return }
-            Task { @MainActor [weak self] in self?.screenChanged() }
+            Task { @MainActor [weak self] in self?.screenChanged(reason: "application activated: \(identifier ?? "unknown")") }
         })
         screenChangeObservers.append(NotificationCenter.default.addObserver(
             forName: Notification.Name("HeyMateBrowserPageChanged"), object: nil, queue: .main
-        ) { [weak self] _ in Task { @MainActor [weak self] in self?.screenChanged() } })
-        screenInputMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.scrollWheel, .leftMouseDown]) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.screenChanged() }
+        ) { [weak self] _ in Task { @MainActor [weak self] in self?.screenChanged(reason: "browser page changed") } })
+        screenInputMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.scrollWheel, .leftMouseDown]) { [weak self] event in
+            let reason = event.type == .scrollWheel ? "screen scrolled" : "screen clicked"
+            Task { @MainActor [weak self] in self?.screenChanged(reason: reason) }
         }
     }
 
-    private func screenChanged() {
+    private func screenChanged(reason: String = "screen changed") {
+        captureContext["stale"] = true
+        captureContext["staleReason"] = reason
         screenChangeTask?.cancel()
         screenChangeTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(200))
@@ -135,6 +287,8 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
     }
 
     var isShowing: Bool { panel != nil }
+    var activeFrame: CGRect? { panel?.frame }
+    var activeCanvasSize: CGSize? { isShowing ? canvasSize : nil }
 
     // A drawing that arrives while the reply streams in (ReferenceRenderer feeds its canvas the same way): the response it
     // belongs to, the program fed so far, its say() lines so far, whether it is complete, and the voice telling it.
@@ -145,6 +299,20 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
     var streamLines: [String] = []
     var streamDone = false
     var streamSpeaker: Task<Void, Never>?
+
+    /// Do not spend a spoken beat while WebKit is still loading. The JS barrier
+    /// also waits behind queued begin/feed commands before synthesis starts.
+    func waitUntilReady() async throws {
+        let deadline = Date().addingTimeInterval(15)
+        while !isLoaded {
+            try Task.checkCancellation()
+            guard isShowing, Date() < deadline else { throw CancellationError() }
+            try await Task.sleep(for: .milliseconds(40))
+        }
+        guard let webView else { throw CancellationError() }
+        _ = try await webView.evaluateJavaScript("Boolean(window.HeyMateCanvas)")
+        try Task.checkCancellation()
+    }
 
     /// Starts a drawing for a reply still streaming in; feed() adds to it. A drawing already showing is
     /// continued instead (ReferenceRenderer's continueStream): it stays, and the new turn draws on.
@@ -186,21 +354,51 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
         streamLines = []
         streamDone = false
         lineStarts = [:]
+        beatTimings = []
         run(Self.screenshotScript(screenshot, canvas: canvasSize))
         run("HeyMateCanvas.continue()")
+        if screenshot == nil { run("HeyMateCanvas.screenChanged()") }
     }
 
     /// What the drawing on screen holds now, in the canvas's words for the model, or nil when nothing is drawn.
     func drawingState() async -> String? {
         guard let webView, isLoaded else { return nil }
         let state = try? await webView.evaluateJavaScript("HeyMateCanvas.state()") as? String
-        return state?.isEmpty == false ? state : nil
+        guard let state, !state.isEmpty else { return nil }
+        let live = try? await webView.evaluateJavaScript("""
+        JSON.stringify(HeyMateCanvas.inspectFigures().map(figure => ({
+          id: figure.id, yaw: figure.yaw, zoom: figure.zoom, motions: figure.motions,
+          parts: figure.parts.slice(0,64).map(part => ({
+            id: part.id, name: part.name, color: part.color, visible: part.visible, position: part.position
+          })),
+          moreParts: Math.max(0,figure.parts.length-64)
+        })))
+        """) as? String
+        let ids = commandInventory.sorted { $0.key < $1.key }.map { "\($0.key) (\($0.value))" }.joined(separator: ", ")
+        let presented = metalOverlay?.diagnostics ?? [:]
+        return state + "\nNative presentation receipt: \(presented)" + (ids.isEmpty ? "" : "\nNamed command ids for follow-up edits: " + ids) +
+            (live == nil || live == "[]" ? "" : "\nLive 3D state: " + (live ?? ""))
     }
 
     func rendererState() async -> [String: Any] {
         let drawing = await drawingState()
+        let figures = try? await webView?.evaluateJavaScript("HeyMateCanvas.inspectFigures()")
+        let inputHits = interactionPanels.map { input in
+            ["expected": input.windowNumber,
+             "actual": NSWindow.windowNumber(at: CGPoint(x: input.frame.midX, y: input.frame.midY), belowWindowWithWindowNumber: 0)]
+        }
+        let background = panel.map { CGPoint(x: $0.frame.minX + 8, y: $0.frame.minY + 8) } ?? .zero
         return ["showing": isShowing, "streamDone": streamDone, "lines": streamLines.count,
-                "drawing": drawing ?? "", "native": metalOverlay?.diagnostics ?? [:]]
+                "drawing": drawing ?? "", "native": metalOverlay?.diagnostics ?? [:], "beats": beatTimings,
+                "figures": figures ?? [],
+                "captureWidth": canvasSize.width, "captureHeight": canvasSize.height,
+                "frontmostApp": NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "",
+                "capture": captureContext,
+                "backgroundClickThrough": panel?.ignoresMouseEvents ?? true,
+                "inputWindows": interactionPanels.map { [$0.frame.minX, $0.frame.minY, $0.frame.width, $0.frame.height] },
+                "inputHitTests": inputHits, "drawingWindow": panel?.windowNumber ?? 0,
+                "backgroundHitWindow": NSWindow.windowNumber(at: background, belowWindowWithWindowNumber: 0),
+                "interactiveRects": hitRects.map { [$0.minX, $0.minY, $0.width, $0.height] }]
     }
 
     /// The whole program so far; the canvas runs its complete statements and waits for the rest.
@@ -282,6 +480,7 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
         }
         isLoaded = false
         lineStarts = [:]
+        beatTimings = []
         let canvasSize = canvas.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil } ?? screenFrame.size
         self.canvasSize = canvasSize
         pendingScripts = [Self.screenshotScript(screenshot, canvas: canvasSize),
@@ -291,15 +490,24 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
     }
 
     private var lineStarts: [Int: Date] = [:]
+    var commandInventory: [String: String] = [:]
+    private var beatTimings: [[String: Any]] = []
 
     /// HeyMate starts speaking say() line k (0-based): its strokes draw now (mateCanvas.line).
     func lineStart(_ k: Int) {
         lineStarts[k] = Date()
+        beatTimings.append(["line": k, "playbackAt": Date().timeIntervalSince1970 * 1000,
+                            "initialMeshes": metalOverlay?.diagnostics["meshes"] ?? 0])
+        if beatTimings.count > 12 { beatTimings.removeFirst() }
+        HeyMateLog.log("Explainer beat \(k) playback started", category: "ExplainerTiming")
         run("HeyMateCanvas.line(\(k))")
     }
     /// Line k has been heard: how long it took (mateCanvas.lineLength).
     func lineEnd(_ k: Int) {
         guard let start = lineStarts[k] else { return }
+        if let index = beatTimings.lastIndex(where: { $0["line"] as? Int == k }) {
+            beatTimings[index]["endedAt"] = Date().timeIntervalSince1970 * 1000
+        }
         run("HeyMateCanvas.lineLength(\(k), \(max(0.2, Date().timeIntervalSince(start))))")
     }
 
@@ -312,6 +520,7 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
 
     private func closeLater(after seconds: TimeInterval) {
         closeTask?.cancel()
+        guard heldTurn == nil else { return }
         closeTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
             guard !Task.isCancelled else { return }
@@ -320,6 +529,21 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
     }
 
     func close() {
+        heldTurn = nil
+        for interaction in interactionPanels {
+            panel?.removeChildWindow(interaction)
+            interaction.orderOut(nil)
+        }
+        interactionPanels = []
+        if let observer = sourceWindowObserver {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
+        }
+        sourceWindowObserver = nil
+        sourceWindowElement = nil
+        sourceWindowAXFrame = nil
+        sourceWindowNumber = nil
+        sourceWindowBounds = nil
+        captureContext = [:]
         screenChangeTask?.cancel(); screenChangeTask = nil
         for observer in screenChangeObservers {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
@@ -342,6 +566,7 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
         fedProgram = ""
         streamLines = []
         streamDone = false
+        commandInventory = [:]
         metalOverlay?.removeFromSuperview()
         metalOverlay = nil
         controlsPanel?.orderOut(nil)
@@ -356,18 +581,63 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
         isLoaded = false
     }
 
-    /// The overlay receives clicks over cards, figures and Clear (and for an active drag).
+    /// Only source-context checks need polling. Input belongs to bounded child
+    /// panels, so the full-screen drawing never intercepts a background click.
     private func followMouse() {
         guard let panel else { return }
-        guard NSEvent.pressedMouseButtons == 0 else { return }
-        let mouse = NSEvent.mouseLocation, frame = panel.frame
-        let point = CGPoint(x: mouse.x - frame.minX, y: frame.maxY - mouse.y)
-        let over = hitRects.contains { $0.insetBy(dx: -4, dy: -4).contains(point) }
-        if panel.ignoresMouseEvents == over { panel.ignoresMouseEvents = !over }
+        if Date().timeIntervalSince(lastWindowCheck) > 0.3, let number = sourceWindowNumber {
+            lastWindowCheck = Date()
+            let windows = CGWindowListCopyWindowInfo(.optionIncludingWindow, number) as? [[String: Any]] ?? []
+            let current = (windows.first?[kCGWindowBounds as String] as? [String: Any]).flatMap { CGRect(dictionaryRepresentation: $0 as CFDictionary) }
+            if current != sourceWindowBounds || windows.first?[kCGWindowIsOnscreen as String] as? Bool == false {
+                sourceWindowBounds = current
+                screenChanged(reason: "source window bounds or visibility changed")
+            }
+        }
+        panel.ignoresMouseEvents = true
+    }
+
+    private func updateInteractionPanels() {
+        guard let panel else { return }
+        let surface = CGRect(origin: .zero, size: panel.frame.size)
+        let rects = hitRects.prefix(32).map { $0.intersection(surface) }.filter { !$0.isNull && $0.width > 0 && $0.height > 0 }
+        while interactionPanels.count > rects.count {
+            let removed = interactionPanels.removeLast()
+            panel.removeChildWindow(removed)
+            removed.orderOut(nil)
+        }
+        for (index, rect) in rects.enumerated() {
+            let interaction: NSPanel
+            if index < interactionPanels.count { interaction = interactionPanels[index] }
+            else {
+                interaction = ExplainerInputPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+                interaction.isOpaque = false
+                // Nonzero alpha keeps this bounded input surface in WindowServer
+                // hit-testing while the drawing window itself stays click-through.
+                interaction.backgroundColor = NSColor.black.withAlphaComponent(0.01)
+                interaction.hasShadow = false
+                interaction.level = panel.level
+                interaction.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+                let input = ExplainerInputView()
+                input.onInput = { [weak self] phase, event in
+                    guard let self, let frame = self.panel?.frame else { return }
+                    let global = event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
+                    let delta = phase == "wheel" ? event.scrollingDeltaY * (event.hasPreciseScrollingDeltas ? 1 : 16) : 0
+                    self.run("HeyMateCanvas.input(\(Self.jsString(phase)), \(global.x - frame.minX), \(frame.maxY - global.y), \(-delta))")
+                }
+                interaction.contentView = input
+                interactionPanels.append(interaction)
+                panel.addChildWindow(interaction, ordered: .above)
+            }
+            let frame = CGRect(x: panel.frame.minX + rect.minX, y: panel.frame.maxY - rect.maxY, width: rect.width, height: rect.height)
+            interaction.setFrame(frame, display: false)
+            interaction.orderFrontRegardless()
+        }
+        controlsPanel?.orderFrontRegardless()
     }
 
     func dismiss() {
-        dismissedStreamOwner = streamOwner
+        dismissedStreamOwner = heldTurn ?? streamOwner
         onDropPointing?()
         close()
     }
@@ -393,6 +663,12 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
         }
         let overlay = try DaVinciMetalOverlay(frame: content.bounds, source: String(contentsOf: url, encoding: .utf8))
         overlay.onPresented = { [weak self] id, error in
+            if let self, error == nil, let index = self.beatTimings.indices.last,
+               self.beatTimings[index]["nativeAt"] == nil,
+               let meshes = self.metalOverlay?.diagnostics["meshes"] as? Int,
+               meshes > (self.beatTimings[index]["initialMeshes"] as? Int ?? 0) {
+                self.beatTimings[index]["nativeAt"] = Date().timeIntervalSince1970 * 1000
+            }
             self?.run("MateMetal.presented(\(Self.jsString(id)), \(error.map(Self.jsString) ?? "null"))")
         }
         content.addSubview(overlay)
@@ -402,6 +678,14 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
 
     private func received(_ type: String, _ payload: Any?) {
         switch type {
+        case "beatVisible":
+            guard let data = payload as? [String: Any], let line = data["line"] as? Int,
+                  let index = beatTimings.lastIndex(where: { $0["line"] as? Int == line }),
+                  beatTimings[index]["visualAt"] == nil else { return }
+            let at = Date().timeIntervalSince1970 * 1000
+            beatTimings[index]["visualAt"] = at
+            let start = beatTimings[index]["playbackAt"] as? Double ?? at
+            HeyMateLog.log("Explainer beat \(line) visible \(Int(at - start))ms after playback start", category: "ExplainerTiming")
         case "metal3d":
             guard let fields = payload as? [String: Any], let id = fields["id"] as? String else { return }
             guard fields["op"] as? String == "frame" else {
@@ -416,7 +700,11 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
                 run("MateMetal.presented(\(Self.jsString(id)), \(Self.jsString(detail)), true)")
             }
         case "hitRects":
-            hitRects = (payload as? [[Double]] ?? []).compactMap { r in r.count == 4 ? CGRect(x: r[0], y: r[1], width: r[2], height: r[3]) : nil }
+            hitRects = (payload as? [[Double]] ?? []).compactMap { r in
+                guard r.count == 4, r.allSatisfy({ $0.isFinite && abs($0) <= 1_000_000 }) else { return nil }
+                return CGRect(x: r[0], y: r[1], width: r[2], height: r[3])
+            }
+            updateInteractionPanels()
         case "pointAt":
             guard let fields = payload as? [String: Any], let frame = panel?.frame,
                   let x = fields["x"] as? Double, let y = fields["y"] as? Double, canvasSize.width > 0 else { break }
@@ -512,6 +800,42 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
         return "HeyMateCanvas.screenSampling.set({width: \(width), height: \(height), rgba: \(jsString(Data(rgba).base64EncodedString()))})"
     }
 
+    static func projectedScreenshotScript(_ capture: ScreenSnapshot, canvas: CGSize, overlayFrame: CGRect) -> String {
+        let width = Int(canvas.width), height = Int(canvas.height)
+        guard width > 0, height > 0, width * height <= 16_777_216,
+              let image = NSBitmapImageRep(data: capture.imageData)?.cgImage else {
+            return "HeyMateCanvas.screenSampling.clear()"
+        }
+        let sourceWidth = image.width, sourceHeight = image.height
+        guard sourceWidth > 0, sourceHeight > 0, sourceWidth * sourceHeight <= 16_777_216 else { return "HeyMateCanvas.screenSampling.clear()" }
+        var source = [UInt8](repeating: 0, count: sourceWidth * sourceHeight * 4)
+        let decoded = source.withUnsafeMutableBytes { bytes -> Bool in
+            guard let context = CGContext(data: bytes.baseAddress, width: sourceWidth, height: sourceHeight,
+                bitsPerComponent: 8, bytesPerRow: sourceWidth * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: sourceWidth, height: sourceHeight))
+            return true
+        }
+        guard decoded else { return "HeyMateCanvas.screenSampling.clear()" }
+        let viewport = ExplanationProgram.viewport(captureFrame: capture.displayFrame,
+            imageSize: CGSize(width: sourceWidth, height: sourceHeight), displayFrame: overlayFrame,
+            existingFrame: overlayFrame, existingCanvas: canvas)
+        let projection = viewport.projection
+        var rgba = [UInt8](repeating: 0, count: width * height * 4)
+        for y in 0..<height {
+            let sourceY = Int(floor((Double(y) - projection.offsetY) / projection.scaleY))
+            guard (0..<sourceHeight).contains(sourceY) else { continue }
+            for x in 0..<width {
+                let sourceX = Int(floor((Double(x) - projection.offsetX) / projection.scaleX))
+                guard (0..<sourceWidth).contains(sourceX) else { continue }
+                let from = (sourceY * sourceWidth + sourceX) * 4, to = (y * width + x) * 4
+                rgba[to] = source[from]; rgba[to + 1] = source[from + 1]
+                rgba[to + 2] = source[from + 2]; rgba[to + 3] = source[from + 3]
+            }
+        }
+        return "HeyMateCanvas.screenSampling.set({width: \(width), height: \(height), rgba: \(jsString(Data(rgba).base64EncodedString()))})"
+    }
+
     /// mateCanvas.beginStream; the program follows through feed().
     private static func startScript(canvas: CGSize, widthInPoints: CGFloat) -> String {
         "try { HeyMateCanvas.begin({w: \(Int(canvas.width)), h: \(Int(canvas.height)), width: \(Int(widthInPoints)), ink: '#3380FF'}); } catch (e) { console.error('explainer', e); }"
@@ -519,6 +843,7 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
 
     private static let page = """
     <!doctype html><html><head><meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src https: data:">
     <link href="https://fonts.googleapis.com/css2?family=Patrick+Hand&family=Barlow:wght@400;600&display=swap" rel="stylesheet">
     <style>html,body{margin:0;background:transparent;overflow:hidden;height:100%}</style>
     </head><body></body></html>
@@ -528,6 +853,20 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
 /// Takes the first click, so a card or figure answers without the overlay being made key first.
 private final class ExplainerWebView: WKWebView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+private final class ExplainerInputPanel: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
+private final class ExplainerInputView: NSView {
+    var onInput: ((String, NSEvent) -> Void)?
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func mouseDown(with event: NSEvent) { onInput?("down", event) }
+    override func mouseDragged(with event: NSEvent) { onInput?("move", event) }
+    override func mouseUp(with event: NSEvent) { onInput?("up", event) }
+    override func scrollWheel(with event: NSEvent) { onInput?("wheel", event) }
 }
 
 /// WKUserContentController keeps its handlers strongly; this keeps the overlay from being held by its own page.

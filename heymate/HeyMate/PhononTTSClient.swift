@@ -13,7 +13,6 @@ final class PhononTTSClient: TTSClient {
     private var buffers = 0
     private var trimmer = PhononSilenceTrimmer()
     private var firstPlayback: (generation: Int, continuation: CheckedContinuation<Void, Error>)?
-    private var fallback: MacOSSpeechSynthesizerClient?
     private let speechEngine: PhononEngine
 
     init(speechEngine: PhononEngine = .shared) {
@@ -24,7 +23,7 @@ final class PhononTTSClient: TTSClient {
         engine.connect(timePitch, to: engine.mainMixerNode, format: format)
     }
 
-    var isPlaying: Bool { synthesizing || buffers > 0 || fallback?.isPlaying == true }
+    var isPlaying: Bool { synthesizing || buffers > 0 }
 
     func speakText(_ text: String) async throws {
         stopPlayback()
@@ -73,10 +72,9 @@ final class PhononTTSClient: TTSClient {
                                 guard current == self.generation else { throw CancellationError() }
                             }
                             try Task.checkCancellation()
-                            HeyMateLog.log("Phonon unavailable; continuing with Mac voice: \(error.localizedDescription)")
-                            let speaker = self.fallback ?? MacOSSpeechSynthesizerClient()
-                            self.fallback = speaker
-                            try await speaker.speakText(sentences.dropFirst(sentenceIndex).joined(separator: " "))
+                            // HeyMate never speaks in the Mac system voice. The words
+                            // are already on screen; the rest of this reply stays quiet.
+                            HeyMateLog.log("Phonon unavailable; staying quiet (no Mac voice): \(error.localizedDescription)")
                             guard current == self.generation else { return }
                             self.finishFirst()
                         } catch {
@@ -100,7 +98,6 @@ final class PhononTTSClient: TTSClient {
         synthesizing = false
         buffers = 0
         player.stop()
-        fallback?.stopPlayback()
         finishFirst(throwing: CancellationError())
     }
 

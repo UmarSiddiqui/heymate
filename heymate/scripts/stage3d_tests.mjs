@@ -5,7 +5,7 @@ import test from 'node:test';
 
 const sources = new URL('../HeyMate/', import.meta.url);
 
-function stageHarness(width = 300, height = 500, look = null, nativeMetal = false) {
+function stageHarness(width = 300, height = 500, look = null, nativeMetal = false, labelData = [{follow:'blade',text:'Fan blade',side:'left'}]) {
   const messages = [], errors = [];
   let now = 1000, nextFrame;
   class Element {
@@ -44,11 +44,23 @@ function stageHarness(width = 300, height = 500, look = null, nativeMetal = fals
   root.children.push(part({ id: 'group', kind: 'group', at: [4,0,0], scale: 2 }));
   root.children.push(part({ id: 'blade', name: 'fanBlade', kind: 'box', parent: 'group', at: [1,0,0] }));
   root.children.push(part({ id: 'p3', name: 'shaft', kind: 'box', at: [-3,0,0] }));
-  root.children.push(new Element('label3d', { 'data-stage': 'stage', 'data-label': JSON.stringify({follow:'blade',text:'Fan blade',side:'left'}) }));
+  for (const data of labelData) root.children.push(new Element('label3d', { 'data-stage': 'stage', 'data-label': JSON.stringify(data) }));
   const points = [];
   context.MateStage3D.attach(root, { onBuild: (x,y,name) => points.push({ x,y,name }) });
   return { points, messages, errors, context, stage: context.MateStage3D.stages.get('stage'), tick(time) { now = time; nextFrame(); } };
 }
+
+test('automatic labels use projected part sides and follow camera orbit', () => {
+  const h = stageHarness(600, 500, null, true, [
+    {follow:'p3',text:'Left part'}, {follow:'blade',text:'Right part'},
+    {follow:'blade',text:'Explicit side',side:'left'},
+  ]);
+  h.tick(2000);
+  assert.deepEqual(Array.from(h.stage.labelList, l => l.side), ['left','right','left']);
+  h.stage.yaw = Math.PI;
+  h.tick(2100);
+  assert.deepEqual(Array.from(h.stage.labelList, l => l.side), ['right','left','left']);
+});
 
 test('same-beat grouped parts retain parent and final-size bounds', () => {
   const h = stageHarness(); h.tick(1100);
@@ -189,6 +201,19 @@ test('native picking excludes removed cut surfaces and hidden parents', () => {
   assert.notEqual(h.context.MateStage3D.pick(st, x, y), 'fanBlade');
 });
 
+test('browser figures clip the same camera-facing half as native figures', () => {
+  const h = stageHarness(300, 500, 'studio');
+  h.tick(1800);
+  const stage = h.stage, blade = stage.parts.get('blade');
+  blade.userData.material = { cut: [0,0,1,0], cutFacing: true };
+  h.tick(2000);
+  assert.equal(stage.renderer.localClippingEnabled, true);
+  const [plane] = blade.material.clippingPlanes;
+  const near = stage.camera.position, far = stage.centre.clone().multiplyScalar(2).sub(near);
+  assert.ok(plane.distanceToPoint(near) < 0);
+  assert.ok(plane.distanceToPoint(far) > 0);
+});
+
 test('airplane token prefixes produce same meshes and hierarchy as complete program', () => {
   const context = vm.createContext({console});
   vm.runInContext(fs.readFileSync(new URL('mate-draw-engine.js', sources), 'utf8'), context);
@@ -213,4 +238,46 @@ test('airplane token prefixes produce same meshes and hierarchy as complete prog
   assert.ok(partialCounts.some(n => n > 0 && n < 52), 'meshes must arrive before final prefix');
   assert.deepEqual(JSON.parse(JSON.stringify(parts(received))), JSON.parse(JSON.stringify(parts(expected))));
   assert.equal(says.length, 4);
+});
+
+test('slider-crank keeps both rod ends on their pins for a full revolution', () => {
+  const h = stageHarness(300, 500, 'studio', true);
+  h.tick(1800);
+  const stage = h.stage, { Vector3 } = h.context.THREE;
+  const crank = stage.parts.get('p3'), piston = stage.parts.get('blade'), rod = stage.parts.get('group');
+  stage.pivot.add(piston);
+  rod.userData.scale = 1;
+  const radius = 0.3, rodLength = 1.2;
+  stage.motions.push({ kind: 'sliderCrank', target: 'p3', piston: 'blade', rod: 'group', radius, rodLength, period: 2, start: 1800 });
+  const lower = new Vector3(), upper = new Vector3(), crankPin = new Vector3();
+  for (let ms = 1800; ms <= 3800; ms += 125) {
+    h.context.MateMetal.presented(h.messages[0].body.id);
+    h.tick(ms);
+    lower.set(0, -rodLength / 2, 0).applyQuaternion(rod.quaternion).add(rod.position);
+    upper.set(0, rodLength / 2, 0).applyQuaternion(rod.quaternion).add(rod.position);
+    crankPin.set(0, radius, 0).applyQuaternion(crank.quaternion).add(crank.position);
+    assert.ok(lower.distanceTo(crankPin) < 1e-6, 'rod detached from crank pin');
+    assert.ok(upper.distanceTo(piston.position) < 1e-6, 'rod detached from piston pin');
+    assert.equal(piston.position.x, crank.position.x);
+    assert.equal(piston.position.z, crank.position.z);
+  }
+});
+
+test('camera zoom keeps scene identity and bounds magnification', () => {
+  const h = stageHarness();
+  h.tick(1800);
+  const stage = h.stage, blade = stage.parts.get('blade');
+  const distance = () => stage.camera.position.distanceTo(stage.centre);
+  const original = distance();
+  h.context.MateStage3D.zoom(stage, -240);
+  h.tick(1900);
+  assert.ok(distance() < original);
+  h.context.MateStage3D.zoom(stage, -100000);
+  h.tick(2000);
+  const near = distance();
+  assert.ok(near > stage.radius);
+  h.context.MateStage3D.zoom(stage, -100000);
+  h.tick(2100);
+  assert.ok(Math.abs(distance() - near) < 1e-6);
+  assert.equal(stage.parts.get('blade'), blade);
 });

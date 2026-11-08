@@ -1,6 +1,32 @@
 import Foundation
 import Darwin
 
+/// Only these fixed categories may leave the speech transport. Server errors
+/// can echo the input, paths or environment; never log their raw bodies/stderr.
+nonisolated enum SpeechFailureCategory: String, Codable, Sendable {
+    case modelMissing = "model_missing"
+    case modelInvalid = "model_invalid"
+    case voiceInvalid = "voice_invalid"
+    case inputInvalid = "input_invalid"
+    case memory = "memory"
+    case runner = "runner"
+    case noAudio = "no_audio"
+    case unknown = "unknown"
+
+    static func classify(_ text: String) -> Self {
+        let text = text.lowercased()
+        if text.contains("voice"), text.contains("not found") { return .voiceInvalid }
+        if text.contains("input must" ) || text.contains("input is required") { return .inputInvalid }
+        if text.contains("out of memory") || text.contains("insufficient memory") { return .memory }
+        if text.contains("no audio") { return .noAudio }
+        if text.contains("model"), text.contains("not found") { return .modelMissing }
+        if text.contains("no such file") || text.contains("checksum") || text.contains("load tokenizer")
+            || text.contains("load config") || text.contains("missing flow_lm") { return .modelInvalid }
+        if text.contains("runner") || text.contains("metal") || text.contains("mlx") { return .runner }
+        return .unknown
+    }
+}
+
 /// Private newline-delimited protocol. Audio stays in memory, never on disk.
 nonisolated struct SpeechRunnerRequest: Codable, Sendable {
     let operation: String

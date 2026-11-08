@@ -408,6 +408,24 @@ struct SpeechSpeedRow: View {
 
 /// The on-device voices as cards. Tapping one picks it and plays a short
 /// sample, so choosing a voice is listening, not reading names.
+extension OnDeviceVoiceOption {
+    /// Each voice's own colour, shared by Settings and the welcome tour.
+    var tint: Color {
+        switch id {
+        case "Zoey": return .pink
+        case "Freya": return .orange
+        case "Hadley": return .purple
+        case "Harper": return .cyan
+        case "Imogen": return .yellow
+        case "Easton": return .green
+        case "Hugh": return .indigo
+        case "Miles": return .mint
+        case "Bryony": return .blue
+        default: return .teal
+        }
+    }
+}
+
 struct OnDeviceVoiceGrid: View {
     @ObservedObject private var store = OnDeviceVoiceModelStore.shared
     @State private var selectedID = SpeechStylePreferences.onDeviceVoice
@@ -438,20 +456,7 @@ struct OnDeviceVoiceGrid: View {
         .onDisappear { previewClient?.stopPlayback() }
     }
 
-    private func voiceColor(_ option: OnDeviceVoiceOption) -> Color {
-        switch option.id {
-        case "Zoey": return .pink
-        case "Freya": return .orange
-        case "Hadley": return .purple
-        case "Harper": return .cyan
-        case "Imogen": return .yellow
-        case "Easton": return .green
-        case "Hugh": return .indigo
-        case "Miles": return .mint
-        case "Bryony": return .blue
-        default: return .teal
-        }
-    }
+    private func voiceColor(_ option: OnDeviceVoiceOption) -> Color { option.tint }
 
     private func card(_ option: OnDeviceVoiceOption) -> some View {
         let isSelected = option.id == selectedID

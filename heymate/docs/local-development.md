@@ -131,6 +131,7 @@ After a verified local install, run production Phonon checks:
 
 ```bash
 python3 scripts/phonon-runtime-tests.py
+python3 script/test_phonon_transport.py
 python3 script/verify_phonon_lifetime.py
 PROBE_ROUNDS=1000 PROBE_PLAYBACK=1 bash script/verify_phonon.sh
 PROBE_LONG_ONLY=1 bash script/verify_phonon.sh

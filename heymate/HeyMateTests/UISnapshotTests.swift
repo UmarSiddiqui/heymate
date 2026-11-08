@@ -57,6 +57,73 @@ struct UISnapshotTests {
         )
     }
 
+    /// The welcome tour's interview: mid-conversation, thinking, and done
+    /// with the mates it made; plus the closing page.
+    @Test(.enabled(if: outputDirectory != nil))
+    func onboardingInterview() throws {
+        let manager = CompanionManager()
+        let now = Date()
+        let made = [
+            ("Launch Desk", "Plans each HeyMate release and drafts the changelog from your commits."),
+            ("Bug Net", "Triages crash reports and feedback into a short fix list every morning."),
+            ("Reply Scout", "Finds people asking for a notch assistant and drafts replies for you.")
+        ]
+        manager.mates = made.map { name, job in
+            var mate = Mate(id: UUID(), name: name, job: job, pinned: false, archived: false, unreadCount: 0,
+                            createdAt: now, updatedAt: now, memoryNote: "")
+            mate.faceAssetName = BlobatarCharacter.automaticToken
+            return mate
+        }
+        OnDeviceVoiceModelStore.shared.refreshInstalledState()
+        let tour = OnboardingTour(companionManager: manager, restart: true)
+        let firstJobs = [
+            "Launch Desk": "I'll draft release notes for your next build from this week's commits.",
+            "Bug Net": "I'll sort your open crash reports into a top five fix list.",
+            "Reply Scout": "I'll find ten recent posts asking for a Mac notch assistant, with links.",
+        ]
+        let opening = [
+            OnboardingInterviewLine(speaker: .heyMate, text: "So, Umar. I'm curious about you."),
+            OnboardingInterviewLine(speaker: .heyMate, text: OnboardingInterview.openingQuestion),
+        ]
+        let middle = opening + [
+            OnboardingInterviewLine(speaker: .user, text: "Building a Mac app that lives in the notch"),
+            OnboardingInterviewLine(speaker: .heyMate, text: "Love that."),
+            OnboardingInterviewLine(speaker: .heyMate, text: "What would make this month a win for it?"),
+        ]
+        let finished = middle + [
+            OnboardingInterviewLine(speaker: .user, text: "Ship the launch"),
+            OnboardingInterviewLine(speaker: .heyMate, text: "Big month."),
+            OnboardingInterviewLine(speaker: .heyMate, text: "Which apps are you in all day?"),
+            OnboardingInterviewLine(speaker: .user, text: "Xcode and Terminal"),
+            OnboardingInterviewLine(speaker: .heyMate, text: "A builder's desk."),
+            OnboardingInterviewLine(speaker: .heyMate, text: "You're shipping a notch app and want this launch to land."),
+            OnboardingInterviewLine(speaker: .heyMate, text: "I made you 3 mates for that. They're waiting in your sidebar."),
+        ]
+        let states: [(String, () -> Void)] = [
+            ("start", { tour.stageForSnapshot(step: .interview, lines: opening, suggestions: OnboardingInterview.openingSuggestions, name: "Umar") }),
+            ("middle", { tour.stageForSnapshot(step: .interview, lines: middle, suggestions: ["Ship the launch", "First 100 users", "Fix the bugs"], name: "Umar") }),
+            ("thinking", { tour.stageForSnapshot(step: .interview, lines: opening + [middle[2]], thinking: true, name: "Umar") }),
+            ("done", { tour.stageForSnapshot(step: .interview, lines: finished, done: true, mateNames: made.map(\.0), name: "Umar") }),
+            ("reveal", { tour.stageForSnapshot(step: .reveal, done: true, mateNames: made.map(\.0), name: "Umar") }),
+            ("talk", { tour.stageForSnapshot(step: .talk, name: "Umar", speech: "This is how you talk to me. Hold the keys, tell me your name, then let go.") }),
+            ("talk-done", { tour.stageForSnapshot(step: .talk, done: true, name: "Umar", speech: "Nice to meet you, Umar!", status: "Hi, Umar.") }),
+            ("point", { tour.stageForSnapshot(step: .point, done: true, answer: "You've got Xcode open on OnboardingWindow.swift. The interesting bit is the stage frame: it's where my face lives now.") }),
+            ("voice", { tour.stageForSnapshot(step: .voice, done: true) }),
+            ("hello", { tour.stageForSnapshot(step: .hello, done: true) }),
+            ("permissions", { tour.stageForSnapshot(step: .permissions) }),
+            ("ai", { tour.stageForSnapshot(step: .ai) }),
+            ("showMe", { tour.stageForSnapshot(step: .showMe, speech: "Now let me show you what I can do. Hold the keys and say: show me how you'd help me.") }),
+            ("kickoff", { tour.stageForSnapshot(step: .kickoff, mateNames: made.map(\.0), jobs: firstJobs) }),
+            ("kickoff-decided", { tour.stageForSnapshot(step: .kickoff, done: true, mateNames: made.map(\.0), status: "Working. Results land in each mate's chat.", jobs: firstJobs, decisions: ["Launch Desk": true, "Bug Net": false, "Reply Scout": true]) }),
+            ("firstTask", { tour.stageForSnapshot(step: .kickoff) }),
+        ]
+        for (name, stage) in states {
+            stage()
+            try Self.render(OnboardingRootView(tour: tour), size: OnboardingWindowController.contentSize, dark: true,
+                            name: "onboarding-\(name)", settle: name == "hello" ? 4.5 : 1.2)
+        }
+    }
+
     @Test(.enabled(if: outputDirectory != nil))
     func mateHome() throws {
         let manager = Self.sampleManager()

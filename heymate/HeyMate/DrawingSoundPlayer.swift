@@ -22,8 +22,12 @@ final class DrawingSoundPlayer {
         "tada": "DrawTada", "ding": "DrawDing", "nope": "DrawNope", "stamp": "DrawStamp", "sparkle": "DrawSparkle",
         "whoosh": "DrawWhoosh", "boing": "DrawBoing", "page-turn": "DrawPageTurn",
     ]
-    private static let textureVolume: Float = 0.35
-    private static let momentVolume: Float = 0.5
+    /// The scratchy pen texture sits well under speech: a hint of a pen, not static.
+    private static let textureVolume: Float = 0.12
+    private static let momentVolume: Float = 0.35
+    /// A texture never plays longer than this, whatever a mark claims. Long or
+    /// animated marks (paths, motions, 3D) otherwise kept it looping on and on.
+    private static let longestTexture: TimeInterval = 2.5
 
     private var loops: [String: AVAudioPlayer] = [:]
     /// Until when each texture is wanted (system uptime).
@@ -38,7 +42,8 @@ final class DrawingSoundPlayer {
         if !announced { announced = true; HeyMateLog.log("🔊 Drawing sounds: playing (texture \(description["texture"] ?? "none"))") }
         let delay = max(0, description["delay"] as? Double ?? 0), duration = max(0, description["dur"] as? Double ?? 0)
         if let texture = description["texture"] as? String, let asset = Self.textures[texture], duration > 0.05 {
-            schedule(after: delay) { [weak self] in self?.hold(asset, for: duration) }
+            let held = min(duration, Self.longestTexture)
+            schedule(after: delay) { [weak self] in self?.hold(asset, for: held) }
         }
         for case let event as [String: Any] in description["events"] as? [Any] ?? [] {
             guard let id = event["id"] as? String, let asset = Self.moments[id] else { continue }
@@ -62,14 +67,17 @@ final class DrawingSoundPlayer {
     }
 
     private func hold(_ asset: String, for duration: TimeInterval) {
-        let until = ProcessInfo.processInfo.systemUptime + duration
-        wantedUntil[asset] = max(wantedUntil[asset] ?? 0, until)
+        let now = ProcessInfo.processInfo.systemUptime
+        // Back-to-back marks extend the texture, but never past the ceiling
+        // from now: a stream of marks cannot keep it going forever.
+        let until = now + min(duration, Self.longestTexture)
+        wantedUntil[asset] = min(max(wantedUntil[asset] ?? 0, until), now + Self.longestTexture)
         if loops[asset] == nil, let player = Self.player(asset) {
             player.numberOfLoops = -1
             player.currentTime = Double.random(in: 0..<max(0.01, player.duration))
             player.volume = 0
             player.play()
-            player.setVolume(Self.textureVolume, fadeDuration: 0.04)
+            player.setVolume(Self.textureVolume, fadeDuration: 0.15)
             loops[asset] = player
         }
         if ticker == nil {
@@ -84,8 +92,8 @@ final class DrawingSoundPlayer {
         for (asset, until) in wantedUntil where until <= now {
             wantedUntil[asset] = nil
             if let player = loops.removeValue(forKey: asset) {
-                player.setVolume(0, fadeDuration: 0.08)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { player.stop() }
+                player.setVolume(0, fadeDuration: 0.25)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { player.stop() }
             }
         }
         if wantedUntil.isEmpty { ticker?.invalidate(); ticker = nil }

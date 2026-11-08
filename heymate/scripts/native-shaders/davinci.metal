@@ -59,8 +59,8 @@ float3 to_srgb(float3 c) {
 
 // The normal to light with: the face's own normal for flat-shaded parts (turned to the eye), the far side's
 // normal turned round for double-sided parts seen from behind.
-float3 lit_normal(float3 normal, float3 position, float3 eye, bool flat, bool doubleSided, bool front) {
-    if (flat) {
+float3 lit_normal(float3 normal, float3 position, float3 eye, bool flatShading, bool doubleSided, bool front) {
+    if (flatShading) {
         float3 n = normalize(cross(dfdx(position), dfdy(position)));
         return dot(n, eye - position) < 0.0 ? -n : n;
     }

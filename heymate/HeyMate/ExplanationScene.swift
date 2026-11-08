@@ -171,3 +171,20 @@ enum AnnotationBinding {
         )
     }
 }
+
+/// TTS returns when its first audio buffer starts. Synthesis time must not
+/// count as spoken time or release future visuals. Cancellation releases none.
+@MainActor
+enum ExplanationSpeech {
+    static func start(_ words: String, speaker: any TTSClient, silent: Bool, onStart: () -> Void) async throws -> Date {
+        if !silent {
+            do { try await speaker.speakText(words) }
+            catch is CancellationError { throw CancellationError() }
+            catch { HeyMateLog.log("Explainer speech unavailable: \(error.localizedDescription)") }
+        }
+        try Task.checkCancellation()
+        let began = Date()
+        onStart()
+        return began
+    }
+}
