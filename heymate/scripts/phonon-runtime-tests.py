@@ -16,6 +16,19 @@ spec.loader.exec_module(runtime)
 
 
 class PackagingTests(unittest.TestCase):
+    def test_archive_api_fallback_keeps_checksum_verification(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / 'runtime.tgz'
+            body = b'pinned runtime fixture'
+            primary, fallback = 'https://example.invalid/release', 'https://example.invalid/asset'
+            error = HTTPError(primary, 504, 'Gateway Time-out', {}, None)
+            with patch.object(runtime.urllib.request, 'urlopen', side_effect=[error, io.BytesIO(body)]) as download, \
+                 patch.object(runtime.time, 'sleep'):
+                runtime.fetch(primary, destination, hashlib.sha256(body).hexdigest(), fallback_url=fallback)
+            self.assertEqual([call.args[0].full_url for call in download.call_args_list], [primary, fallback])
+            self.assertEqual(download.call_args.args[0].get_header('Accept'), 'application/octet-stream')
+            self.assertEqual(destination.read_bytes(), body)
+
     def test_transient_download_retries_then_verifies_hash(self):
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / 'runtime.tgz'

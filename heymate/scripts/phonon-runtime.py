@@ -19,6 +19,9 @@ import urllib.error
 import urllib.request
 
 VERSION = '0.40.13'
+# GitHub's immutable asset ID for this pinned release archive. The API route
+# avoids release-page download redirects that can fail with upstream 504s.
+ARCHIVE_ASSET_ID = 687142293
 ARCHIVE_SHA = 'bae29252232b9e1358cf5801a7d65a07442af18fb5467cb68c7fc3711f59c511'
 MODEL_SHA = 'd47cfe951d4d684faecb78d21f5698c56b3181f573628a0eb1ee42346d140f2e'
 MODEL_PATH = 'models/manifests/registry.ollama.ai/library/phonon/latest'
@@ -32,14 +35,16 @@ def sha(path):
         return digest.hexdigest()
 
 
-def fetch(url, destination, digest):
+def fetch(url, destination, digest, fallback_url=None):
     if destination.is_file() and sha(destination) == digest:
         return
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix('.download')
     for attempt in range(4):
         try:
-            with urllib.request.urlopen(url, timeout=120) as source, temporary.open('wb') as output:
+            request = urllib.request.Request(fallback_url if attempt and fallback_url else url,
+                headers={'Accept': 'application/octet-stream', 'User-Agent': 'HeyMate-Runtime-Builder'})
+            with urllib.request.urlopen(request, timeout=120) as source, temporary.open('wb') as output:
                 shutil.copyfileobj(source, output)
             if sha(temporary) != digest:
                 raise ValueError('Download hash mismatch: ' + destination.name)
@@ -80,7 +85,8 @@ def verify(root, pristine=False):
 def build(destination):
     cache = Path(os.environ.get('HEYMATE_PHONON_CACHE', Path.home() / 'Library/Caches/HeyMate/PhononBuild'))
     archive = Path(os.environ.get('HEYMATE_OLLAMA_ARCHIVE', cache / 'ollama-darwin.tgz'))
-    fetch(f'https://github.com/ollama/ollama/releases/download/v{VERSION}/ollama-darwin.tgz', archive, ARCHIVE_SHA)
+    fetch(f'https://github.com/ollama/ollama/releases/download/v{VERSION}/ollama-darwin.tgz', archive, ARCHIVE_SHA,
+          fallback_url=f'https://api.github.com/repos/ollama/ollama/releases/assets/{ARCHIVE_ASSET_ID}')
     model_manifest = Path(__file__).with_name('phonon') / 'model-manifest.json'
     if sha(model_manifest) != MODEL_SHA:
         raise ValueError('Unpinned model manifest')
