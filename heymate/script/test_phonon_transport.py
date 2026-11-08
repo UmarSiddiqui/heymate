@@ -9,6 +9,7 @@ import socket
 import subprocess
 import tempfile
 import threading
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -16,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class Handler(http.server.BaseHTTPRequestHandler):
     mode = ''
     calls = 0
+    acknowledgement = None
 
     def log_message(self, *_):
         pass
@@ -37,6 +39,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
         self.wfile.flush()
         if self.mode == 'partial':
+            # Closing immediately can let URLSession observe truncation before
+            # delivering any bytes. This case must fail after audio delivery.
+            deadline = time.monotonic() + 10
+            while not self.acknowledgement.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert self.acknowledgement.exists(), 'Client never consumed the first audio chunk'
             self.connection.shutdown(socket.SHUT_RDWR)
             self.connection.close()
 
@@ -71,9 +79,12 @@ def main():
                 manifest.parent.mkdir(parents=True)
                 manifest.write_text(json.dumps({'config': {'digest': digest, 'size': len(data)}, 'layers': []}))
                 starts = root / (mode + '-starts')
+                acknowledgement = root / (mode + '-audio-received')
                 Handler.mode, Handler.calls = mode, 0
+                Handler.acknowledgement = acknowledgement
                 environment = dict(os.environ, PHONON_PORT=str(server.server_port), PHONON_STARTS=str(starts))
-                subprocess.run([str(probe), str(resources), str(root / (mode + '-cache')), str(helper), mode],
+                subprocess.run([str(probe), str(resources), str(root / (mode + '-cache')), str(helper), mode,
+                                str(acknowledgement)],
                                env=environment, check=True, timeout=30)
                 assert Handler.calls == expected_calls, (mode, Handler.calls)
                 assert (len(starts.read_text().splitlines()) if starts.exists() else 0) == expected_calls

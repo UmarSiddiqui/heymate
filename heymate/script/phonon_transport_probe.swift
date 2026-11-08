@@ -31,9 +31,9 @@ import Foundation
             print("PASS cache: same-size corruption, missing blob, damaged source and preservation")
             return
         }
-        let samples = SampleCounter()
+        let samples = SampleCounter(acknowledgement: mode == "partial" ? URL(fileURLWithPath: arguments[5]) : nil)
         do {
-            try await engine.stream("Synthetic sample, no personal data.", voice: "Zoey") { await samples.append($0) }
+            try await engine.stream("Synthetic sample, no personal data.", voice: "Zoey") { try await samples.append($0) }
             precondition(mode == "recover", "Expected failure")
             let count = await samples.count
             precondition(count == 1_200)
@@ -49,7 +49,7 @@ import Foundation
                 print("PASS persistent HTTP 500: bounded retry, safe error")
             } else if mode == "partial" {
                 let count = await samples.count
-                precondition(count > 0)
+                precondition(count == 1_200, "Partial audio was missing or repeated")
                 print("PASS partial stream: failure propagates without repeating audio")
             } else { throw error }
         }
@@ -59,5 +59,10 @@ import Foundation
 
 actor SampleCounter {
     var count = 0
-    func append(_ values: [Float]) { count += values.count }
+    let acknowledgement: URL?
+    init(acknowledgement: URL?) { self.acknowledgement = acknowledgement }
+    func append(_ values: [Float]) throws {
+        count += values.count
+        if let acknowledgement { try Data().write(to: acknowledgement, options: .atomic) }
+    }
 }
