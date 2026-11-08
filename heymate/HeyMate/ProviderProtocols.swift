@@ -53,6 +53,17 @@ protocol TTSClient: AnyObject {
     func stopPlayback()
 }
 
+/// Speaks nothing. Used where the only alternative would be the Mac system
+/// voice, which HeyMate never uses; replies still show as text.
+@MainActor
+final class QuietTTSClient: TTSClient {
+    func speakText(_ text: String) async throws {
+        try Task.checkCancellation()
+    }
+    var isPlaying: Bool { false }
+    func stopPlayback() {}
+}
+
 /// One tool the model may call mid-turn, in the shape Anthropic's Messages
 /// API expects: a name, a description, and a JSON Schema object describing
 /// its arguments. Kept provider-neutral so `TalkToolCatalog` does not need

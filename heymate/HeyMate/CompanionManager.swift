@@ -1474,9 +1474,10 @@ final class CompanionManager: ObservableObject {
     }
 
     /// Local voice is the default and the only fallback for ElevenLabs.
-    /// Phonon runs in its own process; system speech covers unsupported Macs.
+    /// Phonon runs in its own process. HeyMate never uses the Mac system
+    /// voice: a Mac that can't run Phonon stays quiet and shows the words.
     static func localSpeakingClient() -> any TTSClient {
-        PhononEngine.unsupportedReason == nil ? PhononTTSClient() : MacOSSpeechSynthesizerClient()
+        PhononEngine.unsupportedReason == nil ? PhononTTSClient() : QuietTTSClient()
     }
 
     static func makeSpeakingClient(

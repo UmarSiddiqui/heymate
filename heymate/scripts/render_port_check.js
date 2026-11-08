@@ -41,6 +41,17 @@ const a=paper(300,100,680,460,{title:'Keep card'});text(a.x+30,a.y+60,'KEEP CARD
  check(await page.evaluate(()=>HeyMateCanvas.state().includes('OLD PAGE')),'stale marker missing before cleanup');
  await page.evaluate(()=>HeyMateCanvas.screenChanged());
  check(await page.evaluate(()=>{const s=HeyMateCanvas.state();return s?.includes('KEEP CARD')&&!s.includes('OLD PAGE')}),'screen cleanup did not preserve card and drop stale mark');
+ // A click or scroll while HeyMate thinks makes the screen stale before anything is drawn.
+ // Marks drawn after that must stay; dropping on every paint erased each one as it appeared.
+ await page.evaluate(()=>{
+  HeyMateCanvas.clear(); HeyMateCanvas.begin({w:1280,h:800,width:1280});
+  HeyMateCanvas.screenChanged();
+  const a=JSON.parse(HeyMateCanvas.feed(`step(1);say("This is the save button.");ring(100,100,160,60,'SAVE HERE');`,true));
+  if(a.error)throw Error(a.error); HeyMateCanvas.line(0); HeyMateCanvas.lineLength(0,0.4); HeyMateCanvas.finish();
+ });
+ await page.waitForFunction(()=>HeyMateCanvas.isFinished());
+ await page.waitForTimeout(600);
+ check(await page.evaluate(()=>HeyMateCanvas.state().includes('SAVE HERE')),'annotation drawn after a screen change vanished');
  await page.evaluate(()=>{
   HeyMateCanvas.clear();
   HeyMateCanvas.begin({w:1280,h:800,width:1280});

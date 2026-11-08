@@ -16,6 +16,21 @@ struct OnboardingInterviewTests {
         #expect(reply == .next(reaction: "Love that.", question: "Who is it for?"))
     }
 
+    @Test func readsOneTapSuggestions() {
+        let text = #"{"reaction": "Nice.", "question": "Who is it for?", "suggestions": ["Students.", "students", "  ", "Small teams", "Me", "A fourth one"]}"#
+        #expect(OnboardingInterview.parseReply(text)
+            == .next(reaction: "Nice.", question: "Who is it for?", suggestions: ["Students", "Small teams", "Me"]))
+    }
+
+    @Test func transcriptSurvivesARoundTrip() {
+        let lines = [
+            OnboardingInterviewLine(speaker: .heyMate, text: "What are you working on?"),
+            OnboardingInterviewLine(speaker: .user, text: "A Mac app."),
+        ]
+        #expect(OnboardingInterview.decode(OnboardingInterview.encode(lines)) == lines)
+        #expect(OnboardingInterview.decode(nil).isEmpty)
+    }
+
     @Test func readsAWrapUpWithMates() {
         let text = """
         Sure! Here you go:
@@ -35,6 +50,27 @@ struct OnboardingInterviewTests {
         #expect(reaction == "Nice.")
         #expect(summary == "You're shipping a Mac app.")
         #expect(mates.map(\.name) == ["Launch Desk", "Bug Net", "Inbox Scout"])
+    }
+
+    @Test func readsEachMatesFirstJob() {
+        let text = #"{"reaction": "Nice.", "summary": "s", "mates": [{"name": "Bug Net", "job": "Triages crashes.", "first_job": " I'll sort the open crashes. "}, {"name": "Quiet", "job": "Does work.", "first_job": ""}]}"#
+        guard case .wrapUp(_, _, let mates) = OnboardingInterview.parseReply(text) else {
+            Issue.record("expected a wrap-up")
+            return
+        }
+        #expect(mates.map(\.firstJob) == ["I'll sort the open crashes.", nil])
+    }
+
+    @Test func resumesStepsFromTheLongerTour() {
+        #expect(OnboardingStep.restored("voice") == .voice)
+        #expect(OnboardingStep.restored("mic") == .talk)
+        #expect(OnboardingStep.restored("circle") == .point)
+        #expect(OnboardingStep.restored("type") == .kickoff)
+        #expect(OnboardingStep.restored("firstTask") == .kickoff)
+        #expect(OnboardingStep.restored("interview") == .interview)
+        #expect(OnboardingStep.restored("nonsense") == nil)
+        #expect(OnboardingStep.allCases.count == 10)
+        #expect(OnboardingStep.allCases.first == .voice)
     }
 
     @Test func dropsMatesWithoutANameOrJob() {

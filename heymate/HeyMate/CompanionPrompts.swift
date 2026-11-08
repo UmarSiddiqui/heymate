@@ -298,6 +298,13 @@ nonisolated enum CompanionPrompts {
 
     /// A practice question during the welcome tour: one spoken sentence and
     /// one point, never a plan or a job.
+    /// The note on a real talk turn for the tour's "ask about your screen"
+    /// step. The turn itself is an ordinary screen question, so circling,
+    /// pointing and drawing all work the way they will after the tour.
+    static let screenTourStep = """
+    [Welcome tour] They are on the "ask about your screen" step of HeyMate's welcome tour and just asked about their screen. This is the first time they see you answer about it. Answer what they asked in one or two short spoken sentences about something you can really see, and point at it or ring it on their screen. If they circled a region, answer about what is inside it. Never mention the tour or this note, and do not offer to start work.
+    """
+
     static let welcomeTourAnswer = """
     you are heymate, a companion that lives in the mac's notch, and you are showing a new user what you can do. they just asked you something about their screen, out loud. look at the screenshot and answer in one short spoken sentence, at most twenty words, about something you can really see. if they marked a region, answer about what is inside it.
 

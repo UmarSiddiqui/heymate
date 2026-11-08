@@ -12,7 +12,9 @@ import SwiftUI
 
 @MainActor
 final class OnboardingWindowController: NSObject, NSWindowDelegate {
-    private static let contentSize = CGSize(width: 640, height: 680)
+    /// Sized for the tallest steps (voice grid, interview); the short steps
+    /// fill the rest with HeyMate itself rather than empty space.
+    static let contentSize = CGSize(width: 620, height: 600)
 
     private weak var companionManager: CompanionManager?
     private var window: NSWindow?
@@ -98,18 +100,17 @@ struct OnboardingRootView: View {
                     .transition(transition)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // A step taller than the window is cut here, never by pushing
+            // the header and Continue out of the window.
+            .clipped()
             .padding(.horizontal, 36)
 
             footer
                 .padding(.bottom, 26)
         }
-        .frame(width: 640, height: 680)
-        .background {
-            LinearGradient(
-                colors: [Color(hex: "#131820"), Color(hex: "#101112"), DS.Colors.background],
-                startPoint: .top, endPoint: .bottom
-            )
-        }
+        .frame(width: OnboardingWindowController.contentSize.width,
+               height: OnboardingWindowController.contentSize.height)
+        .background(DS.Colors.background)
         .preferredColorScheme(.dark)
     }
 
@@ -165,23 +166,32 @@ struct OnboardingRootView: View {
         .padding(.leading, 56)
     }
 
+    /// Thirteen dots said "long" and nothing else. Three named chapters
+    /// say where you are and what's left.
     private var progressDots: some View {
-        HStack(spacing: 5) {
-            ForEach(Array(OnboardingStep.allCases.enumerated()), id: \.element) { offset, _ in
-                let isCurrent = offset == tour.stepIndex
-                Group {
-                    if offset <= tour.stepIndex {
-                        DSGlassSurface(cornerRadius: 3)
-                    } else {
-                        Capsule(style: .continuous).fill(DS.Colors.surface3)
+        HStack(alignment: .top, spacing: 10) {
+            ForEach(OnboardingChapter.allCases) { chapter in
+                let fill = chapter.progress(at: tour.step)
+                let isCurrent = chapter.contains(tour.step)
+                VStack(spacing: 5) {
+                    GeometryReader { proxy in
+                        ZStack(alignment: .leading) {
+                            Capsule(style: .continuous).fill(DS.Colors.surface3)
+                            Capsule(style: .continuous)
+                                .fill(DS.Colors.textPrimary.opacity(isCurrent ? 0.92 : 0.55))
+                                .frame(width: max(fill > 0 ? 4 : 0, proxy.size.width * fill))
+                        }
                     }
+                    .frame(width: 72, height: 4)
+                    Text(chapter.title)
+                        .font(DS.Fonts.micro)
+                        .foregroundColor(isCurrent ? DS.Colors.textPrimary : DS.Colors.textTertiary)
                 }
-                .frame(width: isCurrent ? 18 : 6, height: 6)
             }
         }
         .animation(accessibilityReduceMotion ? nil : DS.Animation.controlSpring, value: tour.stepIndex)
         .accessibilityElement()
-        .accessibilityLabel("Step \(tour.stepIndex + 1) of \(tour.stepCount)")
+        .accessibilityLabel("\(OnboardingChapter.of(tour.step).title), step \(tour.stepIndex + 1) of \(tour.stepCount)")
     }
 
     // MARK: Footer
@@ -192,12 +202,19 @@ struct OnboardingRootView: View {
         case .permissions:
             // The walkthrough has its own buttons.
             EmptyView()
+        case .interview where !tour.isStepDone:
+            // Answer chips, the composer and "Skip questions" are the
+            // actions here; a dead Continue under them is only noise.
+            Button("Continue") {}
+                .dsCapsuleButtonStyle(.primary)
+                .hidden()
+                .accessibilityHidden(true)
         case .reveal:
             Button("Start using HeyMate") { tour.finish(openingHome: true) }
                 .dsCapsuleButtonStyle(.primary)
                 .keyboardShortcut(.defaultAction)
         default:
-            Button(tour.step == .hello ? "Let's go" : "Continue") { tour.next() }
+            Button(tour.stepIndex == 0 ? "Let's go" : "Continue") { tour.next() }
                 .dsCapsuleButtonStyle(.primary)
                 .disabled(!tour.isStepDone)
                 .keyboardShortcut(.defaultAction)
@@ -210,10 +227,10 @@ struct OnboardingRootView: View {
     @ViewBuilder
     private func stepView(_ step: OnboardingStep) -> some View {
         switch step {
-        case .hello:
-            OnboardingHelloStep(name: tour.heardName)
         case .voice:
-            OnboardingVoiceStep(tour: tour)
+            OnboardingVoiceFirstStep(tour: tour)
+        case .hello:
+            OnboardingHelloStep(name: tour.heardName, tour: tour)
         case .permissions:
             OnboardingStepFrame(title: "A few permissions", subtitle: "One at a time. Each one says what it's for.") {
                 PermissionWalkthrough(onFinish: { tour.permissionsFinished() })
@@ -223,20 +240,23 @@ struct OnboardingRootView: View {
 
                 OnboardingMateAgentSetupStep(tour: tour)
 
-        case .mic:
-            OnboardingMicStep(tour: tour, micCheck: tour.micCheck)
         case .talk:
-            OnboardingStepFrame(
+            OnboardingStageFrame(
+                tour: tour,
                 title: "This is how you talk to me",
                 subtitle: "Hold the keys, say your name, then let go. I listen the whole time you hold them."
             ) {
                 OnboardingShortcutPrompt(keys: tour.talkKeys, verb: "Hold", phrase: "My name is …")
                 OnboardingStatusLine(text: tour.status ?? "waiting for you…", isDone: tour.isStepDone)
+                // The mic check used to be its own step; hearing your name
+                // is the check. If nothing comes through, switch mics here.
+                if !tour.isStepDone { OnboardingMicPicker() }
             }
         case .interview:
             OnboardingInterviewStep(tour: tour)
         case .showMe:
-            OnboardingStepFrame(
+            OnboardingStageFrame(
+                tour: tour,
                 title: "Here's how I'd help you",
                 subtitle: "I'll draw right on your screen, then show what that looks like in your week."
             ) {
@@ -244,31 +264,24 @@ struct OnboardingRootView: View {
                 OnboardingStatusLine(text: tour.status ?? "waiting for you…", isDone: tour.isStepDone)
             }
         case .point:
-            OnboardingStepFrame(
-                title: "I can see your screen",
-                subtitle: "Only when you ask. Hold the keys and ask about anything you're looking at."
+            OnboardingStageFrame(
+                tour: tour,
+                title: "Ask about your screen",
+                subtitle: "Only when you ask. Hold the keys and ask about anything you're looking at. Circle part of it while you hold them to ask about just that."
             ) {
-                OnboardingShortcutPrompt(keys: tour.talkKeys, verb: "Hold", phrase: "What's interesting on my screen?")
-                OnboardingAnswerLine(tour: tour)
+                OnboardingShortcutPrompt(keys: tour.talkKeys, verb: "Hold", phrase: "What's interesting here?")
+                Text("Tip: circle something with the pointer while you hold the keys.")
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.textTertiary)
+                OnboardingStatusLine(text: tour.status ?? (tour.isStepDone ? "Ask another, or continue." : "waiting for you…"),
+                                     isDone: tour.isStepDone)
             }
-        case .circle:
-            OnboardingStepFrame(
-                title: "Circle and ask",
-                subtitle: "Hold the talk keys, circle something while you speak, then let go."
-            ) {
-                OnboardingShortcutPrompt(keys: tour.talkKeys, verb: "Hold and circle", phrase: "What is this?")
-                OnboardingAnswerLine(tour: tour)
+        case .kickoff:
+            if tour.createdMates.isEmpty {
+                OnboardingFirstTaskStep(tour: tour, manager: tour.companionManager)
+            } else {
+                OnboardingKickoffStep(tour: tour)
             }
-        case .type:
-            OnboardingStepFrame(
-                title: "Not in the mood to talk? Type",
-                subtitle: "Tap the key twice, quickly, and a box opens in the notch. Same HeyMate, just quieter."
-            ) {
-                OnboardingShortcutPrompt(keys: tour.typeKeys, verb: "Tap", phrase: "twice, quickly")
-                OnboardingStatusLine(text: tour.status ?? "waiting for you…", isDone: tour.isStepDone)
-            }
-        case .firstTask:
-            OnboardingFirstTaskStep(tour: tour, manager: tour.companionManager)
         case .reveal:
             OnboardingRevealStep(tour: tour)
         }
@@ -312,7 +325,10 @@ struct OnboardingStepFrame<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
+        // Centered top to bottom, a little high, so short steps don't
+        // hang off the top of an empty window.
         VStack(spacing: 22) {
+            Spacer(minLength: 0)
             VStack(spacing: 8) {
                 Text(title)
                     .font(.system(size: 24, weight: .semibold))
@@ -328,7 +344,89 @@ struct OnboardingStepFrame<Content: View>: View {
             .padding(.top, 26)
             content
             Spacer(minLength: 0)
+            Spacer(minLength: 0)
         }
+    }
+}
+
+/// A short, do-one-thing step: a headline at the top, the keys in the
+/// middle, and HeyMate itself at the bottom telling you what to do. The
+/// face and its words fill the window with something alive instead of
+/// empty space, and the instruction is said once, by HeyMate, not
+/// printed twice. Anyone who chose typing still reads it in the bubble.
+struct OnboardingStageFrame<Content: View>: View {
+    @ObservedObject var tour: OnboardingTour
+    let title: String
+    /// What the bubble says until HeyMate speaks this step's line.
+    let subtitle: String
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Text(title)
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundColor(DS.Colors.textPrimary)
+                .multilineTextAlignment(.center)
+                .padding(.top, 22)
+            Spacer(minLength: 8)
+            content
+            Spacer(minLength: 8)
+            OnboardingStage(tour: tour, manager: tour.companionManager, fallback: subtitle)
+                .padding(.bottom, 8)
+        }
+    }
+}
+
+/// HeyMate's face with a speech bubble beside it: its answer when there
+/// is one, otherwise the line it just said for this step.
+struct OnboardingStage: View {
+    @ObservedObject var tour: OnboardingTour
+    @ObservedObject var manager: CompanionManager
+    var fallback: String?
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+
+    private var line: String? { tour.lastAnswer ?? tour.speech ?? fallback }
+
+    private var expression: MateFaceExpression {
+        if !manager.state.isIdle { return .live(manager.state) }
+        return tour.isStepDone ? .success : .idle
+    }
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 12) {
+            OnboardingFace(manager: manager, size: 76, expression: expression)
+            if let line {
+                OnboardingSpeechBubble(text: line)
+                    .id(line)
+                    .transition(accessibilityReduceMotion ? .opacity
+                        : .opacity.combined(with: .scale(scale: 0.92, anchor: .bottomLeading)))
+            }
+        }
+        .frame(maxWidth: 500, alignment: line == nil ? .center : .leading)
+        .animation(accessibilityReduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.85), value: line)
+    }
+}
+
+/// A speech bubble whose lower-left corner points back at the face.
+struct OnboardingSpeechBubble: View {
+    let text: String
+
+    var body: some View {
+        let shape = UnevenRoundedRectangle(
+            topLeadingRadius: 16, bottomLeadingRadius: 4, bottomTrailingRadius: 16, topTrailingRadius: 16,
+            style: .continuous
+        )
+        Text(text)
+            .font(DS.Fonts.bodyLarge)
+            .foregroundColor(DS.Colors.textPrimary)
+            .lineLimit(7)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(shape.fill(DS.Colors.surface2))
+            .overlay(shape.strokeBorder(DS.Colors.borderSubtle, lineWidth: 0.5))
+            .padding(.bottom, 30)
+            .accessibilityLabel("HeyMate says: \(text)")
     }
 }
 
@@ -354,7 +452,7 @@ struct OnboardingShortcutPrompt: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
                 .background(Capsule(style: .continuous).fill(DS.Colors.accent.opacity(0.16)))
-                .overlay(Capsule(style: .continuous).stroke(DS.Colors.accent.opacity(0.4), lineWidth: 1))
+                .overlay(Capsule(style: .circular).strokeBorder(DS.Colors.accent.opacity(0.4), lineWidth: 1))
         }
         .accessibilityElement(children: .combine)
     }
@@ -378,9 +476,10 @@ struct OnboardingKeyCap: View {
             }
             .foregroundColor(DS.Colors.textPrimary)
             .frame(width: 58, height: 58)
-            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(DS.Colors.surface3))
+            // The key's drop edge belongs to the key, not its letters.
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(DS.Colors.surface3)
+                .shadow(color: .black.opacity(0.35), radius: 0, y: 2))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(DS.Colors.borderSubtle, lineWidth: 1))
-            .shadow(color: .black.opacity(0.35), radius: 0, y: 2)
         }
     }
 }
@@ -399,21 +498,6 @@ struct OnboardingStatusLine: View {
         }
         .font(DS.Fonts.caption)
         .animation(.easeOut(duration: DS.Animation.normal), value: text)
-    }
-}
-
-/// What HeyMate said on the point and circle steps, or the live status.
-struct OnboardingAnswerLine: View {
-    @ObservedObject var tour: OnboardingTour
-
-    var body: some View {
-        if let answer = tour.lastAnswer {
-            OnboardingBubble(text: answer, speaker: .heyMate)
-                .frame(maxWidth: 440)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
-        } else {
-            OnboardingStatusLine(text: tour.status ?? "waiting for you…", isDone: tour.isStepDone)
-        }
     }
 }
 
@@ -436,21 +520,58 @@ struct OnboardingBubble: View {
     }
 }
 
-/// HeyMate's face for the tour.
+/// HeyMate's face for the tour: the person's own HeyMate mate, so the
+/// face they meet here is the one in the notch and the sidebar.
 struct OnboardingFace: View {
+    @ObservedObject var manager: CompanionManager
     var size: CGFloat = 76
-    var isThinking = false
+    var expression: MateFaceExpression = .idle
+
+    /// Before the mate list loads, a stand-in with the default Blobatar.
+    private static let standIn: Mate = {
+        var mate = Mate(id: UUID(uuidString: "6E6D8F1A-2C3B-4A5D-9E0F-1A2B3C4D5E6F")!, name: Mate.defaultName,
+                        job: Mate.defaultJob, pinned: false, archived: false, unreadCount: 0,
+                        createdAt: .distantPast, updatedAt: .distantPast, memoryNote: "", folderPath: nil)
+        mate.faceAssetName = BlobatarCharacter.faces[0].assetName
+        return mate
+    }()
+
+    private var mate: Mate {
+        manager.mates.first { $0.id == manager.mateDirectory.defaultMateID } ?? Self.standIn
+    }
 
     var body: some View {
-        Image(MateFace.legacyAssetNames[0])
-            .resizable()
-            .interpolation(.high)
-            .scaledToFill()
+        MateFaceView(mate: mate, size: size, expression: expression)
             .frame(width: size, height: size)
-            .clipShape(Circle())
-            .overlay(Circle().stroke(isThinking ? DS.Colors.warning : DS.Colors.accent.opacity(0.6), lineWidth: 1.5))
-            .shadow(color: DS.Colors.accentGlow.opacity(0.35), radius: 18)
             .accessibilityHidden(true)
+    }
+}
+
+/// A mate the interview made: face, name and the job it was given.
+struct OnboardingMateCard: View {
+    let mate: Mate
+
+    var body: some View {
+        HStack(spacing: DS.Spacing.md) {
+            MateFaceView(mate: mate, size: 36, expression: .idle)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(mate.name)
+                    .font(DS.Fonts.headline)
+                    .foregroundColor(DS.Colors.textPrimary)
+                Text(mate.job)
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, DS.Spacing.md)
+        .padding(.vertical, 10)
+        .background(RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous).fill(DS.Colors.surface1))
+        .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+            .strokeBorder(DS.Colors.borderSubtle, lineWidth: 0.5))
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -458,16 +579,17 @@ struct OnboardingFace: View {
 
 struct OnboardingHelloStep: View {
     var name: String?
+    var tour: OnboardingTour? = nil
     @ObservedObject private var analytics = HeyMateAnalytics.shared
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     /// The words arrive after the hello trace, one beat at a time.
     @State private var revealed = 0
 
     var body: some View {
-        VStack(spacing: 18) {
-            Spacer(minLength: 20)
+        VStack(spacing: 14) {
+            Spacer(minLength: 8)
             HeyMateHelloTrace(lineWidth: 4, duration: 2.6)
-                .frame(width: 210, height: 150)
+                .frame(width: 180, height: 120)
                 .cueMotion(.boot)
             Text(name.map { "Hey \($0)! I'm your AI Mate." } ?? "Hey! I'm your AI Mate.")
                 .font(.system(size: 28, weight: .semibold))
@@ -485,6 +607,10 @@ struct OnboardingHelloStep: View {
                 .font(DS.Fonts.caption)
                 .foregroundColor(DS.Colors.textTertiary)
                 .opacity(revealed >= 3 ? 1 : 0)
+            if let tour {
+                OnboardingTypingChoice(tour: tour)
+                    .opacity(revealed >= 3 ? 1 : 0)
+            }
             if analytics.isAvailable {
                 VStack(alignment: .leading, spacing: 8) {
                     Toggle("Share usage analytics", isOn: Binding(
@@ -531,118 +657,285 @@ struct OnboardingMusicToggle: View {
     }
 }
 
-// MARK: - Mic
-
-struct OnboardingMicStep: View {
-    @ObservedObject var tour: OnboardingTour
-    @ObservedObject var micCheck: OnboardingMicCheck
-
-    var body: some View {
-        OnboardingStepFrame(
-            title: "Can I hear you?",
-            subtitle: "Say anything out loud. If the bars move, your mic works. Built-in and wired mics work best."
-        ) {
-            OnboardingLevelBars(level: micCheck.level)
-                .frame(height: 64)
-            if let error = micCheck.errorMessage {
-                Text(error).font(DS.Fonts.caption).foregroundColor(DS.Colors.warningText)
-            } else {
-                OnboardingStatusLine(text: tour.isStepDone ? "Sounds good." : "say “testing, one, two”", isDone: tour.isStepDone)
-            }
-            Picker("Microphone", selection: $micCheck.selectedDeviceUID) {
-                Text("System default").tag(AudioInputDeviceCatalog.systemDefaultDeviceID)
-                ForEach(micCheck.devices) { device in
-                    Text(device.name).tag(device.id)
-                }
-            }
-            .labelsHidden()
-            .frame(maxWidth: 280)
-        }
-    }
-}
-
-/// A row of bars that rise from the middle with the mic level.
-struct OnboardingLevelBars: View {
-    let level: CGFloat
-    private let count = 17
-
-    var body: some View {
-        HStack(spacing: 5) {
-            ForEach(0..<count, id: \.self) { index in
-                let distance = abs(CGFloat(index) - CGFloat(count - 1) / 2) / (CGFloat(count) / 2)
-                let height = max(0.12, min(1, level * 1.6 * (1 - distance * 0.85)))
-                Capsule(style: .continuous)
-                    .fill(height > 0.2 ? DS.Colors.accent : DS.Colors.surface4)
-                    .frame(width: 7, height: 64 * height)
-            }
-        }
-        .animation(.easeOut(duration: 0.08), value: level)
-        .accessibilityLabel("Microphone level")
-    }
-}
-
 // MARK: - Interview
 
 struct OnboardingInterviewStep: View {
     @ObservedObject var tour: OnboardingTour
+    @ObservedObject var manager: CompanionManager
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @FocusState private var isTyping: Bool
+
+    init(tour: OnboardingTour) {
+        self.tour = tour
+        self.manager = tour.companionManager
+    }
+
+    private var faceExpression: MateFaceExpression {
+        if tour.isInterviewThinking { return .thinking }
+        if !manager.state.isIdle { return .live(manager.state) }
+        return tour.isStepDone ? .success : .idle
+    }
+
+    private var answered: Int { min(tour.interviewAnswerCount, OnboardingInterview.answerCount) }
 
     var body: some View {
         VStack(spacing: 14) {
-            VStack(spacing: 6) {
-                Text("I'm curious about you")
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundColor(DS.Colors.textPrimary)
-                Text("Three quick questions, so I'm useful from day one.")
-                    .font(DS.Fonts.body)
-                    .foregroundColor(DS.Colors.textSecondary)
-            }
-            .padding(.top, 22)
-
-            HStack(alignment: .bottom, spacing: 14) {
-                OnboardingFace(size: 70, isThinking: tour.isInterviewThinking)
-                ScrollViewReader { proxy in
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 8) {
-                            ForEach(tour.interviewLines) { line in
-                                OnboardingBubble(text: line.text, speaker: line.speaker)
-                                    .id(line.id)
-                                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-                            }
-                            if tour.isInterviewThinking {
-                                OnboardingBubble(text: "…", speaker: .heyMate)
-                                    .id("thinking")
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
-                    .onChange(of: tour.interviewLines.count) { _, _ in
-                        withAnimation { proxy.scrollTo(tour.interviewLines.last?.id, anchor: .bottom) }
-                    }
-                }
-                .frame(height: 280)
-            }
-
-            if !tour.isStepDone {
-                HStack(spacing: 10) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "mic.fill").font(DS.Glyph.small)
-                        Text("Hold \(PushToTalkShortcut.talk.displayText) to answer")
-                    }
-                    .font(DS.Fonts.caption.weight(.medium))
-                    .foregroundColor(DS.Colors.textSecondary)
-                    TextField("or type here", text: $tour.typedAnswer)
-                        .textFieldStyle(.plain)
-                        .font(DS.Fonts.body)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Capsule(style: .continuous).fill(DS.Colors.surface2))
-                        .overlay(Capsule(style: .continuous).stroke(DS.Colors.borderSubtle, lineWidth: 0.5))
-                        .onSubmit { tour.submitTypedAnswer() }
-                        .disabled(tour.isInterviewThinking)
-                }
-                OnboardingStatusLine(text: tour.status ?? " ", isDone: false)
+            header
+            conversation
+            if tour.isStepDone {
+                result
+            } else {
+                answerArea
             }
         }
+        .padding(.bottom, 12)
+        .frame(maxWidth: 500)
+    }
+
+    // MARK: Header
+
+    private var header: some View {
+        VStack(spacing: 8) {
+            OnboardingFace(manager: manager, size: 64, expression: faceExpression)
+            Text("I'm curious about you")
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundColor(DS.Colors.textPrimary)
+            HStack(spacing: 8) {
+                Text(tour.isStepDone ? "Thanks. That's all I needed." : "Three quick questions, so I'm useful from day one.")
+                    .font(DS.Fonts.body)
+                    .foregroundColor(DS.Colors.textSecondary)
+                if !tour.isStepDone {
+                    questionMeter
+                }
+            }
+        }
+        .padding(.top, 10)
+    }
+
+    private var questionMeter: some View {
+        HStack(spacing: 3) {
+            ForEach(0..<OnboardingInterview.answerCount, id: \.self) { index in
+                Capsule(style: .continuous)
+                    .fill(index < answered ? DS.Colors.textPrimary : DS.Colors.surface4)
+                    .frame(width: 12, height: 3)
+            }
+        }
+        .accessibilityElement()
+        .accessibilityLabel("\(answered) of \(OnboardingInterview.answerCount) answered")
+    }
+
+    // MARK: Conversation
+
+    private var conversation: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 8) {
+                    ForEach(tour.interviewLines) { line in
+                        OnboardingBubble(text: line.text, speaker: line.speaker)
+                            .id(line.id)
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
+                    if tour.isInterviewThinking {
+                        OnboardingTypingBubble()
+                            .id("thinking")
+                            .transition(.opacity)
+                    }
+                }
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .top)
+            }
+            .defaultScrollAnchor(.bottom)
+            .onChange(of: tour.interviewLines.count) { _, _ in
+                withAnimation(accessibilityReduceMotion ? nil : .easeOut(duration: DS.Animation.normal)) {
+                    proxy.scrollTo(tour.interviewLines.last?.id, anchor: .bottom)
+                }
+            }
+            .onChange(of: tour.isInterviewThinking) { _, thinking in
+                guard thinking else { return }
+                withAnimation { proxy.scrollTo("thinking", anchor: .bottom) }
+            }
+        }
+        .frame(maxHeight: .infinity)
+        .mask(
+            LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.06),
+                                   .init(color: .black, location: 1)],
+                           startPoint: .top, endPoint: .bottom)
+        )
+    }
+
+    // MARK: Answering
+
+    private var answerArea: some View {
+        VStack(spacing: 10) {
+            if !tour.interviewSuggestions.isEmpty {
+                OnboardingWrapLayout(spacing: 8) {
+                    ForEach(tour.interviewSuggestions, id: \.self) { suggestion in
+                        Button(suggestion) { tour.chooseSuggestion(suggestion) }
+                            .dsCapsuleButtonStyle(.secondary)
+                            .disabled(tour.isInterviewThinking)
+                            .help("Answer with this")
+                    }
+                }
+                .transition(.opacity)
+            }
+
+            HStack(spacing: 8) {
+                TextField("Type your answer", text: $tour.typedAnswer)
+                    .textFieldStyle(.plain)
+                    .font(DS.Fonts.bodyLarge)
+                    .focused($isTyping)
+                    .focusEffectDisabled()
+                    .onSubmit { tour.submitTypedAnswer() }
+                    .disabled(tour.isInterviewThinking)
+                Button {
+                    tour.submitTypedAnswer()
+                } label: {
+                    Image(systemName: "arrow.up")
+                        .font(DS.Glyph.small)
+                        .foregroundColor(canSend ? DS.Colors.textOnAccent : DS.Colors.textTertiary)
+                        .frame(width: 24, height: 24)
+                        .background(Circle().fill(canSend ? DS.Colors.accent : DS.Colors.surface3))
+                }
+                .buttonStyle(.plain)
+                .disabled(!canSend)
+                .pointerCursor(isEnabled: canSend)
+                .accessibilityLabel("Send answer")
+            }
+            .padding(.leading, 14)
+            .padding(.trailing, 6)
+            .padding(.vertical, 6)
+            .background {
+                // A stroked continuous capsule this short draws stray
+                // flat edges past its curve; the circular one doesn't.
+                Capsule(style: .circular)
+                    .fill(DS.Colors.surface1)
+                    .strokeBorder(isTyping ? DS.Colors.borderStrong : DS.Colors.borderSubtle, lineWidth: 1)
+            }
+
+            HStack(spacing: 6) {
+                Text("or hold")
+                ForEach(Array(tour.talkKeys.enumerated()), id: \.offset) { _, key in
+                    Text(KeyCapSymbols.symbol(for: key) + " " + key)
+                        .font(DS.Fonts.keycap)
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(DS.Colors.surface2))
+                }
+                Text("and say it")
+                if let status = tour.status, !status.trimmingCharacters(in: .whitespaces).isEmpty {
+                    Text("· \(status)").foregroundColor(DS.Colors.textSecondary)
+                }
+                Spacer(minLength: 0)
+                Button("Skip questions") { tour.skipInterview() }
+                    .dsCapsuleButtonStyle(.quiet)
+                    .help("Move on. No mates are made from a skipped interview.")
+            }
+            .font(DS.Fonts.caption)
+            .foregroundColor(DS.Colors.textTertiary)
+        }
+        .animation(accessibilityReduceMotion ? nil : .easeOut(duration: DS.Animation.normal), value: tour.interviewSuggestions)
+    }
+
+    private var canSend: Bool {
+        !tour.isInterviewThinking && !tour.typedAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    // MARK: Result
+
+    @ViewBuilder
+    private var result: some View {
+        let mates = tour.createdMates
+        if mates.isEmpty {
+            OnboardingStatusLine(text: tour.status ?? "Got it. On to the fun part.", isDone: true)
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                // The conversation already says it; a tour resumed from
+                // before transcripts were kept needs the line here.
+                if tour.interviewLines.isEmpty {
+                    Text("I made you \(mates.count == 1 ? "a mate" : "\(mates.count) mates"). They're in your sidebar.")
+                        .font(DS.Fonts.caption)
+                        .foregroundColor(DS.Colors.textTertiary)
+                }
+                ForEach(mates) { mate in
+                    OnboardingMateCard(mate: mate)
+                }
+            }
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
+        }
+    }
+}
+
+/// HeyMate is writing back: three dots that breathe.
+struct OnboardingTypingBubble: View {
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+
+    var body: some View {
+        TimelineView(.animation(paused: accessibilityReduceMotion)) { timeline in
+            let time = timeline.date.timeIntervalSinceReferenceDate
+            HStack(spacing: 4) {
+                ForEach(0..<3, id: \.self) { index in
+                    Circle()
+                        .fill(DS.Colors.textSecondary)
+                        .frame(width: 6, height: 6)
+                        .opacity(accessibilityReduceMotion ? 0.7 : 0.35 + 0.65 * max(0, sin(time * 5 - Double(index) * 0.7)))
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(DS.Colors.surface3))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityLabel("HeyMate is thinking")
+    }
+}
+
+/// Lays chips out in rows, centered, wrapping when a row is full.
+struct OnboardingWrapLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = rows(for: subviews, width: proposal.width ?? .infinity)
+        let height = rows.map(\.height).reduce(0, +) + spacing * CGFloat(max(rows.count - 1, 0))
+        let width = rows.map(\.width).max() ?? 0
+        return CGSize(width: proposal.width ?? width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in rows(for: subviews, width: bounds.width) {
+            var x = bounds.midX - row.width / 2
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += row.height + spacing
+        }
+    }
+
+    private struct Row {
+        var indices: [Int] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    private func rows(for subviews: Subviews, width: CGFloat) -> [Row] {
+        var rows: [Row] = []
+        var current = Row()
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            let added = current.indices.isEmpty ? size.width : current.width + spacing + size.width
+            if added > width, !current.indices.isEmpty {
+                rows.append(current)
+                current = Row()
+            }
+            current.width = current.indices.isEmpty ? size.width : current.width + spacing + size.width
+            current.height = max(current.height, size.height)
+            current.indices.append(index)
+        }
+        if !current.indices.isEmpty { rows.append(current) }
+        return rows
     }
 }
 
@@ -654,7 +947,7 @@ struct OnboardingRevealStep: View {
     var body: some View {
         VStack(spacing: 18) {
             Spacer(minLength: 16)
-            OnboardingFace(size: 72)
+            OnboardingFace(manager: tour.companionManager, size: 72, expression: .success)
             Text(tour.heardName.map { "You're all set, \($0)." } ?? "You're all set.")
                 .font(.system(size: 28, weight: .semibold))
                 .foregroundColor(DS.Colors.textPrimary)
@@ -663,23 +956,36 @@ struct OnboardingRevealStep: View {
                 .foregroundColor(DS.Colors.textSecondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
-            OnboardingRevealVoicePicker(tour: tour)
-            if !tour.createdMateNames.isEmpty {
-                VStack(spacing: 8) {
-                    Text("New mates, made from what you told me")
+            if tour.isTypeShortcutOn {
+                HStack(spacing: 6) {
+                    Text("Rather type? Double-tap")
+                    // The labels spell the double tap out (the key twice);
+                    // one cap plus "double-tap" says it once.
+                    if let key = tour.typeKeys.first(where: { $0 != "×2" }) {
+                        Text(KeyCapSymbols.symbol(for: key) + " " + key)
+                            .font(DS.Fonts.keycap)
+                            .foregroundColor(DS.Colors.textSecondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(DS.Colors.surface2))
+                    }
+                    Text("and a box opens in the notch.")
+                }
+                .font(DS.Fonts.caption)
+                .foregroundColor(DS.Colors.textTertiary)
+            }
+            if !tour.prefersTyping { OnboardingVoiceRow() }
+            let mates = tour.createdMates
+            if !mates.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Your new mates, made from what you told me")
                         .font(DS.Fonts.caption)
                         .foregroundColor(DS.Colors.textTertiary)
-                    HStack(spacing: 8) {
-                        ForEach(tour.createdMateNames, id: \.self) { name in
-                            Text(name)
-                                .font(DS.Fonts.body.weight(.medium))
-                                .foregroundColor(DS.Colors.textPrimary)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(Capsule(style: .continuous).fill(DS.Colors.surface3))
-                        }
+                    ForEach(mates) { mate in
+                        OnboardingMateCard(mate: mate)
                     }
                 }
+                .frame(maxWidth: 440)
                 .padding(.top, 6)
             }
             Spacer(minLength: 0)
@@ -689,32 +995,135 @@ struct OnboardingRevealStep: View {
 
 // MARK: - Voice
 
-/// Local voice downloads at launch; the tour can continue while it prepares.
-struct OnboardingVoiceStep: View {
+/// "I'd rather type" on the first page: the tour goes quiet and HeyMate
+/// starts in silent mode. It used to sit on the voice step.
+struct OnboardingTypingChoice: View {
     @ObservedObject var tour: OnboardingTour
-    @ObservedObject private var store = OnDeviceVoiceModelStore.shared
 
     var body: some View {
-        OnboardingStepFrame(
-            title: "How should I sound?",
-            subtitle: store.speakState.isInstalled
-                ? "My local voice is ready. Tap a voice to hear it."
-                : "My local voice downloads automatically. Keep going while it gets ready."
-        ) {
-            OnDeviceVoiceGrid()
-                .frame(maxWidth: 560)
-            OnDeviceVoiceDownloadRow(companionManager: tour.companionManager, isCompact: true)
-            Button {
-                tour.setPrefersTyping(!tour.prefersTyping)
-            } label: {
-                Label("I'd rather type. No voice.", systemImage: tour.prefersTyping ? "checkmark.square.fill" : "square")
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .font(DS.Fonts.body)
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .help("HeyMate stays quiet and you type. Change this in Settings › Voice › Advanced.")
+        Button {
+            tour.setPrefersTyping(!tour.prefersTyping)
+        } label: {
+            Label("I'd rather type. No voice.", systemImage: tour.prefersTyping ? "checkmark.square.fill" : "square")
+                .foregroundColor(DS.Colors.textSecondary)
+                .font(DS.Fonts.body)
         }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .help("HeyMate stays quiet and you type. Change this in Settings › Voice › Advanced.")
+    }
+}
+
+/// Which microphone HeyMate listens with, for when the talk step hears
+/// nothing. Same setting as Settings › Voice.
+struct OnboardingMicPicker: View {
+    @State private var devices: [AudioInputDevice] = []
+    @State private var selected = AudioInputDeviceCatalog.selectedDeviceUID
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("Not hearing you? Mic:")
+                .font(DS.Fonts.caption)
+                .foregroundColor(DS.Colors.textTertiary)
+            Picker("Microphone", selection: $selected) {
+                Text("System default").tag(AudioInputDeviceCatalog.systemDefaultDeviceID)
+                ForEach(devices) { device in
+                    Text(device.name).tag(device.id)
+                }
+            }
+            .labelsHidden()
+            .controlSize(.small)
+            .fixedSize()
+        }
+        .onAppear { devices = AudioInputDeviceCatalog.availableInputDevices() }
+        .onChange(of: selected) { _, uid in AudioInputDeviceCatalog.selectedDeviceUID = uid }
+    }
+}
+
+/// The new mates each offer one first job; the person says yes or no.
+/// Yes hands the job to that mate, which works in its own chat while the
+/// tour finishes, so the tour ends with mates already working.
+struct OnboardingKickoffStep: View {
+    @ObservedObject var tour: OnboardingTour
+
+    var body: some View {
+        VStack(spacing: 14) {
+            VStack(spacing: 8) {
+                Text("Your mates have ideas")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundColor(DS.Colors.textPrimary)
+                Text("Say yes to anything you want started. It runs in that mate's chat, and asks before anything risky.")
+                    .font(DS.Fonts.body)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 440)
+            }
+            .padding(.top, 22)
+            Spacer(minLength: 0)
+            VStack(spacing: 10) {
+                ForEach(tour.offeredJobs, id: \.mate.id) { offer in
+                    OnboardingJobOfferCard(mate: offer.mate, job: offer.job,
+                                           decision: tour.kickoffDecisions[offer.mate.name],
+                                           onYes: { tour.startFirstJob(for: offer.mate) },
+                                           onNo: { tour.declineFirstJob(for: offer.mate) })
+                }
+            }
+            .frame(maxWidth: 500)
+            Spacer(minLength: 0)
+            OnboardingStatusLine(text: tour.status ?? " ", isDone: tour.isStepDone)
+                .padding(.bottom, 14)
+        }
+    }
+}
+
+struct OnboardingJobOfferCard: View {
+    let mate: Mate
+    let job: String
+    let decision: Bool?
+    let onYes: () -> Void
+    let onNo: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: DS.Spacing.md) {
+                MateFaceView(mate: mate, size: 32, expression: decision == true ? .thinking : .idle)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(mate.name)
+                        .font(DS.Fonts.headline)
+                        .foregroundColor(DS.Colors.textPrimary)
+                    Text(job)
+                        .font(DS.Fonts.bodyLarge)
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                switch decision {
+                case .some(true):
+                    Label("On it", systemImage: "checkmark.circle.fill")
+                        .font(DS.Fonts.caption.weight(.medium))
+                        .foregroundColor(DS.Colors.success)
+                case .some(false):
+                    Text("Not now")
+                        .font(DS.Fonts.caption)
+                        .foregroundColor(DS.Colors.textTertiary)
+                case .none:
+                    Button("No", action: onNo)
+                        .dsCapsuleButtonStyle(.quiet)
+                    Button("Yes, do it", action: onYes)
+                        .dsCapsuleButtonStyle(.primary)
+                }
+            }
+        }
+        .padding(DS.Spacing.md)
+        .background(RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous).fill(DS.Colors.surface1))
+        .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+            .strokeBorder(DS.Colors.borderSubtle, lineWidth: 0.5))
+        .opacity(decision == false ? 0.6 : 1)
+        .animation(.easeOut(duration: DS.Animation.normal), value: decision)
     }
 }
 
@@ -726,7 +1135,10 @@ struct OnboardingVoiceDownloadLine: View {
 
     var body: some View {
         Group {
-            if store.isDownloading {
+            if isOnVoiceStep {
+                // The voice step shows the download in full.
+                EmptyView()
+            } else if store.isDownloading {
                 HStack(spacing: 8) {
                     Text(isOnVoiceStep ? "Downloading my voice. Keep going, it finishes in the background." : "Downloading my voice…")
                         .font(DS.Fonts.caption)
@@ -753,17 +1165,268 @@ struct OnboardingVoiceDownloadLine: View {
     }
 }
 
-/// On the last page: pick a voice once the download has landed.
-struct OnboardingRevealVoicePicker: View {
+/// The tour's first step: pick HeyMate's voice, and see plainly what the
+/// on-device download is doing. Hearing (speech recognition) and the voice
+/// download separately at launch; each has its own row, so a slow or failed
+/// download is never a mystery. Nothing here uses the Mac system voice.
+struct OnboardingVoiceFirstStep: View {
     @ObservedObject var tour: OnboardingTour
     @ObservedObject private var store = OnDeviceVoiceModelStore.shared
+    @State private var selectedID = SpeechStylePreferences.onDeviceVoice
+    @State private var previewClient: PhononTTSClient?
+    @State private var previewingID: String?
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 5)
 
     var body: some View {
-        if store.speakState.isInstalled && !tour.prefersTyping {
-            OnDeviceVoiceGrid()
-                .frame(maxWidth: 560)
-                .padding(.top, 4)
+        VStack(spacing: 16) {
+            VStack(spacing: 8) {
+                Text(store.isEverythingInstalled || !store.isSupportedOnThisMac ? "Pick my voice" : "Getting me ready")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundColor(DS.Colors.textPrimary)
+                Text("I listen and talk right on this Mac, so it works offline and nothing you say leaves it. It downloads once.")
+                    .font(DS.Fonts.body)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 440)
+            }
+            .padding(.top, 18)
+
+            downloadCard
+
+            LazyVGrid(columns: columns, spacing: 8) {
+                ForEach(OnDeviceVoiceOption.all) { option in
+                    tile(option)
+                }
+            }
+            .disabled(!store.speakState.isInstalled || tour.prefersTyping)
+            .opacity(store.speakState.isInstalled && !tour.prefersTyping ? 1 : 0.4)
+            .overlay {
+                if !store.speakState.isInstalled && !store.speakState.isUnsupported {
+                    Text("Voices unlock as soon as my voice is ready.")
+                        .font(DS.Fonts.caption.weight(.medium))
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Capsule(style: .continuous).fill(DS.Colors.surface3))
+                }
+            }
+
+            OnboardingTypingChoice(tour: tour)
+            Spacer(minLength: 0)
+            if !tour.isStepDone {
+                HStack(spacing: 8) {
+                    OnboardingStatusLine(text: tour.status ?? "Getting ready…", isDone: false)
+                    Button("Start without waiting") { tour.startWithoutWaiting() }
+                        .dsCapsuleButtonStyle(.quiet)
+                        .help("Talking to me won't work until hearing is ready. It keeps downloading in the background.")
+                }
+            } else if let status = tour.status {
+                OnboardingStatusLine(text: status, isDone: true)
+            }
         }
+        .frame(maxWidth: 520)
+        .onAppear { store.refreshInstalledState() }
+        .onDisappear { previewClient?.stopPlayback() }
+    }
+
+    // MARK: Download
+
+    private var downloadCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            row(icon: "ear", title: "Hearing you", detail: "Turns your voice into text", state: store.listenState)
+            Divider().overlay(DS.Colors.borderSubtle)
+            row(icon: "waveform", title: "My voice", detail: "How I talk back · comes with the app", state: store.speakState)
+            if let footnote {
+                Text(footnote)
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(DS.Spacing.md)
+        .background(RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous).fill(DS.Colors.surface1))
+        .overlay(RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+            .strokeBorder(DS.Colors.borderSubtle, lineWidth: 0.5))
+    }
+
+    private var footnote: String? {
+        if store.isEverythingInstalled { return "Ready. Stored on this Mac and works offline." }
+        if !store.isSupportedOnThisMac {
+            return "This Mac can't run on-device voice. I'll show my words as text; add an ElevenLabs key in Settings › Voice if you'd like me to talk."
+        }
+        let size = "One-time download, \(OnDeviceVoiceModelStore.approximateDownloadSizeDescription)."
+        if store.isDownloading {
+            return size + " The tour starts as soon as it's done."
+        }
+        if store.lastFailureMessage != nil {
+            return size + " Check your connection and retry, or start anyway."
+        }
+        return size + " The tour starts as soon as it's ready."
+    }
+
+    private func row(icon: String, title: String, detail: String, state: OnDeviceVoiceModelState) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(DS.Glyph.regular)
+                .foregroundColor(DS.Colors.textSecondary)
+                .frame(width: 20)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(DS.Fonts.headline).foregroundColor(DS.Colors.textPrimary)
+                Text(detail).font(DS.Fonts.caption).foregroundColor(DS.Colors.textTertiary)
+            }
+            Spacer(minLength: 8)
+            status(for: state)
+        }
+    }
+
+    @ViewBuilder
+    private func status(for state: OnDeviceVoiceModelState) -> some View {
+        switch state {
+        case .installed:
+            Label("Ready", systemImage: "checkmark.circle.fill")
+                .font(DS.Fonts.caption.weight(.medium))
+                .foregroundColor(DS.Colors.success)
+        case .downloading(let fraction):
+            HStack(spacing: 8) {
+                if let fraction {
+                    ProgressView(value: fraction).progressViewStyle(.linear).frame(width: 120)
+                    Text("\(Int(fraction * 100))%")
+                        .font(DS.Fonts.numeric)
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .frame(width: 34, alignment: .trailing)
+                } else {
+                    ProgressView().controlSize(.small)
+                    Text("Preparing…").font(DS.Fonts.caption).foregroundColor(DS.Colors.textSecondary)
+                }
+            }
+        case .notInstalled:
+            if store.isDownloading {
+                Text("Waiting its turn").font(DS.Fonts.caption).foregroundColor(DS.Colors.textTertiary)
+            } else {
+                Button("Set up now") { tour.downloadOnDeviceVoice() }
+                    .dsCapsuleButtonStyle(.secondary)
+            }
+        case .failed(let message):
+            HStack(spacing: 8) {
+                Text("Stopped: \(message)")
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.warningText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: 170, alignment: .trailing)
+                    .help(message)
+                Button("Retry") { tour.downloadOnDeviceVoice() }
+                    .dsCapsuleButtonStyle(.secondary)
+            }
+        case .unsupported:
+            Text("Not on this Mac").font(DS.Fonts.caption).foregroundColor(DS.Colors.textTertiary)
+        }
+    }
+
+    // MARK: Voices
+
+    private func tile(_ option: OnDeviceVoiceOption) -> some View {
+        let selected = option.id == selectedID
+        let speaking = option.id == previewingID
+        let shape = RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+        return Button {
+            selectedID = option.id
+            SpeechStylePreferences.onDeviceVoice = option.id
+            preview(option)
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: speaking ? "waveform" : option.symbol)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(option.tint)
+                    .symbolEffect(.variableColor.iterative, isActive: speaking && !accessibilityReduceMotion)
+                    .shadow(color: option.tint.opacity(selected ? 0.7 : 0.35), radius: selected ? 8 : 4)
+                    .frame(height: 22)
+                Text(option.name)
+                    .font(DS.Fonts.caption.weight(.semibold))
+                    .foregroundColor(selected ? DS.Colors.textPrimary : DS.Colors.textSecondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, minHeight: 56)
+            .background {
+                shape.fill(DS.Colors.surface1)
+                shape.fill(option.tint.opacity(selected ? 0.16 : 0.05))
+            }
+            .overlay(shape.strokeBorder(selected ? option.tint.opacity(0.9) : DS.Colors.borderSubtle,
+                                        lineWidth: selected ? 1.5 : 0.5))
+            // The chosen voice glows in its own colour.
+            .shadow(color: option.tint.opacity(selected ? 0.45 : 0), radius: 12)
+            .scaleEffect(selected && !accessibilityReduceMotion ? 1.03 : 1)
+            .animation(accessibilityReduceMotion ? nil : DS.Animation.controlSpring, value: selected)
+            .contentShape(shape)
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .accessibilityLabel("\(option.name) voice")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func preview(_ option: OnDeviceVoiceOption) {
+        previewClient?.stopPlayback()
+        guard PhononEngine.unsupportedReason == nil, store.speakState.isInstalled else { return }
+        let client = previewClient ?? PhononTTSClient()
+        previewClient = client
+        previewingID = option.id
+        Task {
+            try? await client.speakText("Hi, I'm \(option.name). This is how I'll sound.")
+            try? await Task.sleep(for: .seconds(2.2))
+            if previewingID == option.id { previewingID = nil }
+        }
+    }
+}
+
+/// One line to pick HeyMate's voice: a menu of the on-device voices, and a
+/// short preview each time the choice changes. Same setting and preview as
+/// Settings › Voice. Shown only once the voice has downloaded.
+struct OnboardingVoiceRow: View {
+    @ObservedObject private var store = OnDeviceVoiceModelStore.shared
+    @State private var selectedID = SpeechStylePreferences.onDeviceVoice
+    @State private var previewClient: PhononTTSClient?
+
+    var body: some View {
+        if store.speakState.isInstalled {
+            HStack(spacing: 8) {
+                Text("My voice")
+                    .font(DS.Fonts.body)
+                    .foregroundColor(DS.Colors.textSecondary)
+                Picker("Voice", selection: $selectedID) {
+                    ForEach(OnDeviceVoiceOption.all) { option in
+                        Text(option.name).tag(option.id)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+                Button {
+                    preview(selectedID)
+                } label: {
+                    Image(systemName: "play.fill").font(DS.Glyph.small)
+                }
+                .dsToolbarIconButtonStyle()
+                .help("Hear this voice")
+                .accessibilityLabel("Hear this voice")
+            }
+            .onChange(of: selectedID) { _, id in
+                SpeechStylePreferences.onDeviceVoice = id
+                preview(id)
+            }
+            .onDisappear { previewClient?.stopPlayback() }
+        }
+    }
+
+    private func preview(_ id: String) {
+        previewClient?.stopPlayback()
+        guard PhononEngine.unsupportedReason == nil,
+              let option = OnDeviceVoiceOption.all.first(where: { $0.id == id }) else { return }
+        let client = previewClient ?? PhononTTSClient()
+        previewClient = client
+        Task { try? await client.speakText("Hi, I'm \(option.name). This is how I'll sound.") }
     }
 }
 

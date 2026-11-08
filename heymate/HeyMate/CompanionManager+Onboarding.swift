@@ -165,6 +165,33 @@ extension CompanionManager {
         return started
     }
 
+    /// The tour's "ask about your screen" step, as a real talk turn: the same
+    /// screen capture, circling, pointing and drawing as any question after
+    /// the tour. (A one-off side request on the chat's agent session was
+    /// refused by the harness after the "show me" turn, so every answer on
+    /// this step failed.) Returns what HeyMate said, nil when it never ran.
+    func runScreenTourStep(_ request: String) async -> String? {
+        guard !isFrontmostAppScreenExcluded else { return nil }
+        let before = Set((isHeyMateTalkTurn ? heyMateTalkSession : currentChat).messages.map(\.id))
+        pendingTurnNote = CompanionPrompts.screenTourStep
+        sendTranscriptToClaudeWithScreenshot(transcript: request, shouldCaptureScreen: true)
+        let began = ContinuousClock.now
+        var started = false
+        while ContinuousClock.now - began < .seconds(180) {
+            try? await Task.sleep(for: .milliseconds(250))
+            let busy = state != .idle || isResponseInFlight
+            if busy { started = true } else if started { break }
+            if !started, ContinuousClock.now - began > .seconds(10) { break }
+        }
+        pendingTurnNote = nil
+        let session = isHeyMateTalkTurn ? heyMateTalkSession : currentChat
+        let reply = session.messages.last { $0.role == .assistant && !before.contains($0.id) }?.visibleText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        HeyMateLog.log("🖍️ Screen tour step \(started ? "answered" : "never started")")
+        guard started else { return nil }
+        return reply?.isEmpty == false ? reply : ""
+    }
+
     /// Called by the cursor once its welcome line has faded.
     func continueOnboardingAfterWelcome() {
         onboardingIntroTask?.cancel()
