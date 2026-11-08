@@ -6,6 +6,7 @@ Only nested native images are signed. Xcode owns the outer app signature.
 import argparse
 import concurrent.futures
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,8 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+import time
+import urllib.error
 import urllib.request
 
 VERSION = '0.40.13'
@@ -34,14 +37,24 @@ def fetch(url, destination, digest):
         return
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix('.download')
-    try:
-        with urllib.request.urlopen(url, timeout=120) as source, temporary.open('wb') as output:
-            shutil.copyfileobj(source, output)
-        if sha(temporary) != digest:
-            raise ValueError('Download hash mismatch: ' + destination.name)
-        temporary.replace(destination)
-    finally:
-        temporary.unlink(missing_ok=True)
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(url, timeout=120) as source, temporary.open('wb') as output:
+                shutil.copyfileobj(source, output)
+            if sha(temporary) != digest:
+                raise ValueError('Download hash mismatch: ' + destination.name)
+            temporary.replace(destination)
+            return
+        except urllib.error.HTTPError as error:
+            if error.code not in {429, 500, 502, 503, 504} or attempt == 3:
+                raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.IncompleteRead):
+            if attempt == 3:
+                raise
+        finally:
+            temporary.unlink(missing_ok=True)
+        print(f'Retrying {destination.name} after a transient download failure ({attempt + 2}/4)', flush=True)
+        time.sleep(2 ** attempt)
 
 
 def verify(root, pristine=False):
