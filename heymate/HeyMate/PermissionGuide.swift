@@ -8,6 +8,12 @@
 //  place, and for the ones macOS only allows in System Settings it opens
 //  the right pane and waits for the switch before moving on.
 //
+//  Setup asks for three: Microphone, Screen Recording and Accessibility.
+//  Speech Recognition joins them only when Apple's speech engine is the
+//  one transcribing. Notifications, Calendar, Reminders and Contacts are
+//  asked for when a feature first needs them (an agent starting, a Mac app
+//  switched on in Apps or the notch) and are listed in Settings.
+//
 //  Nothing here asks on its own. Asking happens when the person presses
 //  Allow, so HeyMate never nags on launch.
 //
@@ -24,9 +30,8 @@ import UserNotifications
 enum HeyMatePermission: String, CaseIterable, Identifiable {
     case microphone
     case speech
-    case accessibility
-    case inputMonitoring
     case screenRecording
+    case accessibility
     case notifications
     case calendar
     case reminders
@@ -34,9 +39,19 @@ enum HeyMatePermission: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    /// The ones HeyMate needs for talking, seeing and pointing.
-    static let core: [HeyMatePermission] = [.microphone, .speech, .accessibility, .inputMonitoring, .screenRecording]
-    /// Useful, never required.
+    /// The ones setup asks for, in order: hearing, seeing, then pointing
+    /// and the global shortcuts. Speech Recognition only when the selected
+    /// engine is Apple's; the on-device and ElevenLabs engines don't use it.
+    static func setupOrder(needsSpeechRecognition: Bool) -> [HeyMatePermission] {
+        [.microphone] + (needsSpeechRecognition ? [.speech] : []) + [.screenRecording, .accessibility]
+    }
+
+    /// The setup list for the transcription engine selected right now.
+    static var core: [HeyMatePermission] {
+        setupOrder(needsSpeechRecognition: SpeechToTextProviders.needsSpeechRecognitionPermission())
+    }
+
+    /// Asked for at first use, never during setup.
     static let extras: [HeyMatePermission] = [.notifications, .calendar, .reminders, .contacts]
 
     var title: String {
@@ -44,7 +59,6 @@ enum HeyMatePermission: String, CaseIterable, Identifiable {
         case .microphone: return "Microphone"
         case .speech: return "Speech Recognition"
         case .accessibility: return "Accessibility"
-        case .inputMonitoring: return "Input Monitoring"
         case .screenRecording: return "Screen Recording"
         case .notifications: return "Notifications"
         case .calendar: return "Calendar"
@@ -58,8 +72,7 @@ enum HeyMatePermission: String, CaseIterable, Identifiable {
         switch self {
         case .microphone: return "HeyMate can hear you while you hold ⌃⌥"
         case .speech: return "HeyMate can turn what you say into text"
-        case .accessibility: return "HeyMate can point, click, and type for you"
-        case .inputMonitoring: return "HeyMate hears ⌃⌥ in every app"
+        case .accessibility: return "HeyMate hears ⌃⌥ in every app and can click and type for you"
         case .screenRecording: return "HeyMate can see your screen when you ask"
         case .notifications: return "HeyMate can tell you when an agent finishes"
         case .calendar: return "HeyMate can read and add calendar events"
@@ -74,8 +87,7 @@ enum HeyMatePermission: String, CaseIterable, Identifiable {
         switch self {
         case .microphone: return "Hears you while you hold ⌃⌥, so you can talk instead of type."
         case .speech: return "Turns what you say into text, so HeyMate can answer it."
-        case .accessibility: return "Points, clicks, and types in other apps when you ask it to. Global shortcuts need it too."
-        case .inputMonitoring: return "Notices ⌃⌥ and HeyMate's other shortcuts in every app, not only when HeyMate is in front."
+        case .accessibility: return "Hears ⌃⌥ and HeyMate's other shortcuts in every app, and points, clicks, and types when you ask it to."
         case .screenRecording: return "Sees your screen when you ask about something on it."
         case .notifications: return "Tells you when an agent finishes its job."
         case .calendar: return "Reads your events and adds new ones when you ask."
@@ -89,8 +101,7 @@ enum HeyMatePermission: String, CaseIterable, Identifiable {
         switch self {
         case .microphone: return "HeyMate can't hear you yet"
         case .speech: return "HeyMate can't turn your voice into text yet"
-        case .accessibility: return "HeyMate can't click or type for you yet"
-        case .inputMonitoring: return "Keyboard shortcuts like ⌃⌥ don't work yet"
+        case .accessibility: return "Shortcuts like ⌃⌥ don't work yet"
         case .screenRecording: return "HeyMate can't see your screen yet"
         case .notifications: return "You won't hear when an agent finishes"
         case .calendar: return "HeyMate can't see your calendar"
@@ -104,7 +115,6 @@ enum HeyMatePermission: String, CaseIterable, Identifiable {
         case .microphone: return "mic"
         case .speech: return "waveform"
         case .accessibility: return "cursorarrow.click"
-        case .inputMonitoring: return "keyboard"
         case .screenRecording: return "rectangle.dashed.badge.record"
         case .notifications: return "bell"
         case .calendar: return "calendar"
@@ -116,7 +126,7 @@ enum HeyMatePermission: String, CaseIterable, Identifiable {
     /// macOS only grants these in System Settings, after a first prompt.
     var isGrantedInSystemSettings: Bool {
         switch self {
-        case .accessibility, .inputMonitoring, .screenRecording: return true
+        case .accessibility, .screenRecording: return true
         case .microphone, .speech, .notifications, .calendar, .reminders, .contacts: return false
         }
     }
@@ -126,7 +136,6 @@ enum HeyMatePermission: String, CaseIterable, Identifiable {
         case .microphone: return "Privacy_Microphone"
         case .speech: return "Privacy_SpeechRecognition"
         case .accessibility: return "Privacy_Accessibility"
-        case .inputMonitoring: return "Privacy_ListenEvent"
         case .screenRecording: return "Privacy_ScreenCapture"
         case .notifications: return "Notifications"
         case .calendar: return "Privacy_Calendars"
@@ -135,10 +144,11 @@ enum HeyMatePermission: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Without these, ⌃⌥ and every other global shortcut is dead, which
-    /// looks like HeyMate is broken rather than missing a permission.
+    /// Without this, ⌃⌥ and every other global shortcut is dead, which
+    /// looks like HeyMate is broken rather than missing a permission. The
+    /// shortcuts use an active event tap, which needs Accessibility only.
     var breaksShortcuts: Bool {
-        self == .inputMonitoring || self == .accessibility
+        self == .accessibility
     }
 
     /// Where to find the switch, and what to do when the list already shows
@@ -151,8 +161,11 @@ enum HeyMatePermission: String, CaseIterable, Identifiable {
 
     /// The order "Allow all" walks: quick prompts first, then the ones that
     /// need a trip to System Settings.
-    static func allowAllOrder(includeExtras: Bool) -> [HeyMatePermission] {
-        let list = core + (includeExtras ? extras : [])
+    static func allowAllOrder(
+        includeExtras: Bool,
+        needsSpeechRecognition: Bool = SpeechToTextProviders.needsSpeechRecognitionPermission()
+    ) -> [HeyMatePermission] {
+        let list = setupOrder(needsSpeechRecognition: needsSpeechRecognition) + (includeExtras ? extras : [])
         return list.filter { !$0.isGrantedInSystemSettings } + list.filter(\.isGrantedInSystemSettings)
     }
 }
@@ -190,7 +203,6 @@ final class PermissionGuide: ObservableObject {
         case .microphone: return AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         case .speech: return SFSpeechRecognizer.authorizationStatus() == .authorized
         case .accessibility: return MacPermissions.hasAccessibilityPermission()
-        case .inputMonitoring: return MacPermissions.hasInputMonitoringPermission()
         case .screenRecording: return MacPermissions.screenRecordingLooksGranted()
         case .calendar: return EKEventStore.authorizationStatus(for: .event) == .fullAccess
         case .reminders: return EKEventStore.authorizationStatus(for: .reminder) == .fullAccess
@@ -260,10 +272,6 @@ final class PermissionGuide: ObservableObject {
             // The first time this is macOS's own prompt, which has its own
             // button to System Settings; after that it opens the pane.
             MacPermissions.requestAccessibilityPermission()
-        case .inputMonitoring:
-            // The first time this is macOS's own prompt, which has its own
-            // button to System Settings; after that it opens the pane.
-            MacPermissions.requestInputMonitoringPermission()
         case .screenRecording:
             // The first time this is macOS's own prompt, which has its own
             // button to System Settings; after that it opens the pane.
@@ -393,7 +401,8 @@ struct PermissionChecklist: View {
     @ObservedObject var guide: PermissionGuide = .shared
     /// Tighter rows for the notch card.
     var compact = false
-    /// Shows Notifications, Calendar, Reminders and Contacts too.
+    /// Shows Notifications, Calendar, Reminders and Contacts too. Settings
+    /// lists them; setup leaves them for first use.
     var showsExtras = true
 
     var body: some View {

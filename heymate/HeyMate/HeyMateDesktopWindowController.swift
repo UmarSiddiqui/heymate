@@ -6,8 +6,8 @@
 //  the notch.
 //
 //  Why this lives in the same process rather than a second bundle: every
-//  permission HeyMate holds (Screen Recording, Accessibility, Microphone,
-//  Input Monitoring) is granted per code signature. A separate desktop
+//  permission HeyMate holds (Screen Recording, Accessibility, Microphone)
+//  is granted per code signature. A separate desktop
 //  binary would need the user to grant all of them a second time, and the
 //  two processes would then fight over the same CGEvent taps and audio
 //  device. One process, two surfaces — the notch for ambient work, this

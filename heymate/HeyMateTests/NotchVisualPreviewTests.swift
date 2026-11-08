@@ -69,10 +69,9 @@ struct NotchVisualPreviewTests {
 
     @Test func homeKeepsUsageNavigationWhileKeyboardPermissionsAreMissing() async throws {
         let guide = PermissionGuide(statusProvider: { permission in
-            permission != .inputMonitoring && permission != .accessibility
+            permission != .accessibility
         })
         await guide.refresh()
-        #expect(!guide.isGranted(.inputMonitoring))
         #expect(!guide.isGranted(.accessibility))
         let manager = CompanionManager()
         let previousOnboarding = UserDefaults.standard.object(forKey: "hasCompletedOnboarding")

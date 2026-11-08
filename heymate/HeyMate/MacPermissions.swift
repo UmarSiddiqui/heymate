@@ -2,10 +2,10 @@
 //  MacPermissions.swift
 //  HeyMate
 //
-//  The macOS privacy permissions HeyMate needs (Accessibility, Input
-//  Monitoring and Screen Recording; the microphone is handled by
-//  VoiceDictation) and how to ask
-//  for them. macOS only shows each system prompt once per launch, so the
+//  The macOS privacy permissions HeyMate needs (Accessibility and Screen
+//  Recording; the microphone is handled by VoiceDictation) and how to ask
+//  for them. Global shortcuts use active event taps, which need only
+//  Accessibility, so HeyMate never asks for Input Monitoring. macOS only shows each system prompt once per launch, so the
 //  first request shows the prompt and later ones open System Settings.
 //
 
@@ -22,7 +22,6 @@ enum MacPermissions {
 
     private static var hasPromptedForAccessibility = false
     private static var hasPromptedForScreenRecording = false
-    private static var hasPromptedForInputMonitoring = false
 
     // MARK: - Accessibility
 
@@ -49,41 +48,17 @@ enum MacPermissions {
         openPrivacyPane("Privacy_Accessibility")
     }
 
-    // MARK: - Input Monitoring
-
-    /// Global shortcuts listen to the keyboard. Current macOS keeps key events
-    /// out of an event tap without Input Monitoring even when Accessibility is
-    /// granted: the tap is created, but it hears modifiers at most and the
-    /// system switches it off.
-    static func hasInputMonitoringPermission() -> Bool {
-        CGPreflightListenEventAccess()
-    }
-
+    /// After a signing-identity change, macOS can keep an old Accessibility
+    /// entry: the switch looks on, but it belongs to the previous build, so
+    /// the new one is refused and the shortcuts go quiet. Clearing HeyMate's
+    /// own entry and asking again gives the person a fresh prompt for this
+    /// build. Returns whether the reset ran.
     @discardableResult
-    static func requestInputMonitoringPermission() -> Route {
-        let route = route(hasPermission: hasInputMonitoringPermission(), alreadyPrompted: hasPromptedForInputMonitoring)
-        switch route {
-        case .alreadyGranted:
-            break
-        case .systemPrompt:
-            hasPromptedForInputMonitoring = true
-            _ = CGRequestListenEventAccess()
-        case .systemSettings:
-            openInputMonitoringSettings()
-        }
-        return route
-    }
-
-    /// After a signing-identity change, macOS can keep an old Input Monitoring entry:
-    /// the switch looks on, but it belongs to the previous build, so the new
-    /// one is refused. Clearing HeyMate's own entry and asking again gives
-    /// the person a fresh prompt for this build. Returns whether the reset ran.
-    @discardableResult
-    static func resetAndRequestInputMonitoring() -> Bool {
-        let didReset = resetPrivacyEntry(service: "ListenEvent")
-        hasPromptedForInputMonitoring = false
-        requestInputMonitoringPermission()
-        if !hasInputMonitoringPermission() { openInputMonitoringSettings() }
+    static func resetAndRequestAccessibility() -> Bool {
+        let didReset = resetPrivacyEntry(service: "Accessibility")
+        hasPromptedForAccessibility = false
+        requestAccessibilityPermission()
+        if !hasAccessibilityPermission() { openAccessibilitySettings() }
         return didReset
     }
 
@@ -102,10 +77,6 @@ enum MacPermissions {
             HeyMateLog.log("⚠️ Couldn't reset HeyMate's \(service) entry: \(error)")
             return false
         }
-    }
-
-    static func openInputMonitoringSettings() {
-        openPrivacyPane("Privacy_ListenEvent")
     }
 
     // MARK: - Screen Recording
