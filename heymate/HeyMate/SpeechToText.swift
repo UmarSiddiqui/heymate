@@ -59,6 +59,15 @@ enum SpeechToTextProviders {
         return provider
     }
 
+    /// Whether the engine this choice opens is Apple's speech recognizer,
+    /// the only one that needs the Speech Recognition permission. Setup asks
+    /// for that permission only when this is true.
+    static func needsSpeechRecognitionPermission(
+        for choice: VoiceListenProvider = VoiceListenProvider.fromUserDefaults()
+    ) -> Bool {
+        make(choice).needsSpeechRecognitionPermission
+    }
+
     /// The chosen provider when it is set up, otherwise the best offline one.
     static func resolve(_ choice: VoiceListenProvider) -> any SpeechToTextProvider {
         let provider = make(choice)

@@ -11,21 +11,32 @@ import Testing
 @MainActor
 struct PermissionWalkthroughTests {
 
-    @Test func walksEveryCorePermissionWhenNothingIsOn() {
-        let steps = PermissionWalkthroughPlan.steps(alreadyGranted: [])
-        #expect(steps == HeyMatePermission.allowAllOrder(includeExtras: false))
+    @Test func walksMicrophoneScreenRecordingAccessibilityWhenNothingIsOn() {
+        let steps = PermissionWalkthroughPlan.steps(alreadyGranted: [], needsSpeechRecognition: false)
+        #expect(steps == [.microphone, .screenRecording, .accessibility])
+    }
+
+    @Test func addsSpeechRecognitionAfterMicrophoneOnlyForApplesEngine() {
+        let steps = PermissionWalkthroughPlan.steps(alreadyGranted: [], needsSpeechRecognition: true)
+        #expect(steps == [.microphone, .speech, .screenRecording, .accessibility])
     }
 
     @Test func skipsPermissionsThatAreAlreadyOn() {
-        let steps = PermissionWalkthroughPlan.steps(alreadyGranted: [.microphone, .screenRecording, .calendar])
-        #expect(!steps.contains(.microphone))
-        #expect(!steps.contains(.screenRecording))
-        #expect(steps.contains(.speech))
-        #expect(steps.allSatisfy(HeyMatePermission.core.contains))
+        let steps = PermissionWalkthroughPlan.steps(
+            alreadyGranted: [.microphone, .screenRecording, .calendar],
+            needsSpeechRecognition: false
+        )
+        #expect(steps == [.accessibility])
     }
 
-    @Test func nothingToWalkWhenEveryCorePermissionIsOn() {
-        #expect(PermissionWalkthroughPlan.steps(alreadyGranted: Set(HeyMatePermission.core)).isEmpty)
+    @Test func nothingToWalkWhenEverySetupPermissionIsOn() {
+        let setup = HeyMatePermission.setupOrder(needsSpeechRecognition: false)
+        #expect(PermissionWalkthroughPlan.steps(alreadyGranted: Set(setup), needsSpeechRecognition: false).isEmpty)
+    }
+
+    @Test func neverWalksFirstUsePermissions() {
+        let steps = PermissionWalkthroughPlan.steps(alreadyGranted: [], needsSpeechRecognition: true)
+        #expect(Set(steps).isDisjoint(with: HeyMatePermission.extras))
     }
 
     @Test func everyPermissionHasAPrivacyNote() {

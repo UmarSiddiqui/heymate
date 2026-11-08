@@ -123,11 +123,10 @@ protocol ComputerUseTakeBackWatching: AnyObject {
     func stop()
 }
 
-/// Listen-only CGEvent tap, same pattern as `AnnotationClearKeyMonitor`.
-/// Runs only while a drive is in progress.
+/// A PassThroughEventTap, same as `AnnotationClearKeyMonitor`, so it needs
+/// Accessibility only. Runs only while a drive is in progress.
 final class ComputerUseTakeBackMonitor: ComputerUseTakeBackWatching {
-    private var eventTap: CFMachPort?
-    private var runLoopSource: CFRunLoopSource?
+    private var tap: PassThroughEventTap?
     private var onTakeBack: (@MainActor (ComputerUseTakeBackReason) -> Void)?
     private var shake = PointerShakeDetector()
 
@@ -142,9 +141,7 @@ final class ComputerUseTakeBackMonitor: ComputerUseTakeBackWatching {
         self.onTakeBack = onTakeBack
         shake.reset()
 
-        let eventMask = Self.watchedTypes.reduce(CGEventMask(0)) { $0 | (1 << $1.rawValue) }
-        let tapCallback: CGEventTapCallBack = { _, eventType, event, userInfo in
-            guard let userInfo else { return Unmanaged.passUnretained(event) }
+        let tap = PassThroughEventTap(name: "Take-back monitor", events: Self.watchedTypes) { [weak self] eventType, event in
             let input = ComputerUseTakeBack.Input(
                 type: eventType,
                 isSynthesized: event.getIntegerValueField(.eventSourceUserData)
@@ -156,45 +153,15 @@ final class ComputerUseTakeBackMonitor: ComputerUseTakeBackWatching {
                 keyCode: event.getIntegerValueField(.keyboardEventKeycode),
                 time: ProcessInfo.processInfo.systemUptime
             )
-            let monitor = Unmanaged<ComputerUseTakeBackMonitor>.fromOpaque(userInfo).takeUnretainedValue()
-            DispatchQueue.main.async {
-                monitor.handle(input)
-            }
-            return Unmanaged.passUnretained(event)
+            DispatchQueue.main.async { self?.handle(input) }
         }
-
-        guard let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .listenOnly,
-            eventsOfInterest: eventMask,
-            callback: tapCallback,
-            userInfo: Unmanaged.passUnretained(self).toOpaque()
-        ) else {
-            HeyMateLog.log("⚠️ Take-back monitor: couldn't create CGEvent tap (needs Accessibility)")
-            return
-        }
-        guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
-            CFMachPortInvalidate(tap)
-            return
-        }
-        eventTap = tap
-        runLoopSource = source
-        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
+        if tap.start() { self.tap = tap }
     }
 
     func stop() {
         onTakeBack = nil
-        if let runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
-            self.runLoopSource = nil
-        }
-        if let eventTap {
-            CGEvent.tapEnable(tap: eventTap, enable: false)
-            CFMachPortInvalidate(eventTap)
-            self.eventTap = nil
-        }
+        tap?.stop()
+        tap = nil
     }
 
     private func handle(_ input: ComputerUseTakeBack.Input) {

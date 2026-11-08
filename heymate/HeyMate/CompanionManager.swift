@@ -2177,10 +2177,11 @@ final class CompanionManager: ObservableObject {
     /// True when Accessibility, Screen Recording, and Microphone are granted.
     /// Screen Content is requested automatically after Screen Recording — it
     /// is not a fourth setup gate.
-    /// Accessibility and Input Monitoring: without either one, ⌃⌥ and the
-    /// other global shortcuts hear nothing.
+    /// Accessibility: without it, ⌃⌥ and the other global shortcuts hear
+    /// nothing. Their event tap is an active one, which needs no Input
+    /// Monitoring.
     var keyboardShortcutPermissionsGranted: Bool {
-        MacPermissions.hasAccessibilityPermission() && MacPermissions.hasInputMonitoringPermission()
+        MacPermissions.hasAccessibilityPermission()
     }
 
     var allPermissionsGranted: Bool {
@@ -3150,7 +3151,7 @@ final class CompanionManager: ObservableObject {
         explainerWindowController.onDropPointing = { [weak self] in self?.pointingTarget = nil }
         refreshAllPermissions()
         permissionCoachDirector.start()
-        HeyMateLog.log("🔑 HeyMate start — accessibility: \(hasAccessibilityPermission), inputMonitoring: \(MacPermissions.hasInputMonitoringPermission()), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
+        HeyMateLog.log("🔑 HeyMate start — accessibility: \(hasAccessibilityPermission), screen: \(hasScreenRecordingPermission), mic: \(hasMicrophonePermission), screenContent: \(hasScreenContentPermission), onboarded: \(hasCompletedOnboarding)")
         startPermissionPolling()
         bindVoiceStateObservation()
         bindAudioPowerLevel()
@@ -3288,7 +3289,6 @@ final class CompanionManager: ObservableObject {
         // Global shortcuts need Accessibility. Starting is idempotent, so a
         // chord held across a poll is not dropped.
         setKeyboardShortcutsListening(hasAccessibilityPermission)
-        refreshInputMonitoring()
 
         let changed = before.accessibility != hasAccessibilityPermission
             || before.screen != hasScreenRecordingPermission
@@ -3319,27 +3319,6 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Ctrl + Option and the other shortcuts also need Input Monitoring.
-    /// Ask once per launch, as soon as Accessibility is in place, and rebuild
-    /// the keyboard tap the moment the grant arrives.
-    private func refreshInputMonitoring() {
-        let granted = MacPermissions.hasInputMonitoringPermission()
-        defer { hadInputMonitoringPermission = granted }
-        if granted && !hadInputMonitoringPermission {
-            HeyMateLog.log("🔑 Input Monitoring granted — restarting the keyboard shortcuts")
-            HeyMateAnalytics.track(.permissionGranted("input_monitoring"))
-            SharedKeyboardTap.shared.reinstall()
-        }
-        // Ask once, ever. After that the Permissions list is the way back,
-        // so HeyMate does not reopen System Settings on every launch.
-        guard hasAccessibilityPermission, !granted, !hasAttemptedInputMonitoringRequest,
-              !PermissionGuide.hasAsked(.inputMonitoring) else { return }
-        hasAttemptedInputMonitoringRequest = true
-        PermissionGuide.markAsked(.inputMonitoring)
-        HeyMateLog.log("🔑 Input Monitoring is off — asking for it so the keyboard shortcuts work")
-        MacPermissions.requestInputMonitoringPermission()
-    }
-
     /// Every global keyboard shortcut channel at once.
     private func setKeyboardShortcutsListening(_ listening: Bool) {
         let shortcuts: [any KeyboardShortcutChannel] = [
@@ -3353,11 +3332,6 @@ final class CompanionManager: ObservableObject {
 
     private static let screenContentGrantKey = "hasScreenContentPermission"
     private static let screenContentAskedKey = "heymate.permissionAsked.screenContent"
-
-    /// Input Monitoring as of the last permission poll, so a new grant can
-    /// rebuild the keyboard tap that was created without it.
-    private var hadInputMonitoringPermission = MacPermissions.hasInputMonitoringPermission()
-    private var hasAttemptedInputMonitoringRequest = false
 
     @Published private(set) var isRequestingScreenContent = false
     private var hasAttemptedScreenContentAutoRequest = false

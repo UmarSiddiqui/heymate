@@ -8,8 +8,11 @@
 //  nothing here blocks setup. The full list stays one tap away ("See all")
 //  and in Settings › Privacy & Data.
 //
-//      microphone → speech → accessibility → input monitoring
-//                 → screen recording → done (optional extras)
+//      microphone → (speech, only for Apple's engine) → screen recording
+//                 → accessibility → done
+//
+//  Notifications, Calendar, Reminders and Contacts are not pages here:
+//  HeyMate asks for each when a feature first needs it.
 //
 //  Asking still goes through PermissionGuide, so a page never prompts on
 //  its own: only the Allow button asks.
@@ -21,10 +24,15 @@ import SwiftUI
 /// Which pages the walkthrough shows, worked out once when it opens so
 /// pages don't vanish under the person as they grant things.
 enum PermissionWalkthroughPlan {
-    /// Core permissions still off, quick system prompts first and the ones
-    /// that need System Settings last.
-    static func steps(alreadyGranted: Set<HeyMatePermission>) -> [HeyMatePermission] {
-        HeyMatePermission.allowAllOrder(includeExtras: false).filter { !alreadyGranted.contains($0) }
+    /// Setup permissions still off: Microphone, Screen Recording, then
+    /// Accessibility (Speech Recognition after Microphone, only when Apple's
+    /// engine transcribes).
+    static func steps(
+        alreadyGranted: Set<HeyMatePermission>,
+        needsSpeechRecognition: Bool = SpeechToTextProviders.needsSpeechRecognitionPermission()
+    ) -> [HeyMatePermission] {
+        HeyMatePermission.setupOrder(needsSpeechRecognition: needsSpeechRecognition)
+            .filter { !alreadyGranted.contains($0) }
     }
 }
 
@@ -34,8 +42,7 @@ extension HeyMatePermission {
         switch self {
         case .microphone: return "Only while you hold the shortcut. Nothing is recorded or kept."
         case .speech: return "Used to turn your words into text, nothing else."
-        case .accessibility: return "Only acts when you ask it to. You can stop it any time."
-        case .inputMonitoring: return "Listens for the shortcut only. Your typing is never read."
+        case .accessibility: return "Watches for HeyMate's shortcuts only, and acts only when you ask. You can stop it any time."
         case .screenRecording: return "Only when you press the shortcut. Screenshots are never stored."
         case .notifications: return "Only for things you asked HeyMate to do."
         case .calendar: return "Read when you ask about your schedule. Never shared."
@@ -58,7 +65,6 @@ struct PermissionWalkthrough: View {
     @State private var isWaitingInSettings = false
     @State private var isAsking = false
     @State private var isShowingFullList = false
-    @State private var isAskingExtras = false
     /// Waited long enough in System Settings that a switch which is already
     /// on but belongs to an older copy of HeyMate is the likely reason.
     @State private var isWaitingLong = false
@@ -71,7 +77,7 @@ struct PermissionWalkthrough: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if isShowingFullList {
-                PermissionChecklist(compact: true)
+                PermissionChecklist(compact: true, showsExtras: false)
                 footer(primaryTitle: guide.allGranted(HeyMatePermission.core) ? "Continue" : "Continue for now", primary: onFinish)
             } else if let steps {
                 progressRow(steps)
@@ -268,8 +274,7 @@ struct PermissionWalkthrough: View {
             if permission.isGrantedInSystemSettings {
                 NotchAppDropTile(
                     missingAccessibility: permission == .accessibility,
-                    missingScreenRecording: permission == .screenRecording,
-                    missingInputMonitoring: permission == .inputMonitoring
+                    missingScreenRecording: permission == .screenRecording
                 )
             }
         }
@@ -278,7 +283,6 @@ struct PermissionWalkthrough: View {
     private var donePage: some View {
         let core = HeyMatePermission.core
         let onCount = core.filter(guide.isGranted).count
-        let missingExtras = HeyMatePermission.extras.filter { !guide.isGranted($0) }
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 12) {
                 PermissionBadge(systemImage: "sparkles", isGranted: onCount == core.count, isWaiting: false)
@@ -293,33 +297,6 @@ struct PermissionWalkthrough: View {
                         .foregroundColor(DS.Colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-            }
-
-            if !missingExtras.isEmpty {
-                HStack(spacing: 8) {
-                    Image(systemName: "plus.circle")
-                        .font(DS.Glyph.small)
-                        .foregroundColor(DS.Colors.textTertiary)
-                    Text("Also useful: " + missingExtras.map(\.title).joined(separator: ", "))
-                        .font(DS.Fonts.caption)
-                        .foregroundColor(DS.Colors.textSecondary)
-                        .lineLimit(2)
-                    Spacer(minLength: 4)
-                    Button(isAskingExtras ? "Asking…" : "Allow") {
-                        isAskingExtras = true
-                        Task {
-                            for permission in missingExtras where !guide.isGranted(permission) {
-                                await guide.request(permission)
-                            }
-                            isAskingExtras = false
-                        }
-                    }
-                    .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)
-                    .disabled(isAskingExtras)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .dsSurface(.row)
             }
 
             footer(primaryTitle: "Continue", primary: onFinish)

@@ -2,9 +2,9 @@
 //  AnnotationClearKeyMonitor.swift
 //  HeyMate
 //
-//  Global listen-only Escape watcher. Escape clears on-screen annotations
-//  immediately (master spec: "Escape clears"), independent of model state.
-//  Mirrors the CGEvent tap pattern of GlobalShortcutMonitor.
+//  Global Escape watcher. Escape clears on-screen annotations immediately
+//  (master spec: "Escape clears"), independent of model state. A
+//  PassThroughEventTap, so it needs Accessibility and not Input Monitoring.
 //
 
 import AppKit
@@ -12,8 +12,7 @@ import CoreGraphics
 import Foundation
 
 final class AnnotationClearKeyMonitor {
-    private var eventTap: CFMachPort?
-    private var runLoopSource: CFRunLoopSource?
+    private var tap: PassThroughEventTap?
     /// Called on the main thread whenever Escape is pressed anywhere.
     private let onEscape: () -> Void
 
@@ -22,66 +21,22 @@ final class AnnotationClearKeyMonitor {
     }
 
     deinit {
-        stop()
+        tap?.stop()
     }
 
     func start() {
-        guard eventTap == nil else { return }
-
-        let eventMask = CGEventMask(1 << CGEventType.keyDown.rawValue)
-
-        let tapCallback: CGEventTapCallBack = { _, eventType, event, userInfo in
-            guard eventType == .keyDown, let userInfo else {
-                return Unmanaged.passUnretained(event)
-            }
-
+        guard tap == nil else { return }
+        let tap = PassThroughEventTap(name: "Annotation clear monitor", events: [.keyDown]) { [weak self] type, event in
             // Escape keycode is 53.
-            let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
-            if keyCode == 53 {
-                let monitor = Unmanaged<AnnotationClearKeyMonitor>
-                    .fromOpaque(userInfo)
-                    .takeUnretainedValue()
-                DispatchQueue.main.async {
-                    monitor.onEscape()
-                }
-            }
-
-            return Unmanaged.passUnretained(event)
+            guard type == .keyDown, event.getIntegerValueField(.keyboardEventKeycode) == 53 else { return }
+            DispatchQueue.main.async { self?.onEscape() }
         }
-
-        guard let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .listenOnly,
-            eventsOfInterest: eventMask,
-            callback: tapCallback,
-            userInfo: Unmanaged.passUnretained(self).toOpaque()
-        ) else {
-            HeyMateLog.log("⚠️ Annotation clear monitor: couldn't create CGEvent tap (needs Accessibility)")
-            return
-        }
-
-        guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
-            CFMachPortInvalidate(tap)
-            HeyMateLog.log("⚠️ Annotation clear monitor: couldn't create run loop source")
-            return
-        }
-
-        self.eventTap = tap
-        self.runLoopSource = source
-
-        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
+        // Without Accessibility there is no tap; the next start() retries.
+        if tap.start() { self.tap = tap }
     }
 
     func stop() {
-        if let runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
-            self.runLoopSource = nil
-        }
-        if let eventTap {
-            CFMachPortInvalidate(eventTap)
-            self.eventTap = nil
-        }
+        tap?.stop()
+        tap = nil
     }
 }

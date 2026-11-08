@@ -44,7 +44,7 @@ struct UISnapshotTests {
     @Test(.enabled(if: outputDirectory != nil))
     func notchPermissionFlow() throws {
         let guide = PermissionGuide { permission in
-            permission != .inputMonitoring && permission != .screenRecording
+            permission != .accessibility && permission != .screenRecording
         }
         try Self.render(
             NotchPermissionFlow(guide: guide, openChecklist: {})

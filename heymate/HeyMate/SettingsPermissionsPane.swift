@@ -19,8 +19,9 @@ struct SettingsPermissionsPane: View {
     @AppStorage(ApprovalMode.preferenceKey) private var approvalMode = ApprovalMode.askMe.rawValue
     @State private var showsResetConfirmation = false
 
+    /// The shortcuts' event tap needs Accessibility and nothing else.
     private var shortcutsWork: Bool {
-        guide.isGranted(.accessibility) && guide.isGranted(.inputMonitoring)
+        guide.isGranted(.accessibility)
     }
 
     var body: some View {
@@ -39,11 +40,11 @@ struct SettingsPermissionsPane: View {
         }
         .onAppear { guide.startWatching() }
         .onDisappear { guide.stopWatching() }
-        .confirmationDialog("Reset HeyMate's Input Monitoring permission?", isPresented: $showsResetConfirmation) {
-            Button("Reset Input Monitoring", role: .destructive, action: repair)
+        .confirmationDialog("Reset HeyMate's Accessibility permission?", isPresented: $showsResetConfirmation) {
+            Button("Reset Accessibility", role: .destructive, action: repair)
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Use this only if enabling the installed HeyMate app still fails. Reset removes its current Input Monitoring entry; you must allow it again in System Settings.")
+            Text("Use this only if enabling the installed HeyMate app still fails. Reset removes its current Accessibility entry; you must allow it again in System Settings.")
         }
     }
 
@@ -105,7 +106,7 @@ struct SettingsPermissionsPane: View {
                         .font(DS.Fonts.headline)
                         .foregroundColor(DS.Colors.textPrimary)
                 }
-                Text("⌃⌥ and the other shortcuts only work while HeyMate is in front. To hear them in every app, HeyMate needs \(missingShortcutPermissions).")
+                Text("⌃⌥ and the other shortcuts only work while HeyMate is in front. To hear them in every app, HeyMate needs Accessibility.")
                     .font(DS.Fonts.body)
                     .foregroundColor(DS.Colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -116,17 +117,13 @@ struct SettingsPermissionsPane: View {
                     step(4, "If macOS asks, quit and reopen HeyMate to apply the grant.")
                 }
                 HStack(spacing: DS.Spacing.sm) {
-                    if let first = firstMissingShortcutPermission {
-                        Button("Open System Settings") {
-                            Task { await guide.request(first) }
-                        }
-                        .dsCapsuleButtonStyle(.primary)
+                    Button("Open System Settings") {
+                        Task { await guide.request(.accessibility) }
                     }
-                    if !guide.isGranted(.inputMonitoring) {
-                        Button("Reset Input Monitoring…") { showsResetConfirmation = true }
-                            .dsCapsuleButtonStyle(.secondary)
-                            .help("Last resort: remove HeyMate's Input Monitoring entry and ask again.")
-                    }
+                    .dsCapsuleButtonStyle(.primary)
+                    Button("Reset Accessibility…") { showsResetConfirmation = true }
+                        .dsCapsuleButtonStyle(.secondary)
+                        .help("Last resort: remove HeyMate's Accessibility entry and ask again.")
                 }
                 if let repairNote {
                     Text(repairNote)
@@ -136,8 +133,7 @@ struct SettingsPermissionsPane: View {
                 }
                 NotchAppDropTile(
                     missingAccessibility: !guide.isGranted(.accessibility),
-                    missingScreenRecording: false,
-                    missingInputMonitoring: !guide.isGranted(.inputMonitoring)
+                    missingScreenRecording: false
                 )
                 .padding(.top, 4)
             }
@@ -157,17 +153,6 @@ struct SettingsPermissionsPane: View {
         }
     }
 
-    private var firstMissingShortcutPermission: HeyMatePermission? {
-        [HeyMatePermission.inputMonitoring, .accessibility].first { !guide.isGranted($0) }
-    }
-
-    private var missingShortcutPermissions: String {
-        let missing = [HeyMatePermission.inputMonitoring, .accessibility]
-            .filter { !guide.isGranted($0) }
-            .map(\.title)
-        return missing.joined(separator: " and ")
-    }
-
     // MARK: Repair
 
     private var repairSection: some View {
@@ -177,19 +162,19 @@ struct SettingsPermissionsPane: View {
         ) {
             SettingsRow(
                 SettingsItem.repairShortcuts.title,
-                subtitle: "Clears HeyMate's Input Monitoring entry and asks again.",
+                subtitle: "Clears HeyMate's Accessibility entry and asks again.",
                 systemImage: "wrench.and.screwdriver",
                 item: .repairShortcuts
             ) {
-                Button("Reset Input Monitoring…") { showsResetConfirmation = true }
+                Button("Reset Accessibility…") { showsResetConfirmation = true }
                     .dsCapsuleButtonStyle(.secondary)
             }
         }
     }
 
     private func repair() {
-        let didReset = MacPermissions.resetAndRequestInputMonitoring()
-        PermissionGuide.markAsked(.inputMonitoring)
+        let didReset = MacPermissions.resetAndRequestAccessibility()
+        PermissionGuide.markAsked(.accessibility)
         repairNote = didReset
             ? "Done. Allow HeyMate in the prompt, or switch it on in System Settings."
             : "Couldn't clear the old entry. In System Settings, select HeyMate, press −, then add it again with +."

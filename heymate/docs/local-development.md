@@ -76,9 +76,10 @@ installed development identity; it does not change back to the release signer.
 Switching to release/CI builds later can require approval again. The release
 signing scripts and updater configuration are unchanged.
 
-If macOS no longer has an Input Monitoring entry, the person must add
-`/Applications/HeyMate.app` in System Settings → Privacy & Security → Input
-Monitoring using **+**, then enable it. Approve any other permissions the app
+If macOS no longer has an Accessibility entry, the person must add
+`/Applications/HeyMate.app` in System Settings → Privacy & Security →
+Accessibility using **+**, then enable it. Global shortcuts use active event
+taps, which need Accessibility only; HeyMate no longer uses Input Monitoring. Approve any other permissions the app
 shows as missing, and quit/reopen if macOS requests it. The workflow cannot
 restore or grant OS authorization. It never runs `tccutil`, removes TCC entries,
 or treats saved preferences as proof that a permission is granted. HeyMate's

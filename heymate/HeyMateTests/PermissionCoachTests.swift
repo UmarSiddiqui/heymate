@@ -97,11 +97,11 @@ struct PermissionCoachTests {
     }
 
     @Test func neverNamesASwitchItCouldNotFind() {
-        var guiding = PermissionCoachCue(permission: .inputMonitoring, phase: .guiding, step: 1)
+        var guiding = PermissionCoachCue(permission: .screenRecording, phase: .guiding, step: 1)
         guiding.foundSwitch = false
         #expect(guiding.caption.contains("find HeyMate"))
         #expect(!guiding.caption.contains("next to HeyMate"))
-        var recovery = PermissionCoachCue(permission: .inputMonitoring, phase: .recovery, step: 2)
+        var recovery = PermissionCoachCue(permission: .screenRecording, phase: .recovery, step: 2)
         recovery.foundSwitch = false
         #expect(recovery.caption.contains("find HeyMate"))
         #expect(!recovery.caption.contains("this switch"))
