@@ -170,6 +170,11 @@ jobs:
         # Notarization needs a secure timestamp on every signature: --timestamp
         # covers Xcode's own signing, HEYMATE_SECURE_TIMESTAMP the nested Pi and
         # Phonon code signed by the staging scripts.
+        # A plain `xcodebuild build` injects get-task-allow (debugger attach)
+        # into every target unless base entitlements are switched off; an
+        # archive export would strip it, this build does not. 1.0.88 shipped
+        # with it, letting other processes attach to an app holding Screen
+        # Recording, Accessibility and Microphone grants.
         env:
           HEYMATE_SECURE_TIMESTAMP: "YES"
         run: |
@@ -184,6 +189,7 @@ jobs:
             ONLY_ACTIVE_ARCH=NO \
             ENABLE_CODE_COVERAGE=NO \
             CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
             CODE_SIGN_IDENTITY="${{ steps.signing.outputs.identity }}" \
             DEVELOPMENT_TEAM="$HEYMATE_TEAM_ID" \
             OTHER_CODE_SIGN_FLAGS='$(inherited) --timestamp' \
@@ -237,6 +243,8 @@ jobs:
           heymate_require_hardened_runtime "$APP"
           heymate_require_notarizable_bundle "$APP" \
             || { echo "::error::Nested code would fail notarization (see list above)"; exit 1; }
+          heymate_reject_debug_entitlements_in_bundle "$APP" \
+            || { echo "::error::A release binary carries get-task-allow (see list above)"; exit 1; }
           # Coverage-instrumented code would print an LLVM profile error into
           # every agent runner log, so empty logs would never be cleaned up.
           for BINARY in "$APP/Contents/MacOS/$APP_NAME" "$APP/Contents/Helpers/HeyMateAgentRunner"; do

@@ -90,6 +90,23 @@ heymate_require_notarizable_bundle() {
   fi
 }
 
+# get-task-allow lets other processes attach a debugger and run code with
+# HeyMate's privacy grants. Development builds need it; releases never do.
+heymate_reject_debug_entitlements_in_bundle() {
+  local bundle="$1"
+  local failures=0 file
+  while IFS= read -r -d '' file; do
+    case "$(file -b "$file")" in *Mach-O*) ;; *) continue ;; esac
+    # plutil -extract reads the dots in the key as a path, so match the XML.
+    if codesign -d --entitlements - --xml "$file" 2>/dev/null | tr -d ' \t\n' \
+        | grep -q '<key>com.apple.security.get-task-allow</key><true/>'; then
+      echo "get-task-allow is set: $file" >&2
+      failures=$((failures + 1))
+    fi
+  done < <(find "$bundle" -type f -print0)
+  [ "$failures" -eq 0 ]
+}
+
 heymate_verify_embedded_agent_runner() {
   local app_bundle="$1"
   local verification_mode="${2:-debug}"
