@@ -53,7 +53,7 @@ struct OnboardingFirstTaskStep: View {
                     Button("Send request") {
                         oldMessageIDs = Set(manager.currentChat.messages.map(\.id))
                         oldRunIDs = Set(manager.agentRuns.map(\.id))
-                        if manager.sendTypedMessage(request) {
+                        if manager.sendTypedMessage(request, analyticsContext: .init(origin: .onboarding, inputMode: .typed)) {
                             chatID = manager.currentChat.id
                             error = nil
                         } else { error = "Could not send yet. Your request is still here; check AI setup or try again." }

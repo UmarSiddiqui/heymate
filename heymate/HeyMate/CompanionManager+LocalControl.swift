@@ -78,12 +78,13 @@ extension CompanionManager {
                 if asHeyMateTalk { heyMateTalkSession = .empty() }
                 else { startNewChat() }
             }
-            sendTranscriptToClaudeWithScreenshot(transcript: text, shouldCaptureScreen: captureScreen)
+            sendTranscriptToClaudeWithScreenshot(transcript: text, shouldCaptureScreen: captureScreen,
+                                                 analyticsContext: .localControl)
             return .accepted(["asked": text])
         case .drawnTour(let text, let interview):
             startNewChat()
             let lines = interview.split(separator: "\n").map { OnboardingInterviewLine(speaker: .user, text: String($0)) }
-            Task { _ = await runDrawnTourStep(text, interview: lines, name: nil) }
+            Task { _ = await runDrawnTourStep(text, interview: lines, name: nil, analyticsContext: .localControl) }
             return .accepted(["drawing": text])
         case .clear:
             LocalControlState.drawingReplay?.cancel()
@@ -149,7 +150,7 @@ extension CompanionManager {
             }
             return .accepted(["lines": reply.explainerLineCount, "streamed": true])
         }
-        Task { [weak self] in
+        AnalyticsInteractionScope.task(context: .localControl) { [weak self] in
             _ = try? await self?.playGuidedReply(reply, screenCaptures: [])
         }
         return .accepted(["lines": reply.explainerLineCount])

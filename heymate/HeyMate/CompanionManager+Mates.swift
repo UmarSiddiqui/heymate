@@ -583,7 +583,8 @@ extension CompanionManager: MateRoutineRunning {
             clearRoutineDelivery()
             return .busy
         }
-        let accepted = sendTypedMessage(routine.task, internalMateTurn: true)
+        let accepted = sendTypedMessage(routine.task, internalMateTurn: true,
+                                        analyticsContext: .init(origin: .routine, inputMode: .none))
         if !accepted {
             clearRoutineDelivery()
             if openCodeTrainingNotice != nil { return .busy }
@@ -686,7 +687,9 @@ extension CompanionManager: MateRoutineRunning {
         activeHandoffMessageStart = session.messages.count
         activeHandoffRunIDs = []
         if session.id != currentChat.id { backgroundRoutineSession = session }
-        let accepted = sendTypedMessage(handoff.deliveredInstruction, imageAttachments: handoff.imageAttachments, internalMateTurn: true)
+        let accepted = sendTypedMessage(handoff.deliveredInstruction, imageAttachments: handoff.imageAttachments,
+                                        internalMateTurn: true,
+                                        analyticsContext: .init(origin: .handoff, inputMode: .none))
         let startedModelTurn = accepted && isResponseInFlight
         if !startedModelTurn {
             completeActiveHandoff(succeeded: accepted, failureMessage: accepted ? nil : commandBarFeedback)

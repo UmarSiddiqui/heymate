@@ -2168,6 +2168,7 @@ final class CompanionManager: ObservableObject {
     private var notchActivityCancellables: Set<AnyCancellable> = []
     private var permissionPollTask: Task<Void, Never>?
     private var pendingKeyboardShortcutStartTask: Task<Void, Never>?
+    private var pushToTalkAnalyticsContext: AnalyticsInteractionContext?
     /// Pending start task for the dictation channel — cancelled if the user
     /// releases the dictate shortcut before recording could begin.
     private var pendingDictateStartTask: Task<Void, Never>?
@@ -3940,7 +3941,12 @@ final class CompanionManager: ObservableObject {
             // They're doing what the onboarding prompt asks; put it away.
             dismissOnboardingPrompt()
 
-            HeyMateAnalytics.track(.pushToTalkStarted)
+            let analyticsContext = AnalyticsInteractionContext(
+                origin: onboardingTranscriptSink == nil ? .user : .onboarding,
+                inputMode: .voice
+            )
+            pushToTalkAnalyticsContext = analyticsContext
+            HeyMateAnalytics.track(.pushToTalkStarted, context: analyticsContext)
 
             pendingKeyboardShortcutStartTask?.cancel()
             pendingKeyboardShortcutStartTask = Task {
@@ -3953,9 +3959,9 @@ final class CompanionManager: ObservableObject {
                         self?.lastTranscript = finalTranscript
                         HeyMateLog.log("🗣️ Companion received transcript (\(finalTranscript.count) characters)")
                         if !finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            HeyMateAnalytics.track(.userMessageSent(characterCount: finalTranscript.count))
+                            HeyMateAnalytics.track(.userMessageSent(characterCount: finalTranscript.count), context: analyticsContext)
                         }
-                        self?.handleTalkTranscript(finalTranscript)
+                        self?.handleTalkTranscript(finalTranscript, analyticsContext: analyticsContext)
                     }
                 )
             }
@@ -3971,7 +3977,9 @@ final class CompanionManager: ObservableObject {
             // before the async startPushToTalk had a chance to begin recording.
             // Without this, a quick press-and-release drops the release event and
             // leaves the waveform overlay stuck on screen indefinitely.
-            HeyMateAnalytics.track(.pushToTalkReleased)
+            HeyMateAnalytics.track(.pushToTalkReleased, context: pushToTalkAnalyticsContext
+                ?? .init(origin: .unknown, inputMode: .voice))
+            pushToTalkAnalyticsContext = nil
             overlayWindowManager.finishSpatialCapture()
             pendingKeyboardShortcutStartTask?.cancel()
             pendingKeyboardShortcutStartTask = nil
@@ -3999,8 +4007,10 @@ final class CompanionManager: ObservableObject {
         _ typedMessageText: String,
         imageAttachments: [ChatImageAttachment] = [],
         asHeyMateTalk: Bool = false,
-        internalMateTurn: Bool = false
+        internalMateTurn: Bool = false,
+        analyticsContext: AnalyticsInteractionContext? = nil
     ) -> Bool {
+        let analyticsContext = analyticsContext ?? (internalMateTurn ? .unknown : .userTyped)
         let trimmedTypedMessageText = typedMessageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTypedMessageText.isEmpty || !imageAttachments.isEmpty else { return false }
         if !internalMateTurn && (activeRoutineTurn != nil || activeHandoffMateID != nil) {
@@ -4043,7 +4053,7 @@ final class CompanionManager: ObservableObject {
             isHeyMateTalkTurn = asHeyMateTalk
             if acceptLocalMateCommand(messageText) { return true }
 
-                HeyMateAnalytics.track(.userMessageSent(characterCount: messageText.count))
+                HeyMateAnalytics.track(.userMessageSent(characterCount: messageText.count), context: analyticsContext)
                 commandBarFeedback = nil
                 lastTranscript = messageText
                 // The notch composer is Talk with a keyboard: same cursor and
@@ -4051,7 +4061,8 @@ final class CompanionManager: ObservableObject {
                 // "inside HeyMate" for capture purposes.
                 if asHeyMateTalk { deployCursorForInteraction() }
                 sendToTalk(messageText.appending(contextPreamble(for: contextTokens)), requiresIdle: false,
-                           imageAttachments: imageAttachments, typedInsideHeyMate: !asHeyMateTalk)
+                           imageAttachments: imageAttachments, typedInsideHeyMate: !asHeyMateTalk,
+                           analyticsContext: analyticsContext)
                 return true
 
         }
@@ -4143,20 +4154,23 @@ final class CompanionManager: ObservableObject {
 
     /// Shared front door for push-to-talk. Already inside the Talk pipeline,
     /// so it must not idle-gate — that would drop the transcript.
-    func handleTalkTranscript(_ transcript: String) {
+    func handleTalkTranscript(_ transcript: String, analyticsContext: AnalyticsInteractionContext = .userVoice) {
         // Talk is always HeyMate: saying a mate's name out loud does not hand
         // the conversation to that mate or open their chat.
         let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTranscript.isEmpty else { return }
         if let onboardingTranscriptSink {
             dispatch(.interactionFinished)
-            onboardingTranscriptSink(trimmedTranscript)
+            let onboardingContext = AnalyticsInteractionContext(origin: .onboarding, inputMode: analyticsContext.inputMode)
+            AnalyticsInteractionScope.$current.withValue(onboardingContext) {
+                onboardingTranscriptSink(trimmedTranscript)
+            }
             return
         }
         isHeyMateTalkTurn = true
         if activeSpatialSelection == nil, acceptLocalMateCommand(trimmedTranscript) { return }
 
-        routeUserTranscript(trimmedTranscript, requiresIdle: false)
+        routeUserTranscript(trimmedTranscript, requiresIdle: false, analyticsContext: analyticsContext)
     }
 
     /// Resolve the recipient before checking consent or attaching scoped notes.
@@ -4174,16 +4188,19 @@ final class CompanionManager: ObservableObject {
         _ transcript: String,
         requiresIdle: Bool,
         typedInsideHeyMate: Bool = false,
-        alreadyRoutedToMate: Bool = false
+        alreadyRoutedToMate: Bool = false,
+        analyticsContext: AnalyticsInteractionContext? = nil
     ) {
-        sendToTalk(transcript, requiresIdle: requiresIdle, typedInsideHeyMate: typedInsideHeyMate)
+        sendToTalk(transcript, requiresIdle: requiresIdle, typedInsideHeyMate: typedInsideHeyMate,
+                   analyticsContext: analyticsContext)
     }
 
     private func sendToTalk(
         _ transcript: String,
         requiresIdle: Bool,
         imageAttachments: [ChatImageAttachment] = [],
-        typedInsideHeyMate: Bool = false
+        typedInsideHeyMate: Bool = false,
+        analyticsContext: AnalyticsInteractionContext? = nil
     ) {
         if requiresIdle, voiceState != .idle { return }
 
@@ -4205,7 +4222,8 @@ final class CompanionManager: ObservableObject {
                 hasSpatialSelection: activeSpatialSelection != nil,
                 actsOnScreen: TalkContextPolicy.asksToActOnScreen(transcript)
             ),
-            imageAttachments: imageAttachments
+            imageAttachments: imageAttachments,
+            analyticsContext: analyticsContext
         )
     }
 
@@ -4230,8 +4248,10 @@ final class CompanionManager: ObservableObject {
     func sendTranscriptToClaudeWithScreenshot(
         transcript: String,
         shouldCaptureScreen: Bool,
-        imageAttachments: [ChatImageAttachment] = []
+        imageAttachments: [ChatImageAttachment] = [],
+        analyticsContext: AnalyticsInteractionContext? = nil
     ) {
+        let analyticsContext = analyticsContext ?? AnalyticsInteractionScope.current ?? .unknown
         // A follow-up joins the running HeyMate Agent turn instead of cancelling
         // it; the agent reads it, with any screen or attached images, before its next step.
         let steerSession = backgroundRoutineSession ?? (isHeyMateTalkTurn ? heyMateTalkSession : currentChat)
@@ -4318,7 +4338,7 @@ final class CompanionManager: ObservableObject {
         currentResponseCompletion = completion
         currentResponseChatID = independentChat ? turnSession.id : nil
         explainerWindowController.resetStreamDismissal()
-        currentResponseTask = Task {
+        currentResponseTask = AnalyticsInteractionScope.task(context: analyticsContext) { [self] in
             // Every exit, early returns included, ends the turn. Runs after
             // the closing `guard !completion.didComplete` below, so the
             // normal ending still dispatches `interactionFinished` first.
@@ -4990,7 +5010,8 @@ final class CompanionManager: ObservableObject {
     func askAboutModelPart(_ part: String, inModel title: String) {
         sendTranscriptToClaudeWithScreenshot(
             transcript: "In the \(title) model, what is the \(part) and what does it do?",
-            shouldCaptureScreen: true
+            shouldCaptureScreen: true,
+            analyticsContext: .init(origin: .user, inputMode: .none)
         )
     }
 
