@@ -1,8 +1,30 @@
 # HeyMate — Landing Page Plan (v1, free tier)
 
 > Historical v1 build plan. Current positioning (11 October 2026): **Learn your software. One step at a time.** Teaching covers desktop apps and websites; macOS is the current host platform. Current public copy in `index.html`, `privacy.html`, and `../marketing/LAUNCH.md` supersedes older copy and privacy claims below.
-> Status: BUILT and hosted at https://sayheymate.vercel.app (static site in this folder).
+> Status: BUILT and hosted at https://sayheymate.com (static site in this folder).
 > Product facts below are pulled from the app source (`heymate/HeyMate/*.swift`, `README.md`, `design-qa.md`). Do not invent features that are not listed in §2.
+
+---
+
+## Organic search plan
+
+**November 2026.** Help Mac users get unstuck in the app in front of them. Build around screen guidance, voice, and privacy. The existing blog already covers general learning, design, coding, and comparisons with launchers. Expand those pages where the search intent overlaps.
+
+[Mausbot's blog](https://mausbot.com/blog) groups competitor pages under a comparison hub and complements them with setup guides and tradeoff explainers. Use that structure for HeyMate. Give each page one reader question, show where other tools fit, and end with one task the reader can verify. The first batch uses official documentation and a repeatable TextEdit exercise. It makes no hands-on benchmark claims.
+
+| Target | Reader question | Deliverable |
+| --- | --- | --- |
+| Nov 9 | Which Mac AI apps can see my screen? | [Comparison hub](https://sayheymate.com/blog/ai-assistants-that-see-your-screen-mac) for HeyMate, ChatGPT, Claude, and Gemini. |
+| Nov 9 | How do I ask by voice about the app in front of me? | [Voice walkthrough](https://sayheymate.com/blog/ask-ai-about-your-screen-by-voice-mac) with a sample TextEdit-to-PDF exercise. |
+| Nov 9 | What can AI see when I share my Mac screen? | [Privacy guide](https://sayheymate.com/blog/mac-ai-screen-sharing-privacy) covering capture scope, provider handoff, and revoking access. |
+| Nov 16 | Why can’t my AI see the Mac app I’m using? | Add a troubleshooting decision tree to the [screen guidance guide](https://sayheymate.com/screen-guidance). Check permissions, vision support, and capture scope using a clean sample window. |
+| Nov 23 | Should I use HeyMate or the ChatGPT Mac app for a walkthrough? | Publish a comparison only after testing the same task in both. Record what each can see, where the next step appears, and when native ChatGPT Voice is the better fit. Link back to the hub. |
+| Nov 30 | Can AI explain a Mac error without seeing my whole screen? | Update the [terminal errors guide](https://sayheymate.com/blog/explain-terminal-errors-with-ai) with one reproducible error and a text-only path alongside the screen-context path. |
+| Dec 7 | Which searches brought readers to these pages? | Review the first 28 days in Search Console. Choose the next comparison or workflow from queries and support questions that show distinct intent. |
+
+**Publishing routine.** Aim for one substantial article or update per week after launch. Check claims against the shipped build and official vendor docs. For hands-on comparisons, record versions, date, setup, task, and result. Use fresh captures from clean sample content if an image helps explain a step. Link each piece to its hub, one useful next read, and the relevant setup or download page. Rebuild the blog, then verify the live page, sitemap, RSS, and download. For organic distribution, prepare one short tip or clip per piece and share it only where it directly answers a question and community rules allow it.
+
+**Measurement.** Save a Search Console baseline for the preceding 28 days and filter to non-brand queries and relevant landing pages. Check indexing and sitemap discovery after launch. After 28 days, compare impressions, clicks, and CTR by page and query. Investigate indexing before rewriting pages with no impressions. Revise titles and summaries where a page gets impressions but few clicks and the query fits. Treat GitHub DMG totals as aggregate interest. Report article-to-download attribution only if the site can measure it. [Search Console performance report](https://support.google.com/webmasters/answer/7576553)
 
 ---
 

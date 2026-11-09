@@ -2,7 +2,7 @@
 
 > HeyMate can explain what is on your Mac screen, point out the next step, and wait while you try it. Use screen guidance when a button is unfamiliar, an error needs context, or a tutorial does not match the app in front of you.
 
-By Umar Siddiqui. Updated November 1, 2026.
+By Umar Siddiqui. Updated November 9, 2026.
 
 ## What you need for screen guidance
 
@@ -24,6 +24,8 @@ Apple Intelligence is an optional text-only provider on eligible Macs running ma
 
 - If the screen changes unexpectedly, explain what changed before continuing.
 A walkthrough can show a plan and capture fresh screen context between steps. Model mistakes remain possible: read important controls before acting and check the result afterward.
+
+For a practice task with a result you can verify, try the [TextEdit voice walkthrough](https://sayheymate.com/blog/ask-ai-about-your-screen-by-voice-mac).
 
 ## Example prompts for real tasks
 
@@ -57,5 +59,5 @@ If connection problems persist, use the [Claude and Codex connection checks](htt
 
 Relevant questions and screen images go to the provider you select. HeyMate’s local chat history contains text, not screenshot or audio bytes. Some integrations write temporary screenshots; interrupted cleanup can leave files behind. Provider retention and CLI histories follow separate rules.
 
-Enabled routines, standing orders, and approved jobs can run in the background. Review [privacy and storage details](https://sayheymate.com/privacy) and [macOS access settings](https://sayheymate.com/permissions) before using HeyMate with private work. Continue with the [everyday workflow guide](https://sayheymate.com/how-to-use-heymate) when you are ready to create a specialist mate.
+Enabled routines, standing orders, and approved jobs can run in the background. Review [privacy and storage details](https://sayheymate.com/privacy) and [macOS access settings](https://sayheymate.com/permissions) before using HeyMate with private work. See [what different screen-sharing modes can expose](https://sayheymate.com/blog/mac-ai-screen-sharing-privacy). Continue with the [everyday workflow guide](https://sayheymate.com/how-to-use-heymate) when you are ready to create a specialist mate.
 

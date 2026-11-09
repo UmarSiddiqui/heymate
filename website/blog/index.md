@@ -1,8 +1,8 @@
 # HeyMate blog and guides
 
-Explore HeyMate use cases for learning, design, coding, research, and everyday work. Compare Raycast, Alfred, Claude Cowork, and Apple Shortcuts.
+Explore HeyMate use cases for learning, design, coding, research, and everyday work. Compare screen-aware Mac assistants, launchers, and automation tools.
 
-Published by the HeyMate project. Comparison sources checked 2026-11-01; no hands-on benchmark is claimed.
+Published by the HeyMate project. Comparisons use the linked official documentation.
 
 ## Launch
 
@@ -10,6 +10,7 @@ Published by the HeyMate project. Comparison sources checked 2026-11-01; no hand
 
 ## Workflows
 
+- [How to ask AI about your Mac screen by voice](https://sayheymate.com/blog/ask-ai-about-your-screen-by-voice-mac.md): Try a spoken walkthrough in TextEdit. Ask HeyMate to point out the next step, then check the PDF yourself in Preview.
 - [Learn a Mac app with AI guidance, one step at a time](https://sayheymate.com/blog/learn-mac-apps-with-ai.md): Use HeyMate to understand an unfamiliar Mac app, ask for one step at a time, and check what you learned without leaving your work.
 - [Use HeyMate for a focused Figma or website design review](https://sayheymate.com/blog/ai-design-review-figma.md): Ask for actionable design feedback on hierarchy, copy, spacing, and contrast. Turn a screen-aware AI critique into a small revision you can compare.
 - [Understand terminal errors with HeyMate before changing code](https://sayheymate.com/blog/explain-terminal-errors-with-ai.md): Use screen-aware AI to read an error, form a testable hypothesis, and plan a small fix. Includes prompts, secret handling, and verification steps.
@@ -22,6 +23,7 @@ Published by the HeyMate project. Comparison sources checked 2026-11-01; no hand
 
 ## Comparisons
 
+- [AI assistants that can see your Mac screen](https://sayheymate.com/blog/ai-assistants-that-see-your-screen-mac.md): Compare how HeyMate, ChatGPT, Claude, and Gemini get screen context on Mac, then try one sample task to see which fits your workflow.
 - [HeyMate vs Raycast: which Mac AI workflow fits you?](https://sayheymate.com/blog/heymate-vs-raycast.md): Compare HeyMate and Raycast for guided learning, AI subscriptions, agents, and daily workflows. Includes official sources and reasons to choose either.
 - [HeyMate vs Alfred: AI guidance or repeatable Mac workflows?](https://sayheymate.com/blog/heymate-vs-alfred.md): Compare HeyMate with Alfred for app learning, repeatable workflows, text snippets, and file tasks. Learn when they complement each other.
 - [HeyMate vs Claude Cowork: choose your desktop AI workflow](https://sayheymate.com/blog/heymate-vs-claude-cowork.md): Compare HeyMate and Claude Cowork for guided learning, delegated tasks, provider choice, and data handling, using current official documentation.
@@ -29,4 +31,5 @@ Published by the HeyMate project. Comparison sources checked 2026-11-01; no hand
 
 ## Choosing tools
 
+- [What can AI see when you share your Mac screen?](https://sayheymate.com/blog/mac-ai-screen-sharing-privacy.md): Understand what Mac screen permissions allow, what an AI request can send, and when a cropped screenshot or text is enough.
 - [How to choose an open-source AI assistant for Mac](https://sayheymate.com/blog/choose-open-source-ai-assistant-mac.md): Evaluate Mac AI assistants by workflow, provider access, privacy, permissions, installation, and total cost. Includes a practical HeyMate evaluation checklist.
