@@ -26,6 +26,9 @@ HeyMate runs on Apple silicon and Intel Macs. Screen guidance needs a vision-cap
 ## Use cases and comparisons
 
 - [All guides](https://sayheymate.com/blog/index.md): Browse practical workflows and project-published comparisons.
+- [AI assistants that can see your Mac screen](https://sayheymate.com/blog/ai-assistants-that-see-your-screen-mac.md): Screen-aware AI.
+- [How to ask AI about your Mac screen by voice](https://sayheymate.com/blog/ask-ai-about-your-screen-by-voice-mac.md): Voice walkthrough.
+- [What can AI see when you share your Mac screen?](https://sayheymate.com/blog/mac-ai-screen-sharing-privacy.md): Screen privacy.
 - [Meet HeyMate. A little company. A lot of help.](https://sayheymate.com/blog/meet-heymate.md): Meet HeyMate.
 - [Learn a Mac app with AI guidance, one step at a time](https://sayheymate.com/blog/learn-mac-apps-with-ai.md): Learning apps.
 - [Use HeyMate for a focused Figma or website design review](https://sayheymate.com/blog/ai-design-review-figma.md): Design.

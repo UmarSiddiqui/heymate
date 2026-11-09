@@ -9,6 +9,81 @@ const table = (headers, rows) => ({ type: 'table', headers, rows });
 const image = (src, alt, width, height, caption) => ({ type: 'image', src, alt, width, height, caption });
 
 export const posts = [
+{
+ slug: 'ai-assistants-that-see-your-screen-mac', category: 'Comparisons', topic: 'Screen-aware AI',
+ date: '2026-11-09',
+ title: 'AI assistants that can see your Mac screen',
+ description: 'Compare how HeyMate, ChatGPT, Claude, and Gemini get screen context on Mac, then try one sample task to see which fits your workflow.',
+ answer: 'For a single screenshot, start with Claude Desktop quick entry. For a live spoken conversation with screen context, consider ChatGPT Voice. Gemini can pull in context from the app you are using. For help that points to a Mac control and waits while you try it, use HeyMate with a vision-capable provider.',
+ related: ['ask-ai-about-your-screen-by-voice-mac', 'mac-ai-screen-sharing-privacy', 'choose-open-source-ai-assistant-mac'],
+ sections: [
+ section('Compare what you actually share',
+ p('Screen awareness can mean an attachment you select, a window you share mid-conversation, or fresh captures as a task progresses. Pick the workflow you want before comparing model names or plans. The HeyMate project publishes this comparison using official product documentation checked November 9, 2026.'),
+ table(['Mac app', 'How you provide screen context', 'When it fits'], [
+  ['HeyMate', 'Hold Control + Option to ask about what is on screen. A guided walkthrough can capture again between steps. [Screen guidance](/screen-guidance)', 'You want the assistant to point to a control while you do each step.'],
+  ['ChatGPT', 'Turn on Screen context in Voice settings on Mac and ask ChatGPT to look at the window in front. [OpenAI Voice walkthrough](https://developers.openai.com/training/walkthroughs/using-voice)', 'You want a spoken back-and-forth in ChatGPT and have a plan that includes desktop Voice.'],
+  ['Claude Desktop', 'Use quick entry to attach a region or an application window to a message. Optional dictation lets you review the transcript before sending. [Claude quick entry guide](https://support.claude.com/en/articles/12626668-use-quick-entry-with-claude-desktop-on-mac)', 'You want to choose the visible area yourself and ask about it in Claude.'],
+  ['Gemini', 'Use Gemini for Mac to share context from your current app. Google documents a shortcut using both Command keys. [Gemini desktop](https://gemini.google/aw/desktop/?hl=en)', 'You already use Gemini and want to bring the current app into a question quickly.']
+ ])),
+ section('Try the same question in each app',
+ p('Open TextEdit and type a few lines of sample text. Bring that window to the front and use each assistant’s documented method to share it. Ask how to export it as a PDF and where to start. [Apple’s TextEdit guide](https://support.apple.com/guide/textedit/txtee6663a0e/mac) gives you an answer to check against.'),
+ prompt('I am in TextEdit with a sample document. Help me save a PDF copy. Tell me the first step and where I should look. Wait until I tell you what appeared.'),
+ p('Pay attention to whether you could choose the area shared, whether the answer referred to your actual app, and how easily you got the next step after the menu changed. If you need a pointer, look for an on-screen cue that identifies the control. If you want to keep sharing under manual control, check whether you can select each image before sending.')),
+ section('Check your Mac and your account',
+ p('HeyMate supports Apple silicon and Intel Macs on macOS 14.2 or later. Screen questions require a vision-capable connection. Claude Code and ChatGPT through Codex use their respective CLI sign-ins. [HeyMate provider setup](/connect-claude-codex)'),
+ p('Google lists Apple silicon and macOS 15 or later for Gemini on Mac. Claude lists macOS 12 for quick entry and macOS 14 for quick-entry dictation. OpenAI lists eligible paid plans for desktop Voice. Check the feature documentation above before changing plans or installing a new app. [Gemini for Mac requirements](https://support.google.com/gemini/answer/17011627?hl=en)')),
+ section('Choose how much context the task needs',
+ p('If you only need to identify a toolbar button, one cropped screenshot may be enough. If the interface changes after every click, refreshing context can make the next answer more relevant. Start with sample material and see [what screen access can expose](/blog/mac-ai-screen-sharing-privacy). When the job is learning an interface, try [a voice walkthrough you can do yourself](/blog/ask-ai-about-your-screen-by-voice-mac).'))
+ ]
+},
+{
+ slug: 'ask-ai-about-your-screen-by-voice-mac', category: 'Workflows', topic: 'Voice walkthrough',
+ date: '2026-11-09',
+ title: 'How to ask AI about your Mac screen by voice',
+ description: 'Try a spoken walkthrough in TextEdit. Ask HeyMate to point out the next step, then check the PDF yourself in Preview.',
+ answer: 'Open the Mac app you want help with, hold Control + Option, and ask one question about what you see. In HeyMate, ask for one step at a time so you can check the highlighted control and try it yourself.',
+ related: ['ai-assistants-that-see-your-screen-mac', 'mac-ai-screen-sharing-privacy', 'learn-mac-apps-with-ai'],
+ sections: [
+ section('Start with something you can check',
+ p('Use a sample TextEdit document for your first walkthrough. Type a few lines and leave the window in front. The task is to create a PDF copy in a folder you can find again. You can verify both the suggested menu path and the finished file. [Apple’s TextEdit guide](https://support.apple.com/guide/textedit/txtee6663a0e/mac)'),
+ p('In HeyMate, connect a vision-capable AI provider. Microphone access lets you ask aloud, Screen Recording provides screen context, and Accessibility supports the hotkey and pointing. [Connect your AI](/connect-claude-codex) · [Review Mac permissions](/permissions)')),
+ section('Ask for the next click',
+ steps('Hold Control + Option while you ask the question below, then release the keys when you finish speaking.', 'Check the label and position of the suggested control. Open the File menu yourself and look for Export as PDF.', 'If the walkthrough is waiting, say “next” or click the indicated target when you are ready. Ask about the save dialog if you need help choosing a location.', 'Open the PDF in Preview. Check that the text matches your sample and that the original document is still open in TextEdit.'),
+ prompt('I want a PDF copy of this TextEdit document. Show me the first control to use. Wait while I click it, then help me check where the PDF will go.'),
+ p('If the assistant describes a control you cannot see, report what is visible. For example, “The File menu is open and I see Print. Where should I look for Export as PDF?” A guided turn can capture the updated screen.')),
+ section('Choose between talking and typing',
+ p('Speaking is convenient when your hands are on the mouse. Typing can be easier in a shared office or when the question includes a precise error string. The HeyMate 1.0.90 update also supports typed screen explanations. For questions that are answerable from text alone, use text-only chat and paste the relevant part of the message. [HeyMate 1.0.90 release notes](https://github.com/UmarSiddiqui/heymate/releases/tag/v1.0.90)'),
+ p('If a task needs a visible cue, say so. “Explain this setting” asks for an answer. “Point to the setting and wait” tells the assistant how to help you use the interface. That distinction matters when the same label appears in two places.')),
+ section('If the screen or microphone seems unavailable',
+ p('If typed questions work but spoken ones fail, start by checking microphone permission and the app’s voice settings. If the assistant answers but cannot describe the visible app, bring the intended window forward, check Screen Recording permission, and confirm your model supports images. [Screen guidance troubleshooting](/screen-guidance#troubleshooting)'),
+ p('Use the same method with a small app task you actually care about, such as finding an export option or making sense of a warning. If the screen contains someone else’s work or personal information, [choose what to share first](/blog/mac-ai-screen-sharing-privacy).'))
+ ]
+},
+{
+ slug: 'mac-ai-screen-sharing-privacy', category: 'Choosing tools', topic: 'Screen privacy',
+ date: '2026-11-09',
+ title: 'What can AI see when you share your Mac screen?',
+ description: 'Understand what Mac screen permissions allow, what an AI request can send, and when a cropped screenshot or text is enough.',
+ answer: 'macOS Screen Recording permission allows an app to capture screen content. What the AI receives depends on the app, the mode you choose, and the provider handling the request. A cropped attachment, a window capture, and a walkthrough that captures again each have a different scope.',
+ related: ['ai-assistants-that-see-your-screen-mac', 'ask-ai-about-your-screen-by-voice-mac', 'choose-open-source-ai-assistant-mac'],
+ sections: [
+ section('Separate permission, capture, and sending',
+ p('Permission is the macOS setting that lets an app capture screen content. Capture is the material the app actually collects. Sending is what the app includes when it asks a model for a response. Check the app’s settings and privacy documentation for the last two. [Apple’s screen access controls](https://support.apple.com/guide/mac-help/control-access-screen-system-audio-recording-mchld6aa7d23/mac)'),
+ p('A screenshot can contain more than the button you meant to ask about. A window may show customer names in its title, open document tabs, or sidebar previews. A capture refreshed later can show a different dialog. Review the full area that could be shared and use sample content if the task allows it.')),
+ section('Pick the smallest useful input',
+ table(['Your question', 'Input to try', 'What to check'], [
+  ['What does this error code mean?', 'Paste the error code and app name in a text-only question.', 'Remove account IDs, credentials, and private paths.'],
+  ['Which toolbar icon opens export settings?', 'Attach a cropped image of the toolbar or a clean sample window.', 'Include enough surrounding controls to identify the app and the button.'],
+  ['How do I get through this dialog one step at a time?', 'Use a walkthrough with a sample file and share the relevant window.', 'Look at the new window or dialog before asking for the next step.']
+ ]),
+ p('For example, if a client invoice fails to export, reproduce the problem with a blank invoice template and one made-up line item. If the export error appears again, you have the same clue without sharing the customer details.')),
+ section('What HeyMate captures and sends',
+ p('HeyMate uses screen context for interactions that need it, including guided walkthroughs. It can capture again between steps. Talk can capture every display by default. In Settings under Talk & Voice, turn on “Look at the front window only” to prefer the frontmost window. If no window qualifies, Talk can fall back to all displays. For strict control over what you share, use a manually cropped attachment in an app that accepts it, or ask a text-only question. Relevant screen images can go to the vision-capable provider you selected. [HeyMate privacy details](/privacy)'),
+ p('HeyMate’s local chat history stores text. Some CLI integrations create temporary image files, and interrupted cleanup can leave them behind. A provider’s retention policy and CLI history apply separately. If your question is about data handling, check both the app and provider policies. [What leaves your Mac](/privacy#what-leaves-your-mac)')),
+ section('Review or revoke Mac screen access',
+ p('Open System Settings, choose Privacy & Security, and find Screen & System Audio Recording or Screen Recording, depending on your macOS version. Turn access off for the app when you no longer want it to capture. Follow any relaunch prompt from macOS. For existing messages or provider copies, use the corresponding history and data controls. [Apple’s permission steps](https://support.apple.com/guide/mac-help/control-access-screen-system-audio-recording-mchld6aa7d23/mac) · [HeyMate’s permission guide](/permissions)'))
+ ]
+},
 launchPost,
 {
  slug: 'learn-mac-apps-with-ai', category: 'Workflows', topic: 'Learning apps',
