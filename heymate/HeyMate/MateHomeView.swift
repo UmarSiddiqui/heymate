@@ -626,7 +626,9 @@ struct MateHomeView: View {
         )
     }
 
-    /// What is waiting on the person across every agent. Hidden while searching.
+    /// What is blocked on the person across every agent. Hidden while
+    /// searching. Unread replies are left to the dot on each agent's row:
+    /// repeating them here pushed the agents themselves out of a short rail.
     private var digest: (items: [MateDigestItem], hiddenCount: Int) {
         guard searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return ([], 0) }
         return MateDigest.make(
@@ -636,7 +638,8 @@ struct MateHomeView: View {
             owners: companionManager.mateRunOwners,
             sessions: companionManager.savedChats,
             defaultMateID: companionManager.mateDirectory.defaultMateID,
-            activeMateID: companionManager.activeMateID
+            activeMateID: companionManager.activeMateID,
+            includesUnread: false
         )
     }
 
@@ -659,10 +662,20 @@ struct MateHomeView: View {
                     .frame(width: 36)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(item.title)
-                        .font(DS.Fonts.headline)
-                        .foregroundColor(DS.Colors.textPrimary)
-                        .lineLimit(1)
+                    // The name and a short badge: a full sentence does not
+                    // fit the rail next to a long agent name.
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(item.mateName)
+                            .font(DS.Fonts.headline)
+                            .foregroundColor(DS.Colors.textPrimary)
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        Text(item.badge)
+                            .font(DS.Fonts.caption.weight(.semibold))
+                            .foregroundColor(digestColor(item.kind))
+                            .lineLimit(1)
+                            .layoutPriority(1)
+                    }
                     Text(item.detail)
                         .font(DS.Fonts.body)
                         .foregroundColor(DS.Colors.textSecondary)

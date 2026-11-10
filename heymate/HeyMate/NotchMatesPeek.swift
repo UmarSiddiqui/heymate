@@ -73,8 +73,9 @@ struct NotchMatesPeek: View {
             owners: companionManager.mateRunOwners,
             sessions: companionManager.savedChats,
             defaultMateID: companionManager.mateDirectory.defaultMateID,
-            activeMateID: nil
-        ).items.filter { $0.kind != .unread }
+            activeMateID: nil,
+            includesUnread: false
+        ).items
     }
 
     private var rows: [(mate: Mate, preview: MateRailPreview)] {

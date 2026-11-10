@@ -108,6 +108,18 @@ struct MateDigestTests {
         #expect(waiting.map(\.mate.name) == ["Clerk", "Quiet"])
     }
 
+    @Test func theRailCanLeaveUnreadToTheRowDots() {
+        let reader = mate("Reader", unread: 2)
+        let clerk = mate("Clerk", unread: 1)
+        let plan = run("Merge the PDFs", status: .awaitingPlanApproval)
+        let result = MateDigest.make(
+            mates: [reader, clerk], routines: [], runs: [plan], owners: [plan.id: clerk.id],
+            sessions: [], defaultMateID: defaultID, activeMateID: nil, includesUnread: false
+        )
+        #expect(result.items.map(\.kind) == [.needsOK])
+        #expect(result.hiddenCount == 0)
+    }
+
     @Test func extraAgentsAreCountedNotShown() {
         let mates = (1...6).map { mate("Agent \($0)", unread: 1) }
         let result = digest(mates)

@@ -48,7 +48,8 @@ enum MateDigest {
         owners: [UUID: UUID],
         sessions: [ChatSession],
         defaultMateID: UUID,
-        activeMateID: UUID?
+        activeMateID: UUID?,
+        includesUnread: Bool = true
     ) -> (items: [MateDigestItem], hiddenCount: Int) {
         var needsOK: [MateDigestItem] = []
         var stopped: [MateDigestItem] = []
@@ -78,7 +79,7 @@ enum MateDigest {
                 continue
             }
             // The open chat is already being read.
-            if mate.unreadCount > 0, mate.id != activeMateID {
+            if includesUnread, mate.unreadCount > 0, mate.id != activeMateID {
                 let preview = MateRailPreview.make(for: mate, sessions: sessions, defaultMateID: defaultMateID)
                 unread.append(MateDigestItem(
                     mateID: mate.id,
