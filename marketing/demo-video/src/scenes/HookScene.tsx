@@ -54,7 +54,7 @@ export const HookScene: React.FC = () => {
             ...riseStyle(questionIn, 36, 12),
           }}
         >
-          {vertical ? COPY.hook.question : COPY.hook.question.replace('\n', ' ')}
+          {vertical ? COPY.hook.question : COPY.hook.question.replace(/\n/g, ' ')}
         </div>
         <div
           style={{

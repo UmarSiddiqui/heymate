@@ -9,7 +9,7 @@ import hashlib
 import http.client
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import shutil
 import subprocess
 import tarfile
@@ -82,6 +82,36 @@ def verify(root, pristine=False):
     return manifest
 
 
+def unpack_archive(archive, destination):
+    links = []
+    with tarfile.open(archive) as source:
+        for member in source:
+            name = PurePosixPath(member.name)
+            if name.is_absolute() or '..' in name.parts:
+                raise ValueError('Archive path escapes payload')
+            file = destination.joinpath(*name.parts)
+            if member.isdir():
+                file.mkdir(parents=True, exist_ok=True)
+                continue
+            file.parent.mkdir(parents=True, exist_ok=True)
+            if member.isfile():
+                with source.extractfile(member) as data, file.open('xb') as output:
+                    shutil.copyfileobj(data, output)
+                file.chmod(member.mode & 0o755)
+            elif member.issym():
+                target = PurePosixPath(member.linkname)
+                if not target.parts or target.is_absolute() or '..' in target.parts:
+                    raise ValueError('Archive link escapes payload')
+                links.append((file, target))
+            else:
+                raise ValueError('Unsupported archive entry type')
+
+    # Extract regular files before creating any symlinks. Ollama's dylib aliases
+    # point to relative names in the same directory.
+    for file, target in links:
+        file.symlink_to(target)
+
+
 def build(destination):
     cache = Path(os.environ.get('HEYMATE_PHONON_CACHE', Path.home() / 'Library/Caches/HeyMate/PhononBuild'))
     archive = Path(os.environ.get('HEYMATE_OLLAMA_ARCHIVE', cache / 'ollama-darwin.tgz'))
@@ -106,16 +136,7 @@ def build(destination):
         scratch = Path(scratch).resolve()
         extracted, payload = scratch / 'archive', scratch / 'payload'
         extracted.mkdir()
-        with tarfile.open(archive) as source:
-            for member in source.getmembers():
-                candidate = (extracted / member.name).resolve()
-                if extracted not in candidate.parents and candidate != extracted:
-                    raise ValueError('Archive path escapes payload')
-                if member.issym() or member.islnk():
-                    link = (candidate.parent / member.linkname).resolve()
-                    if extracted not in link.parents:
-                        raise ValueError('Archive link escapes payload')
-            source.extractall(extracted)
+        unpack_archive(archive, extracted)
         runtime = next(extracted.rglob('ollama')).parent
         payload.mkdir()
         for file in runtime.iterdir():

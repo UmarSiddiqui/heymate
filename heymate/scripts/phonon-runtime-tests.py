@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -16,6 +17,48 @@ spec.loader.exec_module(runtime)
 
 
 class PackagingTests(unittest.TestCase):
+    def test_archive_keeps_relative_dylib_alias_and_executable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / 'fixture.tgz'
+            with tarfile.open(archive, 'w:gz') as source:
+                alias = tarfile.TarInfo('lib/libollama.dylib')
+                alias.type = tarfile.SYMTYPE
+                alias.linkname = 'libollama.1.dylib'
+                source.addfile(alias)
+                binary = tarfile.TarInfo('lib/libollama.1.dylib')
+                binary.mode = 0o4755
+                binary.size = 4
+                source.addfile(binary, io.BytesIO(b'data'))
+            destination = root / 'unpacked'
+            runtime.unpack_archive(archive, destination)
+            self.assertEqual((destination / alias.name).readlink(), Path(alias.linkname))
+            self.assertEqual((destination / alias.name).read_bytes(), b'data')
+            self.assertEqual((destination / binary.name).stat().st_mode & 0o7777, 0o755)
+
+    def test_archive_refuses_traversal_links_and_special_files(self):
+        for name, kind, target in [
+            ('../outside', tarfile.REGTYPE, ''),
+            ('/outside', tarfile.REGTYPE, ''),
+            ('link', tarfile.SYMTYPE, '../outside'),
+            ('link', tarfile.SYMTYPE, '/outside'),
+            ('hardlink', tarfile.LNKTYPE, 'safe'),
+            ('pipe', tarfile.FIFOTYPE, ''),
+        ]:
+            with self.subTest(name=name, target=target), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                archive = root / 'fixture.tgz'
+                with tarfile.open(archive, 'w:gz') as source:
+                    entry = tarfile.TarInfo(name)
+                    entry.type, entry.linkname = kind, target
+                    source.addfile(entry)
+                destination = root / 'unpacked'
+                destination.mkdir()
+                with self.assertRaises(ValueError):
+                    runtime.unpack_archive(archive, destination)
+                self.assertEqual(list(destination.iterdir()), [])
+                self.assertFalse((root / 'outside').exists())
+
     def test_archive_api_fallback_keeps_checksum_verification(self):
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / 'runtime.tgz'
