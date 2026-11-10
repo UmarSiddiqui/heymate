@@ -4175,9 +4175,8 @@ final class CompanionManager: ObservableObject {
 
     /// Resolve the recipient before checking consent or attaching scoped notes.
     private func resolveAddressedMateForSend(_ text: String) -> String {
-        guard let address = MateAddressParser.parse(text),
-              let mate = MateAddressParser.match(address.mateName, mates: mates) else { return text }
-        openMate(id: mate.id)
+        guard let address = MateAddressParser.resolve(text, mates: mates) else { return text }
+        openMate(id: address.mate.id)
         return address.message
     }
 
