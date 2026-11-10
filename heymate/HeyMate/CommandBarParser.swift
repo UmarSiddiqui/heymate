@@ -145,6 +145,23 @@ nonisolated enum CommandBarParser {
         return parseMessage(trimmedInput)
     }
 
+    /// A leading @name that matches an agent takes precedence over context tokens.
+    /// Context tokens in the rest of the message still work as usual.
+    static func parseForAgentSend(_ rawInput: String, mates: [Mate]) -> (input: CommandBarInput, mate: Mate?) {
+        let trimmedInput = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedInput.hasPrefix("@"),
+           let address = MateAddressParser.resolve(
+               trimmedInput.split(separator: " ").joined(separator: " "), mates: mates
+           ) {
+            return (parseMessage(address.message), address.mate)
+        }
+
+        let input = parse(trimmedInput)
+        guard case .message(let text, let tokens) = input,
+              let address = MateAddressParser.resolve(text, mates: mates) else { return (input, nil) }
+        return (.message(text: address.message, contextTokens: tokens), address.mate)
+    }
+
     private static func parseSlashCommand(_ trimmedInput: String) -> CommandBarInput {
         let withoutSlash = String(trimmedInput.dropFirst())
         let separatorIndex = withoutSlash.firstIndex(where: { $0.isWhitespace })

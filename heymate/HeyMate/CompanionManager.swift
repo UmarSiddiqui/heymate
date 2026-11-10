@@ -4032,7 +4032,10 @@ final class CompanionManager: ObservableObject {
         let effectiveInput = trimmedTypedMessageText.isEmpty
             ? "Describe what is in the attached image."
             : trimmedTypedMessageText
-        switch CommandBarParser.parse(effectiveInput) {
+        let (input, addressedMate) = asHeyMateTalk
+            ? (CommandBarParser.parse(effectiveInput), nil)
+            : CommandBarParser.parseForAgentSend(effectiveInput, mates: mates)
+        switch input {
         case .slashCommand(let command, _):
             runSlashCommand(command)
             return true
@@ -4043,13 +4046,13 @@ final class CompanionManager: ObservableObject {
                 : "No command called /\(commandName). /help lists them."
             return false
 
-        case .message(let parsedMessage, let contextTokens):
-            let messageText = asHeyMateTalk ? parsedMessage : resolveAddressedMateForSend(parsedMessage)
+        case .message(let messageText, let contextTokens):
             // A message that was nothing but tokens has no question in it.
             guard !messageText.isEmpty else {
                 commandBarFeedback = "Add a question to go with that context."
                 return false
             }
+            if let addressedMate { openMate(id: addressedMate.id) }
             isHeyMateTalkTurn = asHeyMateTalk
             if acceptLocalMateCommand(messageText) { return true }
 
@@ -4171,13 +4174,6 @@ final class CompanionManager: ObservableObject {
         if activeSpatialSelection == nil, acceptLocalMateCommand(trimmedTranscript) { return }
 
         routeUserTranscript(trimmedTranscript, requiresIdle: false, analyticsContext: analyticsContext)
-    }
-
-    /// Resolve the recipient before checking consent or attaching scoped notes.
-    private func resolveAddressedMateForSend(_ text: String) -> String {
-        guard let address = MateAddressParser.resolve(text, mates: mates) else { return text }
-        openMate(id: address.mate.id)
-        return address.message
     }
 
     /// Fast-path first (open app / volume). A tool-shaped choice from the
