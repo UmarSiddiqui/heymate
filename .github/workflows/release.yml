@@ -283,33 +283,27 @@ jobs:
         run: |
           APP="$DERIVED_DATA/Build/Products/Release/$APP_NAME.app"
           mkdir -p dist
-          brew install create-dmg >/dev/null 2>&1 || true
-          if command -v create-dmg >/dev/null && create-dmg \
-              --volname "$APP_NAME" \
-              --window-pos 200 120 \
-              --window-size 660 400 \
-              --icon-size 100 \
-              --icon "$APP_NAME.app" 160 195 \
-              --app-drop-link 500 195 \
-              --background heymate/dmg-background.png \
-              --no-internet-enable \
-              "dist/$APP_NAME.dmg" "$APP"; then
-            echo "Styled DMG created."
-          else
-            echo "create-dmg unavailable or failed; building a plain DMG."
-            rm -f "dist/$APP_NAME.dmg"
-            STAGE=$(mktemp -d)
-            cp -R "$APP" "$STAGE/"
-            ln -s /Applications "$STAGE/Applications"
-            hdiutil create -volname "$APP_NAME" -srcfolder "$STAGE" -ov -format UDZO "dist/$APP_NAME.dmg"
-          fi
+          command -v create-dmg >/dev/null || brew install create-dmg
+          create-dmg \
+            --volname "$APP_NAME" \
+            --window-pos 200 120 \
+            --window-size 660 400 \
+            --icon-size 100 \
+            --text-size 13 \
+            --icon "$APP_NAME.app" 160 200 \
+            --hide-extension "$APP_NAME.app" \
+            --app-drop-link 500 200 \
+            --background heymate/dmg-background.png \
+            --no-internet-enable \
+            "dist/$APP_NAME.dmg" "$APP"
           hdiutil verify "dist/$APP_NAME.dmg"
-          # Check the app people actually download, not just the build output.
           MOUNT=$(mktemp -d)
           hdiutil attach "dist/$APP_NAME.dmg" -readonly -nobrowse -mountpoint "$MOUNT" >/dev/null
-          codesign --verify --deep --strict --verbose=2 "$MOUNT/$APP_NAME.app" \
-            || { hdiutil detach "$MOUNT" >/dev/null; echo "::error::The app inside $APP_NAME.dmg fails its code signature check"; exit 1; }
-          hdiutil detach "$MOUNT" >/dev/null
+          trap 'hdiutil detach "$MOUNT" >/dev/null' EXIT
+          # Verify the animation, drop target, and app in the distributed image.
+          cmp heymate/dmg-background.png "$MOUNT/.background/dmg-background.png"
+          test "$(readlink "$MOUNT/Applications")" = /Applications
+          codesign --verify --deep --strict --verbose=2 "$MOUNT/$APP_NAME.app"
           ls -la dist
 
       - name: Sign, notarize and staple HeyMate.dmg
