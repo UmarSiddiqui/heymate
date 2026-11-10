@@ -330,8 +330,10 @@ create-dmg \
     --window-pos 200 120 \
     --window-size 660 400 \
     --icon-size 100 \
-    --icon "${APP_NAME}.app" 160 195 \
-    --app-drop-link 500 195 \
+    --text-size 13 \
+    --icon "${APP_NAME}.app" 160 200 \
+    --hide-extension "${APP_NAME}.app" \
+    --app-drop-link 500 200 \
     --background "${DMG_BACKGROUND}" \
     "${DMG_PATH}" \
     "${EXPORTED_APP}" \

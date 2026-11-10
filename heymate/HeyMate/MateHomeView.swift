@@ -33,14 +33,16 @@ struct MateHomeView: View {
     @State private var expandedPlanRunIDs: Set<UUID> = []
     @State private var isShowingNewMate = false
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
-    /// What the builder opens with, when a suggestion started it.
-    @State private var builderSeed = ""
+    /// The ready-made agent the builder opens on, when a suggestion started it.
+    @State private var builderRecipe: AgentRecipe?
     @State private var typedMessageInput = ""
     @State private var imageAttachments: [ChatImageAttachment] = []
     @State private var isShowingImageImporter = false
     @State private var attachmentErrorText: String?
     @State private var isConfirmingMateAgentRecoveryReset = false
     @State private var isImageDropTargeted = false
+    /// The rail agent a file drag is hovering over.
+    @State private var fileDropMateID: UUID?
     /// Catches ⌘V while the chat box has focus, for clipboards that hold
     /// an image and no text. See `ChatImagePaste`.
     @State private var imagePasteMonitor: Any?
@@ -113,8 +115,8 @@ struct MateHomeView: View {
         .disclosureSound(isShowingNewMate, .sheet)
         .disclosureSound(settingsMate != nil, .sheet)
         .disclosureSound(isShowingChatHistory, .sheet)
-        .sheet(isPresented: $isShowingNewMate, onDismiss: { builderSeed = "" }) {
-            AgentBuilderSheet(companionManager: companionManager, initialDescription: builderSeed)
+        .sheet(isPresented: $isShowingNewMate, onDismiss: { builderRecipe = nil }) {
+            AgentBuilderSheet(companionManager: companionManager, initialRecipe: builderRecipe)
         }
         .sheet(item: $settingsMate) { mate in
             MateSettingsSheet(
@@ -552,6 +554,12 @@ struct MateHomeView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
+                    if !digest.items.isEmpty {
+                        railHeader(digest.hiddenCount > 0 ? "Needs you · \(digest.hiddenCount) more below" : "Needs you")
+                        ForEach(digest.items) { item in
+                            digestRow(item)
+                        }
+                    }
                     if !rail.pinned.isEmpty {
                         railHeader("Pinned")
                         ForEach(rail.pinned) { mate in
@@ -618,28 +626,57 @@ struct MateHomeView: View {
         )
     }
 
-    private var suggestedAgents: [AgentSuggestion] {
-        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.isEmpty else { return [] }
-        return AgentSuggestionCatalog.offers(existingJobs: companionManager.mates.map(\.job))
+    /// What is blocked on the person across every agent. Hidden while
+    /// searching. Unread replies are left to the dot on each agent's row:
+    /// repeating them here pushed the agents themselves out of a short rail.
+    private var digest: (items: [MateDigestItem], hiddenCount: Int) {
+        guard searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return ([], 0) }
+        return MateDigest.make(
+            mates: companionManager.mates,
+            routines: companionManager.routines,
+            runs: companionManager.agentRuns,
+            owners: companionManager.mateRunOwners,
+            sessions: companionManager.savedChats,
+            defaultMateID: companionManager.mateDirectory.defaultMateID,
+            activeMateID: companionManager.activeMateID,
+            includesUnread: false
+        )
     }
 
-    private func suggestedRow(_ suggestion: AgentSuggestion) -> some View {
+    private func digestColor(_ kind: MateDigestItem.Kind) -> Color {
+        switch kind {
+        case .needsOK: return DS.Colors.warning
+        case .routineStopped: return DS.Colors.destructive
+        case .unread: return DS.Colors.info
+        }
+    }
+
+    private func digestRow(_ item: MateDigestItem) -> some View {
         Button {
-            builderSeed = suggestion.job
-            isShowingNewMate = true
+            companionManager.openMate(id: item.mateID)
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: "plus.circle")
-                    .font(DS.Glyph.regular)
-                    .foregroundColor(DS.Colors.textTertiary)
+                Circle()
+                    .fill(digestColor(item.kind))
+                    .frame(width: 7, height: 7)
                     .frame(width: 36)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(suggestion.name)
-                        .font(DS.Fonts.headline)
-                        .foregroundColor(DS.Colors.textPrimary)
-                        .lineLimit(1)
-                    Text(suggestion.job)
+                    // The name and a short badge: a full sentence does not
+                    // fit the rail next to a long agent name.
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(item.mateName)
+                            .font(DS.Fonts.headline)
+                            .foregroundColor(DS.Colors.textPrimary)
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        Text(item.badge)
+                            .font(DS.Fonts.caption.weight(.semibold))
+                            .foregroundColor(digestColor(item.kind))
+                            .lineLimit(1)
+                            .layoutPriority(1)
+                    }
+                    Text(item.detail)
                         .font(DS.Fonts.body)
                         .foregroundColor(DS.Colors.textSecondary)
                         .lineLimit(1)
@@ -652,7 +689,47 @@ struct MateHomeView: View {
         }
         .buttonStyle(.plain)
         .pointerCursor()
-        .accessibilityLabel("Add \(suggestion.name)")
+        .help(item.detail)
+        .accessibilityLabel("\(item.title). \(item.detail)")
+        .accessibilityHint("Opens \(item.mateName)")
+    }
+
+    private var suggestedAgents: [AgentRecipe] {
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty else { return [] }
+        return AgentRecipeCatalog.offers(existingJobs: companionManager.mates.filter { !$0.archived }.map(\.job))
+    }
+
+    private func suggestedRow(_ suggestion: AgentRecipe) -> some View {
+        Button {
+            builderRecipe = suggestion
+            isShowingNewMate = true
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: suggestion.symbolName)
+                    .font(DS.Glyph.regular)
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .frame(width: 36)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(suggestion.name)
+                        .font(DS.Fonts.headline)
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .lineLimit(1)
+                    Text(suggestion.outcome)
+                        .font(DS.Fonts.body)
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .help(suggestion.outcome)
+        .accessibilityLabel("Add \(suggestion.name). \(suggestion.outcome)")
     }
 
     private func liveFace(_ mate: Mate, size: CGFloat) -> some View {
@@ -779,7 +856,21 @@ struct MateHomeView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(MateSelectionSurface(selected: selected, hovered: hoveredRailMateID == mate.id))
+        .background(MateSelectionSurface(
+            selected: selected,
+            hovered: hoveredRailMateID == mate.id || fileDropMateID == mate.id
+        ))
+        .dropDestination(for: URL.self) { urls, _ in
+            guard !mate.archived else { return false }
+            handDroppedFiles(urls, to: mate.id)
+            return true
+        } isTargeted: { targeted in
+            if targeted, !mate.archived {
+                fileDropMateID = mate.id
+            } else if fileDropMateID == mate.id {
+                fileDropMateID = nil
+            }
+        }
         // Hairline between rows, starting after the face, as in an inbox.
         .overlay(alignment: .bottom) {
             if !selected {
@@ -940,7 +1031,15 @@ struct MateHomeView: View {
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
-            addImageFiles(urls)
+            // Pictures ride in the message; other files go to the agent's inbox.
+            let dropped = MateFileDrop.split(urls)
+            if !dropped.images.isEmpty { addImageFiles(dropped.images) }
+            if !dropped.files.isEmpty {
+                handDroppedFiles(
+                    dropped.files,
+                    to: companionManager.activeMateID ?? companionManager.mateDirectory.defaultMateID
+                )
+            }
             return true
         } isTargeted: { isImageDropTargeted = $0 }
     }
@@ -2286,6 +2385,15 @@ struct MateHomeView: View {
         case .failure(let error):
             attachmentErrorText = error.localizedDescription
         }
+    }
+
+    /// Files dropped on an agent: copied to its inbox and named in the chat
+    /// box, where the person says what to do with them.
+    private func handDroppedFiles(_ urls: [URL], to mateID: UUID) {
+        attachmentErrorText = companionManager.handFiles(urls, toMate: mateID)
+        typedMessageInput = companionManager.currentChat.draftText ?? ""
+        isComposerExpanded = true
+        isComposerFocused = true
     }
 
     private func addImageFiles(_ urls: [URL]) {

@@ -171,7 +171,8 @@ extension CompanionManager {
                   self.currentChat.id == walkthroughChatID, self.activeMateID == walkthroughMateID, !self.isResponseInFlight else { return }
             self.sendTranscriptToClaudeWithScreenshot(
                 transcript: "done — what's next?",
-                shouldCaptureScreen: true
+                shouldCaptureScreen: true,
+                analyticsContext: .automatic
             )
         }
     }
@@ -263,7 +264,8 @@ extension CompanionManager {
         case "copy": copyForDrawing(value as? String, note: "Copied")
         case "ask":
             if let words = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !words.isEmpty {
-                sendTranscriptToClaudeWithScreenshot(transcript: words, shouldCaptureScreen: true)
+                sendTranscriptToClaudeWithScreenshot(transcript: words, shouldCaptureScreen: true,
+                                                     analyticsContext: .init(origin: .user, inputMode: .none))
             }
         case "handoff":
             if let payload = value as? [String: Any] { handOffFromDrawing(payload) }

@@ -146,12 +146,15 @@ extension CompanionManager {
 
     /// ReferenceRenderer's drawn "here's how I'd help you" step: one real turn, drawn on their screen, carrying the tour's note
     /// and what they said in the interview. Returns once it has been drawn and said, or false when it never started.
-    func runDrawnTourStep(_ request: String, interview: [OnboardingInterviewLine], name: String?) async -> Bool {
+    func runDrawnTourStep(_ request: String, interview: [OnboardingInterviewLine], name: String?,
+                          analyticsContext: AnalyticsInteractionContext? = nil) async -> Bool {
         guard !isFrontmostAppScreenExcluded else { return false }
         let told = interview.map { ($0.speaker == .user ? (name ?? "Them") : "HeyMate") + ": " + $0.text }
             .joined(separator: "\n")
         pendingTurnNote = CompanionPrompts.drawnTourStep(interview: told, talkKeys: PushToTalkShortcut.talk.displayText)
-        sendTranscriptToClaudeWithScreenshot(transcript: request, shouldCaptureScreen: true)
+        sendTranscriptToClaudeWithScreenshot(transcript: request, shouldCaptureScreen: true,
+                                             analyticsContext: analyticsContext ?? .init(origin: .onboarding,
+                                                 inputMode: AnalyticsInteractionScope.current?.inputMode ?? .unknown))
         let began = ContinuousClock.now
         var started = false
         while ContinuousClock.now - began < .seconds(300) {
@@ -174,7 +177,9 @@ extension CompanionManager {
         guard !isFrontmostAppScreenExcluded else { return nil }
         let before = Set((isHeyMateTalkTurn ? heyMateTalkSession : currentChat).messages.map(\.id))
         pendingTurnNote = CompanionPrompts.screenTourStep
-        sendTranscriptToClaudeWithScreenshot(transcript: request, shouldCaptureScreen: true)
+        sendTranscriptToClaudeWithScreenshot(transcript: request, shouldCaptureScreen: true,
+                                             analyticsContext: .init(origin: .onboarding,
+                                                 inputMode: AnalyticsInteractionScope.current?.inputMode ?? .unknown))
         let began = ContinuousClock.now
         var started = false
         while ContinuousClock.now - began < .seconds(180) {

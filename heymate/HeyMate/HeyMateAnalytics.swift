@@ -89,6 +89,45 @@ struct AnalyticsErrorSummary {
     }
 }
 
+/// Only bounded, app-owned classifications. Never infer an input mode from
+/// reply playback, the current screen, message text, or a model's claims.
+nonisolated struct AnalyticsInteractionContext: Equatable, Sendable {
+    enum Origin: String, CaseIterable, Sendable {
+        case user, onboarding, routine, handoff, automatic, unknown
+        case localControl = "local_control"
+    }
+
+    enum InputMode: String, CaseIterable, Sendable {
+        case voice, typed, none, unknown
+    }
+
+    let origin: Origin
+    let inputMode: InputMode
+
+    static let unknown = Self(origin: .unknown, inputMode: .unknown)
+    static let userVoice = Self(origin: .user, inputMode: .voice)
+    static let userTyped = Self(origin: .user, inputMode: .typed)
+    static let onboarding = Self(origin: .onboarding, inputMode: .unknown)
+    static let automatic = Self(origin: .automatic, inputMode: .none)
+    static let localControl = Self(origin: .localControl, inputMode: .none)
+}
+
+/// A response keeps its initiating context across awaits and child tasks.
+/// Overlapping chats cannot overwrite each other's analytics classifications.
+nonisolated enum AnalyticsInteractionScope {
+    @TaskLocal static var current: AnalyticsInteractionContext?
+
+    @MainActor
+    static func task(
+        context: AnalyticsInteractionContext,
+        operation: @escaping @MainActor () async -> Void
+    ) -> Task<Void, Never> {
+        Task {
+            await $current.withValue(context) { await operation() }
+        }
+    }
+}
+
 enum HeyMateAnalytics {
 
     enum Event {
@@ -146,11 +185,38 @@ enum HeyMateAnalytics {
                 return nil
             }
         }
+
+        var defaultContext: AnalyticsInteractionContext {
+            switch self {
+            case .appOpened, .permissionGranted, .allPermissionsGranted:
+                return .automatic
+            case .notchOpened:
+                return .init(origin: .user, inputMode: .none)
+            case .onboardingStarted, .onboardingReplayed, .onboardingVideoCompleted,
+                 .onboardingDemoTriggered, .onboardingSkipped, .onboardingStepViewed:
+                return .init(origin: .onboarding, inputMode: .none)
+            case .pushToTalkStarted, .pushToTalkReleased:
+                return .userVoice
+            case .userMessageSent, .aiResponseReceived, .elementPointed, .error:
+                return .unknown
+            }
+        }
+
+        var inheritsInteractionContext: Bool {
+            switch self {
+            case .userMessageSent, .aiResponseReceived, .elementPointed, .error:
+                return true
+            default:
+                return false
+            }
+        }
     }
 
     static let shared = UsageAnalytics()
     static func configure() { shared.configure() }
-    static func track(_ event: Event) { shared.track(event) }
+    static func track(_ event: Event, context: AnalyticsInteractionContext? = nil) {
+        shared.track(event, context: context)
+    }
     static func trackAppOpened() {
         track(.appOpened(version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"))
     }
@@ -218,11 +284,16 @@ final class UsageAnalytics: ObservableObject {
         }
     }
 
-    func track(_ event: HeyMateAnalytics.Event) {
+    func track(_ event: HeyMateAnalytics.Event, context: AnalyticsInteractionContext? = nil) {
         guard isOptedIn, isAvailable else { return }
         let id = defaults.string(forKey: Self.identityKey) ?? UUID().uuidString
         defaults.set(id, forKey: Self.identityKey)
         var properties = event.properties ?? [:]
+        let context = context
+            ?? (event.inheritsInteractionContext ? AnalyticsInteractionScope.current : nil)
+            ?? event.defaultContext
+        properties["interaction_origin"] = context.origin.rawValue
+        properties["input_mode"] = context.inputMode.rawValue
         properties["app_version"] = version
         properties["analytics_schema"] = 1
         properties["$process_person_profile"] = false
@@ -234,7 +305,8 @@ final class UsageAnalytics: ObservableObject {
                                   "uuid": UUID().uuidString])
         }
         append(event.name, properties)
-        // Only deliberate interactions count. Never infer use from idle polling.
+        // Preserve existing derived events and counts. Reports can now exclude
+        // unattended/internal messages using interaction_origin = user.
         var activityProperties = properties
         activityProperties["source_event"] = event.name
         switch event {
