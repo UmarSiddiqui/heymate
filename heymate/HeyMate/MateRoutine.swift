@@ -88,6 +88,28 @@ nonisolated struct MateRoutine: Codable, Equatable, Identifiable {
 }
 
 extension MateRoutine {
+    /// A new enabled routine whose first run is the schedule's next slot.
+    nonisolated static func scheduled(
+        mateID: UUID,
+        task: String,
+        schedule: RoutineSchedule,
+        now: Date,
+        calendar: Calendar
+    ) -> MateRoutine {
+        MateRoutine(
+            id: UUID(),
+            mateID: mateID,
+            task: task,
+            enabled: true,
+            schedule: schedule,
+            nextRunAt: schedule.advance(from: now, now: now, calendar: calendar),
+            lastRunAt: nil,
+            lastStatusMessage: nil,
+            consecutiveFailures: 0,
+            pausedReason: nil
+        )
+    }
+
     /// Replaces task, schedule, and nextRunAt. The id, mate, and run history stay.
     nonisolated func editing(task: String, schedulePhrase: String, now: Date, calendar: Calendar) -> MateRoutine? {
         guard let parsed = RoutinePhraseParser.parse(

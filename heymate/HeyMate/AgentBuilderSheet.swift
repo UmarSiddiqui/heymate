@@ -2,9 +2,9 @@
 //  AgentBuilderSheet.swift
 //  HeyMate
 //
-//  Make an agent in two steps: say what it should do, then review the draft
-//  HeyMate wrote. Every field stays editable; nothing is created or sent
-//  until the person presses Create.
+//  Make an agent in two steps: pick a ready-made one or say what it should
+//  do, then review the draft. Every field stays editable; nothing is created
+//  or sent until the person presses Create.
 //
 
 import SwiftUI
@@ -14,6 +14,8 @@ struct AgentBuilderSheet: View {
     var initialDescription: String = ""
     /// Opens straight on the review step. Used by previews and snapshots.
     var initialDraft: AgentDraft? = nil
+    /// Opens on the review step with this ready-made agent filled in.
+    var initialRecipe: AgentRecipe? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var description = ""
@@ -24,6 +26,8 @@ struct AgentBuilderSheet: View {
     @State private var faceAssetName = BlobatarCharacter.automaticToken
     @State private var isPickingFace = false
     @State private var errorText: String?
+    @State private var runs: AgentRunsChoice = .onAsk
+    @State private var routineTask = ""
     @FocusState private var isDescriptionFocused: Bool
 
     var body: some View {
@@ -39,7 +43,8 @@ struct AgentBuilderSheet: View {
         .onAppear {
             if description.isEmpty { description = initialDescription }
             if draft == nil, let initialDraft { draft = initialDraft }
-            isDescriptionFocused = true
+            if draft == nil, let initialRecipe { apply(initialRecipe) }
+            isDescriptionFocused = draft == nil
         }
     }
 
@@ -78,30 +83,20 @@ struct AgentBuilderSheet: View {
             .disabled(isDrafting)
             .onSubmit(startDraft)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Or start from")
-                    .font(DS.Fonts.sectionLabel)
-                    .foregroundColor(DS.Colors.textTertiary)
-                ForEach(AgentSuggestionCatalog.all) { suggestion in
-                    Button {
-                        description = suggestion.job
-                        faceAssetName = suggestion.faceAssetName
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "arrow.turn.down.right")
-                                .font(DS.Glyph.small)
-                                .foregroundColor(DS.Colors.textTertiary)
-                            Text(suggestion.job)
-                                .font(DS.Fonts.body)
-                                .foregroundColor(DS.Colors.textSecondary)
-                                .lineLimit(1)
-                            Spacer(minLength: 0)
+            if !recipes.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Or pick one that's ready to work")
+                        .font(DS.Fonts.sectionLabel)
+                        .foregroundColor(DS.Colors.textTertiary)
+                    LazyVGrid(
+                        columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)],
+                        spacing: 8
+                    ) {
+                        ForEach(recipes) { recipe in
+                            AgentRecipeCard(recipe: recipe) { apply(recipe) }
+                                .disabled(isDrafting)
                         }
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                    .disabled(isDrafting)
                 }
             }
 
@@ -125,6 +120,21 @@ struct AgentBuilderSheet: View {
         .padding(22)
     }
 
+    /// Ready-made agents this person does not already have.
+    private var recipes: [AgentRecipe] {
+        AgentRecipeCatalog.offers(existingJobs: companionManager.mates.filter { !$0.archived }.map(\.job))
+    }
+
+    /// Fills the review step from a recipe. No model call.
+    private func apply(_ recipe: AgentRecipe) {
+        draft = AgentDrafter.sanitized(recipe.draft, existingNames: companionManager.mates.map(\.name))
+        draftUsedModel = true
+        runs = recipe.runs
+        routineTask = recipe.routineTask
+        faceAssetName = BlobatarCharacter.automaticToken
+        errorText = nil
+    }
+
     private var trimmedDescription: String {
         description.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -137,6 +147,8 @@ struct AgentBuilderSheet: View {
             let result = await companionManager.draftAgent(description: text)
             isDrafting = false
             draftUsedModel = result.usedModel
+            runs = .onAsk
+            routineTask = ""
             draft = result.draft
         }
     }
@@ -175,6 +187,7 @@ struct AgentBuilderSheet: View {
                         TextField("What to do first", text: draft.firstTask, axis: .vertical)
                             .lineLimit(1...3)
                     }
+                    runsField
                     if !draft.wrappedValue.integrations.isEmpty {
                         integrationsRow(draft.wrappedValue.integrations)
                     }
@@ -260,6 +273,36 @@ struct AgentBuilderSheet: View {
         .padding(14)
     }
 
+    /// When the agent works without being asked. Off by default for a
+    /// described agent; a recipe arrives with its own schedule.
+    private var runsField: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            fieldLabel(
+                "Runs",
+                hint: runs == .onAsk ? "Works when you ask" : "Results land in its chat. Pause it any time"
+            )
+            DSMenuPicker(
+                accessibilityTitle: "Runs",
+                selection: $runs,
+                options: AgentRunsChoice.allCases.map { DSMenuOption(value: $0, title: $0.label) },
+                width: 220
+            )
+            if runs != .onAsk {
+                TextField("What to do each time", text: $routineTask, axis: .vertical)
+                    .lineLimit(1...3)
+                    .textFieldStyle(.plain)
+                    .font(DS.Fonts.bodyLarge)
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .padding(10)
+                    .background(
+                        RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                            .fill(DS.Colors.surface2)
+                    )
+                    .accessibilityLabel("What to do each time")
+            }
+        }
+    }
+
     private func integrationsRow(_ names: [String]) -> some View {
         let connected = Set(companionManager.connectedIntegrationNames.map { $0.lowercased() })
         let missing = names.filter { !connected.contains($0.lowercased()) }
@@ -335,11 +378,74 @@ struct AgentBuilderSheet: View {
         }
         let savedFace = faceAssetName == BlobatarCharacter.automaticToken
             ? BlobatarCharacter.generatedPrefix + appearanceID.uuidString.lowercased() : faceAssetName
-        if companionManager.createAgent(from: draft, faceAssetName: savedFace) != nil {
+        if companionManager.createAgent(
+            from: draft, faceAssetName: savedFace, runs: runs, routineTask: routineTask
+        ) != nil {
             dismiss()
         } else {
             errorText = "That name is already taken."
         }
+    }
+}
+
+/// One ready-made agent: what it is, what you get, and when it runs.
+struct AgentRecipeCard: View {
+    let recipe: AgentRecipe
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: recipe.symbolName)
+                    .font(DS.Glyph.large)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .frame(width: 22, height: 18)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(recipe.name)
+                            .font(DS.Fonts.headline)
+                            .foregroundColor(DS.Colors.textPrimary)
+                            .lineLimit(1)
+                        if let chip = recipe.runs.chip {
+                            Text(chip)
+                                .font(DS.Fonts.micro)
+                                .foregroundColor(DS.Colors.textSecondary)
+                                .lineLimit(1)
+                                .padding(.horizontal, 6)
+                                .frame(height: 16)
+                                .background(Capsule().fill(DS.Colors.surface3))
+                                .layoutPriority(1)
+                        }
+                    }
+                    Text(recipe.outcome)
+                        .font(DS.Fonts.caption)
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, minHeight: 62, alignment: .topLeading)
+            .background(
+                RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                    .fill(isHovered ? DS.Colors.surface3 : DS.Colors.surface2)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                    .stroke(DS.Colors.borderSubtle, lineWidth: 0.8)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .onHover { isHovered = $0 }
+        .accessibilityLabel("\(recipe.name). \(recipe.outcome)")
+        .accessibilityHint(recipe.runs.chip.map { "Runs \($0.lowercased()). Review before it is made." } ?? "Review before it is made.")
     }
 }
 

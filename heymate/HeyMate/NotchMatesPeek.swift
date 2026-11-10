@@ -34,18 +34,25 @@ nonisolated enum MateRecentFiles {
     }
 }
 
-/// Which mates the peek shows: the ones with the newest messages.
+/// Which mates the peek shows: the ones waiting on the person first, in
+/// the order given, then the ones with the newest messages.
 nonisolated enum NotchMatesPeekOrder {
     static func mates(
         _ mates: [Mate],
         sessions: [ChatSession],
         defaultMateID: UUID,
+        waitingFirst: [UUID] = [],
         limit: Int = 4
     ) -> [(mate: Mate, preview: MateRailPreview)] {
-        mates
+        func rank(_ id: UUID) -> Int { waitingFirst.firstIndex(of: id) ?? Int.max }
+        return mates
             .filter { !$0.archived }
             .map { ($0, MateRailPreview.make(for: $0, sessions: sessions, defaultMateID: defaultMateID)) }
-            .sorted { ($0.1.date ?? $0.0.updatedAt) > ($1.1.date ?? $1.0.updatedAt) }
+            .sorted { left, right in
+                let leftRank = rank(left.0.id), rightRank = rank(right.0.id)
+                if leftRank != rightRank { return leftRank < rightRank }
+                return (left.1.date ?? left.0.updatedAt) > (right.1.date ?? right.0.updatedAt)
+            }
             .prefix(limit)
             .map { (mate: $0.0, preview: $0.1) }
     }
@@ -56,11 +63,26 @@ struct NotchMatesPeek: View {
     /// How many mates to list. "All" opens the rest in the window.
     var limit: Int = 4
 
+    /// Jobs to approve and stopped routines. Unread replies already read as
+    /// bright text in the row, so they do not reorder the peek.
+    private var waiting: [MateDigestItem] {
+        MateDigest.make(
+            mates: companionManager.mates,
+            routines: companionManager.routines,
+            runs: companionManager.agentRuns,
+            owners: companionManager.mateRunOwners,
+            sessions: companionManager.savedChats,
+            defaultMateID: companionManager.mateDirectory.defaultMateID,
+            activeMateID: nil
+        ).items.filter { $0.kind != .unread }
+    }
+
     private var rows: [(mate: Mate, preview: MateRailPreview)] {
         NotchMatesPeekOrder.mates(
             companionManager.mates,
             sessions: companionManager.savedChats,
             defaultMateID: companionManager.mateDirectory.defaultMateID,
+            waitingFirst: waiting.map(\.mateID),
             limit: limit
         )
     }
@@ -81,7 +103,11 @@ struct NotchMatesPeek: View {
             }
             VStack(spacing: 0) {
                 ForEach(Array(rows.enumerated()), id: \.element.mate.id) { index, row in
-                    NotchMatePeekRow(mate: row.mate, preview: row.preview) {
+                    NotchMatePeekRow(
+                        mate: row.mate,
+                        preview: row.preview,
+                        waiting: waiting.first { $0.mateID == row.mate.id }
+                    ) {
                         companionManager.openMate(id: row.mate.id)
                         companionManager.openDesktopWindow(section: .chat)
                     }
@@ -100,6 +126,8 @@ struct NotchMatesPeek: View {
 private struct NotchMatePeekRow: View {
     let mate: Mate
     let preview: MateRailPreview
+    /// Set when this agent is blocked on the person.
+    var waiting: MateDigestItem? = nil
     let action: () -> Void
 
     @State private var isHovering = false
@@ -116,16 +144,25 @@ private struct NotchMatePeekRow: View {
                             .foregroundColor(DS.Colors.textPrimary)
                             .lineLimit(1)
                         Spacer(minLength: 4)
-                        if let date = preview.date {
+                        if let waiting {
+                            Text(waiting.badge)
+                                .font(DS.Fonts.caption.weight(.semibold))
+                                .foregroundColor(
+                                    waiting.kind == .routineStopped ? DS.Colors.destructiveText : DS.Colors.warningText
+                                )
+                                .lineLimit(1)
+                        } else if let date = preview.date {
                             Text(MateRailPreview.timestamp(date))
                                 .font(DS.Fonts.caption)
                                 .foregroundColor(DS.Colors.textTertiary)
                                 .lineLimit(1)
                         }
                     }
-                    Text(preview.text)
+                    Text(waiting?.detail ?? preview.text)
                         .font(DS.Fonts.caption)
-                        .foregroundColor(mate.unreadCount > 0 ? DS.Colors.textPrimary : DS.Colors.textSecondary)
+                        .foregroundColor(
+                            waiting != nil || mate.unreadCount > 0 ? DS.Colors.textPrimary : DS.Colors.textSecondary
+                        )
                         .lineLimit(1)
                 }
                 NotchFileStack(paths: MateRecentFiles.newest(in: mate.folderPath))
@@ -141,8 +178,8 @@ private struct NotchMatePeekRow: View {
         .buttonStyle(.plain)
         .pointerCursor()
         .onHover { isHovering = $0 }
-        .accessibilityLabel("Open \(mate.name)")
-        .accessibilityHint(preview.text)
+        .accessibilityLabel(waiting.map { "Open \(mate.name). \($0.badge)" } ?? "Open \(mate.name)")
+        .accessibilityHint(waiting?.detail ?? preview.text)
     }
 }
 

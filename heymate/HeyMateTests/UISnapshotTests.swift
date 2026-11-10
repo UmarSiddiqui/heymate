@@ -377,7 +377,11 @@ struct UISnapshotTests {
         let manager = Self.sampleManager()
         try Self.render(
             AgentBuilderSheet(companionManager: manager, initialDescription: "Every morning, read my inbox and draft replies to customers"),
-            size: CGSize(width: 540, height: 360), dark: true, name: "builder-describe"
+            size: CGSize(width: 540, height: 640), dark: true, name: "builder-describe"
+        )
+        try Self.render(
+            AgentBuilderSheet(companionManager: manager, initialRecipe: AgentRecipeCatalog.all[0]),
+            size: CGSize(width: 540, height: 820), dark: true, name: "builder-recipe-review"
         )
         let draft = AgentDraft(
             name: "Inbox Ivy",
@@ -394,7 +398,7 @@ struct UISnapshotTests {
         )
         try Self.render(
             AgentBuilderSheet(companionManager: manager, initialDraft: draft),
-            size: CGSize(width: 540, height: 720), dark: true, name: "builder-review"
+            size: CGSize(width: 540, height: 780), dark: true, name: "builder-review"
         )
         try Self.render(
             MateSettingsSheet(
@@ -428,7 +432,7 @@ struct UISnapshotTests {
         )
         try Self.render(
             AgentBuilderSheet(companionManager: manager, initialDescription: "Every morning, read my inbox and draft replies to customers"),
-            size: CGSize(width: 540, height: 360), dark: true, name: "site-builder-describe"
+            size: CGSize(width: 540, height: 640), dark: true, name: "site-builder-describe"
         )
         try Self.render(
             AgentBuilderSheet(companionManager: manager, initialDraft: Self.sampleDraft),

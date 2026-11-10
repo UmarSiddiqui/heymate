@@ -65,9 +65,15 @@ extension CompanionManager {
     }
 
     /// Creates the agent, writes its habits to AGENTS.md, and opens its chat
-    /// with the first task offered (never sent).
+    /// with the first task offered (never sent). A schedule the person chose
+    /// in the builder is saved as the agent's first routine.
     @discardableResult
-    func createAgent(from draft: AgentDraft, faceAssetName: String?) -> Mate? {
+    func createAgent(
+        from draft: AgentDraft,
+        faceAssetName: String?,
+        runs: AgentRunsChoice = .onAsk,
+        routineTask: String = ""
+    ) -> Mate? {
         let draft = AgentDrafter.sanitized(draft, existingNames: mates.map(\.name))
         let task = draft.firstTask.trimmingCharacters(in: .whitespacesAndNewlines)
         let starter = task.isEmpty ? nil : MateStarterSuggestion(label: "Try the first task", prompt: task)
@@ -80,6 +86,15 @@ extension CompanionManager {
             starter: starter
         ) else { return nil }
         saveAgentHabits(id: mate.id, howItWorks: draft.howItWorks, asksFirst: draft.asksFirst)
+        if let schedule = runs.schedule {
+            addRoutine(MateRoutine.scheduled(
+                mateID: mate.id,
+                task: AgentRecipeCatalog.routineTask(typed: routineTask, draft: draft),
+                schedule: schedule,
+                now: Date(),
+                calendar: .current
+            ))
+        }
         return mates.first { $0.id == mate.id } ?? mate
     }
 

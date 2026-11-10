@@ -277,6 +277,26 @@ extension CompanionManager: MateRoutineRunning {
         syncMatePublications()
     }
 
+    /// Copies dropped files into the agent's inbox, opens its chat and names
+    /// the files in the chat box. Nothing is sent. Returns what to tell the
+    /// person when it did not work.
+    @discardableResult
+    func handFiles(_ urls: [URL], toMate id: UUID) -> String? {
+        guard !urls.isEmpty else { return nil }
+        ensureMateFolder(id: id)
+        guard let path = mateDirectory.mates.first(where: { $0.id == id })?.folderPath else {
+            return "This agent has no folder to put files in."
+        }
+        let names = MateFileDrop.copy(urls, into: URL(fileURLWithPath: path, isDirectory: true))
+        guard !names.isEmpty else { return "Those files could not be copied." }
+        if (activeMateID ?? mateDirectory.defaultMateID) != id { openMate(id: id) }
+        updateCurrentDraft(MateFileDrop.draft(names: names, existing: currentChat.draftText ?? ""))
+        if urls.count > MateFileDrop.maximumItems {
+            return "Took the first \(MateFileDrop.maximumItems) items."
+        }
+        return names.count < min(urls.count, MateFileDrop.maximumItems) ? "Some files could not be copied." : nil
+    }
+
     func forgetMateFolder(id: UUID) {
         mateDirectory.clearFolderPath(id: id)
         syncMatePublications()
