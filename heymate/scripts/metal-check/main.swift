@@ -44,6 +44,11 @@ struct MetalCheck {
         payload["illustrated"] = false
         let physical = try render("physical")
         precondition(physical != illustrated, "Physical and illustrated shader paths identical")
+        // A studio metal mirrors the room: it must not go dark away from its highlights.
+        var gold = mesh; gold["color"] = [0.85, 0.56, 0.15]; gold["metalness"] = 1.0
+        payload["meshes"] = [gold]
+        let metal = try render("metal")
+        precondition(metal[center + 2] > 70, "Studio metal reflects nothing")
         var transparent = mesh; transparent["opacity"] = 0.4
         payload["meshes"] = [transparent]
         let clear = try render("transparent")
@@ -81,6 +86,6 @@ struct MetalCheck {
             payload["illustrated"] = false; payload["geometries"] = []
             _ = try render("gallery-physical")
         }
-        print("PASS: native Metal pipelines, vertex ABI, projection, illustrated/physical lighting, transparent background, alpha blending, cut coverage, ID outlines/seams and invalid index rejection on \(context.device.name)")
+        print("PASS: native Metal pipelines, vertex ABI, projection, illustrated/physical lighting, metal reflection, transparent background, alpha blending, cut coverage, ID outlines/seams and invalid index rejection on \(context.device.name)")
     }
 }

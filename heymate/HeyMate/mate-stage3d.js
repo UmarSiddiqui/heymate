@@ -167,28 +167,50 @@ vec3 studio_light(vec3 n, vec3 v, vec3 l, vec3 radiance, vec3 diffuse, vec3 f0, 
     vec3 specular = schlick_fresnel(f0, vh) * (ggx_distribution(a2, nh) * smith_visibility(a2, nl, nv));
     return radiance * nl * (diffuse / 3.14159265 + specular);
 }
-vec3 studio_tone(vec3 colour, vec3 n, vec3 geometryNormal, vec3 v, vec3 key, float roughness, float metalness) {
+// What a polished part reflects: a studio with a pale ceiling, a softbox overhead and a little to the front, a cool
+// strip light to one side, grey walls and a dark floor. blur (the part's roughness) widens every edge in it.
+vec3 studio_room(vec3 d, float blur) {
+    float edge = mix(0.06, 0.7, blur);
+    vec3 c = mix(vec3(0.10, 0.105, 0.12), vec3(0.54, 0.56, 0.61), smoothstep(-edge, edge, d.y + 0.08));
+    c = mix(c, vec3(0.95, 0.96, 1.0), smoothstep(0.35 - edge, 0.8 + edge, d.y));
+    float box = dot(d, normalize(vec3(-0.35, 0.8, 0.5)));
+    c += vec3(1.6, 1.58, 1.5) * smoothstep(0.9 - edge * 0.6, 0.96 + edge * 0.04, box) * mix(1.0, 0.35, blur);
+    float beside = dot(normalize(d.xz + 0.0001), normalize(vec2(0.9, -0.45)));
+    float strip = smoothstep(0.82 - edge * 0.5, 0.9, beside) * (1.0 - smoothstep(0.0, 0.45 + edge, abs(d.y - 0.1)));
+    c += vec3(0.7, 0.78, 0.95) * strip * mix(1.0, 0.3, blur);
+    return c;
+}
+// keyLight: how much of the key light reaches this point (0 in another part's shadow, 1 in the open).
+vec3 studio_tone(vec3 colour, vec3 n, vec3 geometryNormal, vec3 v, vec3 key, float roughness, float metalness, float keyLight) {
     vec3 diffuse = colour * (1.0 - metalness);
     vec3 f0 = mix(vec3(0.04), colour, metalness);
     // rougher where the surface curves fast across a pixel, so highlights don't sparkle on small curved parts
     vec3 bend = fwidth(geometryNormal);
     float r = clamp(roughness + max(bend.x, max(bend.y, bend.z)), 0.06, 1.0);
     float a2 = r * r * r * r;
-    vec3 sky = vec3(1.15), ground = vec3(0.048, 0.064, 0.096);
-    vec3 c = mix(ground, sky, 0.5 + 0.5 * n.y) * diffuse / 3.14159265;
-    c += studio_light(n, v, normalize(key), vec3(2.1), diffuse, f0, a2);
+    vec3 sky = vec3(1.15), ground = vec3(0.10, 0.115, 0.15);
+    // a part's shadow also takes a little of the sky's light, so it reads on a pale surface
+    vec3 c = mix(ground, sky, 0.5 + 0.5 * n.y) * diffuse / 3.14159265 * (0.62 + 0.38 * keyLight);
+    // the room, mirrored in the part: what makes a metal read as metal. How much of it a surface returns at this
+    // angle and roughness is the usual fitted curve (Karis), not a lookup table.
+    float nv = clamp(dot(n, v), 0.0, 1.0);
+    vec4 k = r * vec4(-1.0, -0.0275, -0.572, 0.022) + vec4(1.0, 0.0425, 1.04, -0.04);
+    float a004 = min(k.x * k.x, exp2(-9.28 * nv)) * k.x + k.y;
+    vec2 ab = vec2(-1.04, 1.04) * a004 + k.zw;
+    c += studio_room(reflect(-v, n), r) * (f0 * ab.x + ab.y);
+    c += keyLight * studio_light(n, v, normalize(key), vec3(2.1), diffuse, f0, a2);
     c += studio_light(n, v, normalize(vec3(-4.0, 2.0, -4.0)), vec3(0.33, 0.48, 0.86), diffuse, f0, a2);
     return c;
 }
 
 // A part's colour on screen (sRGB) and its opacity.
 vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
-                     vec3 colour, vec3 emissive, vec4 surface, vec4 flags) {
+                     vec3 colour, vec3 emissive, vec4 surface, vec4 flags, float keyLight) {
     vec3 n = lit_normal(normal, position, eye, flags.y > 0.5, flags.z > 0.5, front);
     vec3 v = normalize(eye - position);
     vec3 c = style.x > 0.5
         ? illustrated_tone(colour, n, v, normalize(style.yzw), surface.x, surface.y)
-        : studio_tone(colour, n, normalize(normal), v, style.yzw, surface.x, surface.y);
+        : studio_tone(colour, n, normalize(normal), v, style.yzw, surface.x, surface.y, keyLight);
     return vec4(to_srgb(c + emissive), surface.z);
 }
 // ---- end shared ----
@@ -199,7 +221,7 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
     }
     void main() {
       gl_FragColor = shade_surface(mateWorldPosition, mateNormal, gl_FrontFacing, eye, style,
-                                   baseColor * band_colour(mateUV), emissive, surface, flags);
+                                   baseColor * band_colour(mateUV), emissive, surface, flags, 1.0);
     }
   `;
 

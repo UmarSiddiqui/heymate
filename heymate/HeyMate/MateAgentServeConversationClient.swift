@@ -309,7 +309,7 @@ final class MateAgentServeConversationClient: VisionConversationClient {
                 let stopped = await active.cancelAndWait()
                 if stopped, try ledger.record(chatID: chatID, profile: launch.profileDirectoryURL).pending != nil {
                     let delivery = try ledger.complete(chatID: chatID, profile: launch.profileDirectoryURL,
-                        result: .init(text: "HeyMate Agent was stopped. Unfinished work was not marked complete.", status: "interrupted"), checkpoint: active.checkpoint)
+                        result: .init(text: "This task was stopped before it finished, so nothing was marked done. Ask again to pick it back up.", status: "interrupted"), checkpoint: active.checkpoint)
                     deliveryProfiles[delivery.id] = launch.profileDirectoryURL
                     onRecoveredResult?(delivery)
                 }

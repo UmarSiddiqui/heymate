@@ -50,7 +50,7 @@ nonisolated enum ExplanationProgram {
         "connect", "trace", "ink", "line", "curve", "arrow", "rect", "circle", "ellipse", "poly", "path", "dot", "text", "write",
         "paper", "sticky", "graph", "timeline", "figure"
     ]
-    private static let shapes: Set<String> = ["box", "cyl", "cone", "sphere", "tube", "torus", "capsule", "lathe", "pipe", "spring", "gear", "extrude", "blob", "poly", "group"]
+    private static let shapes: Set<String> = ["box", "cyl", "cone", "sphere", "tube", "torus", "capsule", "lathe", "pipe", "spring", "gear", "extrude", "blob", "poly", "arrow", "group"]
     private static let methods: Set<String> = ["label", "spin", "bob", "orbit", "pulse", "path", "move", "view", "camera", "sliderCrank", "plot", "line", "point", "area", "band", "at", "slot", "part"]
     private static let edits: Set<String> = ["erase", "recolor", "restyle", "move", "moveTo", "scale", "highlight"]
     private static let properties: Set<String> = ["pos", "rot", "scale", "show", "glow", "color"]

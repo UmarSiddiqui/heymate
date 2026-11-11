@@ -1939,7 +1939,7 @@ final class CompanionManager: ObservableObject {
 
     private func deliverRecoveredMateAgentResult(_ result: MateAgentServeTurnLedger.Delivery, chatID: UUID) {
         let message = ChatMessage(id: UUID(), role: .assistant,
-            text: "Recovered earlier MateAgent task (\(result.status)):\n\n" + result.text, createdAt: Date(), taskResultKey: result.key)
+            text: "From an earlier task (\(result.status)):\n\n" + result.text, createdAt: Date(), taskResultKey: result.key)
         if currentChat.id == chatID {
             if !currentChat.messages.contains(where: { $0.taskResultKey == result.key }) {
                 currentChat.messages.append(message)
@@ -4525,7 +4525,13 @@ final class CompanionManager: ObservableObject {
                 }
                 defer { revokeTalkToolScope(talkScopeToken) }
                 let scopedToolNames = scopedConnectorToolDescriptions(token: talkScopeToken).compactMap { $0["name"] as? String }
+                // A routine or a hand-off reports its work in full; every
+                // other turn is heard or read by the person, and says so.
+                let turnStyle = CompanionPrompts.talkStyle(
+                    isSilentModeEnabled: isSilentModeEnabled,
+                    isUnattended: activeRoutineTurn != nil || activeHandoffMateID != nil)
                 let effectiveSystemPrompt = MateAgentConversationClient.interfaceInstructions(mateIdentity: turnIdentity)
+                    + (turnStyle.map { "\n\n" + $0 } ?? "")
                     + "\n\n" + MateAgentServeConversationClient.connectorInstructions(
                         tools: scopedToolNames.filter { !TalkToolCatalog.piBridgeLocalToolNames.contains($0) },
                         enabledApps: turnEnabledApps.sorted())
@@ -4537,6 +4543,7 @@ final class CompanionManager: ObservableObject {
                     // Guided playback runs [ACT:] directives; the model only
                     // writes them if it is told the grammar exists.
                     + (computerUseCoordinator.isEnabled ? "\n\n" + BehaviorContract.computerControlSection : "")
+                    + "\n\n" + CompanionPrompts.visualAnswers
                     + "\n\n" + CompanionPrompts.explainerContract
 
                 let rawResponseText: String
@@ -4586,7 +4593,9 @@ final class CompanionManager: ObservableObject {
                     if drawn.program != nil {
                         let said = ([drawn.text.trimmingCharacters(in: .whitespacesAndNewlines)] + drawn.lines)
                             .filter { !$0.isEmpty }.joined(separator: " ")
-                        shownText = said + (ExplainerParser.onlyPoints(drawn.program ?? "") ? "\n\n(Pointed it out.)" : "\n\n(Drew an explanation.)")
+                        // Only a compiled heymate block is drawn; a js block is spoken and not run.
+                        let wasDrawn = fullResponseText.contains(ExplanationProgram.fence)
+                        shownText = said + (!wasDrawn ? "" : ExplainerParser.onlyPoints(drawn.program ?? "") ? "\n\n(Pointed it out.)" : "\n\n(Drew an explanation.)")
                     }
                     // The person got an answer (foreground or background chat).
                     // Routine turns run unattended, so they don't count as value.

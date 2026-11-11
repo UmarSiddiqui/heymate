@@ -49,7 +49,12 @@ struct GuidedWalkthrough: Equatable {
         active walkthrough — you are guiding the user through: \(goal)
         plan:
         \(numbered)
-        the user is on step \(currentStepIndex + 1) of \(steps.count). look at the screen now. if the current step is already done, move on to the next one. guide ONE step only: say it in a sentence, point at it, and write [STEP:n] with that step's number. if the user says go back, repeat, or skip, adjust n. if the screen shows something unexpected, help them recover first. if every step is done, say so and write [PLAN:done]. if they want to stop, write [PLAN:done].
+        the user is on step \(currentStepIndex + 1) of \(steps.count). the screen as it is now is the truth: if the current step is already done, move on to the next one, and never send them back to something they have finished unless the screen shows it did not work. guide ONE step only: say it in a sentence, point at it with [POINT:x,y:label], and write [STEP:n] with that step's number.
+        - one step is one action. if the thing you pointed at last time is now open (a menu, a submenu, a panel), that click only revealed it: point at the item inside that does the job, never at the same opener again.
+        - if the next step is something a click can't finish (typing, dragging, a slider, a choice of taste), point at where it happens, say exactly what to do, and tell them to say "next" when it's done.
+        - if you can't see that anything changed, say so in one short sentence and what to try, with no point.
+        - if the user says go back, repeat, or skip, adjust n. if the screen shows something unexpected (another app, an error, a dialog), help them recover first.
+        - if every step is done, say so in one sentence with no point and write [PLAN:done]. if they want to stop, write [PLAN:done].
         """
     }
 }

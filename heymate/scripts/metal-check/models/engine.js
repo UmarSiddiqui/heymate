@@ -1,0 +1,20 @@
+// A cutaway single-cylinder engine: iron block, aluminium piston, steel rod, iron crank.
+const f = figure(100, 60, 620, 520, { spin: 0, tilt: 14 });
+f.tube({ name: 'Cylinder', r: 0.65, inner: 0.52, h: 1.6, at: [0, 0.35, 0], mat: 'iron', cut: true });
+f.box({ name: 'Head', size: [1.5, 0.22, 1.3], at: [0, 1.27, 0], bevel: 0.04, mat: 'alu' });
+f.cyl({ name: 'Spark plug', r: 0.07, h: 0.4, at: [0, 1.55, 0], mat: 'ceramic' });
+f.cyl({ name: 'Head bolt', r: 0.06, h: 0.08, at: [0.58, 1.42, 0.48], mat: 'steel', mirror: 'x' });
+f.cyl({ name: 'Head bolt rear', r: 0.06, h: 0.08, at: [0.58, 1.42, -0.48], mat: 'steel', mirror: 'x' });
+const piston = f.group({ name: 'Piston', at: [0, 0.55, 0] });
+f.lathe({ parent: piston, name: 'Piston head', profile: [[0, -0.18], [0.46, -0.18], [0.49, -0.14], [0.49, 0.15], [0.45, 0.2], [0, 0.2]], mat: 'alu' });
+f.torus({ parent: piston, name: 'Ring', r: 0.495, tube: 0.018, at: [0, 0.1, 0], mat: 'steel' });
+f.torus({ parent: piston, name: 'Ring 2', r: 0.495, tube: 0.018, at: [0, 0.03, 0], mat: 'steel' });
+f.cyl({ parent: piston, name: 'Wrist pin', r: 0.06, h: 0.8, axis: 'z', mat: 'chrome' });
+f.box({ name: 'Rod', size: [0.15, 1.15, 0.13], at: [0, -0.02, 0], bevel: 0.03, mat: 'steel' });
+const crank = f.group({ name: 'Crank', at: [0, -0.92, 0] });
+f.cyl({ parent: crank, name: 'Shaft', r: 0.13, h: 1.5, axis: 'z', mat: 'iron' });
+f.cyl({ parent: crank, name: 'Web', r: 0.42, h: 0.12, axis: 'z', at: [0, 0, 0.16], mat: 'iron' });
+f.cyl({ parent: crank, name: 'Web rear', r: 0.42, h: 0.12, axis: 'z', at: [0, 0, -0.16], mat: 'iron' });
+f.cyl({ parent: crank, name: 'Crank pin', r: 0.08, h: 0.34, axis: 'z', at: [0, 0.32, 0], mat: 'chrome' });
+f.box({ name: 'Crankcase', size: [1.7, 0.16, 1.3], at: [0, -1.48, 0], bevel: 0.05, mat: 'iron' });
+f.pipe({ name: 'Exhaust', points: [[0.7, 1.25, 0], [1.1, 1.25, 0], [1.35, 0.9, 0], [1.35, 0.2, 0]], r: 0.09, mat: 'copper' });

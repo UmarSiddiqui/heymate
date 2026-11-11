@@ -285,7 +285,7 @@ enum ConnectorCatalog {
         Connector(
             id: "claude-code-cli",
             displayName: "Claude Code",
-            summary: "The other headless executor HeyMate can hand work to.",
+            summary: "Hand coding work to Claude Code on this Mac.",
             category: .developer,
             transport: .localCLI,
             symbolName: "sparkles",
