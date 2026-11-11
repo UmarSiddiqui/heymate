@@ -57,29 +57,37 @@ struct MateWakeOfferCard: View {
     let onDismiss: () -> Void
 
     var body: some View {
-        HStack(spacing: DS.Spacing.sm + 2) {
-            if let mate {
-                MateFaceView(mate: mate, size: DS.ControlSize.regular)
-                    .accessibilityHidden(true)
+        // Stacked, not side by side: the notch column is narrow, and a
+        // question squeezed beside two buttons loses its subject.
+        VStack(alignment: .leading, spacing: DS.Spacing.xs + 2) {
+            HStack(alignment: .top, spacing: DS.Spacing.sm + 2) {
+                if let mate {
+                    MateFaceView(mate: mate, size: DS.ControlSize.regular)
+                        .accessibilityHidden(true)
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(offer.mateName)
+                        .font(DS.Fonts.caption.weight(.semibold))
+                        .foregroundColor(DS.Colors.warningText)
+                        .lineLimit(1)
+                    Text(offer.question)
+                        .font(DS.Fonts.control)
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
             }
-            VStack(alignment: .leading, spacing: 1) {
-                Text(offer.mateName)
-                    .font(DS.Fonts.caption.weight(.semibold))
-                    .foregroundColor(DS.Colors.warningText)
-                    .lineLimit(1)
-                Text(offer.question)
-                    .font(DS.Fonts.control)
-                    .foregroundColor(DS.Colors.textPrimary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: DS.Spacing.xs) {
+                Spacer(minLength: 0)
+                Button("Not now", action: onDismiss)
+                    .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
+                    .accessibilityLabel("Not now, dismiss \(offer.mateName)'s offer")
+                Button("Yes", action: onAccept)
+                    .dsCapsuleButtonStyle(.primary, height: DS.ControlSize.small)
+                    .accessibilityLabel("Yes, \(offer.mateName): \(offer.question)")
             }
-            Spacer(minLength: 4)
-            Button("Not now", action: onDismiss)
-                .dsCapsuleButtonStyle(.quiet, height: DS.ControlSize.small)
-                .accessibilityLabel("Not now, dismiss \(offer.mateName)'s offer")
-            Button("Yes", action: onAccept)
-                .dsCapsuleButtonStyle(.primary, height: DS.ControlSize.small)
-                .accessibilityLabel("Yes, \(offer.mateName): \(offer.question)")
         }
         .padding(.horizontal, DS.Spacing.sm)
         .padding(.vertical, DS.Spacing.xs + 2)

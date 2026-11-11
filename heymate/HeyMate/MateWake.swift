@@ -59,7 +59,7 @@ nonisolated enum MateWakeKind: String, Codable, CaseIterable, Identifiable, Send
     var watchNote: String {
         switch self {
         case .downloadedFile:
-            return "HeyMate watches the names of new files in Downloads. A file is copied to the agent only when you say yes."
+            return "HeyMate watches the names of new files in Downloads. A file is copied to the agent only when you say yes. macOS asks once to allow Downloads."
         case .copiedLink:
             return "HeyMate checks whether what you copy is a link. Other copied text is not read and nothing is stored. macOS may ask once to allow pasting."
         case .meetingSoon:
