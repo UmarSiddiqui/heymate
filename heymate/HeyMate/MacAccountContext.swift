@@ -140,6 +140,12 @@ nonisolated enum MacAccountContext {
     /// Gmail account added in Internet Accounts lands. Read-only: subject,
     /// sender, date, read state. Bodies stay in Mail.
     static func mailBlock() -> String? {
+        mailRawOutput().map(mailPromptBlock(rawOutput:))
+    }
+
+    /// One line per message: date, sender, subject and read state, separated
+    /// by tabs. Nil when Mail could not be asked in time.
+    static func mailRawOutput() -> String? {
         let script = """
         tell application "Mail"
             set output to ""
@@ -156,8 +162,7 @@ nonisolated enum MacAccountContext {
             return output
         end tell
         """
-        guard let output = runAppleScript(script, timeout: mailTimeout) else { return nil }
-        return mailPromptBlock(rawOutput: output)
+        return runAppleScript(script, timeout: mailTimeout)
     }
 
     static func mailPromptBlock(rawOutput: String) -> String {

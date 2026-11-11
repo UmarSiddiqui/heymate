@@ -342,7 +342,9 @@ nonisolated struct RoutineControl: Equatable, Identifiable {
         title = routine.task
         switch routine.schedule {
         case .everyHours(let hours): intervalMinutes = max(1, hours) * 60
-        case .daily: intervalMinutes = 24 * 60
+        case .daily, .weekdays: intervalMinutes = 24 * 60
+        case .weekly: intervalMinutes = 7 * 24 * 60
+        case .everyMinutes(let minutes): intervalMinutes = max(RoutineSchedule.minimumMinutes, minutes)
         }
         isPaused = !routine.enabled || routine.pausedReason != nil
         isPausedAfterFailures = routine.pausedReason != nil

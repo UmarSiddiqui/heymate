@@ -2209,6 +2209,11 @@ final class CompanionManager: ObservableObject {
     @Published private(set) var standingOrderProposal: StandingOrderProposal?
     @Published var latestAgentUndoEntry: AgentUndoEntry?
     @Published var agentUndoErrorText = ""
+    /// What makes each agent offer to work, and the offers waiting for a yes.
+    @Published var mateWakes: [MateWake] = []
+    @Published var mateWakeOffers: [MateWakeOffer] = []
+    lazy var mateWakeStore = FileMateWakeStore(fileURL: FileMateWakeStore.appSupportFileURL())
+    let mateWakeWatcher = MateWakeWatcher()
     private var standingOrderCancellables: Set<AnyCancellable> = []
     private var standingOrderEvaluator = StandingOrderEvaluator()
     private var latestStandingOrderSignals: [StandingOrderSignalKind: StandingOrderSignal] = [:]
@@ -3168,6 +3173,7 @@ final class CompanionManager: ObservableObject {
         // see, approve, or delete them, and rules nobody can see must not
         // fire. The engine stays so they can come back with a home.
         mateRoutineScheduler.start()
+        startMateWakes()
         startComputerUseCursorBridge()
         contextualConnectorSuggestionMonitor.start()
         // Escape clears any on-screen drawing annotations (master spec).
@@ -6062,6 +6068,7 @@ extension CompanionManager {
               let routine = turn.promptRoutine ?? routines.first(where: { $0.id == turn.routineID }) else {
             return .conversation
         }
+        if turn.isWake { return .standingOrder }
         return .routine(
             isFirstRun: routine.lastRunAt == nil,
             lastRunAt: routine.lastRunAt,

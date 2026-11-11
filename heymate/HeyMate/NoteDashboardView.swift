@@ -184,7 +184,8 @@ struct RoutineEditorView: View {
         task = routine.task
         switch routine.schedule {
         case .everyHours(let h): daily = false; hours = max(1, h)
-        case .daily(let h, let m):
+        case .everyMinutes(let m): daily = false; hours = max(1, m / 60)
+        case .daily(let h, let m), .weekdays(let h, let m), .weekly(_, let h, let m):
             daily = true
             time = Calendar.current.date(bySettingHour: h, minute: m, second: 0, of: Date()) ?? Date()
         }

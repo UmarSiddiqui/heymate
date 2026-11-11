@@ -15,8 +15,10 @@ import Foundation
 nonisolated enum AgentRunsChoice: String, CaseIterable, Identifiable, Sendable {
     case onAsk
     case everyMorning
+    case weekdayMornings
     case everyThreeHours
     case everyHour
+    case everyHalfHour
 
     var id: String { rawValue }
 
@@ -24,8 +26,10 @@ nonisolated enum AgentRunsChoice: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .onAsk: return nil
         case .everyMorning: return .daily(hour: 8, minute: 0)
+        case .weekdayMornings: return .weekdays(hour: 8, minute: 0)
         case .everyThreeHours: return .everyHours(3)
         case .everyHour: return .everyHours(1)
+        case .everyHalfHour: return .everyMinutes(30)
         }
     }
 
@@ -33,8 +37,10 @@ nonisolated enum AgentRunsChoice: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .onAsk: return "Only when asked"
         case .everyMorning: return "Every morning at 8"
+        case .weekdayMornings: return "Weekdays at 8"
         case .everyThreeHours: return "Every 3 hours"
         case .everyHour: return "Every hour"
+        case .everyHalfHour: return "Every 30 minutes"
         }
     }
 
@@ -43,8 +49,10 @@ nonisolated enum AgentRunsChoice: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .onAsk: return nil
         case .everyMorning: return "Every morning"
+        case .weekdayMornings: return "Weekdays"
         case .everyThreeHours: return "Every 3 hours"
         case .everyHour: return "Every hour"
+        case .everyHalfHour: return "Every 30 min"
         }
     }
 }
@@ -61,6 +69,11 @@ nonisolated struct AgentRecipe: Equatable, Identifiable, Sendable {
     let runs: AgentRunsChoice
     /// What a scheduled run does. Empty when `runs` is `.onAsk`.
     let routineTask: String
+    /// What makes it offer to work without being asked, if anything.
+    var wake: MateWakeKind? = nil
+    var wakeMatch: String = ""
+    /// What it does with the thing that woke it.
+    var wakeTask: String = ""
 
     var name: String { draft.name }
     var job: String { draft.role }
@@ -87,7 +100,9 @@ nonisolated enum AgentRecipeCatalog {
                 integrations: ["Apple Calendar", "Mail"]
             ),
             runs: .everyMorning,
-            routineTask: "Write today's brief: meetings, what to prepare, and mail that needs a reply."
+            routineTask: "Write today's brief: meetings, what to prepare, and mail that needs a reply.",
+            wake: .meetingSoon,
+            wakeTask: "Write a short prep note for this meeting: what it is about, who is in it, and what I should have ready."
         ),
         AgentRecipe(
             matchKey: "inbox",
@@ -108,7 +123,9 @@ nonisolated enum AgentRecipeCatalog {
                 integrations: ["Mail"]
             ),
             runs: .everyMorning,
-            routineTask: "Review new mail and draft replies to anything waiting on me."
+            routineTask: "Review new mail and draft replies to anything waiting on me.",
+            wake: .newMail,
+            wakeTask: "Look at this new mail. Draft a reply if it needs one and keep it as a draft."
         ),
         AgentRecipe(
             matchKey: "web pages",
@@ -150,7 +167,9 @@ nonisolated enum AgentRecipeCatalog {
                 integrations: []
             ),
             runs: .onAsk,
-            routineTask: ""
+            routineTask: "",
+            wake: .copiedLink,
+            wakeTask: "Read this link and tell me what matters in it, with sources for anything it claims."
         ),
         AgentRecipe(
             matchKey: "files",
@@ -171,7 +190,9 @@ nonisolated enum AgentRecipeCatalog {
                 integrations: []
             ),
             runs: .onAsk,
-            routineTask: ""
+            routineTask: "",
+            wake: .downloadedFile,
+            wakeTask: "File this download: give it a clear name, put the copy in output/, and tell me what it is."
         ),
         AgentRecipe(
             matchKey: "screen",
@@ -255,7 +276,10 @@ nonisolated enum AgentRecipeCatalog {
                 integrations: []
             ),
             runs: .onAsk,
-            routineTask: ""
+            routineTask: "",
+            wake: .copiedLink,
+            wakeMatch: "github.com, gitlab.com",
+            wakeTask: "Review the change behind this link and tell me what could break."
         )
     ]
 

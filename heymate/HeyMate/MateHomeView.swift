@@ -554,6 +554,9 @@ struct MateHomeView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
+                    MateWakeOffers(companionManager: companionManager)
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 4)
                     if !digest.items.isEmpty {
                         railHeader(digest.hiddenCount > 0 ? "Needs you · \(digest.hiddenCount) more below" : "Needs you")
                         ForEach(digest.items) { item in

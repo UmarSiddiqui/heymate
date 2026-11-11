@@ -360,6 +360,7 @@ extension CompanionManager: MateRoutineRunning {
             chatHistoryStore.delete(id: session.id)
         }
         mateDirectory.routineStore.deleteAll(mateID: id)
+        removeMateWakes(mateID: id)
         for item in memoryRepository.loadAll() where item.mateID == id {
             memoryRepository.delete(id: item.id)
         }
@@ -579,7 +580,9 @@ extension CompanionManager: MateRoutineRunning {
         kickoffRoutine(routine, deliverySession: nil)
     }
 
-    func kickoffRoutine(_ routine: MateRoutine, deliverySession: ChatSession?) -> MateRoutineKickoff {
+    func kickoffRoutine(
+        _ routine: MateRoutine, deliverySession: ChatSession?, isWake: Bool = false
+    ) -> MateRoutineKickoff {
         guard mateDirectory.mates.contains(where: { $0.id == routine.mateID && !$0.archived }),
               routine.enabled, routine.pausedReason == nil else { return .busy }
         if isChatTurnBusy || openCodeTrainingNotice != nil { return .busy }
@@ -597,7 +600,8 @@ extension CompanionManager: MateRoutineRunning {
             mateID: routine.mateID,
             task: routine.task,
             writesIntoOpenChat: visible,
-            promptRoutine: routine
+            promptRoutine: routine,
+            isWake: isWake
         )
         if typedMessageBusyReason != nil {
             clearRoutineDelivery()

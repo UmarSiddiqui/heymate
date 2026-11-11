@@ -11,16 +11,54 @@ import Foundation
 nonisolated enum RoutineSchedule: Codable, Equatable {
     case daily(hour: Int, minute: Int)
     case everyHours(Int)
+    /// Monday to Friday at one time.
+    case weekdays(hour: Int, minute: Int)
+    /// One day a week. `weekday` is Calendar's: 1 is Sunday, 7 is Saturday.
+    case weekly(weekday: Int, hour: Int, minute: Int)
+    case everyMinutes(Int)
+
+    /// Shortest gap a person can schedule. Each run costs a model turn.
+    static let minimumMinutes = 15
+    static let weekdayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+
+    static func weekdayName(_ weekday: Int) -> String {
+        weekdayNames[min(7, max(1, weekday)) - 1]
+    }
+
+    /// Schedules a build from before 1.0.92 cannot read. They are kept in
+    /// their own file so that build still loads every routine it knows.
+    var isExtended: Bool {
+        switch self {
+        case .daily, .everyHours: return false
+        case .weekdays, .weekly, .everyMinutes: return true
+        }
+    }
+
+    private static func clock(_ hour: Int, _ minute: Int) -> String {
+        let suffix = hour < 12 ? "am" : "pm"
+        let shownHour = hour % 12 == 0 ? 12 : hour % 12
+        return String(format: "%d:%02d%@", shownHour, minute, suffix)
+    }
+
+    private static func phraseClock(_ hour: Int, _ minute: Int) -> String {
+        let suffix = hour < 12 ? "am" : "pm"
+        let shownHour = hour % 12 == 0 ? 12 : hour % 12
+        return minute == 0 ? "\(shownHour)\(suffix)" : String(format: "%d:%02d%@", shownHour, minute, suffix)
+    }
 
     var summary: String {
         switch self {
         case .daily(let hour, let minute):
-            let suffix = hour < 12 ? "am" : "pm"
-            let shownHour = hour % 12 == 0 ? 12 : hour % 12
-            return String(format: "Daily at %d:%02d%@", shownHour, minute, suffix)
+            return "Daily at \(Self.clock(hour, minute))"
         case .everyHours(let hours):
             let count = max(1, hours)
             return count == 1 ? "Every hour" : "Every \(count) hours"
+        case .weekdays(let hour, let minute):
+            return "Weekdays at \(Self.clock(hour, minute))"
+        case .weekly(let weekday, let hour, let minute):
+            return "\(Self.weekdayName(weekday))s at \(Self.clock(hour, minute))"
+        case .everyMinutes(let minutes):
+            return "Every \(max(Self.minimumMinutes, minutes)) minutes"
         }
     }
 
@@ -28,15 +66,33 @@ nonisolated enum RoutineSchedule: Codable, Equatable {
     var instructionPhrase: String {
         switch self {
         case .daily(let hour, let minute):
-            let suffix = hour < 12 ? "am" : "pm"
-            let shownHour = hour % 12 == 0 ? 12 : hour % 12
-            if minute == 0 {
-                return "daily at \(shownHour)\(suffix)"
-            }
-            return String(format: "daily at %d:%02d%@", shownHour, minute, suffix)
+            return "daily at \(Self.phraseClock(hour, minute))"
         case .everyHours(let hours):
             return "every \(max(1, hours)) hour\(max(1, hours) == 1 ? "" : "s")"
+        case .weekdays(let hour, let minute):
+            return "every weekday at \(Self.phraseClock(hour, minute))"
+        case .weekly(let weekday, let hour, let minute):
+            return "every \(Self.weekdayName(weekday).lowercased()) at \(Self.phraseClock(hour, minute))"
+        case .everyMinutes(let minutes):
+            return "every \(max(Self.minimumMinutes, minutes)) minutes"
         }
+    }
+
+    /// The first `hour:minute` after `now` on a day `allows` accepts.
+    private static func nextClock(
+        hour: Int, minute: Int, now: Date, calendar: Calendar, allows: (Int) -> Bool
+    ) -> Date {
+        var components = calendar.dateComponents([.year, .month, .day], from: now)
+        components.hour = min(23, max(0, hour))
+        components.minute = min(59, max(0, minute))
+        components.second = 0
+        guard var candidate = calendar.date(from: components) else { return now.addingTimeInterval(3_600) }
+        // Eight steps covers a full week from any starting day.
+        for _ in 0..<8 {
+            if candidate > now, allows(calendar.component(.weekday, from: candidate)) { return candidate }
+            candidate = calendar.date(byAdding: .day, value: 1, to: candidate) ?? candidate.addingTimeInterval(86_400)
+        }
+        return candidate
     }
 
     /// Next slot strictly after `now` when `from` is already due. Missed
@@ -49,6 +105,16 @@ nonisolated enum RoutineSchedule: Codable, Equatable {
             let elapsed = now.timeIntervalSince(scheduled)
             let steps = floor(elapsed / interval) + 1
             return scheduled.addingTimeInterval(steps * interval)
+        case .everyMinutes(let minutes):
+            let interval = TimeInterval(max(Self.minimumMinutes, minutes) * 60)
+            if scheduled > now { return scheduled }
+            let steps = floor(now.timeIntervalSince(scheduled) / interval) + 1
+            return scheduled.addingTimeInterval(steps * interval)
+        case .weekdays(let hour, let minute):
+            return Self.nextClock(hour: hour, minute: minute, now: now, calendar: calendar) { (2...6).contains($0) }
+        case .weekly(let weekday, let hour, let minute):
+            let day = min(7, max(1, weekday))
+            return Self.nextClock(hour: hour, minute: minute, now: now, calendar: calendar) { $0 == day }
         case .daily(let hour, let minute):
             let safeHour = min(23, max(0, hour))
             let safeMinute = min(59, max(0, minute))
@@ -168,7 +234,9 @@ nonisolated enum MateRoutineAccounting {
         switch routine.schedule {
         case .everyHours(let hours):
             copy.nextRunAt = now.addingTimeInterval(Double(max(1, hours)) * 3_600)
-        case .daily:
+        case .everyMinutes(let minutes):
+            copy.nextRunAt = now.addingTimeInterval(Double(max(RoutineSchedule.minimumMinutes, minutes)) * 60)
+        case .daily, .weekdays, .weekly:
             copy.nextRunAt = routine.schedule.advance(from: now, now: now, calendar: calendar)
         }
         return copy
@@ -272,6 +340,8 @@ struct ActiveRoutineTurn: Equatable {
     let task: String
     let writesIntoOpenChat: Bool
     var promptRoutine: MateRoutine? = nil
+    /// A one-off the person just agreed to, not a scheduled run.
+    var isWake: Bool = false
 }
 
 enum MateRoutineTurnOutcome: Equatable {

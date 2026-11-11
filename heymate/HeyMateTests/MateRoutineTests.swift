@@ -486,7 +486,7 @@ struct MateRoutineEditingTests {
             calendar: calendar
         )
         #expect(edited == nil)
-        #expect(RoutinePhraseParser.invalidScheduleMessage == "Say when it should run, like every morning or every 3 hours.")
+        #expect(RoutinePhraseParser.invalidScheduleMessage == "Say when it should run, like every weekday at 8, every Monday, or every 30 minutes.")
     }
 
     @Test func instructionPhrasesRoundTripThroughTheParser() {
