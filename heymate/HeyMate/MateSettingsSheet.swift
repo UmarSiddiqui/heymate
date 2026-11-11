@@ -37,6 +37,7 @@ struct MateSettingsSheet: View {
     @State private var integrationDraft: [String: Bool]
     @State private var wakeKind: MateWakeKind?
     @State private var wakeMatch: String
+    @State private var isShowingSchedules = false
 
     init(
         mate: Mate,
@@ -111,6 +112,9 @@ struct MateSettingsSheet: View {
         } message: {
             Text(Mate.deletionWarning)
         }
+        .sheet(isPresented: $isShowingSchedules) {
+            MateSchedulesSheet(companionManager: companionManager)
+        }
         .sheet(isPresented: $isShowingCharacterEditor) {
             MiloCharacterEditor(mate: mate, initialToken: selectedFace) { token in
                 let current = companionManager.mates.first { $0.id == mate.id } ?? mate
@@ -153,6 +157,7 @@ struct MateSettingsSheet: View {
             )
 
             memorySection
+            MateBackupBrainField(mate: mate, companionManager: companionManager)
             routinesSection
             wakeSection
             AgentIntegrationsSection(
@@ -304,6 +309,9 @@ struct MateSettingsSheet: View {
                     mateName: mate.name,
                     companionManager: companionManager
                 )
+            }
+            sheetLink("Every agent's schedule", systemImage: "calendar") {
+                isShowingSchedules = true
             }
         }
     }

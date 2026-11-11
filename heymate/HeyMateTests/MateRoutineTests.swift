@@ -195,7 +195,7 @@ struct MateRoutineScheduleTests {
         let original = sample(failures: 2)
         let now = original.nextRunAt.addingTimeInterval(1)
         let retry = MateRoutineAccounting.recordRefusal(original, now: now)
-        #expect(retry.nextRunAt == now.addingTimeInterval(300))
+        #expect(retry.nextRunAt == now.addingTimeInterval(MateRoutineAccounting.refusalRetryInterval))
         #expect(retry.pendingRetryAt == retry.nextRunAt)
         #expect(retry.consecutiveFailures == original.consecutiveFailures)
         #expect(retry.lastRunAt == original.lastRunAt)

@@ -221,7 +221,7 @@ extension CompanionManager: MateRoutineRunning {
 
     /// A deleted chat stays deleted. Never redirect to the newest chat of a
     /// mate, and never save hidden history when conversation storage is off.
-    private func postAgentMessage(owner: AgentChatOwner, text: String, taskRun: AgentRun? = nil) {
+    func postAgentMessage(owner: AgentChatOwner, text: String, taskRun: AgentRun? = nil) {
         guard mateDirectory.mates.contains(where: { $0.id == owner.mateID }) else { return }
         if heyMateTalkSession.id == owner.chatID {
             heyMateTalkSession.messages.append(ChatMessage(id: UUID(), role: .assistant, text: text, createdAt: Date(), taskRunID: taskRun?.id, taskResultKey: taskRun?.resultDeliveryKey))
@@ -577,7 +577,10 @@ extension CompanionManager: MateRoutineRunning {
     }
 
     func kickoffRoutine(_ routine: MateRoutine) -> MateRoutineKickoff {
-        kickoffRoutine(routine, deliverySession: nil)
+        // Scheduled routines run alongside other work in their own chat.
+        // Test doubles keep the single-turn path they were written for.
+        if !usesConversationClientOverride { return kickoffParallelRoutine(routine) }
+        return kickoffRoutine(routine, deliverySession: nil)
     }
 
     func kickoffRoutine(
@@ -648,11 +651,12 @@ extension CompanionManager: MateRoutineRunning {
                 status: status
             )
         case .failure(let message):
-            routine = MateRoutineAccounting.recordFailure(
+            routine = MateRoutineAccounting.recordFailureWithRecovery(
                 routine,
                 now: Date(),
                 calendar: .current,
-                status: message
+                status: message,
+                backupAvailable: hasUsableBackupBrain(mateID: routine.mateID)
             )
         case .cancelled:
             routine = MateRoutineAccounting.recordInterrupted(routine, now: Date(), calendar: .current)

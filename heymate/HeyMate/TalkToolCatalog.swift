@@ -47,6 +47,7 @@ enum TalkToolCatalog {
     static let answerRequestToolName = HarnessToolName.answerRequest.rawValue
     static let askDeeperToolName = HarnessToolName.askDeeper.rawValue
     static let createMateToolName = "create_mate"
+    static let manageRoutinesToolName = "manage_routines"
     static let useChromeToolName = "use_chrome"
     static let useBrowserToolName = "use_browser"
 
@@ -54,7 +55,7 @@ enum TalkToolCatalog {
     /// can hand work to another or add a new one. start_mate_work is left out
     /// on purpose: a Pi mate does its own work rather than spawning native
     /// runs for itself.
-    static let piDelegationToolNames: Set<String> = [sendToMateToolName, getMateStatusToolName, answerRequestToolName, createMateToolName]
+    static let piDelegationToolNames: Set<String> = [sendToMateToolName, getMateStatusToolName, answerRequestToolName, createMateToolName, manageRoutinesToolName]
     /// Every local tool a Pi turn reaches through the scoped bridge: the
     /// delegation tools plus Chrome.
     static let piBridgeLocalToolNames: Set<String> = piDelegationToolNames.union([useChromeToolName, useBrowserToolName])
@@ -210,6 +211,16 @@ enum TalkToolCatalog {
                 description: "Add a new agent (a specialist with its own chat) to the user's roster, optionally with a recurring routine. Use only when the user asked for a new agent. Returns the name actually saved; fails without creating anything when the name is taken or the routine schedule cannot be read.",
                 inputSchemaJSON: """
                 {"type":"object","properties":{"name":{"type":"string","description":"Optional. Must be unique among the user's agents; generated from job when omitted"},"job":{"type":"string","description":"What this agent does, in one sentence"},"soul":{"type":"string","description":"Optional personality or working style"},"routine":{"type":"string","description":"Optional. When it runs plus what it does each time, e.g. \\"every 2 hours check my inbox, file mail into the right labels and flag anything urgent\\". Schedules: every N hours, every few hours, every morning, daily at 8am or 8:30pm"}},"required":["job"]}
+                """
+            ),
+            origin: .local
+        ),
+        TalkTool(
+            toolDefinition: AssistantToolDefinition(
+                name: manageRoutinesToolName,
+                description: "List, add, pause, resume or delete YOUR OWN recurring routines (this chat's agent only). Use when the user asks you to do something on a schedule, e.g. \"check this every morning\". Returns what was saved; nothing changes when the schedule cannot be read.",
+                inputSchemaJSON: """
+                {"type":"object","properties":{"action":{"type":"string","enum":["list","add","pause","resume","delete"]},"task":{"type":"string","description":"For add: what to do each time, in one sentence"},"when":{"type":"string","description":"For add: e.g. every weekday at 9am, every monday at 8, daily at 8:30pm, every 2 hours, every 30 minutes"},"routine":{"type":"string","description":"For pause/resume/delete: the id from list, or words from the task"},"time_limit_minutes":{"type":"number","description":"Optional for add: stop a run that takes longer than this"}},"required":["action"]}
                 """
             ),
             origin: .local

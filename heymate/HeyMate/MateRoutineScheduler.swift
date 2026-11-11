@@ -38,6 +38,11 @@ protocol MateRoutineRunning: AnyObject {
 }
 
 @MainActor
+protocol MateRoutineRunLimiting: AnyObject {
+    func enforceRoutineRunLimits(now: Date)
+}
+
+@MainActor
 final class MateRoutineScheduler {
     static let pollInterval: TimeInterval = 30
 
@@ -113,6 +118,7 @@ final class MateRoutineScheduler {
             power.update(armed: owner.scheduledRoutines.contains { $0.enabled && $0.pausedReason == nil })
         }
         guard !resolvedWake().shouldHold(now: now) else { return }
+        (owner as? MateRoutineRunLimiting)?.enforceRoutineRunLimits(now: now)
         for routine in owner.dueRoutines(now: now) {
             attempt(routine, now: now, owner: owner)
         }

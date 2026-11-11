@@ -32,6 +32,7 @@ struct MateHomeView: View {
     /// Jobs whose plan is open in the chat's job strip.
     @State private var expandedPlanRunIDs: Set<UUID> = []
     @State private var isShowingNewMate = false
+    @State private var isShowingSchedules = false
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     /// The ready-made agent the builder opens on, when a suggestion started it.
     @State private var builderRecipe: AgentRecipe?
@@ -117,6 +118,9 @@ struct MateHomeView: View {
         .disclosureSound(isShowingChatHistory, .sheet)
         .sheet(isPresented: $isShowingNewMate, onDismiss: { builderRecipe = nil }) {
             AgentBuilderSheet(companionManager: companionManager, initialRecipe: builderRecipe)
+        }
+        .sheet(isPresented: $isShowingSchedules) {
+            MateSchedulesSheet(companionManager: companionManager)
         }
         .sheet(item: $settingsMate) { mate in
             MateSettingsSheet(
@@ -339,7 +343,13 @@ struct MateHomeView: View {
                 }
                 .dsToolbarIconButtonStyle()
                 .keyboardShortcut("n", modifiers: [.command, .shift])
-                .help(railTab == .chats ? "New chat" : "New agent (⇧⌘N)")
+                .contextMenu {
+                    Button("Import Agent from File…") {
+                        MateFileTransfer.importFromFile(companionManager: companionManager)
+                    }
+                    Button("All Schedules…") { isShowingSchedules = true }
+                }
+                .help(railTab == .chats ? "New chat" : "New agent (⇧⌘N). Right-click to import or see all schedules")
                 .accessibilityLabel(railTab == .chats ? "New chat" : "New agent")
             }
             .padding(.horizontal, 12)
@@ -904,7 +914,13 @@ struct MateHomeView: View {
             }
             Button("Mark as Unread") { companionManager.markMateUnread(id: mate.id) }
             Button("Mark as Read") { companionManager.markMateRead(id: mate.id) }
+            Divider()
             if !mate.conductsOthers {
+                Button("Duplicate") { companionManager.duplicateMate(id: mate.id) }
+            }
+            Button("Export as File…") { MateFileTransfer.export(mateID: mate.id, companionManager: companionManager) }
+            if !mate.conductsOthers {
+                Divider()
                 Button("Delete", role: .destructive) { matePendingDelete = mate }
             }
         }
@@ -2869,6 +2885,7 @@ struct RoutineRow: View {
                         .foregroundColor(DS.Colors.textTertiary)
                         .lineLimit(3)
                 }
+                RoutineHistoryStrip(routine: routine)
                 HStack(spacing: 10) {
                     if routine.pausedReason == nil {
                         Button("Pause") { companionManager.pauseRoutine(id: routine.id) }
@@ -2878,6 +2895,7 @@ struct RoutineRow: View {
                     }
                     Button("Edit") { beginEditing() }
                     Button("Delete") { confirmingDelete = true }
+                    RoutineRunLimitMenu(routine: routine, companionManager: companionManager)
                 }
                 .font(DS.Fonts.control)
                 .buttonStyle(.plain)
