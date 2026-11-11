@@ -1,8 +1,9 @@
 // Privacy-preserving Pi lifecycle telemetry.
 // Request bodies, response headers, tool arguments and result text never enter logs.
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, chmodSync, mkdirSync, renameSync, statSync } from 'node:fs';
+import { appendFileSync, closeSync, constants, fchmodSync, fstatSync, mkdirSync, openSync, renameSync } from 'node:fs';
 import path from 'node:path';
+import lockfile from 'proper-lockfile';
 function newRoundStats() {
   return { rounds: 0, modelMs: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0,
     reasoningTokens: 0, toolCalls: 0, toolErrors: 0, earlyStarts: 0, compactions: 0 };
@@ -41,12 +42,47 @@ function compactEvent(event) {
 }
 
 const MAX_LOG_BYTES = 1024 * 1024;
-function privateAppend(file, value) {
+const LOG_FLAGS = constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT
+  | constants.O_NOFOLLOW | constants.O_NONBLOCK;
+
+function openPrivateLog(file) {
+  const descriptor = openSync(file, LOG_FLAGS, 0o600);
   try {
-    if (statSync(file).size >= MAX_LOG_BYTES) renameSync(file, `${file}.1`);
-  } catch {}
-  appendFileSync(file, `${JSON.stringify(value)}\n`, { mode: 0o600 });
-  chmodSync(file, 0o600);
+    const info = fstatSync(descriptor);
+    if (!info.isFile() || info.nlink !== 1) throw new Error('Expected a private telemetry file');
+    fchmodSync(descriptor, 0o600);
+    return { descriptor, size: info.size };
+  } catch (error) {
+    closeSync(descriptor);
+    throw error;
+  }
+}
+
+function privateAppend(file, value) {
+  let release;
+  try {
+    release = lockfile.lockSync(file, { realpath: false });
+  } catch (error) {
+    if (error.code !== 'ELOCKED') throw error;
+  }
+  try {
+    let log = openPrivateLog(file);
+    try {
+      // A concurrent writer can still append to the current or rotated inode.
+      // Only the lock holder rotates, so a second writer cannot replace .1.
+      if (release && log.size >= MAX_LOG_BYTES) {
+        renameSync(file, `${file}.1`);
+        const next = openPrivateLog(file);
+        closeSync(log.descriptor);
+        log = next;
+      }
+      appendFileSync(log.descriptor, `${JSON.stringify(value)}\n`);
+    } finally {
+      closeSync(log.descriptor);
+    }
+  } finally {
+    release?.();
+  }
 }
 function resultChars(result) {
   return (result?.content ?? []).reduce((n, part) => n + (part?.type === 'text' ? (part.text?.length ?? 0) : 0), 0);

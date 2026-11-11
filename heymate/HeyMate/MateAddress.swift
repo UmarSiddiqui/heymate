@@ -47,7 +47,7 @@ nonisolated enum MateAddressParser {
         for mate in candidates {
             let name = mate.name.trimmingCharacters(in: .whitespaces)
             let openings = [
-                "@\(name) ", "@\(name), ", "\(name), ", "\(name): ",
+                "@\(name) ", "@\(name), ", "@\(name): ", "\(name), ", "\(name): ",
                 "hey \(name), ", "hey \(name) ", "have \(name) ", "get \(name) to "
             ]
             for opening in openings {

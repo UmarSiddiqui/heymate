@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import lockfile from 'proper-lockfile';
 import { createTelemetry } from '../src/telemetry.mjs';
 
 test('H1 telemetry keeps per-request timings and cached-token aggregates without private content', () => {
@@ -54,4 +55,36 @@ test('compact logger and full timing log persist privately', async () => {
     assert.equal((await stat(path.join(home, 'logs/request-stats.jsonl'))).mode & 0o777, 0o600);
     assert.equal((await stat(path.join(home, 'logs/h1-rounds.jsonl'))).mode & 0o777, 0o600);
   } finally { await rm(home, { recursive: true, force: true }); }
+});
+
+test('telemetry refuses symlink targets and preserves records during a locked rotation', async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), 'heymate-telemetry-'));
+  try {
+    const t = createTelemetry({ home, sessionID: 'chat', model: 'fixture' });
+    const active = path.join(home, 'logs/request-stats.jsonl');
+    const outside = path.join(home, 'unrelated.txt');
+    await writeFile(outside, 'untouched', { mode: 0o644 });
+    await symlink(outside, active);
+    t.onEvent({ type: 'compaction_start' });
+    assert.equal(await readFile(outside, 'utf8'), 'untouched');
+    assert.equal((await stat(outside)).mode & 0o777, 0o644);
+
+    await rm(active);
+    const fullLog = ' '.repeat(1024 * 1024);
+    await writeFile(active, fullLog, { mode: 0o644 });
+    const release = lockfile.lockSync(active, { realpath: false });
+    try {
+      t.onEvent({ type: 'compaction_start' });
+      await assert.rejects(stat(`${active}.1`), { code: 'ENOENT' });
+      assert.ok((await readFile(active, 'utf8')).startsWith(fullLog));
+    } finally {
+      release();
+    }
+    t.onEvent({ type: 'compaction_start' });
+    assert.equal(JSON.parse(await readFile(active, 'utf8')).kind, 'compaction');
+    assert.equal(JSON.parse((await readFile(`${active}.1`, 'utf8')).trim()).kind, 'compaction');
+    assert.equal((await stat(`${active}.1`)).mode & 0o777, 0o600);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
 });

@@ -26,6 +26,29 @@ struct MateAddressShortFormTests {
         }
     }
 
+    @Test func leadingAgentNameWinsOverContextToken() {
+        let clipboard = mate("Clipboard")
+        let clerk = mate("Clipboard Clerk")
+        let mates = [clipboard, clerk]
+        for mention in ["@Clipboard", "@Clipboard,", "@Clipboard:"] {
+            let single = CommandBarParser.parseForAgentSend("\(mention) summarize this", mates: mates)
+            #expect(single.mate?.id == clipboard.id)
+            #expect(single.input == .message(text: "summarize this", contextTokens: []))
+        }
+
+        let multi = CommandBarParser.parseForAgentSend("@clipboard  clerk summarize this @skills", mates: mates)
+        #expect(multi.mate?.id == clerk.id)
+        #expect(multi.input == .message(text: "summarize this", contextTokens: [.skills]))
+
+        let explicit = CommandBarParser.parseForAgentSend("summarize this @clipboard", mates: mates)
+        #expect(explicit.mate == nil)
+        #expect(explicit.input == .message(text: "summarize this", contextTokens: [.clipboard]))
+
+        let noMatch = CommandBarParser.parseForAgentSend("@clipboard summarize this", mates: [])
+        #expect(noMatch.mate == nil)
+        #expect(noMatch.input == .message(text: "summarize this", contextTokens: [.clipboard]))
+    }
+
     @Test func ordinarySentencesGoNowhere() {
         let mates = [mate("Scout"), mate("Desk Clerk"), mate("Gone", archived: true)]
         let plain = [
