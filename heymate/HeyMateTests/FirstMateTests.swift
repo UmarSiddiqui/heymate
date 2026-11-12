@@ -413,7 +413,9 @@ struct MateAgentBriefTests {
 struct PiDelegationToolTests {
     @Test func delegationToolsAreRealLocalToolsWithoutStartMateWork() {
         let local = Set(TalkToolCatalog.localTools.map(\.toolDefinition.name))
-        #expect(TalkToolCatalog.piDelegationToolNames == ["send_to_mate", "get_mate_status", "answer_request", "create_mate"])
+        #expect(TalkToolCatalog.piDelegationToolNames == [
+            "send_to_mate", "get_mate_status", "answer_request", "create_mate", "manage_routines", "ask_person"
+        ])
         #expect(TalkToolCatalog.piDelegationToolNames.isSubset(of: local))
         #expect(!TalkToolCatalog.piDelegationToolNames.contains(TalkToolCatalog.startMateWorkToolName))
     }
