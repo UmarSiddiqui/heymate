@@ -1,5 +1,6 @@
 import { fetchModelSpeeds, speedAccount } from './model-speeds.mjs';
-import { brainProviders, hasBrainCredential, configureBrain, modelEfforts } from './brain.mjs';
+import { brainProviders, hasBrainCredential, configureBrain, modelEfforts, validBrainOverride } from './brain.mjs';
+import { validSkillName } from './skills.mjs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { appendFile, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
@@ -329,16 +330,17 @@ export class HeyMateHarness {
     if (state.cancelled || state.session.limitReached || !answer?.trim() || ['error', 'toolUse', 'aborted'].includes(last?.stopReason)) return null;
     return answer;
   }
-  async run(state, text, images, system = '', seed = []) {
+  async run(state, text, images, system = '', seed = [], brain = null, skills = null) {
     try {
       // One Pi session per chat stays alive across turns. It is rebuilt only
-      // when its instructions or tool set change; Brain changes dispose it.
+      // when its instructions, tool set, per-chat brain, or skill scope change.
       const tools = await this.tools(state);
-      const key = JSON.stringify([system, tools.map(tool => tool.name)]);
+      const key = JSON.stringify([system, tools.map(tool => tool.name), brain ?? null, skills ?? null]);
       if (!state.session || state.sessionKey !== key) {
         state.session?.dispose(); state.session = null;
         state.session = await this.createSession({ home: this.home, record: state.record, access: this.access,
-          tools, system, seed, approve: (name, args, signal) => this.approve(state, name, args, signal),
+          tools, system, seed, brainOverride: brain, skillNames: skills, modelSpeeds: this.modelSpeeds ?? {},
+          approve: (name, args, signal) => this.approve(state, name, args, signal),
           sideEffect: (name, args, id, run) => this.sideEffect(state, name, args, id, run),
           previewNote: call => this.previewNote(state, call), effectsNote: () => this.effectsNote(state), stats: stats => this.logStats(state, stats),
           emit: (type, payload) => { if (!(state.noteFinishing && type === 'message.delta')) this.emit(state, type, payload); } });
@@ -511,14 +513,20 @@ export class HeyMateHarness {
       if (!boundedText(p.text, 262144)) throw new Error('Invalid prompt.');
       if (p.system !== undefined && p.system !== '' && !boundedText(p.system, 65536)) throw new Error('Invalid instructions.');
       if (p.seed !== undefined && !validSeed(p.seed)) throw new Error('Invalid chat history.');
+      if (!validBrainOverride(p.brain)) throw new Error('Invalid session brain.');
+      if (p.skills !== undefined && p.skills !== null && (!Array.isArray(p.skills) || p.skills.length > 128 || !p.skills.every(validSkillName))) {
+        throw new Error('Invalid session skills.');
+      }
       state.running = true; state.cancelled = false;
       const rowID = state.record.rows.length + 1;
       state.record.rows.push({ id: rowID, role: 'user', content: p.text }); state.record.pending = true;
       state.record.activeTurnID = randomUUID();
       try { await this.store.save(state.record); } catch (error) { state.running = false; throw error; }
       const images = state.images.splice(0);
+      const brain = p.brain ?? null;
+      const skills = Array.isArray(p.skills) ? p.skills : null;
       // Acceptance is separate from completion; native ledger records this exact row.
-      state.run = new Promise(resolve => setImmediate(resolve)).then(() => this.run(state, p.text, images, p.system ?? '', p.seed ?? []));
+      state.run = new Promise(resolve => setImmediate(resolve)).then(() => this.run(state, p.text, images, p.system ?? '', p.seed ?? [], brain, skills));
       return { status: 'streaming', user_row_id: rowID };
     }
     if (method === 'session.hold') {

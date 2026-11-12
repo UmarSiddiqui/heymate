@@ -22,6 +22,22 @@ extension CompanionManager: MateRoutineRunning {
         mateRoutineScheduler.schedulesChanged()
     }
 
+    /// The mate the shared interaction state belongs to: the run's owner for
+    /// agent states, the open chat's mate for a reply. Nil when idle. Only
+    /// that mate may look busy, so opening another mate never inherits it.
+    var liveStateOwnerMateID: UUID? {
+        let defaultID = mateDirectory.defaultMateID
+        switch state {
+        case .idle:
+            return nil
+        case .agentRunning(let runID), .waitingForApproval(let runID):
+            guard let run = agentRuns.first(where: { $0.id == runID }) else { return defaultID }
+            return run.chatOwner?.mateID ?? defaultID
+        default:
+            return currentChat.mateID ?? defaultID
+        }
+    }
+
     func finishMateLaunch() {
         let defaultID = mateDirectory.defaultMateID
         let loaded = chatHistoryStore.loadAll()
@@ -75,6 +91,15 @@ extension CompanionManager: MateRoutineRunning {
         streamingAssistantText = ""
         savedChats = rememberConversationsEnabled ? chatHistoryStore.loadAll() : []
         syncMatePublications()
+    }
+
+    /// Global shortcuts (double-tap type, push-to-talk, hands-free) always
+    /// talk to main HeyMate, never whichever mate was open last. Opens main
+    /// HeyMate's newest chat; a mate's background turn keeps running.
+    func focusMainHeyMateForShortcut() {
+        let defaultID = mateDirectory.defaultMateID
+        guard (activeMateID ?? defaultID) != defaultID else { return }
+        openMate(id: defaultID)
     }
 
     /// A blank conversation with main HeyMate, leaving any open mate chat.

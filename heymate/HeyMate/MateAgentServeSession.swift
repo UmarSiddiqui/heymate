@@ -25,6 +25,20 @@ final class MateAgentServeSession {
         }
     }
     nonisolated struct Identity: Equatable, Codable, Sendable { let runtimeID: String; let storedID: String }
+    nonisolated struct BrainOverride: Equatable, Codable, Sendable {
+        var provider: String
+        var model: String? = nil
+        var effort: String? = nil
+        var speed: String? = nil
+
+        var jsonObject: JSONValue {
+            var fields: [String: JSONValue] = ["provider": .string(provider)]
+            if let model, !model.isEmpty { fields["model"] = .string(model) }
+            if let effort, !effort.isEmpty { fields["effort"] = .string(effort) }
+            if let speed, !speed.isEmpty { fields["speed"] = .string(speed) }
+            return .object(fields)
+        }
+    }
     nonisolated struct Result: Equatable, Sendable {
         let text: String
         let status: String
@@ -47,6 +61,8 @@ final class MateAgentServeSession {
         let continuation: CheckedContinuation<Result, Error>
         let timer: Task<Void, Never>
         var accepted = false
+        var silence: Duration = .zero
+        var activeTools = 0
         var terminal: Swift.Result<Result, Error>?
     }
     private struct PendingRequest {
@@ -78,6 +94,7 @@ final class MateAgentServeSession {
     private var bufferedBytes = 0
     private var earlyRequests: [(JSONValue, String, JSONValue?)] = []
     private var requests: [String: PendingRequest] = [:]
+    private var externalClockHeld = false
     private var text = ""
     private(set) var identity: Identity?
     private(set) var hasPriorWorkInProgress = false
@@ -252,6 +269,7 @@ final class MateAgentServeSession {
     /// harness imports once, only into a Pi session with no history yet.
     func prompt(text request: String, images: [(data: Data, label: String)] = [],
                 system: String = "", seed: [JSONValue] = [],
+                brain: BrainOverride? = nil, skills: [String]? = nil,
                 timeout: Duration = .seconds(300)) async throws -> Result {
         let request = ScreenContextPrompt.withImageLabels(request, images: images)
         if let recovery { await recovery.value }
@@ -303,7 +321,15 @@ final class MateAgentServeSession {
                         while left > .zero {
                             do { try await ContinuousClock().sleep(for: tick) } catch { return }
                             guard let self, self.turn?.id == id else { return }
-                            if self.requests.isEmpty { left -= tick }
+                            if self.requests.isEmpty && !self.externalClockHeld {
+                                left -= tick
+                                self.turn?.silence += tick
+                                let maxSilence: Duration = (self.turn?.activeTools ?? 0) > 0 ? .seconds(230) : .seconds(110)
+                                if let silence = self.turn?.silence, silence >= maxSilence {
+                                    self.finish(.failure(Failure.remoteFailure("This turn stalled without progress and was stopped so you can retry.")))
+                                    return
+                                }
+                            }
                         }
                         guard let self, self.turn?.id == id else { return }
                         self.finish(.failure(MateAgentServeWebSocket.Failure.timedOut))
@@ -318,6 +344,8 @@ final class MateAgentServeSession {
                             var params: [String: JSONValue] = ["session_id": .string(identity.runtimeID), "text": .string(request)]
                             if !system.isEmpty { params["system"] = .string(system) }
                             if !seed.isEmpty { params["seed"] = .array(seed) }
+                            if let brain { params["brain"] = brain.jsonObject }
+                            if let skills { params["skills"] = .array(skills.map { .string($0) }) }
                             let accepted = try await self.connection.request(method: "prompt.submit", params: .object(params),
                                 timeout: .seconds(60))
                             guard self.turn?.id == id else { return }
@@ -378,6 +406,8 @@ final class MateAgentServeSession {
     /// Pauses or resumes the running turn's clock while the app holds a call on
     /// an approval card. Best effort: a missed release is bounded by the card's expiry.
     func holdTurnClock(_ held: Bool) async {
+        externalClockHeld = held
+        if !held { turn?.silence = .zero }
         guard let identity else { return }
         _ = try? await connection.request(method: "session.hold", params: .object([
             "session_id": .string(identity.runtimeID), "held": .bool(held)
@@ -548,6 +578,12 @@ final class MateAgentServeSession {
         guard turn != nil else {
             if type.hasPrefix("tool.") || type.hasPrefix("subagent.") || type == "status.update" { progress(type, payload) }
             return
+        }
+        turn?.silence = .zero
+        if type == "tool.start" { turn?.activeTools += 1 }
+        else if type == "tool.end" {
+            let nextActive = max(0, (turn?.activeTools ?? 1) - 1)
+            turn?.activeTools = nextActive
         }
         switch type {
         case "message.delta":

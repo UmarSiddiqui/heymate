@@ -48,6 +48,7 @@ enum TalkToolCatalog {
     static let askDeeperToolName = HarnessToolName.askDeeper.rawValue
     static let createMateToolName = "create_mate"
     static let manageRoutinesToolName = "manage_routines"
+    static let askPersonToolName = "ask_person"
     static let useChromeToolName = "use_chrome"
     static let useBrowserToolName = "use_browser"
 
@@ -55,7 +56,7 @@ enum TalkToolCatalog {
     /// can hand work to another or add a new one. start_mate_work is left out
     /// on purpose: a Pi mate does its own work rather than spawning native
     /// runs for itself.
-    static let piDelegationToolNames: Set<String> = [sendToMateToolName, getMateStatusToolName, answerRequestToolName, createMateToolName, manageRoutinesToolName]
+    static let piDelegationToolNames: Set<String> = [sendToMateToolName, getMateStatusToolName, answerRequestToolName, createMateToolName, manageRoutinesToolName, askPersonToolName]
     /// Every local tool a Pi turn reaches through the scoped bridge: the
     /// delegation tools plus Chrome.
     static let piBridgeLocalToolNames: Set<String> = piDelegationToolNames.union([useChromeToolName, useBrowserToolName])
@@ -211,6 +212,16 @@ enum TalkToolCatalog {
                 description: "Add a new agent (a specialist with its own chat) to the user's roster, optionally with a recurring routine. Use only when the user asked for a new agent. Returns the name actually saved; fails without creating anything when the name is taken or the routine schedule cannot be read.",
                 inputSchemaJSON: """
                 {"type":"object","properties":{"name":{"type":"string","description":"Optional. Must be unique among the user's agents; generated from job when omitted"},"job":{"type":"string","description":"What this agent does, in one sentence"},"soul":{"type":"string","description":"Optional personality or working style"},"routine":{"type":"string","description":"Optional. When it runs plus what it does each time, e.g. \\"every 2 hours check my inbox, file mail into the right labels and flag anything urgent\\". Schedules: every N hours, every few hours, every morning, daily at 8am or 8:30pm"}},"required":["job"]}
+                """
+            ),
+            origin: .local
+        ),
+        TalkTool(
+            toolDefinition: AssistantToolDefinition(
+                name: askPersonToolName,
+                description: "File a brief question in Waiting on You when you hit a decision or missing input that only the person can decide, so this chat pauses cleanly and resumes automatically when they answer.",
+                inputSchemaJSON: """
+                {"type":"object","properties":{"question":{"type":"string","description":"One clear question for the person"},"choices":{"type":"array","items":{"type":"string"},"description":"Optional short clickable options (2-5)"},"default_choice":{"type":"string","description":"Optional recommended default if they agree"},"task_context":{"type":"string","description":"Short summary of what remains once answered"}},"required":["question"]}
                 """
             ),
             origin: .local

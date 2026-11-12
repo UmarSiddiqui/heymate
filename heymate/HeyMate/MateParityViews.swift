@@ -224,53 +224,124 @@ struct MateSchedulesSheet: View {
     }
 }
 
-// MARK: Backup brain
+// MARK: Per-agent Brain, effort, and backup brain
 
-/// "When Claude hits its usage limit, use …". One choice for the whole app,
-/// because every chat runs on the HeyMate agent's one Brain. Saves at once.
 struct MateBackupBrainField: View {
     let mate: Mate
     @ObservedObject var companionManager: CompanionManager
     @ObservedObject private var setup = MateAgentSetupController.shared
 
-    private var primary: AgentBrain? { BrainProviderMapping.brain(forProvider: setup.currentProvider) }
-    private var backup: AgentBrain? { companionManager.appBackupBrain }
-    private var defaultMateID: UUID { companionManager.mates.first { $0.conductsOthers }?.id ?? mate.id }
+    private var currentMate: Mate {
+        companionManager.mates.first { $0.id == mate.id } ?? mate
+    }
+    private var appBrain: AgentBrain? { BrainProviderMapping.brain(forProvider: setup.currentProvider) }
+    private var explicitPrimary: AgentBrain? { currentMate.brainRawValue.flatMap(AgentBrain.init(rawValue:)) }
+    private var effectivePrimary: AgentBrain? { explicitPrimary ?? appBrain }
+    private var explicitBackup: AgentBrain? { currentMate.backupBrainRawValue.flatMap(AgentBrain.init(rawValue:)) }
 
-    private var choices: [AgentBrain] {
+    private var authenticatedBrains: [AgentBrain] {
         AgentBrain.allCases.filter { brain in
-            guard brain != primary, let provider = BrainProviderMapping.provider(for: brain) else { return false }
+            guard let provider = BrainProviderMapping.provider(for: brain) else { return false }
             return setup.providers.isEmpty || setup.providers.contains { $0.id == provider && $0.authenticated }
         }
     }
 
+    private var backupChoices: [AgentBrain] {
+        authenticatedBrains.filter { $0 != effectivePrimary }
+    }
+
+    private static let effortOptions: [(id: String?, label: String)] = [
+        (nil, "App default"),
+        ("low", "Low (faster)"),
+        ("medium", "Medium"),
+        ("high", "High (deeper)")
+    ]
+
+    private var currentEffortLabel: String {
+        Self.effortOptions.first { $0.id == currentMate.effortRawValue }?.label
+            ?? (currentMate.effortRawValue?.capitalized ?? "App default")
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text("Backup brain")
+                Text("Brain & failover")
                     .font(DS.Fonts.sectionLabel)
                     .foregroundColor(DS.Colors.textTertiary)
-                Text("For every agent. Saved as soon as you pick")
+                Text("For this agent only. Saved right away")
                     .font(DS.Fonts.caption)
                     .foregroundColor(DS.Colors.textTertiary)
             }
+            HStack(spacing: 12) {
+                HStack(spacing: 6) {
+                    Text("Brain:")
+                        .font(DS.Fonts.body)
+                        .foregroundColor(DS.Colors.textSecondary)
+                    Menu {
+                        Button("App default (\(appBrain?.displayName ?? "Brain"))") {
+                            companionManager.setMatePrimaryBrain(id: mate.id, brain: nil)
+                        }
+                        ForEach(authenticatedBrains, id: \.self) { brain in
+                            Button(brain.displayName) {
+                                companionManager.setMatePrimaryBrain(id: mate.id, brain: brain)
+                            }
+                        }
+                    } label: {
+                        Text(explicitPrimary?.displayName ?? "App default (\(appBrain?.displayName ?? "Brain"))")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                }
+                HStack(spacing: 6) {
+                    Text("Effort:")
+                        .font(DS.Fonts.body)
+                        .foregroundColor(DS.Colors.textSecondary)
+                    Menu {
+                        ForEach(Self.effortOptions, id: \.label) { option in
+                            Button(option.label) {
+                                companionManager.setMateEffort(id: mate.id, effort: option.id)
+                            }
+                        }
+                    } label: {
+                        Text(currentEffortLabel)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                }
+            }
             HStack(spacing: 8) {
-                Text("When \(primary?.displayName ?? "the Brain") hits its usage limit, use")
+                Text("When \(effectivePrimary?.displayName ?? "its Brain") hits a usage limit, use")
                     .font(DS.Fonts.body)
                     .foregroundColor(DS.Colors.textSecondary)
                 Menu {
-                    Button("Nothing, wait for it") { companionManager.setMateBackupBrain(id: defaultMateID, brain: nil) }
-                    ForEach(choices, id: \.self) { brain in
-                        Button(brain.displayName) { companionManager.setMateBackupBrain(id: defaultMateID, brain: brain) }
+                    if !mate.conductsOthers, let appBackup = companionManager.appBackupBrain {
+                        Button("App default (\(appBackup.displayName))") {
+                            companionManager.setMateBackupBrain(id: mate.id, brain: nil)
+                        }
+                    } else {
+                        Button("Nothing, wait for reset") {
+                            companionManager.setMateBackupBrain(id: mate.id, brain: nil)
+                        }
+                    }
+                    ForEach(backupChoices, id: \.self) { brain in
+                        Button(brain.displayName) {
+                            companionManager.setMateBackupBrain(id: mate.id, brain: brain)
+                        }
                     }
                 } label: {
-                    Text(backup?.displayName ?? "nothing")
+                    if let explicitBackup {
+                        Text(explicitBackup.displayName)
+                    } else if !mate.conductsOthers, let appBackup = companionManager.appBackupBrain {
+                        Text("App default (\(appBackup.displayName))")
+                    } else {
+                        Text("nothing")
+                    }
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
             }
-            if let primary, let until = companionManager.brainLimitLedger.limitedUntil(primary) {
-                Text("\(primary.displayName) is at its limit until about \(until.formatted(date: .omitted, time: .shortened)).")
+            if let effectivePrimary, let until = companionManager.brainLimitLedger.limitedUntil(effectivePrimary) {
+                Text("\(effectivePrimary.displayName) is at its limit until about \(until.formatted(date: .omitted, time: .shortened)).")
                     .font(DS.Fonts.caption)
                     .foregroundColor(DS.Colors.warningText)
             }

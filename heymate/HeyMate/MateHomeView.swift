@@ -203,6 +203,14 @@ struct MateHomeView: View {
             // A fresh chat leads with Hold to talk again.
             isComposerExpanded = false
         }
+        // Each double-tap lands the cursor in the field, even when the notch
+        // view was already on screen and onAppear does not fire again.
+        .onChange(of: companionManager.typedComposerSummonCount) { _, _ in
+            guard isTypeSummonedSurface else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                isComposerFocused = true
+            }
+        }
         .onChange(of: typedMessageInput) { _, newValue in
             companionManager.updateCurrentDraft(newValue)
         }
@@ -996,10 +1004,14 @@ struct MateHomeView: View {
     }
 
     private func isMateWorking(_ mate: Mate) -> Bool {
-        guard mate.id == companionManager.activeMateID else { return false }
+        // A mate's own unfinished job counts even while another mate is open.
+        if companionManager.agentRuns.contains(where: {
+            $0.chatOwner?.mateID == mate.id && ($0.status == .planning || $0.status == .running)
+        }) { return true }
+        guard companionManager.liveStateOwnerMateID == mate.id else { return false }
         if !companionManager.streamingAssistantText.isEmpty { return true }
         switch companionManager.state {
-        case .thinking, .capturingContext, .speaking, .finalizingTranscript:
+        case .thinking, .capturingContext, .speaking, .finalizingTranscript, .agentRunning:
             return true
         default:
             return false
@@ -2100,8 +2112,16 @@ struct MateHomeView: View {
     /// mate's face, a wide hold-to-talk control and a small "Type…" that
     /// opens the full composer. Anything typed, attached or focused keeps
     /// the full composer up.
+    /// The compact notch chat, opened by double-tap Control to type.
+    private var isTypeSummonedSurface: Bool {
+        isCompactLayout && shouldFocusComposerOnAppear
+    }
+
     private var showsTalkFirstComposer: Bool {
-        !companionManager.isSilentModeEnabled
+        // The notch chat is summoned to type (double-tap Control), so it is
+        // always a plain text field; voice has its own hold shortcut.
+        !isTypeSummonedSurface
+            && !companionManager.isSilentModeEnabled
             && !isComposerExpanded
             && !isComposerFocused
             && typedMessageInput.isEmpty

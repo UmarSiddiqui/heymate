@@ -39,27 +39,101 @@ nonisolated enum BrainProviderMapping {
 
 extension CompanionManager: MateRoutineRunLimiting {
 
-    // MARK: Backup brain
+    // MARK: Per-mate brain, effort, and usage-limit failover
 
     var brainLimitLedger: BrainLimitLedger { BrainLimitLedger() }
 
-    /// Every chat runs on the HeyMate agent's one Brain, so the backup is
-    /// one choice for the whole app, kept on the default mate.
+    /// App-wide fallback backup brain kept on the default mate.
     var appBackupBrain: AgentBrain? {
         mateDirectory.mates.first { $0.id == mateDirectory.defaultMateID }?
             .backupBrainRawValue.flatMap(AgentBrain.init(rawValue:))
     }
 
-    /// The Brain the HeyMate agent is set to right now.
+    /// The Brain the HeyMate agent is set to globally right now.
     var currentAgentBrain: AgentBrain? {
         BrainProviderMapping.brain(forProvider: MateAgentSetupController.shared.currentProvider)
     }
 
+    /// The primary brain chosen for `mateID`, falling back to the app Brain.
+    func matePrimaryBrain(mateID: UUID?) -> AgentBrain? {
+        if let mateID,
+           let raw = mateDirectory.mates.first(where: { $0.id == mateID })?.brainRawValue,
+           let brain = AgentBrain(rawValue: raw),
+           BrainProviderMapping.provider(for: brain) != nil {
+            return brain
+        }
+        return currentAgentBrain
+    }
+
+    /// The backup brain chosen for `mateID`, falling back to the app backup.
+    func mateBackupBrain(mateID: UUID?) -> AgentBrain? {
+        if let mateID,
+           let raw = mateDirectory.mates.first(where: { $0.id == mateID })?.backupBrainRawValue,
+           let brain = AgentBrain(rawValue: raw),
+           BrainProviderMapping.provider(for: brain) != nil {
+            return brain
+        }
+        return appBackupBrain
+    }
+
+    /// Resolves the exact per-chat brain override for `mateID`, automatically
+    /// routing around a usage-limited primary brain without touching global
+    /// `model.json` or interrupting other running chats.
+    func resolvedSessionBrain(forMateID mateID: UUID?, now: Date = Date()) -> MateAgentServeSession.BrainOverride? {
+        let mate = mateID.flatMap { id in mateDirectory.mates.first(where: { $0.id == id }) }
+        guard let primary = matePrimaryBrain(mateID: mateID) else { return nil }
+        let backup = mateBackupBrain(mateID: mateID)
+        let effective = brainLimitLedger.effectiveBrain(primary: primary, backup: backup, now: now)
+        guard let provider = BrainProviderMapping.provider(for: effective) else { return nil }
+        let usesOwnPrimary = effective == primary && mate?.brainRawValue != nil
+        // Only send an override when the mate customized brain/model/effort or
+        // when usage-limit failover routed away from the global provider.
+        let globalProvider = MateAgentSetupController.shared.currentProvider
+        if provider == globalProvider, mate?.modelID == nil, mate?.effortRawValue == nil, !usesOwnPrimary {
+            return nil
+        }
+        return MateAgentServeSession.BrainOverride(
+            provider: provider,
+            model: effective == primary ? mate?.modelID : nil,
+            effort: mate?.effortRawValue
+        )
+    }
+
+    /// Per-mate skill allowlist (`nil` = inherit HeyMate's enabled skills).
+    func resolvedMateSkillNames(forMateID mateID: UUID?) -> [String]? {
+        guard let mateID else { return nil }
+        return mateDirectory.mates.first(where: { $0.id == mateID })?.enabledSkillNames
+    }
+
     /// A backup that can take the next turn right now.
     func hasUsableBackupBrain(mateID: UUID, now: Date = Date()) -> Bool {
-        guard let backup = appBackupBrain, backup != currentAgentBrain,
+        guard let primary = matePrimaryBrain(mateID: mateID),
+              let backup = mateBackupBrain(mateID: mateID),
+              backup != primary,
               BrainProviderMapping.provider(for: backup) != nil else { return false }
         return !brainLimitLedger.isLimited(backup, now: now)
+    }
+
+    func setMatePrimaryBrain(id: UUID, brain: AgentBrain?) {
+        guard var mate = mateDirectory.mates.first(where: { $0.id == id }) else { return }
+        let raw = brain?.rawValue
+        guard mate.brainRawValue != raw else { return }
+        mate.brainRawValue = raw
+        if brain == nil { mate.modelID = nil }
+        mate.updatedAt = Date()
+        guard mateDirectory.upsertMate(mate) else { return }
+        syncMatePublications()
+    }
+
+    func setMateEffort(id: UUID, effort: String?) {
+        guard var mate = mateDirectory.mates.first(where: { $0.id == id }) else { return }
+        let cleaned = effort?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let next = (cleaned?.isEmpty == false) ? cleaned : nil
+        guard mate.effortRawValue != next else { return }
+        mate.effortRawValue = next
+        mate.updatedAt = Date()
+        guard mateDirectory.upsertMate(mate) else { return }
+        syncMatePublications()
     }
 
     func setMateBackupBrain(id: UUID, brain: AgentBrain?) {
@@ -73,52 +147,43 @@ extension CompanionManager: MateRoutineRunLimiting {
     }
 
     /// Called with every failed chat turn. A usage-limit failure holds that
-    /// Brain until it resets and, when a backup is set and signed in, moves
-    /// the HeyMate agent to it. A message the person typed runs again there.
+    /// Brain in `brainLimitLedger` until reset so every chat using it routes
+    /// straight to its backup on the very next turn — no global session reset
+    /// needed. Retries a person's foreground message immediately on the backup.
     func noteChatTurnFailureForBackupBrain(message: String, mateID: UUID?, transcript: String? = nil) {
-        guard BrainUsageLimit.isLimit(message), let failedBrain = currentAgentBrain else { return }
+        let ownerID = mateID ?? mateDirectory.defaultMateID
+        let activeBrain = resolvedSessionBrain(forMateID: ownerID).flatMap { BrainProviderMapping.brain(forProvider: $0.provider) }
+            ?? matePrimaryBrain(mateID: ownerID)
+        guard BrainUsageLimit.isLimit(message), let failedBrain = activeBrain else { return }
         let now = Date()
         var until = BrainUsageLimit.resetDate(from: message, now: now)
         if until == now.addingTimeInterval(BrainUsageLimit.defaultWait), let fromUsage = usageReset(for: failedBrain, now: now) {
             until = fromUsage
         }
         brainLimitLedger.markLimited(failedBrain, until: until)
-        guard let backup = appBackupBrain, backup != failedBrain,
+        guard let backup = mateBackupBrain(mateID: ownerID), backup != failedBrain,
               let backupProvider = BrainProviderMapping.provider(for: backup),
-              !brainLimitLedger.isLimited(backup, now: now),
-              BrainFailover.task == nil else { return }
-        let ownerID = mateID ?? mateDirectory.defaultMateID
+              !brainLimitLedger.isLimited(backup, now: now) else { return }
+        let setup = MateAgentSetupController.shared
+        let backupAuthenticated = setup.providers.isEmpty || setup.providers.contains { $0.id == backupProvider && $0.authenticated }
+        let clock = until.formatted(date: .omitted, time: .shortened)
+        guard backupAuthenticated else {
+            postMateMessage(mateID: ownerID, text: "\(failedBrain.displayName) is at its usage limit until about \(clock), and \(backup.displayName) is not signed in under Brain.")
+            return
+        }
         let isPersonTurn = activeRoutineTurn == nil && activeHandoffMateID == nil
         let retry = isPersonTurn ? (transcript?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") : ""
         let chatID = currentChat.id
-        let clock = until.formatted(date: .omitted, time: .shortened)
-        let setup = MateAgentSetupController.shared
-        let previous = BrainFailover.Choice(provider: setup.currentProvider, model: setup.currentModel,
-                                            effort: setup.currentEffort, speed: setup.currentSpeed)
-        BrainFailover.task = Task { @MainActor [weak self] in
-            defer { BrainFailover.task = nil }
-            // Changing the Brain restarts the agent's sessions, so wait for
-            // running turns to settle first.
-            for _ in 0..<120 {
-                guard let self else { return }
-                if !self.isChatTurnBusy { break }
-                try? await Task.sleep(nanoseconds: 500_000_000)
-            }
-            guard let self else { return }
-            await setup.connect(MateAgentEngineConfiguration.load(), provider: backupProvider, model: "", key: "")
-            guard setup.currentProvider == backupProvider else {
-                HeyMateLog.log("🔋 Backup \(backup.displayName) could not take over: \(setup.status ?? "")")
-                self.postMateMessage(mateID: ownerID, text: "\(failedBrain.displayName) is at its usage limit until about \(clock), and \(backup.displayName) could not take over. Check it is signed in under Brain.")
-                return
-            }
-            if BrainFailover.previous == nil { BrainFailover.previous = previous }
-            HeyMateLog.log("🔋 \(failedBrain.displayName) at its usage limit; \(backup.displayName) took over")
-            self.postMateMessage(
-                mateID: ownerID,
-                text: "\(failedBrain.displayName) hit its usage limit (resets about \(clock)), so \(backup.displayName) took over."
-                    + (retry.isEmpty ? "" : " Trying that again now.")
-            )
-            guard !retry.isEmpty, self.currentChat.id == chatID, !self.isChatTurnBusy else { return }
+        HeyMateLog.log("🔋 \(failedBrain.displayName) at its usage limit; routing turns to \(backup.displayName)")
+        postMateMessage(
+            mateID: ownerID,
+            text: "\(failedBrain.displayName) hit its usage limit (resets about \(clock)), so \(backup.displayName) took over."
+                + (retry.isEmpty ? "" : " Trying that again now.")
+        )
+        guard !retry.isEmpty, currentChat.id == chatID else { return }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard let self, self.currentChat.id == chatID else { return }
             _ = self.sendTypedMessage(retry, internalMateTurn: true)
         }
     }
@@ -281,6 +346,10 @@ extension CompanionManager: MateRoutineRunLimiting {
                                     faceAssetName: source.faceAssetName) else { return nil }
         copy.brainRawValue = source.brainRawValue
         copy.backupBrainRawValue = source.backupBrainRawValue
+        copy.modelID = source.modelID
+        copy.effortRawValue = source.effortRawValue
+        copy.enabledSkillNames = source.enabledSkillNames
+        copy.browserProfileID = source.browserProfileID
         copy.connectorOverrides = source.connectorOverrides
         copy.updatedAt = Date()
         _ = mateDirectory.upsertMate(copy)

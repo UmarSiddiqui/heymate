@@ -7,7 +7,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { HeyMateHarness } from './harness.mjs';
 import { createModelAccess, createPiSession } from './pi-session.mjs';
 import { privateHome, validID, readJSON, saveJSON } from './store.mjs';
-import { listSkills, skillContent, toggleSkill } from './skills.mjs';
+import { listSkills, skillContent, toggleSkill, saveSkill, deleteSkill } from './skills.mjs';
 
 const version = '1.0.0';
 const safeError = { error: 'HeyMate harness request failed. Check setup and current task state.' };
@@ -116,6 +116,14 @@ export async function startServer({ home, token, access, createSession = createP
         const p = await body(request);
         if (typeof p.enabled !== 'boolean' || [...harness.sessions.values()].some(s => s.running)) throw new Error('Invalid skill change.');
         await toggleSkill(home, p.name, p.enabled); return send(200, { ok: true });
+      }
+      if (method === 'POST' && url.pathname === '/api/skills/save') {
+        const p = await body(request);
+        return send(200, await saveSkill(home, p.name, p.content, p.enable === true));
+      }
+      if (method === 'DELETE' && url.pathname === '/api/skills') {
+        const p = await body(request);
+        return send(200, await deleteSkill(home, p.name));
       }
       const start = url.pathname.match(/^\/api\/providers\/oauth\/(openai-codex|anthropic)\/start$/);
       if (method === 'POST' && start) return send(200, await startLogin(harness, start[1]));

@@ -80,3 +80,42 @@ export async function configureBrain(harness, p) {
   for (const state of harness.sessions.values()) { state.session?.dispose(); state.session = null; }
   return { ok: true, ...config };
 }
+
+/// Resolves a per-chat brain override without mutating global model.json or
+/// disposing other running sessions. Falls back cleanly to baseConfig when the
+/// requested provider is unauthenticated or unavailable.
+export async function resolveSessionBrain(access, baseConfig, override, modelSpeeds = {}) {
+  if (!override || typeof override !== 'object' || !override.provider) return baseConfig;
+  const provider = brainProvider(override.provider);
+  if (!provider || !await hasBrainCredential(access, provider.id)) return baseConfig;
+  const models = access.runtime.getModels(provider.id) ?? [];
+  const requestedID = override.model ? modelID(override.model) : null;
+  const model = (requestedID && access.runtime.getModel(provider.id, requestedID))
+    || (baseConfig?.provider === provider.id && baseConfig?.model && access.runtime.getModel(provider.id, baseConfig.model))
+    || provider.preferred.map(id => models.find(m => m.id === id)).find(Boolean)
+    || models[0];
+  if (!model) return baseConfig;
+  const rawEffort = brainEfforts.includes(override.effort)
+    ? override.effort
+    : (baseConfig?.provider === provider.id ? baseConfig?.effort : null) ?? 'medium';
+  const effort = clampThinkingLevel(model, rawEffort);
+  const rawSpeed = override.speed && Object.hasOwn(speedNames, override.speed) ? override.speed : 'default';
+  const speed = rawSpeed !== 'default' && provider.id === 'openai-codex' && modelSpeeds?.[model.id]?.includes(rawSpeed)
+    ? rawSpeed : 'default';
+  return {
+    provider: provider.id,
+    model: model.id,
+    effort,
+    speed,
+    ...(provider.id === 'heymate-custom' && baseConfig?.base_url ? { base_url: baseConfig.base_url, api_format: baseConfig.api_format } : {})
+  };
+}
+export function validBrainOverride(value) {
+  if (value === undefined || value === null) return true;
+  if (typeof value !== 'object' || Array.isArray(value)) return false;
+  if (!brainProvider(value.provider)) return false;
+  if (value.model !== undefined && value.model !== null && value.model !== '' && !modelID(value.model)) return false;
+  if (value.effort !== undefined && value.effort !== null && value.effort !== '' && !brainEfforts.includes(value.effort)) return false;
+  if (value.speed !== undefined && value.speed !== null && value.speed !== '' && !Object.hasOwn(speedNames, value.speed)) return false;
+  return true;
+}

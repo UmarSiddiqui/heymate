@@ -3923,6 +3923,9 @@ final class CompanionManager: ObservableObject {
             }
             guard !voiceDictation.isDictationInProgress else { return }
 
+            // Voice always goes to main HeyMate, not the last open mate.
+            focusMainHeyMateForShortcut()
+
             deployCursorForInteraction()
 
             // Dismiss the notch card so it doesn't cover the screen
@@ -4434,6 +4437,12 @@ final class CompanionManager: ObservableObject {
                 // only this turn knows: a selection, scoped memory, the
                 // walkthrough step, and which images are explicit attachments.
                 var turnContext: [String] = []
+                if screenCaptures.isEmpty {
+                    let canvas = explainerWindowController.activeCanvasSize ?? NSScreen.main?.frame.size
+                    if let canvas {
+                        turnContext.append("No current screen image is attached. The drawing canvas is \(Int(canvas.width)) by \(Int(canvas.height)) pixels, with top-left origin. Use the request, explicit attachments, conversation and retained drawing as context. These dimensions do not reveal screen content or empty space. Keep new cards and figures inside this canvas; never invent visible controls or pointer coordinates.")
+                    }
+                }
                 if !contextUnavailableNote.isEmpty {
                     turnContext.append(contextUnavailableNote)
                 }
@@ -4482,6 +4491,9 @@ final class CompanionManager: ObservableObject {
 
                         let client = mateAgentConversationClients[turnSession.id] ?? MateAgentServeConversationClient(chatID: turnSession.id)
                         mateAgentConversationClients[turnSession.id] = client
+                        let turnMateID = turnSession.mateID ?? mateDirectory.defaultMateID
+                        client.preferredBrain = resolvedSessionBrain(forMateID: turnMateID)
+                        client.enabledSkillNames = resolvedMateSkillNames(forMateID: turnMateID)
                         client.onRecoveredResult = { [weak self] result in
                             self?.deliverRecoveredMateAgentResult(result, chatID: turnSession.id)
                         }
@@ -4844,6 +4856,9 @@ final class CompanionManager: ObservableObject {
 
         case TalkToolCatalog.manageRoutinesToolName:
             return manageRoutinesFromTalkTool(arguments: arguments, mateID: resultOwner.mateID)
+
+        case TalkToolCatalog.askPersonToolName:
+            return askPersonFromTalkTool(arguments: arguments, owner: resultOwner)
 
         default:
             return ("Unknown local tool \(toolName).", true)
@@ -6273,7 +6288,7 @@ extension CompanionManager {
                 guard !Task.isCancelled, !completion.didComplete else { return }
                 self.deliverIndependentChatResult(text.shown, chatID: chatID, resultKey: text.resultKey)
                 text.acknowledge()
-                outcome = .success(text.full)
+                outcome = .success(text.shown)
             } catch is CancellationError {
                 outcome = .cancelled
             } catch {
@@ -6301,10 +6316,28 @@ extension CompanionManager {
         switch outcome {
         case .success(let status):
             routine = MateRoutineAccounting.recordSuccess(routine, now: now, calendar: .current, status: status)
+            if let question = MateNeedsInputParser.extract(from: status) {
+                let mateName = mateDirectory.mates.first(where: { $0.id == mateID })?.name ?? "Agent"
+                mateInbox.record(MateInboxItem(
+                    id: UUID(), mateID: mateID, mateName: mateName, chatID: chatID,
+                    createdAt: now, resolvedAt: nil, resolutionSummary: nil,
+                    kind: .question(prompt: question.question, defaultAnswer: question.defaultAnswer, choices: question.choices),
+                    resumeTaskContext: routine.task
+                ))
+            }
         case .failure(let message):
             routine = MateRoutineAccounting.recordFailureWithRecovery(
                 routine, now: now, calendar: .current, status: message,
                 backupAvailable: hasUsableBackupBrain(mateID: mateID))
+            if routine.pendingRetryAt == nil {
+                let mateName = mateDirectory.mates.first(where: { $0.id == mateID })?.name ?? "Agent"
+                mateInbox.record(MateInboxItem(
+                    id: UUID(), mateID: mateID, mateName: mateName, chatID: chatID,
+                    createdAt: now, resolvedAt: nil, resolutionSummary: nil,
+                    kind: .routineFailed(routineID: routineID, summary: message),
+                    resumeTaskContext: routine.task
+                ))
+            }
         case .cancelled:
             routine = Self.timedOutParallelRoutines.remove(routineID) != nil
                 ? MateRoutineAccounting.recordTimedOut(routine, now: now, calendar: .current)
@@ -6333,6 +6366,76 @@ extension CompanionManager {
         let acknowledge: () -> Void
     }
 
+    /// Runs a background continuation turn in `chatID` so answering from the
+    /// Inbox or finishing a sign-in resumes the mate without switching away
+    /// from the chat the person currently has open.
+    func resumeMateChatInBackground(mateID: UUID, chatID: UUID, userMessage: String, modelPrompt: String) {
+        guard let mate = mateDirectory.mates.first(where: { $0.id == mateID && !$0.archived }) else { return }
+        if currentChat.id == chatID && !isChatTurnBusy {
+            _ = sendTypedMessage(modelPrompt)
+            return
+        }
+        var session = savedChats.first(where: { $0.id == chatID })
+            ?? ephemeralIndependentChats[chatID]
+            ?? sessionForRoutineAppend(mateID: mateID)
+        if independentChatTurns[session.id].map({ !$0.completion.didComplete }) == true { return }
+        session.messages.append(ChatMessage(id: UUID(), role: .user, text: userMessage, createdAt: Date()))
+        session.updatedAt = Date()
+        if currentChat.id == session.id { currentChat = session }
+        if rememberConversationsEnabled {
+            chatHistoryStore.upsert(session)
+            savedChats = chatHistoryStore.loadAll()
+        } else {
+            ephemeralIndependentChats[session.id] = session
+        }
+        let targetChatID = session.id
+        let completion = HeyMateRequestCompletionState()
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                completion.didComplete = true
+                if self.independentChatTurns[targetChatID]?.completion === completion {
+                    self.independentChatTurns.removeValue(forKey: targetChatID)
+                }
+                if self.currentResponseCompletion === completion {
+                    self.currentResponseTask = nil
+                    self.currentResponseCompletion = nil
+                    self.currentResponseChatID = nil
+                }
+            }
+            do {
+                let reply = try await self.runUnattendedTurnForContinuation(
+                    prompt: modelPrompt, mate: mate, session: session, completion: completion
+                )
+                guard !Task.isCancelled, !completion.didComplete else { return }
+                self.deliverIndependentChatResult(reply.shown, chatID: targetChatID, resultKey: reply.resultKey)
+                reply.acknowledge()
+                if self.currentChat.id != targetChatID {
+                    self.mateDirectory.incrementUnread(id: mateID)
+                    self.syncMatePublications()
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !completion.didComplete else { return }
+                self.noteChatTurnFailureForBackupBrain(message: error.localizedDescription, mateID: mate.id)
+                self.deliverIndependentChatResult("Couldn't resume: " + error.localizedDescription, chatID: targetChatID, resultKey: nil)
+            }
+        }
+        independentChatTurns[targetChatID] = IndependentChatTurn(completion: completion, task: task, session: session)
+        if targetChatID == currentChat.id { restoreIndependentChatTurn() }
+    }
+
+    func runUnattendedTurnForContinuation(
+        prompt: String, mate: Mate, session: ChatSession, completion: HeyMateRequestCompletionState
+    ) async throws -> UnattendedReply {
+        try await runUnattendedTurn(
+            prompt: prompt, mate: mate, session: session, routine: nil,
+            images: [], extraNote: "The person answered your paused question or sign-in request. Finish the task and report the outcome.",
+            completion: completion
+        )
+    }
+
     /// One unattended agent turn in `session`: no screen, no voice, no
     /// drawing, the mate's own identity, memory, integrations and tools.
     private func runUnattendedTurn(
@@ -6350,6 +6453,8 @@ extension CompanionManager {
                 self?.deliverRecoveredMateAgentResult(result, chatID: chatID)
             }
         }
+        client.preferredBrain = resolvedSessionBrain(forMateID: mate.id)
+        client.enabledSkillNames = resolvedMateSkillNames(forMateID: mate.id)
         let scope = registerTalkToolScope(owner: AgentChatOwner(mateID: mate.id, chatID: chatID), completion: completion)
         defer { revokeTalkToolScope(scope) }
         client.connectorScope = scopedConnectorToolDescriptions(token: scope).isEmpty ? nil : scope
@@ -6378,6 +6483,7 @@ extension CompanionManager {
             context.append(note)
         }
         if let extraNote { context.append(extraNote) }
+        context.append("Unattended envelope: take the sensible default for minor choices and state what you chose in one plain line. Only if you are genuinely blocked on a decision only the person can make, call ask_person or end your reply with `NEEDS INPUT: <question>` and `Default: <your recommendation>` so HeyMate files it in Waiting on You and resumes this chat once answered.")
         if let memory = MemoryRecall.promptBlock(items: memoryRepository.recall(query: prompt, for: mate.id)) {
             context.append(memory)
         }
@@ -6544,6 +6650,14 @@ extension CompanionManager {
         let state: HandoffRecord.State = stopped ? .cancelled : (succeeded ? .reported : .failed)
         handoffLedger.mark(handoff.id, state, note: note)
         HeyMateLog.log("🤝 Handoff \(handoff.id) to \(handoff.mateName) \(state)\(note.isEmpty ? "" : ": \(note)")")
+        if succeeded, let question = MateNeedsInputParser.extract(from: report) {
+            mateInbox.record(MateInboxItem(
+                id: UUID(), mateID: handoff.mateID, mateName: handoff.mateName, chatID: chatID,
+                createdAt: Date(), resolvedAt: nil, resolutionSummary: nil,
+                kind: .question(prompt: question.question, defaultAnswer: question.defaultAnswer, choices: question.choices),
+                resumeTaskContext: handoff.instruction
+            ))
+        }
         if currentChat.id != chatID, !stopped {
             mateDirectory.incrementUnread(id: handoff.mateID)
         }

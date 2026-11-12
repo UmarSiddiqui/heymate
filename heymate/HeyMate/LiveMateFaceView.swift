@@ -32,8 +32,13 @@ struct LiveMateFaceView: View {
     /// expression ends so the face's inbox can still deliver it once shown.
     @State private var finishEvent: MateReactionEvent?
 
+    /// The shared state only shows on the mate it belongs to.
+    private var ownsLiveState: Bool {
+        manager.liveStateOwnerMateID == mate.id
+    }
+
     private var expression: MateFaceExpression {
-        guard manager.state.isIdle else { return .live(manager.state) }
+        if ownsLiveState { return .live(manager.state) }
         if let reaction { return reaction.expression }
         let run = manager.agentRuns.filter {
             $0.chatOwner?.mateID == mate.id && !$0.status.isTerminal
@@ -58,7 +63,7 @@ struct LiveMateFaceView: View {
             }
         }
             .onChange(of: manager.agentRuns) { previous, current in
-                guard manager.state.isIdle,
+                guard !ownsLiveState,
                       let next = MateCompletionReaction.next(previous: previous, current: current, mateID: mate.id) else { return }
                 reactionTask?.cancel()
                 reaction = next
@@ -73,8 +78,8 @@ struct LiveMateFaceView: View {
                     reactionTask = nil
                 }
             }
-            .onChange(of: manager.state) { _, state in
-                if !state.isIdle { clearReaction() }
+            .onChange(of: manager.state) { _, _ in
+                if ownsLiveState { clearReaction() }
             }
             .onChange(of: mate.id) { _, _ in clearReaction() }
             .onDisappear(perform: clearReaction)
