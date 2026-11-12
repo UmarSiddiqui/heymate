@@ -3,7 +3,7 @@
 
 Each tone is (lightness, chroma, hue in degrees). Lightness sits on 0.05 steps and chroma on 0.03 steps, so the
 tones keep even perceptual distances; the hue is the colour the name means. TONES are Mate's ink and fills (2D
-drawings); REAL_TONES are the muted colours real things have, for 3D figures. A colour outside sRGB loses chroma until
+drawings); REAL_TONES are surface colours for 3D figures. Named red stays vivid; shading supplies its shadows. A colour outside sRGB loses chroma until
 it fits. mate-draw-engine.js (TONES, REAL_TONES, COLOR_WORDS) and DrawingBrush.swift use these values:
 
     python3 scripts/drawing-palette.py          print the tables
@@ -42,7 +42,7 @@ REAL_TONES = {
     'orange': (0.6, 0.15, 50),
     'peach': (0.75, 0.06, 50),
     'coral': (0.6, 0.12, 30),
-    'red': (0.45, 0.15, 30),
+    'red': (0.6, 0.21, 25),
     'pink': (0.65, 0.09, 10),
     'lilac': (0.65, 0.06, 295),
     'violet': (0.45, 0.12, 295),

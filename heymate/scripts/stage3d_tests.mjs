@@ -5,7 +5,7 @@ import test from 'node:test';
 
 const sources = new URL('../HeyMate/', import.meta.url);
 
-function stageHarness(width = 300, height = 500, look = null, nativeMetal = false, labelData = [{follow:'blade',text:'Fan blade',side:'left'}]) {
+function stageHarness(width = 300, height = 500, look = null, nativeMetal = false, labelData = [{follow:'blade',text:'Fan blade',side:'left'}], cameraSpec = {spin:0}) {
   const messages = [], errors = [];
   let now = 1000, nextFrame;
   class Element {
@@ -38,7 +38,7 @@ function stageHarness(width = 300, height = 500, look = null, nativeMetal = fals
   if (nativeMetal) vm.runInContext(`THREE.WebGLRenderer = class { constructor() { throw Error('Native stage created WebGL'); } };`, context);
   vm.runInContext(fs.readFileSync(new URL('mate-stage3d.js', sources), 'utf8'), context);
   const root = new Element('root');
-  root.children.push(new Element('scene3d', { id: 'stage', x: 20, y: 30, width, height, 'data-camera': '{"spin":0}', 'data-look': look }));
+  root.children.push(new Element('scene3d', { id: 'stage', x: 20, y: 30, width, height, 'data-camera': JSON.stringify(cameraSpec), 'data-look': look }));
   const part = data => new Element('part3d', { 'data-stage': 'stage', 'data-part': JSON.stringify(data) });
   // Same beat: parent must exist before its child.
   root.children.push(part({ id: 'group', kind: 'group', at: [4,0,0], scale: 2 }));
@@ -47,8 +47,37 @@ function stageHarness(width = 300, height = 500, look = null, nativeMetal = fals
   for (const data of labelData) root.children.push(new Element('label3d', { 'data-stage': 'stage', 'data-label': JSON.stringify(data) }));
   const points = [];
   context.MateStage3D.attach(root, { onBuild: (x,y,name) => points.push({ x,y,name }) });
-  return { points, messages, errors, context, stage: context.MateStage3D.stages.get('stage'), tick(time) { now = time; nextFrame(); } };
+  return { points, messages, errors, context, stage: context.MateStage3D.stages.get('stage'), tick(time) { now = time; nextFrame(); },
+    command(tag, data) {
+      root.children.push(new Element(tag, {'data-stage':'stage', 'data-op':JSON.stringify(data)}));
+      context.MateStage3D.attach(root, {onBuild: (x,y,name) => points.push({x,y,name})});
+    } };
 }
+
+test('requested three-quarter camera survives construction and follow-up edits', () => {
+  const h = stageHarness(600, 500, 'studio', true, [], {spin:0, turn:35, tilt:20, zoom:1.1});
+  h.tick(1100);
+  assert.ok(Math.abs(h.stage.yaw - 35 * Math.PI / 180) < 1e-6);
+  assert.equal(h.stage.zoom, 1.1);
+  h.command('camera3d', {turn:-40, tilt:25, zoom:1.2, fov:42, spin:0});
+  h.tick(1800); h.tick(2800);
+  assert.ok(Math.abs(h.stage.yaw + 40 * Math.PI / 180) < 1e-6);
+  assert.equal(h.stage.zoom, 1.2);
+  assert.equal(h.stage.camera.fov, 42);
+  assert.ok(Math.abs(h.stage.camera.projectionMatrix.elements[5] - 1 / Math.tan(42 * Math.PI / 360)) < 1e-6);
+});
+
+test('recoloring a named assembly changes its children without rebuilding or touching neighbours', () => {
+  const h = stageHarness(600, 500, 'studio', true, []); h.tick(1800);
+  const blade = h.stage.parts.get('blade'), shaft = h.stage.parts.get('p3');
+  const geometry = blade.geometry, material = blade.material, neighbour = shaft.material.color.getHex();
+  const camera = h.stage.camera.matrixWorld.clone();
+  h.command('motion3d', {target:'group', kind:'set', color:'#2563eb'}); h.tick(1900);
+  assert.equal(blade.material.color.getHexString(), '2563eb');
+  assert.equal(shaft.material.color.getHex(), neighbour);
+  assert.equal(blade.geometry, geometry); assert.equal(blade.material, material);
+  assert.deepEqual(h.stage.camera.matrixWorld.elements, camera.elements);
+});
 
 test('automatic labels use projected part sides and follow camera orbit', () => {
   const h = stageHarness(600, 500, null, true, [
@@ -60,6 +89,21 @@ test('automatic labels use projected part sides and follow camera orbit', () => 
   h.stage.yaw = Math.PI;
   h.tick(2100);
   assert.deepEqual(Array.from(h.stage.labelList, l => l.side), ['right','left','left']);
+});
+
+test('long labels stay inside a narrow stage beside source content', () => {
+  const h = stageHarness(240, 400, null, true, [
+    {follow:'p3',text:'Authentication server',side:'left'},
+    {follow:'blade',text:'Authorization response',side:'right'},
+  ]);
+  h.tick(1800);
+  for (const label of h.stage.labelList) label.div.offsetWidth = 160;
+  h.tick(2000);
+  for (const label of h.stage.labelList) {
+    const width = label.div.offsetWidth;
+    const x = parseFloat(label.div.style.left), left = label.side === 'left' ? x - width : x;
+    assert.ok(left >= 0 && left + width <= 240, 'label clipped outside stage');
+  }
 });
 
 test('same-beat grouped parts retain parent and final-size bounds', () => {

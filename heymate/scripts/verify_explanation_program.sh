@@ -37,6 +37,26 @@ assert.equal(followup.marks.find(m => m.do === 'motion3d').op.kind, 'set');
 const text = context.MateDraw.runCode(data.escaped, 1280, 800);
 assert.equal(text.error, null);
 assert.equal(context.escaped, undefined);
+for (const key of ['localized', 'timeline', 'chart']) {
+  const drawing = context.MateDraw.runCode(data[key], 1280, 800);
+  assert.equal(drawing.error, null, key + ' must execute');
+  assert.ok(drawing.length > 1, key + ' must draw');
+  if (key === 'localized') assert.equal(drawing.find(m => m.do === 'motion3d').op.color, '#E23439');
+  if (key === 'timeline') for (const label of ['Design', 'Review', 'Ship']) assert.ok(JSON.stringify(drawing).includes(label));
+  if (key === 'chart') {
+    const series = drawing.find(m => m.do === 'line' && m.tone === 'blue');
+    assert.ok(series, 'Chart series must render');
+    assert.deepEqual(Array.from(series.pts, p => Array.from(p)), [[100,220],[350,280],[600,175]]);
+  }
+}
+const chartSession = context.MateDraw.Session(1280, 800);
+const chartBase = chartSession.update(data.chart, false);
+const series = chartBase.marks.find(m => m.do === 'line' && m.tone === 'blue');
+const chartChange = chartSession.update(data.chart + '\n' + data.chartEdit, true);
+assert.equal(chartChange.error, null);
+const recolor = chartChange.marks.find(m => m.do === 'edit' && m.op.op === 'recolor');
+assert.ok(recolor, 'Series edit must produce a recolor operation');
+assert.deepEqual(Array.from(recolor.op.id), [series.id], 'Series edit must not recolor axes or tick labels');
 if (data.userBase) {
   const user = context.MateDraw.Session(2212,1437);
   const initial = user.update(pieces+'\n'+data.userBase,false);

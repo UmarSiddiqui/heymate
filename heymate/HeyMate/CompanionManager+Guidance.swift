@@ -215,14 +215,20 @@ extension CompanionManager {
         let lines = compiled?.lines ?? ExplainerParser.sayLines(in: code)
         if explainer.streamOwner != owner {
             // Only a block that speaks is a drawing (code they asked for has no say() lines).
-            guard !lines.isEmpty else { return }
+            guard !lines.isEmpty else {
+                explainer.validationError = compiled?.error
+                return
+            }
             explainer.beginStream(owner: owner, on: viewport.frame, canvas: viewport.canvas, screenshot: nil)
+            explainer.validationError = nil
             explainer.bindCapture(screen)
             explainer.streamSpeaker = Task { [weak self] in await self?.tellStreamingExplainer() }
         }
         explainer.streamLines = lines
         explainer.streamDone = closed
         if let compiled {
+            if let error = compiled.error { explainer.validationError = error }
+            explainer.commandRows = compiled.rows
             if compiled.resetsInventory { explainer.commandInventory = [:] }
             explainer.commandInventory.merge(compiled.inventory) { _, new in new }
         }

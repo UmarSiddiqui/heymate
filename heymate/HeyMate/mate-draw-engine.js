@@ -29,7 +29,7 @@
   // 2D marks and scene3d() keep TONES.
   const REAL_TONES = {
     ink: '#2B2E34', white: '#F1EEE6', grey: '#7C8088', butter: '#E5CC89', sun: '#D1A84B', orange: '#C46016',
-    peach: '#CEA48C', coral: '#BD6254', red: '#97271B', pink: '#BF7883', lilac: '#9188B1', violet: '#5B4590',
+    peach: '#CEA48C', coral: '#BD6254', red: '#E23439', pink: '#BF7883', lilac: '#9188B1', violet: '#5B4590',
     sky: '#7DA4C0', blue: '#234877', mint: '#90BA9E', leaf: '#46703D', brown: '#5F4025', tan: '#A98869', cream: '#E7DDC8'
   };
   const realTone = (name, fallback) => REAL_TONES[name] || name || fallback || REAL_TONES.ink;
@@ -637,7 +637,8 @@
         const left = Math.max(4, x - 10), top = Math.max(4, y - 10);
         const card = [left, top, Math.min(w - 4, x + stageW + 10) - left, Math.min(h - 4, y + stageH + 10) - top];
         // Respect a still view for faces, labels and deliberate compositions.
-        const camera = { tilt: fin(o.tilt) ? Math.min(80, Math.max(-80, o.tilt)) : 15, fov: fin(o.fov) ? o.fov : 35, spin: fin(o.spin) ? Math.max(0, Math.min(2, o.spin)) : 0.7 };
+        const camera = { tilt: fin(o.tilt) ? Math.min(80, Math.max(-80, o.tilt)) : 15, fov: fin(o.fov) ? o.fov : 35, spin: fin(o.spin) ? Math.max(0, Math.min(2, o.spin)) : 0.7,
+          turn: fin(o.turn) ? Math.max(-180, Math.min(180, o.turn)) : 0, zoom: fin(o.zoom) ? Math.max(0.5, Math.min(3, o.zoom)) : 1, target: v3(o.target, undefined) };
         const stage = push({ do: 'stage3d', id: sid, at: [x, y], w: stageW, h: stageH, ink, card: needsCard && !asWindow ? card : null, cardWindow: host ? host.inner : undefined, camera });
         if (look) stage.look = look;
         return { sid, ink };
@@ -740,12 +741,12 @@
       // sits and how it is turned, its material, and the group it hangs from. Repeats (copies, around, mirror) are
       // marks of their own. The handle a call returns moves the part: outside a tick by motion3d marks (a short tween
       // or a set), inside one by the pose the stage reads every frame (sink.anim).
-      const PART_KINDS = ['box', 'cyl', 'cylinder', 'cone', 'tube', 'lathe', 'sphere', 'torus', 'capsule', 'pipe', 'spring', 'gear', 'extrude', 'blob', 'poly', 'arrow'];
+      const PART_KINDS = ['box', 'cyl', 'cylinder', 'cone', 'tube', 'lathe', 'loft', 'sphere', 'torus', 'capsule', 'pipe', 'spring', 'gear', 'extrude', 'blob', 'poly', 'arrow'];
       const NOT_SHAPE = new Set(['at', 'pos', 'rot', 'rotate', 'scale', 'parent', 'name', 'mat', 'from', 'to', 'mirror', 'copies', 'around', 'cut']);
       const BETWEEN_POINTS = new Set(['cyl', 'cylinder', 'capsule', 'cone', 'tube']);
-      const TURNS_ABOUT_AXIS = new Set(['cyl', 'cylinder', 'cone', 'tube', 'lathe', 'sphere', 'torus', 'capsule', 'spring', 'gear', 'poly', 'extrude']);
+      const TURNS_ABOUT_AXIS = new Set(['cyl', 'cylinder', 'cone', 'tube', 'lathe', 'loft', 'sphere', 'torus', 'capsule', 'spring', 'gear', 'poly', 'extrude']);
       // the axis a part is built along before it is turned (most stand up along y)
-      const BUILT_ALONG = { gear: [0, 0, 1], extrude: [0, 0, 1] };
+      const BUILT_ALONG = { gear: [0, 0, 1], extrude: [0, 0, 1], loft: [0, 0, 1] };
       const MATERIAL_NAMES = new Set(['steel', 'alu', 'aluminum', 'aluminium', 'titanium', 'chrome', 'brass', 'copper', 'gold', 'iron', 'black', 'rubber',
         'glass', 'water', 'wood', 'ceramic', 'paper', 'gloss', 'paint', 'plastic', 'soft', 'matte', 'metal', 'glow']);
       const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -1392,7 +1393,7 @@
     // function named like a drawing call is made a var too, so it shadows the call. A statement that opens with ( [ or `
     // is a new statement, as the model means it (run whole, the line above would have taken it as its own call or index).
     // Line breaks are never added or removed, so error lines stay the program's own.
-    const FIGURE_PART = /^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[A-Za-z_$][\w$]*\s*\.\s*(?:box|cyl|cylinder|cone|tube|lathe|sphere|torus|capsule|pipe|spring|gear|extrude|blob|poly|surface|group)\s*\(/;
+    const FIGURE_PART = /^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[A-Za-z_$][\w$]*\s*\.\s*(?:box|cyl|cylinder|cone|tube|lathe|loft|sphere|torus|capsule|pipe|spring|gear|extrude|blob|poly|surface|group)\s*\(/;
     function transform(src, starts, api) {
       let out = '', copied = 0;
       for (const s of starts) {

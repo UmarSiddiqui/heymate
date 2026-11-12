@@ -604,8 +604,55 @@
     return g.translate(0, 0, -depth / 2);
   }
 
+  // Cross-sections along z, each with independent width, height and vertical offset.
+  // Unlike a lathe this can taper a low nose or fairing without making it circular.
+  function lofted(o) {
+    const sections = [];
+    for (const row of (Array.isArray(o.sections) ? o.sections : []).slice(0, 256)) {
+      if (!Array.isArray(row) || row.length < 3 || !row.slice(0, 3).every(isNum) || row[1] <= 0 || row[2] <= 0) continue;
+      if (sections.length && row[0] - sections[sections.length - 1][0] < 1e-4) continue;
+      sections.push([row[0], size(row[1], 0.5), size(row[2], 0.3), numOr(row[3], 0)]);
+      if (sections.length === 64) break;
+    }
+    if (sections.length < 2) sections.splice(0, sections.length, [-0.5, 0.5, 0.3, 0], [0.5, 0.2, 0.1, 0]);
+    const segments = whole(o.seg, 48, 12, 128), power = 2 / within(numOr(o.squareness, 2), 2, 6);
+    const p = [], uv = [], ix = [];
+    const signedPower = v => Math.sign(v) * Math.pow(Math.abs(v), power);
+    for (let i = 0; i < sections.length; i++) {
+      const [z, rx, ry, cy] = sections[i];
+      for (let j = 0; j < segments; j++) {
+        const angle = j / segments * TAU;
+        p.push(rx * signedPower(Math.cos(angle)), cy + ry * signedPower(Math.sin(angle)), z);
+        uv.push(j / segments, i / (sections.length - 1));
+      }
+    }
+    for (let i = 1; i < sections.length; i++) for (let j = 0; j < segments; j++) {
+      const a = (i - 1) * segments + j, b = (i - 1) * segments + (j + 1) % segments;
+      const c = i * segments + (j + 1) % segments, d = i * segments + j;
+      ix.push(a, b, c, a, c, d);
+    }
+    // Separate cap vertices keep flat end normals out of the smooth side shading.
+    for (const i of [0, sections.length - 1]) {
+      const [z, rx, ry, cy] = sections[i], center = p.length / 3;
+      p.push(0, cy, z); uv.push(0.5, 0.5);
+      const rim = p.length / 3;
+      for (let j = 0; j < segments; j++) {
+        const k = (i * segments + j) * 3;
+        p.push(p[k], p[k + 1], z); uv.push(0.5 + p[k] / (2 * rx), 0.5 + (p[k + 1] - cy) / (2 * ry));
+      }
+      for (let j = 0; j < segments; j++) {
+        const a = rim + j, b = rim + (j + 1) % segments;
+        if (i === 0) ix.push(center, b, a); else ix.push(center, a, b);
+      }
+    }
+    const g = arrays(p, null, uv, ix);
+    g.computeVertexNormals();
+    return aim(g, o.axis, 'z');
+  }
+
   // ---------------------------------------------------------------- kinds
   const KINDS = {
+    loft: lofted,
     box(o) {
       const s = Array.isArray(o.size) ? o.size : [o.w, o.h, o.d];
       const w = size(s[0], 1), h = size(s[1], 1), d = size(s[2], 1);

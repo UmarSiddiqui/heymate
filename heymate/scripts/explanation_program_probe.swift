@@ -47,6 +47,23 @@ struct ExplanationProgramProbe {
         let raw = "```js\nstep(1);say(\"Unsafe\");globalThis.webkit.messageHandlers.heymate.postMessage({type:'action'});\n```"
         require(ExplainerParser.extract(from: ExplainerParser.validatedTalkReply(raw)).program == nil, "Talk accepted raw model source")
         require(compiled.inventory["rod"] == "box", "Named inventory lost")
+        let loft = #"{"id":"body","say":"The body tapers in both dimensions.","ops":[{"op":"figure","id":"f","args":[10,10,400,400]},{"op":"part","figure":"f","id":"nose","kind":"loft","options":{"sections":[[-1,0.4,0.2],[1,0.1,0.05]],"squareness":4,"mat":"paint:red"}}]}"#
+        let lofted = ExplanationProgram.compile(ExplanationProgram.fence + loft + "\n```")!
+        require(lofted.error == nil && lofted.inventory["nose"] == "loft", "Tapered body grammar rejected")
+        let localized = #"{"id":"構造","say":"These connected parts keep their names.","ops":[{"op":"figure","id":"図","args":[10,10,400,400]},{"op":"part","figure":"図","id":"stütze","kind":"cyl","options":{"r":0.05,"h":1}},{"op":"set","target":"stu\u0308tze","values":{"color":"red"}}]}"#
+        let localizedProgram = ExplanationProgram.compile(ExplanationProgram.fence + localized + "\n```", availableIDs: [:])!
+        require(localizedProgram.error == nil && localizedProgram.inventory["stütze"] == "cyl", "Localized handle rejected")
+        let invalidID = localized.replacingOccurrences(of: "stütze", with: "bad;identifier")
+        require(ExplanationProgram.compile(ExplanationProgram.fence + invalidID + "\n```")!.lines.isEmpty, "Source punctuation accepted as an id")
+        let timeline = #"{"id":"release-plan","say":"Design takes two days; review takes three.","ops":[{"op":"timeline","id":"plan","args":[100,200,600,[[0,"Design","Mon"],[2,"Review","Wed"],[5,"Ship","Sat"]],{"from":0,"to":5}]}]}"#
+        let timelineProgram = ExplanationProgram.compile(ExplanationProgram.fence + timeline + "\n```")!
+        require(timelineProgram.error == nil, "Timeline event list treated as a height")
+        let chart = #"{"id":"sales","say":"Wednesday recovers above Monday after Tuesday's dip.","ops":[{"op":"graph","id":"sales","args":[100,100,500,300,{"x":[1,3],"y":[0,20],"xTicks":[[1,"Mon"],[2,"Tue"],[3,"Wed"]],"yTicks":[0,10,20]}]},{"op":"call","id":"series","target":"sales","method":"plot","args":[[[1,12],[2,8],[3,15]],{"tone":"blue"}]}]}"#
+        let chartProgram = ExplanationProgram.compile(ExplanationProgram.fence + chart + "\n```", availableIDs: [:])!
+        require(chartProgram.error == nil, "Chart data protocol rejected")
+        let chartEdit = #"{"id":"red-series","say":"Only the plotted series changes colour.","ops":[{"op":"recolor","target":"series","args":["red"]}]}"#
+        let chartEdited = ExplanationProgram.compile(ExplanationProgram.fence + chartEdit + "\n```", availableIDs: chartProgram.inventory)!
+        require(chartEdited.error == nil, "Chart series edit rejected")
         for length in 0..<third.count {
             let partial = ExplanationProgram.compile(ExplanationProgram.fence + first + "\n" + second + "\n" + third.prefix(length))!
             require(partial.lines.count == 2, "Partial beat executed")
@@ -93,7 +110,8 @@ struct ExplanationProgramProbe {
         let rejected = ExplanationProgram.compile(ExplanationProgram.fence + missingReference + "\n```", availableIDs: [:])!
         require(rejected.rows.isEmpty && rejected.error != nil, "Missing handle left a partial beat")
         require(ExplanationProgram.compile(ExplanationProgram.fence + edit + "\n```", availableIDs: ["rod":"box"])!.error == nil, "Retained handle rejected")
-        var output = ["erase": erased.source, "program": compiled.source, "edit": edited.source, "escaped": escaped.source, "reply": text]
+        var output = ["erase": erased.source, "program": compiled.source, "edit": edited.source, "escaped": escaped.source, "reply": text,
+                      "localized": localizedProgram.source, "timeline": timelineProgram.source, "chart": chartProgram.source, "chartEdit": chartEdited.source]
         if CommandLine.arguments.count > 1 {
             let input = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]))) as! [String:String]
             let base = ExplanationProgram.compile(input["base"]!, availableIDs: [:], projection: focused.projection)!

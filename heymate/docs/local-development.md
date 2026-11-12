@@ -185,6 +185,32 @@ same-beat group parenting, complete model bounds, first-frame cursor projection
 and framing in narrow cards. Check rendering and speech playback in the installed
 app separately.
 
+For real-model visual quality checks after installation, with Talk idle:
+
+```bash
+python3 scripts/live_visual_quality_check.py --output ../output/visual-quality
+python3 scripts/live_f1_quality_check.py --output ../output/f1-quality --screenshots --views
+```
+
+The general suite exercises charts with supplied values, timelines with uneven
+gaps, a checkout flow and a 3D lamp. Chart and lamp follow-ups check retained
+edits. Use `--case screen`
+with MDN’s Overview of HTTP article visible in Chrome for a fresh screen-context
+check. The F1 regression remains one additional shape/camera benchmark. Leave the drawing untouched
+until the run finishes: orbiting or zooming invalidates the camera comparison.
+The check compares part identities, geometry, transforms and colours, captures
+only the drawing window, and writes a report. Inspect the images and changed
+part names as well; numerical checks do not establish visual quality.
+If the app selected a different local control port, set `HEYMATE_BRIDGE_PORT`
+to the port reported in `~/Library/Logs/HeyMate/heymate.log`. Screen changes or
+manual orbit invalidate the affected comparison; they are not passing results.
+
+The `loft` part supports bodies that taper independently in width and height:
+`sections: [[z, halfWidth, halfHeight, centerY], ...]` in increasing z. Its
+cross-section defaults to an ellipse; `squareness: 4` gives a rounded rectangle.
+Use it for noses, fairings and hulls; use `lathe` for rotationally symmetric
+parts and `extrude` for flat profiles with constant depth.
+
 For the native explanation renderer, `./scripts/verify_native_metal.sh` runs bridge
 regressions and renders production Metal pipelines on the local GPU with API
 validation, without installing or launching HeyMate. Gallery PNGs are written to

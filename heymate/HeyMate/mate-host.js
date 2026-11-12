@@ -733,13 +733,24 @@
     },
     // What is on the drawing now, for the model (its parts with ids like p3, their boxes, what was said), or null.
     state: () => (G.mateCanvas ? G.mateCanvas.state() : null),
+    inspectDrawing: () => ({
+      error: analysis?.error || null, warnings: analysis?.warnings || [],
+      cards: cardList.map(card => boxOf(card)),
+      text: [...(svg?.querySelectorAll('text') || [])].map(element => {
+        const b = element.getBoundingClientRect(), u = unit();
+        return {text: element.textContent, box: [b.x/u, b.y/u, b.width/u, b.height/u]};
+      }).filter(item => item.box[2] > 0 && item.box[3] > 0),
+    }),
     inspectFigures: () => [...(globalThis.MateStage3D?.stages.values() || [])].map(stage => ({
-      id: stage.id, zoom: stage.zoom, yaw: stage.yaw,
+      id: stage.id, zoom: stage.zoom, yaw: stage.yaw, tilt: stage.tilt, spin: stage.spin, fov: stage.camera.fov,
+      target: stage.target?.toArray() || null,
+      interaction: stage.holdUntil || 0,
       motions: stage.motions.map(motion => motion.kind),
       parts: [...stage.parts.values()].map(part => ({
         id: part.userData.id, name: part.name, geometry: part.geometry?.uuid || null,
         color: part.material?.color?.getHexString() || null, visible: part.visible,
-        position: part.position.toArray(),
+        position: part.position.toArray(), rotation: [part.rotation.x, part.rotation.y, part.rotation.z], scale: part.scale.toArray(),
+        parent: part.parent?.userData?.id || null,
       })),
     })),
     screenChanged: () => call(() => {

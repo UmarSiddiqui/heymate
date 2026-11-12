@@ -79,10 +79,41 @@ const SOLIDS = [
 ];
 
 test('every kind the engine can ask for is built', () => {
-  assert.deepEqual([...context.mateThreeKinds].sort(), ['arrow', 'blob', 'box', 'capsule', 'cone', 'cyl', 'cylinder', 'extrude', 'gear', 'lathe',
+  assert.deepEqual([...context.mateThreeKinds].sort(), ['arrow', 'blob', 'box', 'capsule', 'cone', 'cyl', 'cylinder', 'extrude', 'gear', 'lathe', 'loft',
     'pipe', 'poly', 'sphere', 'spring', 'surface', 'torus', 'tube']);
   assert.throws(() => build('nope'), /unknown 3D part "nope"/);
   assert.throws(() => build('toString'), /unknown 3D part/);
+});
+
+test('loft tapers width and height independently with closed caps and outward normals', () => {
+  const sections = [[-1, 0.5, 0.25, 0.3], [0, 0.4, 0.2, 0.25], [1, 0.1, 0.06, 0.15]];
+  for (const squareness of [2, 4, 6]) {
+    const out = build('loft', { sections, squareness }), s = shape(out);
+    assert.equal(s.open, 0);
+    assert.ok(s.volume > 0.3 && s.agree > 0.995, 'closed outward-facing body');
+    for (const [z, rx, ry, cy] of sections) {
+      const ring = [];
+      for (let i = 0; i < out.positions.length; i += 3) if (Math.abs(out.positions[i + 2] - z) < 1e-6) ring.push([out.positions[i], out.positions[i + 1]]);
+      near(Math.max(...ring.map(p => p[0])), rx, 1e-6, 'section half width');
+      near(Math.min(...ring.map(p => p[1])), cy - ry, 1e-6, 'section underside');
+      near(Math.max(...ring.map(p => p[1])), cy + ry, 1e-6, 'section top');
+    }
+    const sideways = shape(build('loft', { sections, squareness, axis: 'x', mirror: [-1, 1, 1] }));
+    near(sideways.hi[0] - sideways.lo[0], 2, 1e-6, 'axis preserves length');
+    near(sideways.volume, s.volume, 1e-5, 'mirror keeps winding');
+  }
+  const cylinder = shape(build('loft', { sections: [[-1, 0.5, 0.25], [1, 0.5, 0.25]] }));
+  near(cylinder.volume, Math.PI * 0.5 * 0.25 * 2, 0.003, 'elliptical volume');
+});
+
+test('loft bounds invalid and excessive sections without nonfinite geometry', () => {
+  for (const sections of [null, [null, [], [0, -1, 1]], [[0, 1, 1], [0, 1, 1], [-1, 1, 1]],
+    Array.from({length: 10000}, (_, z) => [z, 0.5, 0.25])]) {
+    const out = build('loft', { sections, seg: 10000 });
+    assert.ok(out.positions.every(Number.isFinite));
+    assert.ok(out.positions.length / 3 < 9000);
+    assert.equal(shape(out).open, 0);
+  }
 });
 
 test('solid parts are closed, face out and keep their volume', () => {

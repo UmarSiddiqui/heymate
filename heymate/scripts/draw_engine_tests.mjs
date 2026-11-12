@@ -8,12 +8,39 @@ const context = vm.createContext({});
 vm.runInContext(engine, context);
 const G = context.MateDraw.geometry;
 
+test('loft recipe reaches the 3D builder without losing its section dimensions', () => {
+  const result = context.MateDraw.runCode(`
+    const f = figure(10,10,300,300,{spin:0});
+    const nose = f.loft({sections:[[-1,0.4,0.2,0.3],[1,0.1,0.05,0.15]],squareness:4,axis:'x',mat:'paint:red'});
+  `, 600, 600);
+  assert.equal(result.error, null);
+  const mark = result.find(m => m.do === 'part3d');
+  assert.equal(mark.kind, 'loft');
+  assert.equal(mark.name, 'nose');
+  const recipe = JSON.parse(mark.recipe);
+  assert.deepEqual(recipe.sections, [[-1,0.4,0.2,0.3],[1,0.1,0.05,0.15]]);
+  assert.equal(recipe.squareness, 4);
+});
+
 test('figure respects stationary and slow cameras', () => {
   for (const spin of [0, 0.2, 0.7]) {
     const result = context.MateDraw.runCode(`figure(10,10,300,300,{spin:${spin}});`, 600, 600);
     assert.equal(result.error, null);
     assert.equal(result.find(mark => mark.do === 'stage3d').camera.spin, spin);
   }
+});
+
+test('figure forwards initial view settings and vivid named red to the renderer', () => {
+  const result = context.MateDraw.runCode(`
+    const car = figure(10,10,300,300,{spin:0,turn:35,tilt:18,zoom:1.1});
+    car.box({size:[1,0.2,2],mat:'paint:red'});
+  `, 600, 600);
+  assert.equal(result.error, null);
+  const camera = result.find(mark => mark.do === 'stage3d').camera;
+  assert.equal(camera.turn, 35); assert.equal(camera.zoom, 1.1);
+  const tint = result.find(mark => mark.do === 'part3d').material.tint;
+  const rgb = [1,3,5].map(i => parseInt(tint.slice(i,i+2),16));
+  assert.ok(rgb[0] > 200 && rgb[0] > rgb[1] * 3 && rgb[0] > rgb[2] * 3, 'named red should be vivid red, not dark brown');
 });
 
 const ringOf = d => (String(d).match(/-?\d+\.\d/g) || []).map(Number).reduce((out, v, i) => (i % 2 ? out[out.length - 1].push(v) : out.push([v]), out), []);

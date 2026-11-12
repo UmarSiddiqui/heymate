@@ -352,21 +352,37 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
     }
     const pivot = new THREE.Group();
     scene.add(pivot);
-    const camera = new THREE.PerspectiveCamera(cameraSpec.fov || 35, w / h, 0.01, 1000);
+    const camera = new THREE.PerspectiveCamera(35, w / h, 0.01, 1000);
     const stage = {
       id: element.id, element, canvas, labels, leaders, renderer, scene, pivot, camera, w, h,
-      tilt: degrees(cameraSpec.tilt != null ? cameraSpec.tilt : 15),
-      spin: cameraSpec.spin ?? 0.7, yaw: 0, zoom: 1,
+      tilt: degrees(15), spin: 0.7, yaw: 0, zoom: 1,
       parts: new Map(), partOf: new Set(), pending: [], motions: [], labelList: [], ticks: [], vertexCount: 0,
       born: performance.now(), look, radius: 1, centre: new THREE.Vector3(),
       ink: element.getAttribute('data-ink') || '#2B2E34', key, floor,
     };
+    applyCamera(stage, cameraSpec);
     if (nativeMetal) {
       renderer.stage = stage;
       labels.style.visibility = 'hidden';
     }
     stages.set(element.id, stage);
     return stage;
+  }
+
+  // Both the initial figure and later view() calls use the same camera contract.
+  // In particular turn is an absolute azimuth in degrees, not an animation speed.
+  function applyCamera(stage, spec) {
+    const bounded = (key, lo, hi) => Number.isFinite(spec[key]) ? Math.max(lo, Math.min(hi, spec[key])) : null;
+    const tilt = bounded('tilt', -80, 80), turn = bounded('turn', -180, 180);
+    const spin = bounded('spin', -2, 2), zoom = bounded('zoom', 0.5, 3), fov = bounded('fov', 10, 100);
+    if (tilt != null) stage.tilt = degrees(tilt);
+    if (turn != null) stage.yaw = degrees(turn);
+    if (spin != null) stage.spin = spin;
+    if (zoom != null) stage.zoom = zoom;
+    if (fov != null) { stage.camera.fov = fov; stage.camera.updateProjectionMatrix(); }
+    if (Array.isArray(spec.target) && spec.target.length === 3 && spec.target.every(Number.isFinite)) {
+      stage.target = new THREE.Vector3(...spec.target);
+    }
   }
 
   const measureBox = new THREE.Box3();
@@ -475,9 +491,7 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
     else if (tag === 'label3d') queue(() => addLabel(stage, readJson(element.getAttribute('data-label'))));
     else if (tag === 'motion3d') queue(() => stage.motions.push(Object.assign({ start: performance.now() }, readJson(element.getAttribute('data-op')))));
     else if (tag === 'camera3d') queue(() => {
-      const op = readJson(element.getAttribute('data-op'));
-      if (op.tilt != null) stage.tilt = degrees(op.tilt);
-      if (op.spin != null) stage.spin = op.spin;
+      applyCamera(stage, readJson(element.getAttribute('data-op')));
     });
     else if (tag === 'tick3d') queue(() => stage.ticks.push({ id: element.getAttribute('data-tick'), start: performance.now() }));
   }
@@ -554,7 +568,9 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
         obj.material.emissive = obj.material.color.clone();
         obj.material.emissiveIntensity = motion.glow;
       }
-      if (motion.color && obj.material) obj.material.color.set(motion.color);
+      if (motion.color) obj.traverse(part => {
+        if (part.material) part.material.color.set(motion.color);
+      });
       motion.done = true;
     }
   }
@@ -704,12 +720,13 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
     const vertical = degrees(stage.camera.fov) / 2;
     const horizontal = Math.atan(Math.tan(vertical) * stage.camera.aspect);
     const distance = Math.max(stage.radius * 1.1, stage.radius / Math.sin(Math.min(vertical, horizontal)) * 1.08 / stage.zoom);
+    const target = stage.target || stage.centre;
     stage.camera.position.set(
-      stage.centre.x + Math.sin(stage.yaw) * Math.cos(stage.tilt) * distance,
-      stage.centre.y + Math.sin(stage.tilt) * distance,
-      stage.centre.z + Math.cos(stage.yaw) * Math.cos(stage.tilt) * distance,
+      target.x + Math.sin(stage.yaw) * Math.cos(stage.tilt) * distance,
+      target.y + Math.sin(stage.tilt) * distance,
+      target.z + Math.cos(stage.yaw) * Math.cos(stage.tilt) * distance,
     );
-    stage.camera.lookAt(stage.centre);
+    stage.camera.lookAt(target);
     stage.scene.updateMatrixWorld(true);
     stage.camera.updateMatrixWorld(true);
   }
@@ -798,7 +815,12 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
       for (const item of list) {
         item.label.y = item.label.y == null ? item.y : item.label.y + (item.y - item.label.y) * 0.12;
         item.y = item.label.y;
-        const x = side === 'left' ? margin : stage.w - margin;
+        // Labels belong inside their stage, including stages beside screen content.
+        // Native Metal and DOM text have slightly different font metrics.
+        const available = Math.max(24, stage.w - 12);
+        pin(item.label.div, {maxWidth: available + 'px', boxSizing: 'border-box', overflow: 'hidden', textOverflow: 'ellipsis'});
+        const labelWidth = Math.min(available, item.label.div.offsetWidth || String(item.label.data.text || '').length * ((item.label.data.size || 19) * 0.8) * 0.65 + 20);
+        const x = side === 'left' ? Math.max(margin, labelWidth + 6) : Math.min(stage.w - margin, stage.w - labelWidth - 6);
         pin(item.label.div, {
           left: x + 'px', top: item.y + 'px', opacity: '1',
           transform: side === 'left' ? 'translate(-100%, -50%)' : 'translate(0, -50%)',
