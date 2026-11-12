@@ -34,6 +34,11 @@ enum LocalDataErase {
         removeHeyMateSupportFile(FileMateStore.appSupportFileURL(), fileManager: fileManager)
         removeHeyMateSupportFile(FileChatHistoryStore.appSupportFileURL(), fileManager: fileManager)
         removeHeyMateSupportFile(FileMateRoutineStore.appSupportFileURL(), fileManager: fileManager)
+        removeHeyMateSupportFile(FileMateWakeStore.appSupportFileURL(), fileManager: fileManager)
+        removeHeyMateSupportFile(
+            FileMateRoutineStore.extendedFileURL(for: FileMateRoutineStore.appSupportFileURL()),
+            fileManager: fileManager
+        )
         removeHeyMateSupportFile(FileMemoryRepository.appSupportFileURL(), fileManager: fileManager)
         removeHeyMateSupportFile(FileAgentRunStore.appSupportFileURL(), fileManager: fileManager)
         removeStandingOrderMarkdown(fileManager: fileManager)

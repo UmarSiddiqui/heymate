@@ -277,6 +277,7 @@ final class NotchCompanionController {
         if isExpanded, presentedSurface == .compactChat, expandedPanel?.isVisible == true {
             collapseAndUnpin()
         } else {
+            companionManager?.focusMainHeyMateForShortcut()
             companionManager?.activateConnectorsIfNeeded()
             presentSurface(.compactChat, pinned: true)
         }

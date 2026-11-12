@@ -22,6 +22,22 @@ extension CompanionManager: MateRoutineRunning {
         mateRoutineScheduler.schedulesChanged()
     }
 
+    /// The mate the shared interaction state belongs to: the run's owner for
+    /// agent states, the open chat's mate for a reply. Nil when idle. Only
+    /// that mate may look busy, so opening another mate never inherits it.
+    var liveStateOwnerMateID: UUID? {
+        let defaultID = mateDirectory.defaultMateID
+        switch state {
+        case .idle:
+            return nil
+        case .agentRunning(let runID), .waitingForApproval(let runID):
+            guard let run = agentRuns.first(where: { $0.id == runID }) else { return defaultID }
+            return run.chatOwner?.mateID ?? defaultID
+        default:
+            return currentChat.mateID ?? defaultID
+        }
+    }
+
     func finishMateLaunch() {
         let defaultID = mateDirectory.defaultMateID
         let loaded = chatHistoryStore.loadAll()
@@ -75,6 +91,15 @@ extension CompanionManager: MateRoutineRunning {
         streamingAssistantText = ""
         savedChats = rememberConversationsEnabled ? chatHistoryStore.loadAll() : []
         syncMatePublications()
+    }
+
+    /// Global shortcuts (double-tap type, push-to-talk, hands-free) always
+    /// talk to main HeyMate, never whichever mate was open last. Opens main
+    /// HeyMate's newest chat; a mate's background turn keeps running.
+    func focusMainHeyMateForShortcut() {
+        let defaultID = mateDirectory.defaultMateID
+        guard (activeMateID ?? defaultID) != defaultID else { return }
+        openMate(id: defaultID)
     }
 
     /// A blank conversation with main HeyMate, leaving any open mate chat.
@@ -221,7 +246,7 @@ extension CompanionManager: MateRoutineRunning {
 
     /// A deleted chat stays deleted. Never redirect to the newest chat of a
     /// mate, and never save hidden history when conversation storage is off.
-    private func postAgentMessage(owner: AgentChatOwner, text: String, taskRun: AgentRun? = nil) {
+    func postAgentMessage(owner: AgentChatOwner, text: String, taskRun: AgentRun? = nil) {
         guard mateDirectory.mates.contains(where: { $0.id == owner.mateID }) else { return }
         if heyMateTalkSession.id == owner.chatID {
             heyMateTalkSession.messages.append(ChatMessage(id: UUID(), role: .assistant, text: text, createdAt: Date(), taskRunID: taskRun?.id, taskResultKey: taskRun?.resultDeliveryKey))
@@ -360,6 +385,7 @@ extension CompanionManager: MateRoutineRunning {
             chatHistoryStore.delete(id: session.id)
         }
         mateDirectory.routineStore.deleteAll(mateID: id)
+        removeMateWakes(mateID: id)
         for item in memoryRepository.loadAll() where item.mateID == id {
             memoryRepository.delete(id: item.id)
         }
@@ -576,10 +602,15 @@ extension CompanionManager: MateRoutineRunning {
     }
 
     func kickoffRoutine(_ routine: MateRoutine) -> MateRoutineKickoff {
-        kickoffRoutine(routine, deliverySession: nil)
+        // Scheduled routines run alongside other work in their own chat.
+        // Test doubles keep the single-turn path they were written for.
+        if !usesConversationClientOverride { return kickoffParallelRoutine(routine) }
+        return kickoffRoutine(routine, deliverySession: nil)
     }
 
-    func kickoffRoutine(_ routine: MateRoutine, deliverySession: ChatSession?) -> MateRoutineKickoff {
+    func kickoffRoutine(
+        _ routine: MateRoutine, deliverySession: ChatSession?, isWake: Bool = false
+    ) -> MateRoutineKickoff {
         guard mateDirectory.mates.contains(where: { $0.id == routine.mateID && !$0.archived }),
               routine.enabled, routine.pausedReason == nil else { return .busy }
         if isChatTurnBusy || openCodeTrainingNotice != nil { return .busy }
@@ -597,7 +628,8 @@ extension CompanionManager: MateRoutineRunning {
             mateID: routine.mateID,
             task: routine.task,
             writesIntoOpenChat: visible,
-            promptRoutine: routine
+            promptRoutine: routine,
+            isWake: isWake
         )
         if typedMessageBusyReason != nil {
             clearRoutineDelivery()
@@ -644,11 +676,12 @@ extension CompanionManager: MateRoutineRunning {
                 status: status
             )
         case .failure(let message):
-            routine = MateRoutineAccounting.recordFailure(
+            routine = MateRoutineAccounting.recordFailureWithRecovery(
                 routine,
                 now: Date(),
                 calendar: .current,
-                status: message
+                status: message,
+                backupAvailable: hasUsableBackupBrain(mateID: routine.mateID)
             )
         case .cancelled:
             routine = MateRoutineAccounting.recordInterrupted(routine, now: Date(), calendar: .current)

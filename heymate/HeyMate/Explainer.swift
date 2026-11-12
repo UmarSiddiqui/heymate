@@ -376,13 +376,14 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
         """) as? String
         let ids = commandInventory.sorted { $0.key < $1.key }.map { "\($0.key) (\($0.value))" }.joined(separator: ", ")
         let presented = metalOverlay?.diagnostics ?? [:]
-        return state + "\nNative presentation receipt: \(presented)" + (ids.isEmpty ? "" : "\nNamed command ids for follow-up edits: " + ids) +
+        return state + (validationError.map { "\nIncomplete drawing: " + $0 } ?? "") + "\nNative presentation receipt: \(presented)" + (ids.isEmpty ? "" : "\nNamed command ids for follow-up edits: " + ids) +
             (live == nil || live == "[]" ? "" : "\nLive 3D state: " + (live ?? ""))
     }
 
     func rendererState() async -> [String: Any] {
         let drawing = await drawingState()
         let figures = try? await webView?.evaluateJavaScript("HeyMateCanvas.inspectFigures()")
+        let drawing2D = try? await webView?.evaluateJavaScript("HeyMateCanvas.inspectDrawing()")
         let inputHits = interactionPanels.map { input in
             ["expected": input.windowNumber,
              "actual": NSWindow.windowNumber(at: CGPoint(x: input.frame.midX, y: input.frame.midY), belowWindowWithWindowNumber: 0)]
@@ -391,6 +392,8 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
         return ["showing": isShowing, "streamDone": streamDone, "lines": streamLines.count,
                 "drawing": drawing ?? "", "native": metalOverlay?.diagnostics ?? [:], "beats": beatTimings,
                 "figures": figures ?? [],
+                "drawing2D": drawing2D ?? [:], "commandRows": commandRows,
+                "validationError": validationError ?? "",
                 "captureWidth": canvasSize.width, "captureHeight": canvasSize.height,
                 "frontmostApp": NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "",
                 "capture": captureContext,
@@ -491,6 +494,8 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
 
     private var lineStarts: [Int: Date] = [:]
     var commandInventory: [String: String] = [:]
+    var commandRows: [String] = []
+    var validationError: String?
     private var beatTimings: [[String: Any]] = []
 
     /// HeyMate starts speaking say() line k (0-based): its strokes draw now (mateCanvas.line).
@@ -567,6 +572,8 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
         streamLines = []
         streamDone = false
         commandInventory = [:]
+        commandRows = []
+        validationError = nil
         metalOverlay?.removeFromSuperview()
         metalOverlay = nil
         controlsPanel?.orderOut(nil)

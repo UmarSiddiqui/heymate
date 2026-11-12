@@ -28,6 +28,9 @@ struct AgentBuilderSheet: View {
     @State private var errorText: String?
     @State private var runs: AgentRunsChoice = .onAsk
     @State private var routineTask = ""
+    @State private var wakeKind: MateWakeKind?
+    @State private var wakeMatch = ""
+    @State private var wakeTask = ""
     @FocusState private var isDescriptionFocused: Bool
 
     var body: some View {
@@ -131,6 +134,9 @@ struct AgentBuilderSheet: View {
         draftUsedModel = true
         runs = recipe.runs
         routineTask = recipe.routineTask
+        wakeKind = recipe.wake
+        wakeMatch = recipe.wakeMatch
+        wakeTask = recipe.wakeTask
         faceAssetName = BlobatarCharacter.automaticToken
         errorText = nil
     }
@@ -149,6 +155,9 @@ struct AgentBuilderSheet: View {
             draftUsedModel = result.usedModel
             runs = .onAsk
             routineTask = ""
+            wakeKind = nil
+            wakeMatch = ""
+            wakeTask = ""
             draft = result.draft
         }
     }
@@ -188,6 +197,13 @@ struct AgentBuilderSheet: View {
                             .lineLimit(1...3)
                     }
                     runsField
+                    VStack(alignment: .leading, spacing: 6) {
+                        fieldLabel(
+                            "Offers to help when",
+                            hint: wakeKind == nil ? "Stays quiet until you ask" : "One tap in the notch to start"
+                        )
+                        MateWakeField(kind: $wakeKind, match: $wakeMatch)
+                    }
                     if !draft.wrappedValue.integrations.isEmpty {
                         integrationsRow(draft.wrappedValue.integrations)
                     }
@@ -378,8 +394,13 @@ struct AgentBuilderSheet: View {
         }
         let savedFace = faceAssetName == BlobatarCharacter.automaticToken
             ? BlobatarCharacter.generatedPrefix + appearanceID.uuidString.lowercased() : faceAssetName
+        if let wakeKind, wakeKind.requiresMatch, MateWakeMatcher.terms(wakeMatch).isEmpty {
+            errorText = "Name the app it should wait for."
+            return
+        }
         if companionManager.createAgent(
-            from: draft, faceAssetName: savedFace, runs: runs, routineTask: routineTask
+            from: draft, faceAssetName: savedFace, runs: runs, routineTask: routineTask,
+            wake: wakeKind, wakeMatch: wakeMatch, wakeTask: wakeTask
         ) != nil {
             dismiss()
         } else {
@@ -409,7 +430,7 @@ struct AgentRecipeCard: View {
                             .font(DS.Fonts.headline)
                             .foregroundColor(DS.Colors.textPrimary)
                             .lineLimit(1)
-                        if let chip = recipe.runs.chip {
+                        if let chip = recipe.runs.chip ?? recipe.wake?.chip {
                             Text(chip)
                                 .font(DS.Fonts.micro)
                                 .foregroundColor(DS.Colors.textSecondary)
@@ -445,7 +466,7 @@ struct AgentRecipeCard: View {
         .pointerCursor()
         .onHover { isHovered = $0 }
         .accessibilityLabel("\(recipe.name). \(recipe.outcome)")
-        .accessibilityHint(recipe.runs.chip.map { "Runs \($0.lowercased()). Review before it is made." } ?? "Review before it is made.")
+        .accessibilityHint((recipe.runs.chip ?? recipe.wake?.chip).map { "\($0). Review before it is made." } ?? "Review before it is made.")
     }
 }
 

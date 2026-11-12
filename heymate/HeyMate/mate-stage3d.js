@@ -167,28 +167,50 @@ vec3 studio_light(vec3 n, vec3 v, vec3 l, vec3 radiance, vec3 diffuse, vec3 f0, 
     vec3 specular = schlick_fresnel(f0, vh) * (ggx_distribution(a2, nh) * smith_visibility(a2, nl, nv));
     return radiance * nl * (diffuse / 3.14159265 + specular);
 }
-vec3 studio_tone(vec3 colour, vec3 n, vec3 geometryNormal, vec3 v, vec3 key, float roughness, float metalness) {
+// What a polished part reflects: a studio with a pale ceiling, a softbox overhead and a little to the front, a cool
+// strip light to one side, grey walls and a dark floor. blur (the part's roughness) widens every edge in it.
+vec3 studio_room(vec3 d, float blur) {
+    float edge = mix(0.06, 0.7, blur);
+    vec3 c = mix(vec3(0.10, 0.105, 0.12), vec3(0.54, 0.56, 0.61), smoothstep(-edge, edge, d.y + 0.08));
+    c = mix(c, vec3(0.95, 0.96, 1.0), smoothstep(0.35 - edge, 0.8 + edge, d.y));
+    float box = dot(d, normalize(vec3(-0.35, 0.8, 0.5)));
+    c += vec3(1.6, 1.58, 1.5) * smoothstep(0.9 - edge * 0.6, 0.96 + edge * 0.04, box) * mix(1.0, 0.35, blur);
+    float beside = dot(normalize(d.xz + 0.0001), normalize(vec2(0.9, -0.45)));
+    float strip = smoothstep(0.82 - edge * 0.5, 0.9, beside) * (1.0 - smoothstep(0.0, 0.45 + edge, abs(d.y - 0.1)));
+    c += vec3(0.7, 0.78, 0.95) * strip * mix(1.0, 0.3, blur);
+    return c;
+}
+// keyLight: how much of the key light reaches this point (0 in another part's shadow, 1 in the open).
+vec3 studio_tone(vec3 colour, vec3 n, vec3 geometryNormal, vec3 v, vec3 key, float roughness, float metalness, float keyLight) {
     vec3 diffuse = colour * (1.0 - metalness);
     vec3 f0 = mix(vec3(0.04), colour, metalness);
     // rougher where the surface curves fast across a pixel, so highlights don't sparkle on small curved parts
     vec3 bend = fwidth(geometryNormal);
     float r = clamp(roughness + max(bend.x, max(bend.y, bend.z)), 0.06, 1.0);
     float a2 = r * r * r * r;
-    vec3 sky = vec3(1.15), ground = vec3(0.048, 0.064, 0.096);
-    vec3 c = mix(ground, sky, 0.5 + 0.5 * n.y) * diffuse / 3.14159265;
-    c += studio_light(n, v, normalize(key), vec3(2.1), diffuse, f0, a2);
+    vec3 sky = vec3(1.15), ground = vec3(0.10, 0.115, 0.15);
+    // a part's shadow also takes a little of the sky's light, so it reads on a pale surface
+    vec3 c = mix(ground, sky, 0.5 + 0.5 * n.y) * diffuse / 3.14159265 * (0.62 + 0.38 * keyLight);
+    // the room, mirrored in the part: what makes a metal read as metal. How much of it a surface returns at this
+    // angle and roughness is the usual fitted curve (Karis), not a lookup table.
+    float nv = clamp(dot(n, v), 0.0, 1.0);
+    vec4 k = r * vec4(-1.0, -0.0275, -0.572, 0.022) + vec4(1.0, 0.0425, 1.04, -0.04);
+    float a004 = min(k.x * k.x, exp2(-9.28 * nv)) * k.x + k.y;
+    vec2 ab = vec2(-1.04, 1.04) * a004 + k.zw;
+    c += studio_room(reflect(-v, n), r) * (f0 * ab.x + ab.y);
+    c += keyLight * studio_light(n, v, normalize(key), vec3(2.1), diffuse, f0, a2);
     c += studio_light(n, v, normalize(vec3(-4.0, 2.0, -4.0)), vec3(0.33, 0.48, 0.86), diffuse, f0, a2);
     return c;
 }
 
 // A part's colour on screen (sRGB) and its opacity.
 vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
-                     vec3 colour, vec3 emissive, vec4 surface, vec4 flags) {
+                     vec3 colour, vec3 emissive, vec4 surface, vec4 flags, float keyLight) {
     vec3 n = lit_normal(normal, position, eye, flags.y > 0.5, flags.z > 0.5, front);
     vec3 v = normalize(eye - position);
     vec3 c = style.x > 0.5
         ? illustrated_tone(colour, n, v, normalize(style.yzw), surface.x, surface.y)
-        : studio_tone(colour, n, normalize(normal), v, style.yzw, surface.x, surface.y);
+        : studio_tone(colour, n, normalize(normal), v, style.yzw, surface.x, surface.y, keyLight);
     return vec4(to_srgb(c + emissive), surface.z);
 }
 // ---- end shared ----
@@ -199,7 +221,7 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
     }
     void main() {
       gl_FragColor = shade_surface(mateWorldPosition, mateNormal, gl_FrontFacing, eye, style,
-                                   baseColor * band_colour(mateUV), emissive, surface, flags);
+                                   baseColor * band_colour(mateUV), emissive, surface, flags, 1.0);
     }
   `;
 
@@ -330,21 +352,37 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
     }
     const pivot = new THREE.Group();
     scene.add(pivot);
-    const camera = new THREE.PerspectiveCamera(cameraSpec.fov || 35, w / h, 0.01, 1000);
+    const camera = new THREE.PerspectiveCamera(35, w / h, 0.01, 1000);
     const stage = {
       id: element.id, element, canvas, labels, leaders, renderer, scene, pivot, camera, w, h,
-      tilt: degrees(cameraSpec.tilt != null ? cameraSpec.tilt : 15),
-      spin: cameraSpec.spin ?? 0.7, yaw: 0, zoom: 1,
+      tilt: degrees(15), spin: 0.7, yaw: 0, zoom: 1,
       parts: new Map(), partOf: new Set(), pending: [], motions: [], labelList: [], ticks: [], vertexCount: 0,
       born: performance.now(), look, radius: 1, centre: new THREE.Vector3(),
       ink: element.getAttribute('data-ink') || '#2B2E34', key, floor,
     };
+    applyCamera(stage, cameraSpec);
     if (nativeMetal) {
       renderer.stage = stage;
       labels.style.visibility = 'hidden';
     }
     stages.set(element.id, stage);
     return stage;
+  }
+
+  // Both the initial figure and later view() calls use the same camera contract.
+  // In particular turn is an absolute azimuth in degrees, not an animation speed.
+  function applyCamera(stage, spec) {
+    const bounded = (key, lo, hi) => Number.isFinite(spec[key]) ? Math.max(lo, Math.min(hi, spec[key])) : null;
+    const tilt = bounded('tilt', -80, 80), turn = bounded('turn', -180, 180);
+    const spin = bounded('spin', -2, 2), zoom = bounded('zoom', 0.5, 3), fov = bounded('fov', 10, 100);
+    if (tilt != null) stage.tilt = degrees(tilt);
+    if (turn != null) stage.yaw = degrees(turn);
+    if (spin != null) stage.spin = spin;
+    if (zoom != null) stage.zoom = zoom;
+    if (fov != null) { stage.camera.fov = fov; stage.camera.updateProjectionMatrix(); }
+    if (Array.isArray(spec.target) && spec.target.length === 3 && spec.target.every(Number.isFinite)) {
+      stage.target = new THREE.Vector3(...spec.target);
+    }
   }
 
   const measureBox = new THREE.Box3();
@@ -453,9 +491,7 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
     else if (tag === 'label3d') queue(() => addLabel(stage, readJson(element.getAttribute('data-label'))));
     else if (tag === 'motion3d') queue(() => stage.motions.push(Object.assign({ start: performance.now() }, readJson(element.getAttribute('data-op')))));
     else if (tag === 'camera3d') queue(() => {
-      const op = readJson(element.getAttribute('data-op'));
-      if (op.tilt != null) stage.tilt = degrees(op.tilt);
-      if (op.spin != null) stage.spin = op.spin;
+      applyCamera(stage, readJson(element.getAttribute('data-op')));
     });
     else if (tag === 'tick3d') queue(() => stage.ticks.push({ id: element.getAttribute('data-tick'), start: performance.now() }));
   }
@@ -532,7 +568,9 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
         obj.material.emissive = obj.material.color.clone();
         obj.material.emissiveIntensity = motion.glow;
       }
-      if (motion.color && obj.material) obj.material.color.set(motion.color);
+      if (motion.color) obj.traverse(part => {
+        if (part.material) part.material.color.set(motion.color);
+      });
       motion.done = true;
     }
   }
@@ -682,12 +720,13 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
     const vertical = degrees(stage.camera.fov) / 2;
     const horizontal = Math.atan(Math.tan(vertical) * stage.camera.aspect);
     const distance = Math.max(stage.radius * 1.1, stage.radius / Math.sin(Math.min(vertical, horizontal)) * 1.08 / stage.zoom);
+    const target = stage.target || stage.centre;
     stage.camera.position.set(
-      stage.centre.x + Math.sin(stage.yaw) * Math.cos(stage.tilt) * distance,
-      stage.centre.y + Math.sin(stage.tilt) * distance,
-      stage.centre.z + Math.cos(stage.yaw) * Math.cos(stage.tilt) * distance,
+      target.x + Math.sin(stage.yaw) * Math.cos(stage.tilt) * distance,
+      target.y + Math.sin(stage.tilt) * distance,
+      target.z + Math.cos(stage.yaw) * Math.cos(stage.tilt) * distance,
     );
-    stage.camera.lookAt(stage.centre);
+    stage.camera.lookAt(target);
     stage.scene.updateMatrixWorld(true);
     stage.camera.updateMatrixWorld(true);
   }
@@ -776,7 +815,12 @@ vec4 shade_surface(vec3 position, vec3 normal, bool front, vec3 eye, vec4 style,
       for (const item of list) {
         item.label.y = item.label.y == null ? item.y : item.label.y + (item.y - item.label.y) * 0.12;
         item.y = item.label.y;
-        const x = side === 'left' ? margin : stage.w - margin;
+        // Labels belong inside their stage, including stages beside screen content.
+        // Native Metal and DOM text have slightly different font metrics.
+        const available = Math.max(24, stage.w - 12);
+        pin(item.label.div, {maxWidth: available + 'px', boxSizing: 'border-box', overflow: 'hidden', textOverflow: 'ellipsis'});
+        const labelWidth = Math.min(available, item.label.div.offsetWidth || String(item.label.data.text || '').length * ((item.label.data.size || 19) * 0.8) * 0.65 + 20);
+        const x = side === 'left' ? Math.max(margin, labelWidth + 6) : Math.min(stage.w - margin, stage.w - labelWidth - 6);
         pin(item.label.div, {
           left: x + 'px', top: item.y + 'px', opacity: '1',
           transform: side === 'left' ? 'translate(-100%, -50%)' : 'translate(0, -50%)',

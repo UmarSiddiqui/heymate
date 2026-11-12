@@ -1939,7 +1939,7 @@ final class CompanionManager: ObservableObject {
 
     private func deliverRecoveredMateAgentResult(_ result: MateAgentServeTurnLedger.Delivery, chatID: UUID) {
         let message = ChatMessage(id: UUID(), role: .assistant,
-            text: "Recovered earlier MateAgent task (\(result.status)):\n\n" + result.text, createdAt: Date(), taskResultKey: result.key)
+            text: "From an earlier task (\(result.status)):\n\n" + result.text, createdAt: Date(), taskResultKey: result.key)
         if currentChat.id == chatID {
             if !currentChat.messages.contains(where: { $0.taskResultKey == result.key }) {
                 currentChat.messages.append(message)
@@ -2107,6 +2107,8 @@ final class CompanionManager: ObservableObject {
     }
 
     func scheduleNextHandoffIfNeeded() {
+        // Each hand-off runs in its receiver's own chat, alongside other work.
+        if !usesConversationClientOverride { dispatchParallelHandoffs(); return }
         guard !handoffDispatchScheduled, activeHandoffMateID == nil, activeRoutineTurn == nil,
               !isResponseInFlight, openCodeTrainingNotice == nil, !pendingHandoffs.isEmpty else { return }
         handoffDispatchScheduled = true
@@ -2209,6 +2211,11 @@ final class CompanionManager: ObservableObject {
     @Published private(set) var standingOrderProposal: StandingOrderProposal?
     @Published var latestAgentUndoEntry: AgentUndoEntry?
     @Published var agentUndoErrorText = ""
+    /// What makes each agent offer to work, and the offers waiting for a yes.
+    @Published var mateWakes: [MateWake] = []
+    @Published var mateWakeOffers: [MateWakeOffer] = []
+    lazy var mateWakeStore = FileMateWakeStore(fileURL: FileMateWakeStore.appSupportFileURL())
+    let mateWakeWatcher = MateWakeWatcher()
     private var standingOrderCancellables: Set<AnyCancellable> = []
     private var standingOrderEvaluator = StandingOrderEvaluator()
     private var latestStandingOrderSignals: [StandingOrderSignalKind: StandingOrderSignal] = [:]
@@ -2571,6 +2578,12 @@ final class CompanionManager: ObservableObject {
 
     private func ownsActiveResponse(_ completion: HeyMateRequestCompletionState) -> Bool {
         !completion.didComplete && (ownsCurrentResponse(completion) || independentChatTurns.values.contains { $0.completion === completion })
+    }
+
+    /// The open chat has a turn still running in the background.
+    var isIndependentTurnRunningInOpenChat: Bool {
+        guard let turn = independentChatTurns[currentChat.id] else { return false }
+        return !turn.completion.didComplete
     }
 
     func restoreIndependentChatTurn() {
@@ -3168,6 +3181,7 @@ final class CompanionManager: ObservableObject {
         // see, approve, or delete them, and rules nobody can see must not
         // fire. The engine stays so they can come back with a home.
         mateRoutineScheduler.start()
+        startMateWakes()
         startComputerUseCursorBridge()
         contextualConnectorSuggestionMonitor.start()
         // Escape clears any on-screen drawing annotations (master spec).
@@ -3909,6 +3923,9 @@ final class CompanionManager: ObservableObject {
             }
             guard !voiceDictation.isDictationInProgress else { return }
 
+            // Voice always goes to main HeyMate, not the last open mate.
+            focusMainHeyMateForShortcut()
+
             deployCursorForInteraction()
 
             // Dismiss the notch card so it doesn't cover the screen
@@ -4013,14 +4030,18 @@ final class CompanionManager: ObservableObject {
         let analyticsContext = analyticsContext ?? (internalMateTurn ? .unknown : .userTyped)
         let trimmedTypedMessageText = typedMessageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTypedMessageText.isEmpty || !imageAttachments.isEmpty else { return false }
+        // Like a person waiting for a colleague to finish a sentence: the
+        // message waits in MateSendQueue and goes as soon as the chat is free.
         if !internalMateTurn && (activeRoutineTurn != nil || activeHandoffMateID != nil) {
-            commandBarFeedback = "A scheduled or delegated turn is starting. Try again when it finishes."
-            return false
+            return queueTypedMessage(trimmedTypedMessageText, imageAttachments: imageAttachments)
         }
         if !asHeyMateTalk, let turn = independentChatTurns[currentChat.id], !turn.completion.didComplete,
            mateAgentConversationClients[currentChat.id]?.canSteer != true {
-            commandBarFeedback = "This mate is still starting or finishing work. Wait or stop it first."
-            return false
+            if internalMateTurn {
+                commandBarFeedback = "This mate is still starting or finishing work. Wait or stop it first."
+                return false
+            }
+            return queueTypedMessage(trimmedTypedMessageText, imageAttachments: imageAttachments)
         }
         if let typedMessageBusyReason {
             commandBarFeedback = typedMessageBusyReason
@@ -4416,6 +4437,12 @@ final class CompanionManager: ObservableObject {
                 // only this turn knows: a selection, scoped memory, the
                 // walkthrough step, and which images are explicit attachments.
                 var turnContext: [String] = []
+                if screenCaptures.isEmpty {
+                    let canvas = explainerWindowController.activeCanvasSize ?? NSScreen.main?.frame.size
+                    if let canvas {
+                        turnContext.append("No current screen image is attached. The drawing canvas is \(Int(canvas.width)) by \(Int(canvas.height)) pixels, with top-left origin. Use the request, explicit attachments, conversation and retained drawing as context. These dimensions do not reveal screen content or empty space. Keep new cards and figures inside this canvas; never invent visible controls or pointer coordinates.")
+                    }
+                }
                 if !contextUnavailableNote.isEmpty {
                     turnContext.append(contextUnavailableNote)
                 }
@@ -4464,6 +4491,9 @@ final class CompanionManager: ObservableObject {
 
                         let client = mateAgentConversationClients[turnSession.id] ?? MateAgentServeConversationClient(chatID: turnSession.id)
                         mateAgentConversationClients[turnSession.id] = client
+                        let turnMateID = turnSession.mateID ?? mateDirectory.defaultMateID
+                        client.preferredBrain = resolvedSessionBrain(forMateID: turnMateID)
+                        client.enabledSkillNames = resolvedMateSkillNames(forMateID: turnMateID)
                         client.onRecoveredResult = { [weak self] result in
                             self?.deliverRecoveredMateAgentResult(result, chatID: turnSession.id)
                         }
@@ -4521,7 +4551,13 @@ final class CompanionManager: ObservableObject {
                 }
                 defer { revokeTalkToolScope(talkScopeToken) }
                 let scopedToolNames = scopedConnectorToolDescriptions(token: talkScopeToken).compactMap { $0["name"] as? String }
+                // A routine or a hand-off reports its work in full; every
+                // other turn is heard or read by the person, and says so.
+                let turnStyle = CompanionPrompts.talkStyle(
+                    isSilentModeEnabled: isSilentModeEnabled,
+                    isUnattended: activeRoutineTurn != nil || activeHandoffMateID != nil)
                 let effectiveSystemPrompt = MateAgentConversationClient.interfaceInstructions(mateIdentity: turnIdentity)
+                    + (turnStyle.map { "\n\n" + $0 } ?? "")
                     + "\n\n" + MateAgentServeConversationClient.connectorInstructions(
                         tools: scopedToolNames.filter { !TalkToolCatalog.piBridgeLocalToolNames.contains($0) },
                         enabledApps: turnEnabledApps.sorted())
@@ -4533,6 +4569,7 @@ final class CompanionManager: ObservableObject {
                     // Guided playback runs [ACT:] directives; the model only
                     // writes them if it is told the grammar exists.
                     + (computerUseCoordinator.isEnabled ? "\n\n" + BehaviorContract.computerControlSection : "")
+                    + "\n\n" + CompanionPrompts.visualAnswers
                     + "\n\n" + CompanionPrompts.explainerContract
 
                 let rawResponseText: String
@@ -4582,7 +4619,9 @@ final class CompanionManager: ObservableObject {
                     if drawn.program != nil {
                         let said = ([drawn.text.trimmingCharacters(in: .whitespacesAndNewlines)] + drawn.lines)
                             .filter { !$0.isEmpty }.joined(separator: " ")
-                        shownText = said + (ExplainerParser.onlyPoints(drawn.program ?? "") ? "\n\n(Pointed it out.)" : "\n\n(Drew an explanation.)")
+                        // Only a compiled heymate block is drawn; a js block is spoken and not run.
+                        let wasDrawn = fullResponseText.contains(ExplanationProgram.fence)
+                        shownText = said + (!wasDrawn ? "" : ExplainerParser.onlyPoints(drawn.program ?? "") ? "\n\n(Pointed it out.)" : "\n\n(Drew an explanation.)")
                     }
                     // The person got an answer (foreground or background chat).
                     // Routine turns run unattended, so they don't count as value.
@@ -4649,6 +4688,7 @@ final class CompanionManager: ObservableObject {
                 }
                 guard !Task.isCancelled, ownsCurrentResponse(completion) else { return }
                 Self.recordPipelineError(error, category: .responsePipeline)
+                noteChatTurnFailureForBackupBrain(message: error.localizedDescription, mateID: turnSession.mateID, transcript: transcript)
                 dispatch(.fail(error.localizedDescription))
                 if activeRoutineTurn != nil {
                     completeActiveRoutineTurn(.failure(error.localizedDescription))
@@ -4813,6 +4853,12 @@ final class CompanionManager: ObservableObject {
 
         case TalkToolCatalog.createMateToolName:
             return createMateFromTalkTool(arguments: arguments)
+
+        case TalkToolCatalog.manageRoutinesToolName:
+            return manageRoutinesFromTalkTool(arguments: arguments, mateID: resultOwner.mateID)
+
+        case TalkToolCatalog.askPersonToolName:
+            return askPersonFromTalkTool(arguments: arguments, owner: resultOwner)
 
         default:
             return ("Unknown local tool \(toolName).", true)
@@ -5946,16 +5992,17 @@ extension CompanionManager {
         // live job gets the message as a handoff: a turn in its own chat once
         // this reply finishes, with its report returned to the asking chat.
         guard requester?.mateID != mate.id else { return ("That is this agent. Do the work here.", true) }
-        guard activeHandoffHops < MateMessagingBrief.maxHops else {
+        let hops = handoffHops(forRequesterChat: requester?.chatID)
+        guard hops < MateMessagingBrief.maxHops else {
             return ("Too many agent-to-agent hops. Ask the user before passing this on again.", true)
         }
         let sender = requester.flatMap { owner in mates.first { $0.id == owner.mateID } }
         let handoff = MateHandoff(
             mateID: mate.id, mateName: mate.name, instruction: message,
             fromMateName: sender?.conductsOthers == false ? sender?.name : nil,
-            hops: activeHandoffHops + 1, requester: requester)
+            hops: hops + 1, requester: requester)
         enqueueHandoff(handoff, source: "send_to_mate")
-        return ("Queued for \(mate.name) (handoff \(handoff.id.uuidString)). It has not started: it runs in \(mate.name)'s chat after this reply, and the report returns here. get_mate_status shows whether it is queued, running, reported or failed. Not done yet.", false)
+        return ("Queued for \(mate.name) (handoff \(handoff.id.uuidString)). It starts in \(mate.name)'s own chat as soon as \(mate.name) is free, alongside this reply, and the report returns here. get_mate_status shows whether it is queued, running, reported or failed. Not done yet.", false)
     }
 
     func enqueueHandoff(_ handoff: MateHandoff, source: String) {
@@ -6049,6 +6096,7 @@ extension CompanionManager {
               let routine = turn.promptRoutine ?? routines.first(where: { $0.id == turn.routineID }) else {
             return .conversation
         }
+        if turn.isWake { return .standingOrder }
         return .routine(
             isFirstRun: routine.lastRunAt == nil,
             lastRunAt: routine.lastRunAt,
@@ -6165,5 +6213,459 @@ extension CompanionManager {
         pendingMateQuestions.append(
             PendingMateQuestion(id: UUID(), mateID: mateID, runID: runID, prompt: trimmed)
         )
+    }
+}
+
+// MARK: - Routines that run alongside each other
+
+/// Scheduled routines run as background turns in their own mate's chat, the
+/// way a chat you leave keeps working: each chat has its own agent session,
+/// so routines of different mates no longer wait for each other or for the
+/// chat you have open. One routine per mate at a time, a few at once overall.
+extension CompanionManager {
+    static let maximumParallelRoutines = 3
+
+    /// Tests inject one fake client; real chats each get their own session.
+    var usesConversationClientOverride: Bool { conversationClientOverride != nil }
+
+    private static var parallelRoutineChats: [UUID: UUID] = [:] // routineID -> chatID
+    /// Parallel routines stopped by their time limit, so the run is recorded as such.
+    static var timedOutParallelRoutines: Set<UUID> = []
+
+    var runningParallelRoutineCount: Int { Self.parallelRoutineChats.count }
+
+    func isParallelRoutineRunning(_ routineID: UUID) -> Bool { Self.parallelRoutineChats[routineID] != nil }
+
+    /// Starts a scheduled routine without taking over the open chat.
+    func kickoffParallelRoutine(_ routine: MateRoutine) -> MateRoutineKickoff {
+        guard let mate = mateDirectory.mates.first(where: { $0.id == routine.mateID && !$0.archived }),
+              routine.enabled, routine.pausedReason == nil else { return .busy }
+        if openCodeTrainingNotice != nil { return .busy }
+        guard Self.parallelRoutineChats[routine.id] == nil,
+              Self.parallelRoutineChats.count < Self.maximumParallelRoutines else { return .busy }
+        let session = sessionForRoutineAppend(mateID: routine.mateID)
+        // One turn per chat, and none while this mate has work waiting on the person.
+        if independentChatTurns[session.id].map({ !$0.completion.didComplete }) == true { return .busy }
+        if session.id == currentChat.id, isChatTurnBusy { return .busy }
+        if activeRoutineTurn?.mateID == routine.mateID || activeHandoffMateID == routine.mateID { return .busy }
+        if Self.parallelHandoffs.values.contains(where: { $0.mateID == routine.mateID }) { return .busy }
+        if agentRuns.contains(where: { !$0.status.isTerminal && $0.chatOwner?.mateID == routine.mateID }) { return .busy }
+
+        var started = session
+        started.messages.append(ChatMessage(id: UUID(), role: .user, text: routine.task, createdAt: Date()))
+        started.updatedAt = Date()
+        if currentChat.id == started.id { currentChat = started }
+        if rememberConversationsEnabled {
+            chatHistoryStore.upsert(started)
+            savedChats = chatHistoryStore.loadAll()
+        } else {
+            ephemeralIndependentChats[started.id] = started
+        }
+
+        let completion = HeyMateRequestCompletionState()
+        let chatID = started.id
+        let routineID = routine.id
+        Self.parallelRoutineChats[routineID] = chatID
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            var outcome: MateRoutineTurnOutcome = .cancelled
+            defer {
+                completion.didComplete = true
+                if self.independentChatTurns[chatID]?.completion === completion {
+                    self.independentChatTurns.removeValue(forKey: chatID)
+                }
+                if self.currentResponseCompletion === completion {
+                    self.currentResponseTask = nil
+                    self.currentResponseCompletion = nil
+                    self.currentResponseChatID = nil
+                }
+                Self.parallelRoutineChats.removeValue(forKey: routineID)
+                self.finishParallelRoutine(routineID: routineID, mateID: mate.id, chatID: chatID, outcome: outcome)
+            }
+            do {
+                let text = try await self.runUnattendedTurn(prompt: routine.task, mate: mate, session: started,
+                                                            routine: routine, completion: completion)
+                guard !Task.isCancelled, !completion.didComplete else { return }
+                self.deliverIndependentChatResult(text.shown, chatID: chatID, resultKey: text.resultKey)
+                text.acknowledge()
+                outcome = .success(text.shown)
+            } catch is CancellationError {
+                outcome = .cancelled
+            } catch {
+                guard !completion.didComplete else { return }
+                Self.recordPipelineError(error, category: .responsePipeline)
+                self.noteChatTurnFailureForBackupBrain(message: error.localizedDescription, mateID: mate.id)
+                self.deliverIndependentChatResult("Couldn't finish this routine: " + error.localizedDescription,
+                                                  chatID: chatID, resultKey: nil)
+                outcome = .failure(error.localizedDescription)
+            }
+        }
+        independentChatTurns[chatID] = IndependentChatTurn(completion: completion, task: task, session: started)
+        if chatID == currentChat.id { restoreIndependentChatTurn() }
+        if let current = mateDirectory.routines.first(where: { $0.id == routineID }) {
+            mateDirectory.apply(MateRoutineAccounting.recordLaunch(current, now: Date(), calendar: .current))
+            syncMatePublications()
+        }
+        HeyMateLog.log("⏰ Routine \(routineID) for \(mate.name) started alongside other work (\(Self.parallelRoutineChats.count) running)")
+        return .started
+    }
+
+    private func finishParallelRoutine(routineID: UUID, mateID: UUID, chatID: UUID, outcome: MateRoutineTurnOutcome) {
+        guard var routine = mateDirectory.routines.first(where: { $0.id == routineID }) else { return }
+        let now = Date()
+        switch outcome {
+        case .success(let status):
+            routine = MateRoutineAccounting.recordSuccess(routine, now: now, calendar: .current, status: status)
+            if let question = MateNeedsInputParser.extract(from: status) {
+                let mateName = mateDirectory.mates.first(where: { $0.id == mateID })?.name ?? "Agent"
+                mateInbox.record(MateInboxItem(
+                    id: UUID(), mateID: mateID, mateName: mateName, chatID: chatID,
+                    createdAt: now, resolvedAt: nil, resolutionSummary: nil,
+                    kind: .question(prompt: question.question, defaultAnswer: question.defaultAnswer, choices: question.choices),
+                    resumeTaskContext: routine.task
+                ))
+            }
+        case .failure(let message):
+            routine = MateRoutineAccounting.recordFailureWithRecovery(
+                routine, now: now, calendar: .current, status: message,
+                backupAvailable: hasUsableBackupBrain(mateID: mateID))
+            if routine.pendingRetryAt == nil {
+                let mateName = mateDirectory.mates.first(where: { $0.id == mateID })?.name ?? "Agent"
+                mateInbox.record(MateInboxItem(
+                    id: UUID(), mateID: mateID, mateName: mateName, chatID: chatID,
+                    createdAt: now, resolvedAt: nil, resolutionSummary: nil,
+                    kind: .routineFailed(routineID: routineID, summary: message),
+                    resumeTaskContext: routine.task
+                ))
+            }
+        case .cancelled:
+            routine = Self.timedOutParallelRoutines.remove(routineID) != nil
+                ? MateRoutineAccounting.recordTimedOut(routine, now: now, calendar: .current)
+                : MateRoutineAccounting.recordInterrupted(routine, now: now, calendar: .current)
+        }
+        mateDirectory.apply(routine)
+        if currentChat.id == chatID {
+            mateDirectory.markRead(id: mateID)
+        } else if outcome != .cancelled {
+            mateDirectory.incrementUnread(id: mateID)
+        }
+        syncMatePublications()
+        dispatchParallelHandoffs()
+    }
+
+    /// Stops a parallel routine's turn; the time limit and Stop use this.
+    func cancelParallelRoutine(_ routineID: UUID) {
+        guard let chatID = Self.parallelRoutineChats[routineID] else { return }
+        cancelIndependentChatTurn(chatID: chatID)
+    }
+
+    struct UnattendedReply {
+        let full: String
+        let shown: String
+        let resultKey: String?
+        let acknowledge: () -> Void
+    }
+
+    /// Runs a background continuation turn in `chatID` so answering from the
+    /// Inbox or finishing a sign-in resumes the mate without switching away
+    /// from the chat the person currently has open.
+    func resumeMateChatInBackground(mateID: UUID, chatID: UUID, userMessage: String, modelPrompt: String) {
+        guard let mate = mateDirectory.mates.first(where: { $0.id == mateID && !$0.archived }) else { return }
+        if currentChat.id == chatID && !isChatTurnBusy {
+            _ = sendTypedMessage(modelPrompt)
+            return
+        }
+        var session = savedChats.first(where: { $0.id == chatID })
+            ?? ephemeralIndependentChats[chatID]
+            ?? sessionForRoutineAppend(mateID: mateID)
+        if independentChatTurns[session.id].map({ !$0.completion.didComplete }) == true { return }
+        session.messages.append(ChatMessage(id: UUID(), role: .user, text: userMessage, createdAt: Date()))
+        session.updatedAt = Date()
+        if currentChat.id == session.id { currentChat = session }
+        if rememberConversationsEnabled {
+            chatHistoryStore.upsert(session)
+            savedChats = chatHistoryStore.loadAll()
+        } else {
+            ephemeralIndependentChats[session.id] = session
+        }
+        let targetChatID = session.id
+        let completion = HeyMateRequestCompletionState()
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                completion.didComplete = true
+                if self.independentChatTurns[targetChatID]?.completion === completion {
+                    self.independentChatTurns.removeValue(forKey: targetChatID)
+                }
+                if self.currentResponseCompletion === completion {
+                    self.currentResponseTask = nil
+                    self.currentResponseCompletion = nil
+                    self.currentResponseChatID = nil
+                }
+            }
+            do {
+                let reply = try await self.runUnattendedTurnForContinuation(
+                    prompt: modelPrompt, mate: mate, session: session, completion: completion
+                )
+                guard !Task.isCancelled, !completion.didComplete else { return }
+                self.deliverIndependentChatResult(reply.shown, chatID: targetChatID, resultKey: reply.resultKey)
+                reply.acknowledge()
+                if self.currentChat.id != targetChatID {
+                    self.mateDirectory.incrementUnread(id: mateID)
+                    self.syncMatePublications()
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !completion.didComplete else { return }
+                self.noteChatTurnFailureForBackupBrain(message: error.localizedDescription, mateID: mate.id)
+                self.deliverIndependentChatResult("Couldn't resume: " + error.localizedDescription, chatID: targetChatID, resultKey: nil)
+            }
+        }
+        independentChatTurns[targetChatID] = IndependentChatTurn(completion: completion, task: task, session: session)
+        if targetChatID == currentChat.id { restoreIndependentChatTurn() }
+    }
+
+    func runUnattendedTurnForContinuation(
+        prompt: String, mate: Mate, session: ChatSession, completion: HeyMateRequestCompletionState
+    ) async throws -> UnattendedReply {
+        try await runUnattendedTurn(
+            prompt: prompt, mate: mate, session: session, routine: nil,
+            images: [], extraNote: "The person answered your paused question or sign-in request. Finish the task and report the outcome.",
+            completion: completion
+        )
+    }
+
+    /// One unattended agent turn in `session`: no screen, no voice, no
+    /// drawing, the mate's own identity, memory, integrations and tools.
+    private func runUnattendedTurn(
+        prompt: String, mate: Mate, session: ChatSession, routine: MateRoutine?,
+        images: [(data: Data, label: String)] = [], extraNote: String? = nil,
+        completion: HeyMateRequestCompletionState
+    ) async throws -> UnattendedReply {
+        if conversationClientOverride == nil { await awaitConnectorActivation() }
+        try Task.checkCancellation()
+        let chatID = session.id
+        let client = mateAgentConversationClients[chatID] ?? MateAgentServeConversationClient(chatID: chatID)
+        if mateAgentConversationClients[chatID] == nil {
+            mateAgentConversationClients[chatID] = client
+            client.onRecoveredResult = { [weak self] result in
+                self?.deliverRecoveredMateAgentResult(result, chatID: chatID)
+            }
+        }
+        client.preferredBrain = resolvedSessionBrain(forMateID: mate.id)
+        client.enabledSkillNames = resolvedMateSkillNames(forMateID: mate.id)
+        let scope = registerTalkToolScope(owner: AgentChatOwner(mateID: mate.id, chatID: chatID), completion: completion)
+        defer { revokeTalkToolScope(scope) }
+        client.connectorScope = scopedConnectorToolDescriptions(token: scope).isEmpty ? nil : scope
+        client.verifyReply = { [weak self] text in
+            MateAgentGmailVerification.checkedReply(text, verifiedActions: self?.talkGmailEvidence[scope] ?? [:], emailContext: true)
+        }
+        client.streamsReplyLive = false
+        client.onOpener = nil
+        client.onDrawingText = nil
+        let enabledApps = Set(composioConnections.connectedSlugs.filter {
+            isConnectorSelectionEnabled(Self.chatConnectorSelectionID(forComposioSlug: $0), for: mate)
+        })
+        let toolNames = scopedConnectorToolDescriptions(token: scope).compactMap { $0["name"] as? String }
+        let systemPrompt = MateAgentConversationClient.interfaceInstructions(mateIdentity: mateIdentityBlock(for: mate) ?? "")
+            + "\n\n" + MateAgentServeConversationClient.connectorInstructions(
+                tools: toolNames.filter { !TalkToolCatalog.piBridgeLocalToolNames.contains($0) },
+                enabledApps: enabledApps.sorted())
+            + { let guides = AppGuides.text(for: Array(enabledApps)); return guides.isEmpty ? "" : "\n\n" + guides }()
+            + (toolNames.contains(TalkToolCatalog.useChromeToolName) ? "\n\n" + BrowserGuide.text : "")
+        var context: [String] = []
+        if let routine {
+            var note = "This is your scheduled routine (\(routine.schedule.summary)), running unattended while the person may be busy elsewhere. Do the work and report what you did in full."
+            if MateRoutineAccounting.lastAttemptDidNotFinish(routine) {
+                note += " The last run did not finish, so check what is already done before repeating anything."
+            }
+            context.append(note)
+        }
+        if let extraNote { context.append(extraNote) }
+        context.append("Unattended envelope: take the sensible default for minor choices and state what you chose in one plain line. Only if you are genuinely blocked on a decision only the person can make, call ask_person or end your reply with `NEEDS INPUT: <question>` and `Default: <your recommendation>` so HeyMate files it in Waiting on You and resumes this chat once answered.")
+        if let memory = MemoryRecall.promptBlock(items: memoryRepository.recall(query: prompt, for: mate.id)) {
+            context.append(memory)
+        }
+        var earlier = session.messages
+        if earlier.last?.role == .user, earlier.last?.text == prompt { earlier.removeLast() }
+        client.seedMessages = earlier
+        let (raw, _) = try await client.analyzeImageStreaming(
+            images: images,
+            systemPrompt: systemPrompt,
+            conversationHistory: [],
+            userPrompt: MateAgentServeConversationClient.turnPrompt(request: prompt, contextNote: context.joined(separator: "\n\n")),
+            onTextChunk: { _ in }
+        )
+        let (modelText, shownModel) = Model3DParser.extract(from: raw)
+        let (chatText, modelPatch) = Model3DParser.extractPatch(from: modelText)
+        var shown = GuidedReplyParser.chatText(shownModel != nil || modelPatch != nil ? chatText : raw)
+        let drawn = ExplainerParser.extract(from: shown)
+        if drawn.program != nil {
+            shown = ([drawn.text.trimmingCharacters(in: .whitespacesAndNewlines)] + drawn.lines)
+                .filter { !$0.isEmpty }.joined(separator: " ")
+        }
+        let delivery = client.latestDelivery
+        return UnattendedReply(full: raw, shown: shown, resultKey: delivery?.key) { [weak client] in
+            if let delivery { try? client?.acknowledgeDelivery(delivery.id) }
+        }
+    }
+}
+
+// MARK: - Hand-offs that run alongside each other
+
+/// A hand-off runs as a background turn in the receiving mate's own chat as
+/// soon as that mate is free, instead of waiting for every other turn in the
+/// app. Its report goes back to the exact chat that asked.
+extension CompanionManager {
+    static let maximumParallelHandoffs = 4
+
+    private static var parallelHandoffs: [UUID: MateHandoff] = [:] // chatID -> hand-off
+
+    private enum ParallelHandoffStart { case started, dropped, wait, held }
+
+    /// How many mate-to-mate hops led to the turn running in this chat.
+    func handoffHops(forRequesterChat chatID: UUID?) -> Int {
+        chatID.flatMap { Self.parallelHandoffs[$0]?.hops } ?? activeHandoffHops
+    }
+
+    /// Starts every waiting hand-off whose receiver is free, oldest first.
+    func dispatchParallelHandoffs() {
+        guard openCodeTrainingNotice == nil else { return }
+        var index = 0
+        while index < pendingHandoffs.count, Self.parallelHandoffs.count < Self.maximumParallelHandoffs {
+            switch startParallelHandoff(pendingHandoffs[index]) {
+            case .started, .dropped:
+                pendingHandoffs.remove(at: index)
+            case .wait:
+                index += 1
+            case .held:
+                pendingHandoffs.remove(at: index)
+                return
+            }
+        }
+    }
+
+    private func startParallelHandoff(_ handoff: MateHandoff) -> ParallelHandoffStart {
+        guard let mate = mateDirectory.mates.first(where: { $0.id == handoff.mateID && !$0.archived }) else {
+            handoffLedger.mark(handoff.id, .cancelled, note: "Specialist is no longer available.")
+            HeyMateLog.log("🤝 Handoff \(handoff.id) dropped: \(handoff.mateName) is no longer available")
+            if let requester = handoff.requester {
+                postAgentMessage(owner: requester, text: handoff.returningReport("Specialist is no longer available.", succeeded: false))
+            }
+            return .dropped
+        }
+        let openMateID = currentChat.mateID ?? mateDirectory.defaultMateID
+        let session = openMateID == mate.id ? currentChat : sessionForRoutineAppend(mateID: mate.id)
+        // One turn per chat: wait while the receiver is already working.
+        if Self.parallelHandoffs.values.contains(where: { $0.mateID == mate.id }) { return .wait }
+        if independentChatTurns[session.id].map({ !$0.completion.didComplete }) == true { return .wait }
+        if session.id == currentChat.id, isChatTurnBusy { return .wait }
+        if activeRoutineTurn?.mateID == mate.id || activeHandoffMateID == mate.id { return .wait }
+        if holdForOpenCodeTrainingConsent(
+            handoff.deliveredInstruction, imageAttachments: handoff.imageAttachments, handoff: handoff, deliverySession: session,
+            explicitExecutor: HeadlessExecutor.explicitlyRequested(in: handoff.instruction)
+        ) {
+            handoffLedger.mark(handoff.id, .queued, note: "Waiting for the user to confirm the OpenCode training notice.")
+            HeyMateLog.log("🤝 Handoff \(handoff.id) to \(handoff.mateName) held for OpenCode consent")
+            return .held
+        }
+
+        var started = session
+        let attachmentNames = handoff.imageAttachments.map(\.fileName)
+        started.messages.append(ChatMessage(id: UUID(), role: .user, text: handoff.deliveredInstruction, createdAt: Date(),
+                                            attachmentNames: attachmentNames.isEmpty ? nil : attachmentNames))
+        started.updatedAt = Date()
+        if currentChat.id == started.id { currentChat = started }
+        if rememberConversationsEnabled {
+            chatHistoryStore.upsert(started)
+            savedChats = chatHistoryStore.loadAll()
+        } else {
+            ephemeralIndependentChats[started.id] = started
+        }
+        handoffLedger.mark(handoff.id, .running, note: "")
+        HeyMateLog.log("🤝 Handoff \(handoff.id) to \(handoff.mateName) started alongside other work")
+
+        let completion = HeyMateRequestCompletionState()
+        let chatID = started.id
+        Self.parallelHandoffs[chatID] = handoff
+        let images = handoff.imageAttachments.map { (data: $0.data, label: $0.modelLabel) }
+        let note = "Another chat handed you this task. Do it now and report the result, evidence, blockers, and any approval still needed. Your report returns to that chat."
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            var report = ""
+            var succeeded = false
+            var stopped = true
+            defer {
+                completion.didComplete = true
+                if self.independentChatTurns[chatID]?.completion === completion {
+                    self.independentChatTurns.removeValue(forKey: chatID)
+                }
+                if self.currentResponseCompletion === completion {
+                    self.currentResponseTask = nil
+                    self.currentResponseCompletion = nil
+                    self.currentResponseChatID = nil
+                }
+                Self.parallelHandoffs.removeValue(forKey: chatID)
+                self.finishParallelHandoff(handoff, chatID: chatID, report: report, succeeded: succeeded, stopped: stopped)
+            }
+            do {
+                let reply = try await self.runUnattendedTurn(
+                    prompt: handoff.deliveredInstruction, mate: mate, session: started, routine: nil,
+                    images: images, extraNote: note, completion: completion)
+                guard !Task.isCancelled, !completion.didComplete else { return }
+                self.deliverIndependentChatResult(reply.shown, chatID: chatID, resultKey: reply.resultKey)
+                reply.acknowledge()
+                report = reply.shown
+                succeeded = true
+                stopped = false
+            } catch is CancellationError {
+                stopped = true
+            } catch {
+                guard !completion.didComplete else { return }
+                Self.recordPipelineError(error, category: .responsePipeline)
+                self.noteChatTurnFailureForBackupBrain(message: error.localizedDescription, mateID: mate.id)
+                let line = "Couldn't finish this hand-off: " + error.localizedDescription
+                self.deliverIndependentChatResult(line, chatID: chatID, resultKey: nil)
+                report = line
+                stopped = false
+            }
+        }
+        independentChatTurns[chatID] = IndependentChatTurn(completion: completion, task: task, session: started)
+        if chatID == currentChat.id { restoreIndependentChatTurn() }
+        return .started
+    }
+
+    private func finishParallelHandoff(_ handoff: MateHandoff, chatID: UUID, report: String, succeeded: Bool, stopped: Bool) {
+        var report = report
+        var succeeded = succeeded
+        var note = stopped ? "Stopped before it finished." : ""
+        // Pi chats do their own work; a [WORK: ...] line is not parsed here,
+        // so it must not read as work that started.
+        if succeeded, !MateWorkParser.extract(from: report).tasks.isEmpty {
+            succeeded = false
+            note = "The reply asked for a [WORK: ...] run, which this chat cannot start. Nothing ran."
+            report += "\n\n" + note
+        }
+        let state: HandoffRecord.State = stopped ? .cancelled : (succeeded ? .reported : .failed)
+        handoffLedger.mark(handoff.id, state, note: note)
+        HeyMateLog.log("🤝 Handoff \(handoff.id) to \(handoff.mateName) \(state)\(note.isEmpty ? "" : ": \(note)")")
+        if succeeded, let question = MateNeedsInputParser.extract(from: report) {
+            mateInbox.record(MateInboxItem(
+                id: UUID(), mateID: handoff.mateID, mateName: handoff.mateName, chatID: chatID,
+                createdAt: Date(), resolvedAt: nil, resolutionSummary: nil,
+                kind: .question(prompt: question.question, defaultAnswer: question.defaultAnswer, choices: question.choices),
+                resumeTaskContext: handoff.instruction
+            ))
+        }
+        if currentChat.id != chatID, !stopped {
+            mateDirectory.incrementUnread(id: handoff.mateID)
+        }
+        if let requester = handoff.requester, requester.chatID != chatID {
+            postAgentMessage(owner: requester, text: handoff.returningReport(stopped ? note : report, succeeded: succeeded))
+        }
+        savedChats = rememberConversationsEnabled ? chatHistoryStore.loadAll() : []
+        syncMatePublications()
+        dispatchParallelHandoffs()
     }
 }

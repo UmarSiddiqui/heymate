@@ -35,6 +35,9 @@ struct MateSettingsSheet: View {
     @State private var errorText: String?
     /// Integration changes from HeyMate's defaults, applied on Save.
     @State private var integrationDraft: [String: Bool]
+    @State private var wakeKind: MateWakeKind?
+    @State private var wakeMatch: String
+    @State private var isShowingSchedules = false
 
     init(
         mate: Mate,
@@ -57,6 +60,9 @@ struct MateSettingsSheet: View {
         _howItWorks = State(initialValue: habits.howItWorks)
         _asksFirst = State(initialValue: habits.asksFirst)
         _integrationDraft = State(initialValue: mate.conductsOthers ? [:] : (mate.connectorOverrides ?? [:]))
+        let wake = companionManager.wake(for: mate.id)
+        _wakeKind = State(initialValue: wake?.kind)
+        _wakeMatch = State(initialValue: wake?.match ?? "")
     }
 
     var body: some View {
@@ -106,6 +112,9 @@ struct MateSettingsSheet: View {
         } message: {
             Text(Mate.deletionWarning)
         }
+        .sheet(isPresented: $isShowingSchedules) {
+            MateSchedulesSheet(companionManager: companionManager)
+        }
         .sheet(isPresented: $isShowingCharacterEditor) {
             MiloCharacterEditor(mate: mate, initialToken: selectedFace) { token in
                 let current = companionManager.mates.first { $0.id == mate.id } ?? mate
@@ -148,7 +157,9 @@ struct MateSettingsSheet: View {
             )
 
             memorySection
+            MateBackupBrainField(mate: mate, companionManager: companionManager)
             routinesSection
+            wakeSection
             AgentIntegrationsSection(
                 isDefaults: mate.conductsOthers,
                 draft: $integrationDraft,
@@ -259,6 +270,19 @@ struct MateSettingsSheet: View {
         }
     }
 
+    /// What makes this agent offer to work. Saved with Save.
+    private var wakeSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                sectionLabel("Offers to help when")
+                Text(wakeKind == nil ? "Stays quiet until you ask" : "One tap in the notch to start")
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.textTertiary)
+            }
+            MateWakeField(kind: $wakeKind, match: $wakeMatch)
+        }
+    }
+
     /// Routines save as soon as they're added or edited, like in the chat
     /// side panel; they aren't part of Save, and the label says so.
     private var routinesSection: some View {
@@ -285,6 +309,9 @@ struct MateSettingsSheet: View {
                     mateName: mate.name,
                     companionManager: companionManager
                 )
+            }
+            sheetLink("Every agent's schedule", systemImage: "calendar") {
+                isShowingSchedules = true
             }
         }
     }
@@ -347,9 +374,18 @@ struct MateSettingsSheet: View {
     }
 
     private func save() {
+        if let wakeKind, wakeKind.requiresMatch, MateWakeMatcher.terms(wakeMatch).isEmpty {
+            errorText = "Name the app it should wait for."
+            return
+        }
         if let error = onSave(name, job, soul, selectedFace) {
             errorText = error
             return
+        }
+        let savedWake = companionManager.wake(for: mate.id)
+        if savedWake?.kind != wakeKind
+            || (savedWake?.match ?? "") != MateWakeMatcher.cleanedMatch(wakeMatch) {
+            companionManager.setMateWake(mateID: mate.id, kind: wakeKind, match: wakeMatch)
         }
         if memoryNote != mate.memoryNote {
             companionManager.updateMateMemory(id: mate.id, note: memoryNote)

@@ -8,7 +8,7 @@
 import Foundation
 
 nonisolated enum RoutinePhraseParser {
-    static let invalidScheduleMessage = "Say when it should run, like every morning or every 3 hours."
+    static let invalidScheduleMessage = "Say when it should run, like every weekday at 8, every Monday, or every 30 minutes."
 
     static func parse(
         _ text: String,
@@ -47,6 +47,38 @@ nonisolated enum RoutinePhraseParser {
         if let match = firstMatch(#"every\s+(\d+)\s+hours?"#, in: text),
            let hours = Int(match.capture), hours >= 1 {
             return DetectedSchedule(schedule: .everyHours(hours), range: match.range)
+        }
+        if let range = text.range(of: #"every\s+half\s+(?:an\s+)?hour"#, options: [.regularExpression, .caseInsensitive]) {
+            return DetectedSchedule(schedule: .everyMinutes(30), range: range)
+        }
+        if let match = firstMatch(#"every\s+(\d+)\s+min(?:ute)?s?"#, in: text),
+           let minutes = Int(match.capture), minutes >= 1 {
+            // Whole hours stay hourly so older builds keep reading them.
+            let schedule: RoutineSchedule = minutes % 60 == 0
+                ? .everyHours(minutes / 60)
+                : .everyMinutes(max(RoutineSchedule.minimumMinutes, minutes))
+            return DetectedSchedule(schedule: schedule, range: match.range)
+        }
+        let clockTail = #"(?:\s+mornings?)?(?:\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?"#
+        if let match = firstMatch(#"(?:every\s+weekday|(?:on\s+)?weekdays)"# + clockTail, in: text) {
+            let hour = match.groups.first?.isEmpty == false ? clockHour(match) : 8
+            if let hour {
+                return DetectedSchedule(
+                    schedule: .weekdays(hour: hour, minute: clockMinute(match)), range: match.range
+                )
+            }
+        }
+        let dayNames = RoutineSchedule.weekdayNames.map { $0.lowercased() }.joined(separator: "|")
+        if let match = firstMatch(#"every\s+("# + dayNames + #")s?"# + clockTail, in: text),
+           let weekday = RoutineSchedule.weekdayNames.firstIndex(where: { $0.lowercased() == match.capture.lowercased() }) {
+            let clock = PhraseMatch(range: match.range, groups: Array(match.groups.dropFirst()))
+            let hour = clock.groups.first?.isEmpty == false ? clockHour(clock) : 8
+            if let hour {
+                return DetectedSchedule(
+                    schedule: .weekly(weekday: weekday + 1, hour: hour, minute: clockMinute(clock)),
+                    range: match.range
+                )
+            }
         }
         if let range = text.range(of: #"every\s+morning"#, options: [.regularExpression, .caseInsensitive]) {
             return DetectedSchedule(schedule: .daily(hour: 8, minute: 0), range: range)

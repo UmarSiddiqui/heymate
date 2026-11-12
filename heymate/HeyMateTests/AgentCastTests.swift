@@ -61,4 +61,16 @@ struct AgentCastTests {
         #expect(routine.nextRunAt == calendar.date(from: DateComponents(year: 2026, month: 11, day: 11, hour: 8)))
         #expect(!MateRoutineAccounting.isDue(routine, now: now))
     }
+
+    @Test func recipesThatWakeSayWhatToDoAndCanBeSaved() {
+        let waking = AgentRecipeCatalog.all.filter { $0.wake != nil }
+        #expect(waking.map(\.name).sorted() == ["Day Brief", "Desk Clerk", "Developer", "Inbox Scout", "Research Scout"])
+        for recipe in waking {
+            #expect(!recipe.wakeTask.isEmpty)
+            #expect(recipe.wakeTask.count <= 240)
+            if recipe.wake?.requiresMatch == true { #expect(!MateWakeMatcher.terms(recipe.wakeMatch).isEmpty) }
+        }
+        #expect(AgentRunsChoice.weekdayMornings.schedule == .weekdays(hour: 8, minute: 0))
+        #expect(AgentRunsChoice.everyHalfHour.schedule == .everyMinutes(30))
+    }
 }

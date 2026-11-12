@@ -50,7 +50,7 @@ nonisolated enum ExplanationProgram {
         "connect", "trace", "ink", "line", "curve", "arrow", "rect", "circle", "ellipse", "poly", "path", "dot", "text", "write",
         "paper", "sticky", "graph", "timeline", "figure"
     ]
-    private static let shapes: Set<String> = ["box", "cyl", "cone", "sphere", "tube", "torus", "capsule", "lathe", "pipe", "spring", "gear", "extrude", "blob", "poly", "group"]
+    private static let shapes: Set<String> = ["box", "cyl", "cone", "sphere", "tube", "torus", "capsule", "lathe", "loft", "pipe", "spring", "gear", "extrude", "blob", "poly", "arrow", "group"]
     private static let methods: Set<String> = ["label", "spin", "bob", "orbit", "pulse", "path", "move", "view", "camera", "sliderCrank", "plot", "line", "point", "area", "band", "at", "slot", "part"]
     private static let edits: Set<String> = ["erase", "recolor", "restyle", "move", "moveTo", "scale", "highlight"]
     private static let properties: Set<String> = ["pos", "rot", "scale", "show", "glow", "color"]
@@ -150,14 +150,17 @@ nonisolated enum ExplanationProgram {
     }
 
     private static func validID(_ value: String) -> Bool {
-        !value.isEmpty && value.count <= 48 && value.utf8.allSatisfy { byte in
-            (65...90).contains(byte) || (97...122).contains(byte) || (48...57).contains(byte) || byte == 95 || byte == 45
-        }
+        let normalized = value.precomposedStringWithCanonicalMapping
+        let allowed = CharacterSet.letters.union(.decimalDigits).union(.nonBaseCharacters)
+            .union(CharacterSet(charactersIn: "_-"))
+        return !normalized.isEmpty && normalized.unicodeScalars.count <= 48
+            && normalized.unicodeScalars.allSatisfy(allowed.contains)
     }
 
     private static func reference(_ value: Any?) throws -> String {
         guard let name = value as? String, validID(name) else { throw Invalid.command }
-        return "__hm[\(try json(name))]"
+        // Handles are quoted dictionary keys, never JavaScript identifiers.
+        return "__hm[\(try json(name.precomposedStringWithCanonicalMapping))]"
     }
 
     /// JSON literals plus explicit handle references. No callbacks, expressions,
@@ -219,13 +222,17 @@ nonisolated enum ExplanationProgram {
             guard let args = command["args"] as? [Any], args.count <= 8 else { throw Invalid.command }
             let coordinateCount: Int
             switch op {
-            case "figure", "paper", "graph", "timeline", "ring", "frame", "target", "hover", "rect", "highlight": coordinateCount = 4
+            case "figure", "paper", "graph", "ring", "frame", "target", "hover", "rect", "highlight": coordinateCount = 4
+            case "timeline": coordinateCount = 3
             case "circle", "underline": coordinateCount = 3
             case "ellipse": coordinateCount = 4
             case "point", "label", "text", "write", "sticky", "num", "check", "cross", "dot": coordinateCount = 2
             default: coordinateCount = 0
             }
             guard args.count >= coordinateCount else { throw Invalid.command }
+            if op == "timeline" {
+                guard args.count >= 4, args[3] is [Any] else { throw Invalid.command }
+            }
             for value in args.prefix(coordinateCount) {
                 if let ref = value as? [String: Any], ref["ref"] != nil,
                    let field = ref["field"] as? String, ["x","y","w","h"].contains(field) { continue }
@@ -302,7 +309,8 @@ nonisolated enum ExplanationProgram {
             return "startOver(); __hm = Object.create(null);"
         } else { throw Invalid.command }
         if let name = command["id"] {
-            let value = drawingCalls.contains(op) ? "named(\(try json(name)), () => \(code))" : code
+            let drawsMarks = drawingCalls.contains(op) || (op == "call" && ["plot", "line", "point", "label"].contains(command["method"] as? String ?? ""))
+            let value = drawsMarks ? "named(\(try json(name)), () => \(code))" : code
             return "\(try reference(name)) = \(value);"
         }
         return code + ";"

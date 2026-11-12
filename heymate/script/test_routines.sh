@@ -18,8 +18,17 @@ let package = Package(name: "HeyMateRoutines", platforms: [.macOS(.v14)],
               .testTarget(name: "HeyMateTests", dependencies: ["HeyMate"])],
     swiftLanguageModes: [.v5])
 ''')
-for name in ['MateRoutine', 'MateRoutineScheduler', 'RoutinePhraseParser']:
+for name in ['MateRoutine', 'MateRoutineScheduler', 'RoutinePhraseParser', 'SpokenFailure']:
     shutil.copy2(root/f'HeyMate/{name}.swift', source/f'{name}.swift')
+# The brain ledger and Markdown import need app types, so Xcode checks those tests.
+(source/'BrainUsageLimit.swift').write_text(
+    (root/'HeyMate/BrainUsageLimit.swift').read_text().split('nonisolated struct BrainLimitLedger')[0])
+s = (root/'HeyMateTests/MateParityTests.swift').read_text()
+a = s.index('    @Test func ledgerPicksBackupOnlyWhileLimited()')
+b = s.index('\n}\n\nstruct MateRoutineHistoryTests')
+c = s.index('struct MateMarkdownTests')
+d = s.index('struct MateRoutineRecoveryTests')
+(tests/'MateParityTests.swift').write_text(s[:a] + s[b:c] + s[d:])
 # Manager/store integration needs the app host; Xcode checks those tests.
 # Run the unchanged parser, accounting, scheduler, editing and wake tests here.
 s = (root/'HeyMateTests/MateRoutineTests.swift').read_text()

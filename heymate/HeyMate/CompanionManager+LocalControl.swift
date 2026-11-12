@@ -128,7 +128,7 @@ extension CompanionManager {
     /// Plays a drawing program the way a reply's ```js block plays: each
     /// say() line spoken while its strokes draw.
     private func explain(_ program: String, streamed: Bool = false) -> LocalControlResponse {
-        let reply = GuidedReplyParser.parse("```js\n" + program + "\n```")
+        let reply = GuidedReplyParser.parse("```js\n" + program + "\n```", trustedProgram: true)
         guard reply.explainerProgram != nil else { return .error(400, "The program has no say() lines") }
         LocalControlState.drawingReplay?.cancel()
         explainerWindowController.resetStreamDismissal()

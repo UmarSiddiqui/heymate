@@ -7,6 +7,8 @@ import Foundation
 final class MateAgentServeConversationClient: VisionConversationClient {
     var model = "HeyMate agent profile"
     var connectorScope: String?
+    var preferredBrain: MateAgentServeSession.BrainOverride?
+    var enabledSkillNames: [String]?
     var verifyReply: (@MainActor (String) -> String)?
     /// With `verifyReply` set, text is held until the reply is verified unless
     /// the caller opts in here: a turn that is not about email shows its words
@@ -286,7 +288,10 @@ final class MateAgentServeConversationClient: VisionConversationClient {
                 try await active.attachHeyMateBridge(name: name, command: runtime.path,
                     script: script.path, scope: connectorScope, contextFile: contextFile)
             }
-            let rawResult = try await active.prompt(text: userPrompt, images: images, system: systemPrompt, seed: seed)
+            let rawResult = try await active.prompt(
+                text: userPrompt, images: images, system: systemPrompt, seed: seed,
+                brain: preferredBrain, skills: enabledSkillNames
+            )
             let result = MateAgentServeSession.Result(text: verifyReply?(rawResult.text) ?? rawResult.text,
                 status: rawResult.status, completionSequence: rawResult.completionSequence)
             if let bridgeName { await active.removeHeyMateBridge(name: bridgeName) }
@@ -309,7 +314,7 @@ final class MateAgentServeConversationClient: VisionConversationClient {
                 let stopped = await active.cancelAndWait()
                 if stopped, try ledger.record(chatID: chatID, profile: launch.profileDirectoryURL).pending != nil {
                     let delivery = try ledger.complete(chatID: chatID, profile: launch.profileDirectoryURL,
-                        result: .init(text: "HeyMate Agent was stopped. Unfinished work was not marked complete.", status: "interrupted"), checkpoint: active.checkpoint)
+                        result: .init(text: "This task was stopped before it finished, so nothing was marked done. Ask again to pick it back up.", status: "interrupted"), checkpoint: active.checkpoint)
                     deliveryProfiles[delivery.id] = launch.profileDirectoryURL
                     onRecoveredResult?(delivery)
                 }

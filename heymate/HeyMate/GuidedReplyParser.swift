@@ -80,10 +80,14 @@ nonisolated enum GuidedReplyParser {
     private static let anyControlTagPattern = #"\[[A-Z]+:[^\]]*\]"#
     private static let controlTagPrefixes = PointingTagParser.visualTagPrefixes + ["[PLAN", "[STEP", "[ACT", "[WORK", "[ASK"]
 
-    static func parse(_ responseText: String) -> GuidedReply {
+    /// `trustedProgram` is true only for a program HeyMate's own local control
+    /// supplies. A model reply is data: its ```heymate block is compiled from
+    /// an allowlist, and a ```js block it writes is spoken but never run.
+    static func parse(_ responseText: String, trustedProgram: Bool = false) -> GuidedReply {
         // The json blocks are silent: lift them out before anything is spoken.
         // A drawing program is spoken through its say() lines instead.
-        let (withoutProgram, program, sayLines) = ExplainerParser.extract(from: responseText)
+        let (withoutProgram, extracted, sayLines) = ExplainerParser.extract(from: responseText)
+        let program = trustedProgram || responseText.contains(ExplanationProgram.fence) ? extracted : nil
         let (withoutModel, model3D) = Model3DParser.extract(from: withoutProgram)
         let (withoutPatch, modelPatch) = Model3DParser.extractPatch(from: withoutModel)
         let (withoutDrawings, visualActions) = VisualActionParser.extract(from: withoutPatch)

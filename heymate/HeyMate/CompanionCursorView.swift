@@ -37,9 +37,6 @@ struct CompanionCursorView: View {
     /// Moving the pointer this far cancels a return flight.
     private static let returnCancelDistance: CGFloat = 100
     private static let welcomeMessage = "hey! i'm heymate"
-    private static let pointingPhrases = [
-        "right here!", "this one!", "over here!", "click this!", "here it is!", "found it!"
-    ]
 
     @State private var position: CGPoint
     @State private var isPointerOnThisScreen: Bool
@@ -700,9 +697,10 @@ struct CompanionCursorView: View {
         pointingLabelOpacity = 1
         pointingLabelScale = 0.5
 
-        let phrase = companionManager.pointingTarget?.caption
-            ?? Self.pointingPhrases.randomElement()
-            ?? "right here!"
+        // A target may be a drawing stroke or an unlabelled part, not a control.
+        // Only show the supplied caption; a generic click instruction is misleading.
+        let phrase = companionManager.pointingTarget?.caption?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         coachPhaseStartedAt = CACurrentMediaTime()
         pointingTask?.cancel()
         pointingTask = Task { _ = try? await runPointing(phrase) }

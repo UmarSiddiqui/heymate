@@ -144,14 +144,20 @@ private final class DaVinciMetalLabels: NSView {
                   let ax = item["ax"] as? Double, let ay = item["ay"] as? Double,
                   [x, y, ax, ay].allSatisfy(\.isFinite) else { continue }
             let font = NSFont.systemFont(ofSize: min(40, max(8, item["size"] as? Double ?? 15)), weight: .semibold)
-            let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor(calibratedWhite: 0.085, alpha: 1)]
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineBreakMode = .byTruncatingTail
+            let attributes: [NSAttributedString.Key: Any] = [.font: font, .paragraphStyle: paragraph,
+                .foregroundColor: NSColor(calibratedWhite: 0.085, alpha: 1)]
             let size = (text as NSString).size(withAttributes: attributes)
             let left = item["side"] as? String == "left"
-            let box = NSRect(x: left ? x - size.width - 20 : x, y: y - (size.height + 6) / 2, width: size.width + 20, height: size.height + 6)
-            let line = NSBezierPath(); line.move(to: NSPoint(x: left ? box.maxX + 4 : box.minX - 4, y: y)); line.line(to: NSPoint(x: ax, y: ay))
+            let width = min(size.width + 20, max(24, bounds.width - 8)), height = size.height + 6
+            let desiredX = left ? x - width : x
+            let box = NSRect(x: min(max(4, desiredX), max(4, bounds.width - width - 4)),
+                             y: min(max(4, y - height / 2), max(4, bounds.height - height - 4)), width: width, height: height)
+            let line = NSBezierPath(); line.move(to: NSPoint(x: left ? box.maxX + 4 : box.minX - 4, y: box.midY)); line.line(to: NSPoint(x: ax, y: ay))
             NSColor.white.withAlphaComponent(0.65).setStroke(); line.lineWidth = 1.6; line.stroke()
             NSColor.white.withAlphaComponent(0.94).setFill(); NSBezierPath(roundedRect: box, xRadius: box.height / 2, yRadius: box.height / 2).fill()
-            (text as NSString).draw(at: NSPoint(x: box.minX + 10, y: box.minY + 3), withAttributes: attributes)
+            (text as NSString).draw(in: box.insetBy(dx: 10, dy: 3), withAttributes: attributes)
         }
     }
 }

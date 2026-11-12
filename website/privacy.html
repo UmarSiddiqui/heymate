@@ -54,12 +54,15 @@
           <tr><td>memory.json</td><td>Things HeyMate decided were worth remembering. You can clear it.</td></tr>
           <tr><td>mates.json</td><td>Mate names, jobs, personalities, and settings.</td></tr>
           <tr><td>routines.json</td><td>Schedules for mates.</td></tr>
+          <tr><td>routines-more.json</td><td>Weekday, weekly, and minute schedules for mates.</td></tr>
+          <tr><td>agent-wakes.json</td><td>What makes a mate offer to help, and the last thing it offered.</td></tr>
           <tr><td>behavior-contract.md</td><td>The rules you can edit.</td></tr>
           <tr><td>skills/</td><td>Your Markdown skills.</td></tr>
           <tr><td>faces/</td><td>Custom mate faces you imported.</td></tr>
         </tbody>
       </table></div>
       <p>API keys and connector tokens go in a separate file only your Mac account can read (<span class="code">secrets/connector-secrets.json</span>, permissions 0600), the way the Claude, Codex, and GitHub command-line tools keep theirs. Clipboard history stays in memory and is dropped when you quit.</p>
+      <p>A mate can offer to help when something happens on your Mac, but only if you turn that on for that mate. While it is on, HeyMate watches one thing for it: the names of new files in Downloads, whether what you copy is a single web link (other copied text is not read, and items a password manager marks private are skipped), the title and time of your next meeting, which app comes to the front, or the senders and subjects of new mail in the Mail app. Each match only shows an offer. The file, link, or subject reaches the mate, and through it your AI provider, only after you say yes. Remove the trigger and the watching stops.</p>
 
       <h2 id="what-leaves-your-mac">What leaves your Mac</h2>
       <ul>

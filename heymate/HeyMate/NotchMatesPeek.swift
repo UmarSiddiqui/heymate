@@ -90,6 +90,7 @@ struct NotchMatesPeek: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
+            MateWakeOffers(companionManager: companionManager)
             HStack {
                 DSSectionLabel(title: "Mates")
                 Spacer()

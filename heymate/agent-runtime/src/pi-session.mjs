@@ -1,5 +1,5 @@
 import { applyModelSpeed } from './model-speeds.mjs';
-import { hasBrainCredential } from './brain.mjs';
+import { hasBrainCredential, resolveSessionBrain } from './brain.mjs';
 import path from 'node:path';
 import { createAgentSession, createCodingTools, DefaultResourceLoader,
   ModelRuntime, SessionManager, SettingsManager } from '@earendil-works/pi-coding-agent';
@@ -34,7 +34,8 @@ export function seedTranscript(seed) {
 // shell startup files or third-party MCP inventories enter this session.
 // Per-turn budget. The native client waits 300 s for a turn, so the wall limit
 // stays under it; at 80% of either limit the model is told to wrap up.
-export const turnLimits = { steps: 60, ms: 280000, nudgeAt: 0.8 };
+// Stall watchdog stops turns that go completely silent (longer while a tool runs).
+export const turnLimits = { steps: 60, ms: 280000, nudgeAt: 0.8, stallMs: 90000, toolStallMs: 210000 };
 const wrapUpNote = 'HeyMate: this turn is close to its time or step limit. Start no new work. Finish what is in progress, '
   + 'then give the final answer now, saying plainly what is done and what remains.';
 // Reply first, then work: the opener is shown and spoken while the tools run.
@@ -52,8 +53,10 @@ const notesGuide = 'NOTES: for work worth keeping (research, a plan, a compariso
   + 'Small talk and quick answers get no note. Before continuing a saved note, or after compaction, call note_read to see its current contents.\n' + noteInstructions;
 
 export async function createPiSession({ home, record, access, tools, approve, emit, system = '', seed = [],
+  brainOverride = null, skillNames = null, modelSpeeds = {},
   previewNote = () => {}, sideEffect = (_name, _args, _id, run) => run(), effectsNote = () => '', stats = () => {}, limits = turnLimits }) {
-  const config = await readJSON(path.join(home, 'model.json'), {});
+  const baseConfig = await readJSON(path.join(home, 'model.json'), {});
+  const config = await resolveSessionBrain(access, baseConfig, brainOverride, modelSpeeds);
   if (!config.model || !await hasBrainCredential(access, config.provider)) {
     throw new Error('Choose a plan or API provider and model in Brain first.');
   }
@@ -64,7 +67,7 @@ export async function createPiSession({ home, record, access, tools, approve, em
   let checkpointTurn, modelOrdinal = 0;
   const journalID = id => `${record.activeTurnID ?? 'standalone'}:${id}`;
   const settings = SettingsManager.inMemory({ autoCompaction: { enabled: true }, retry: { enabled: true } });
-  const enabledSkills = await skillPrompt(home);
+  const enabledSkills = await skillPrompt(home, skillNames);
   // Interface instructions and mate identity belong in the system prompt, not
   // in each user message where they would be stored and resent every turn.
   const loader = new DefaultResourceLoader({ cwd: record.cwd, agentDir: home, settingsManager: settings,
@@ -148,17 +151,29 @@ export async function createPiSession({ home, record, access, tools, approve, em
   };
   // The turn's clock, without the time spent waiting on the user: an approval or a question holds it (ReferenceRenderer's
   // harness subtracts its question waits the same way), so a slow answer never runs a turn out of time.
+  const armStall = () => {
+    if (!turn) return;
+    if (turn.stallTimer) { clearTimeout(turn.stallTimer); turn.stallTimer = null; }
+    if (turn.holds > 0) return;
+    const wait = turn.activeTools > 0 ? (limits.toolStallMs ?? 210000) : (limits.stallMs ?? 90000);
+    if (wait <= 0) return;
+    turn.stallTimer = setTimeout(() => limit('Turn stalled without progress and was stopped so you can retry.'), wait);
+  };
   const arm = () => {
     const used = turn.used + (turn.since ? Date.now() - turn.since : 0);
     turn.timers.forEach(clearTimeout);
     turn.timers = [setTimeout(nudge, Math.max(0, limits.ms * limits.nudgeAt - used)),
       setTimeout(() => limit('Turn time limit reached before a final answer.'), Math.max(0, limits.ms - used))];
+    armStall();
   };
   session.holdBudget = held => {
     if (!turn) return;
     turn.holds = Math.max(0, turn.holds + (held ? 1 : -1));
-    if (held && turn.holds === 1 && turn.since) { turn.used += Date.now() - turn.since; turn.since = 0; turn.timers.forEach(clearTimeout); turn.timers = []; }
-    else if (!held && turn.holds === 0 && !turn.since) { turn.since = Date.now(); arm(); }
+    if (held && turn.holds === 1 && turn.since) {
+      turn.used += Date.now() - turn.since; turn.since = 0;
+      turn.timers.forEach(clearTimeout); turn.timers = [];
+      if (turn.stallTimer) { clearTimeout(turn.stallTimer); turn.stallTimer = null; }
+    } else if (!held && turn.holds === 0 && !turn.since) { turn.since = Date.now(); arm(); }
   };
   session.subscribe(event => {
     telemetry.onEvent(event);
@@ -167,14 +182,16 @@ export async function createPiSession({ home, record, access, tools, approve, em
     early.onEvent(event);
     if (event.type === 'agent_start') {
       session.limitReached = null;
-      turn = { started: Date.now(), steps: 0, tools: 0, nudged: false, firstText: null,
-        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, used: 0, since: Date.now(), holds: 0, timers: [] };
+      turn = { started: Date.now(), steps: 0, tools: 0, activeTools: 0, nudged: false, firstText: null,
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, used: 0, since: Date.now(), holds: 0, timers: [], stallTimer: null };
       arm();
     } else if (event.type === 'turn_end' && turn) {
       turn.steps++;
+      armStall();
       if (turn.steps >= limits.steps) limit('Turn step limit reached before a final answer.');
       else if (turn.steps >= limits.steps * limits.nudgeAt) nudge();
     } else if (event.type === 'message_end' && turn && event.message?.role === 'assistant') {
+      armStall();
       for (const key of Object.keys(turn.usage)) turn.usage[key] += event.message.usage?.[key] ?? 0;
       // Text written before tool calls is the opener, not the answer: the app speaks it now
       // and starts the answer's stream fresh.
@@ -183,12 +200,17 @@ export async function createPiSession({ home, record, access, tools, approve, em
       if (opener && content.some(part => part.type === 'toolCall')) emit('agent.opener', { text: opener.slice(0, 300) });
     } else if (event.type === 'agent_end' && turn) {
       turn.timers.forEach(clearTimeout);
+      if (turn.stallTimer) clearTimeout(turn.stallTimer);
       stats({ steps: turn.steps, tools: turn.tools, ms: Date.now() - turn.started,
         first_text_ms: turn.firstText === null ? null : turn.firstText - turn.started,
         usage: turn.usage, nudged: turn.nudged, limit: session.limitReached ?? null, model: model.id, h1: telemetry.snapshot() });
       turn = null;
     }
-    if (event.type === 'tool_execution_end' && turn) turn.tools++;
+    if (event.type === 'tool_execution_start' && turn) { turn.activeTools++; armStall(); }
+    if (event.type === 'tool_execution_update' && turn) armStall();
+    if (event.type === 'tool_execution_end' && turn) { turn.tools++; turn.activeTools = Math.max(0, turn.activeTools - 1); armStall(); }
+    if (event.type === 'message_update' && turn) armStall();
+    if ((event.type === 'compaction_start' || event.type === 'auto_retry_start') && turn) armStall();
     if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'text_delta' && turn && turn.firstText === null) turn.firstText = Date.now();
     if (event.type === 'message_update') { const preview = notePreviewCall(event); if (preview) void previewNote(preview); }
     const update = event.type === 'message_update' ? event.assistantMessageEvent : null;

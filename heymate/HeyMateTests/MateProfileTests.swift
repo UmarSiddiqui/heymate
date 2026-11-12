@@ -119,10 +119,10 @@ struct MateProfileTests {
         #expect(compact.contains("I use Photopea"))
     }
 
-    @Test func bothConversationStylesUseTheSelectedMateIdentity() {
+    @Test func conversationStylesDoNotOverrideTurnIdentity() {
         for silent in [false, true] {
             let prompt = CompanionPrompts.response(isSilentModeEnabled: silent)
-            #expect(prompt.contains("use the mate identity supplied for this turn"))
+            #expect(!prompt.lowercased().contains("who you are for this turn:"))
             #expect(!prompt.lowercased().contains("you are heymate"))
         }
     }

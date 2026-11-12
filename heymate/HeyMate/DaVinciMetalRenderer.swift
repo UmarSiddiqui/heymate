@@ -12,6 +12,11 @@ final class DaVinciMetalContext {
     let clear: MTLRenderPipelineState
     let ids: MTLRenderPipelineState
     let ink: MTLRenderPipelineState
+    let shadow: MTLRenderPipelineState
+    let ground: MTLRenderPipelineState
+    let shadowCompare: MTLSamplerState
+    let shadowNearest: MTLSamplerState
+    let shadowDepth: MTLDepthStencilState
     let writeDepth: MTLDepthStencilState
     let readDepth: MTLDepthStencilState
     let neighbours: MTLBuffer
@@ -27,10 +32,11 @@ final class DaVinciMetalContext {
         // Color and ID passes must clip the same surfaces: the colour pass adds cut-away coverage and a hatched interior.
         let adapter = """
         fragment float4 heymate_surface(Surface in [[stage_in]], bool front [[front_facing]],
-             constant View &view [[buffer(1)]], constant Part &part [[buffer(2)]]) {
+             constant View &view [[buffer(1)]], constant Part &part [[buffer(2)]],
+             depth2d<float> keyShadows [[texture(0)]], sampler shadowCompare [[sampler(0)]]) {
             bool cut = dot(part.cutPlane.xyz, part.cutPlane.xyz) > 0.25;
             if (cut && dot(in.world, part.cutPlane.xyz) > part.cutPlane.w) discard_fragment();
-            float4 color = mate_shade(in, front, view, part);
+            float4 color = mate_shade(in, front, view, part, keyShadows, shadowCompare);
             if (cut && !front && part.options.z < 0.5) {
                 float hatch = smoothstep(0.35, 0.65, fract((in.clip.x + in.clip.y) / 7.0));
                 color.rgb *= mix(0.52, 0.78, hatch);
@@ -41,7 +47,7 @@ final class DaVinciMetalContext {
         let library = try device.makeLibrary(source: source + adapter, options: nil)
         func pipeline(_ fragment: String, format: MTLPixelFormat, samples: Int, blend: Bool = false, dual: Bool = false) throws -> MTLRenderPipelineState {
             let p = MTLRenderPipelineDescriptor()
-            p.vertexFunction = library.makeFunction(name: fragment.contains("ink") ? "mate_ink_vertex" : "mate_vertex")
+            p.vertexFunction = library.makeFunction(name: fragment.contains("ink") ? "mate_ink_vertex" : fragment.contains("ground") ? "mate_ground_vertex" : "mate_vertex")
             p.fragmentFunction = library.makeFunction(name: fragment)
             p.rasterSampleCount = samples
             p.colorAttachments[0].pixelFormat = format
@@ -60,6 +66,24 @@ final class DaVinciMetalContext {
         clear = try pipeline("heymate_surface", format: .bgra8Unorm, samples: samples, blend: true)
         ids = try pipeline("mate_part_id_fragment", format: .r32Uint, samples: 1)
         ink = try pipeline("mate_ink_and_seam_fragment", format: .bgra8Unorm, samples: 1, dual: true)
+        ground = try pipeline("mate_ground_fragment", format: .bgra8Unorm, samples: samples, blend: true)
+        // What a light sees: depth only.
+        let lightView = MTLRenderPipelineDescriptor()
+        lightView.vertexFunction = library.makeFunction(name: "mate_vertex")
+        lightView.fragmentFunction = library.makeFunction(name: "mate_shadow_fragment")
+        lightView.depthAttachmentPixelFormat = .depth32Float
+        shadow = try device.makeRenderPipelineState(descriptor: lightView)
+        let compare = MTLSamplerDescriptor()
+        compare.minFilter = .linear; compare.magFilter = .linear
+        compare.sAddressMode = .clampToEdge; compare.tAddressMode = .clampToEdge
+        compare.compareFunction = .lessEqual
+        let nearest = MTLSamplerDescriptor()
+        nearest.sAddressMode = .clampToEdge; nearest.tAddressMode = .clampToEdge
+        let lightDepth = MTLDepthStencilDescriptor()
+        lightDepth.depthCompareFunction = .less; lightDepth.isDepthWriteEnabled = true
+        guard let compareState = device.makeSamplerState(descriptor: compare), let nearestState = device.makeSamplerState(descriptor: nearest),
+              let lightDepthState = device.makeDepthStencilState(descriptor: lightDepth) else { throw NativeMetalError.invalid("Shadow state unavailable") }
+        shadowCompare = compareState; shadowNearest = nearestState; shadowDepth = lightDepthState
         let depth = MTLDepthStencilDescriptor()
         depth.depthCompareFunction = .lessEqual; depth.isDepthWriteEnabled = true
         guard let write = device.makeDepthStencilState(descriptor: depth) else { throw NativeMetalError.invalid("Depth state unavailable") }
@@ -105,6 +129,9 @@ final class DaVinciMetalRenderer {
     private var geometries: [String: Geometry] = [:]
     private var targets: [MTLTexture] = []
     private var targetSize = SIMD2<Int>(0, 0)
+    /// The figure as its lights see it: from the key light (shadows between parts) and from the ground looking up.
+    private var lightMaps: [MTLTexture] = []
+    private static let keyMapSize = 2048, groundMapSize = 1024
 
     init(context: DaVinciMetalContext) { self.context = context }
 
@@ -162,6 +189,7 @@ final class DaVinciMetalRenderer {
         for col in 0..<4 { vp[col * 4 + 2] = (vp[col * 4 + 2] + vp[col * 4 + 3]) * 0.5 }
         let eye = try Self.floats(payload["eye"], count: 3)
         let illustrated = payload["illustrated"] as? Bool == true
+        // Followed by the key light's view and how to read its shadows, which encode() fills in.
         let frame = vp + eye + [1, illustrated ? 1 : 0, 3, 5, 4]
         guard let meshes = payload["meshes"] as? [[String: Any]], meshes.count <= 4096 else { throw NativeMetalError.invalid("Invalid draw list") }
         var result = [Draw]()
@@ -194,7 +222,7 @@ final class DaVinciMetalRenderer {
     /// Shared by live MTKView presentation and the offscreen GPU regression fixture.
     func encode(_ payload: [String: Any], into output: MTLTexture, command: MTLCommandBuffer, scale: Float) throws {
         try ingest(payload["geometries"] as? [[String: Any]] ?? [])
-        let (frame, draws) = try draws(payload)
+        let (cameraFrame, draws) = try draws(payload)
         let size = SIMD2(output.width, output.height)
         if targetSize != size {
             targets = try [texture(.bgra8Unorm, width: size.x, height: size.y, samples: context.samples),
@@ -203,9 +231,36 @@ final class DaVinciMetalRenderer {
                            texture(.depth32Float, width: size.x, height: size.y), texture(.depth32Float, width: size.x, height: size.y)]
             targetSize = size
         }
-        func emit(_ encoder: MTLRenderCommandEncoder, _ d: Draw) {
+        // Studio figures that know where they stand get shadows: parts on each other, and the figure on its ground.
+        let keyDirection = simd_normalize(SIMD3<Float>(3, 5, 4))
+        var lights: (key: [Float], below: [Float], centre: SIMD3<Float>, radius: Float, floor: Float, span: Float)?
+        if payload["illustrated"] as? Bool != true, let bounds = try? Self.floats(payload["bounds"], count: 5), bounds[3] > 1e-4 {
+            let centre = SIMD3(bounds[0], bounds[1], bounds[2]), radius = bounds[3], floor = min(bounds[4], bounds[1])
+            // The key light looks down its own direction at the figure's bounding sphere.
+            let eye = centre + keyDirection * radius * 2.5, forward = -keyDirection
+            let side = simd_normalize(simd_cross(forward, SIMD3<Float>(0, 1, 0))), up = simd_cross(side, forward)
+            let reach = radius * 1.15, near = radius * 0.5, far = radius * 4.5
+            func row(_ axis: SIMD3<Float>, _ scale: Float, _ offset: Float) -> SIMD4<Float> {
+                SIMD4(axis.x * scale, axis.y * scale, axis.z * scale, (-simd_dot(axis, eye) - offset) * scale)
+            }
+            let rows = [row(side, 1 / reach, 0), row(up, 1 / reach, 0), row(forward, 1 / (far - near), near), SIMD4<Float>(0, 0, 0, 1)]
+            let key = (0..<4).flatMap { column in rows.map { $0[column] } }
+            // From the ground looking up: x and z across, height above the ground as depth.
+            let span = max(centre.y + radius * 1.05 - floor, radius * 0.1), across = radius * Self.groundReach
+            let below: [Float] = [1 / across, 0, 0, 0,  0, 0, 1 / span, 0,  0, 1 / across, 0, 0,  -centre.x / across, -centre.z / across, -floor / span, 1]
+            lights = (key, below, centre, radius, floor, span)
+            if lightMaps.isEmpty {
+                lightMaps = try [texture(.depth32Float, width: Self.keyMapSize, height: Self.keyMapSize),
+                                 texture(.depth32Float, width: Self.groundMapSize, height: Self.groundMapSize)]
+            }
+        }
+        let identity: [Float] = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+        let keyTexel = 1 / Float(Self.keyMapSize)
+        let frame = cameraFrame + (lights?.key ?? identity)
+            + (lights.map { [1, $0.radius * 2.3 * keyTexel * 2.5, keyTexel, 0.0015] } ?? [0, 0, 0, 0])
+        func emit(_ encoder: MTLRenderCommandEncoder, _ d: Draw, frame: [Float], bothSides: Bool = false) {
             encoder.setFrontFacing(.counterClockwise)
-            encoder.setCullMode(d.doubleSided ? .none : .back)
+            encoder.setCullMode(d.doubleSided || bothSides ? .none : .back)
             encoder.setVertexBuffer(d.geometry.vertices, offset: 0, index: 0)
             encoder.setVertexBytes(frame, length: frame.count * 4, index: 1)
             encoder.setFragmentBytes(frame, length: frame.count * 4, index: 1)
@@ -214,6 +269,21 @@ final class DaVinciMetalRenderer {
             var id = d.identifier; encoder.setFragmentBytes(&id, length: 4, index: 3)
             if let indices = d.geometry.indices { encoder.drawIndexedPrimitives(type: .triangle, indexCount: d.geometry.count, indexType: .uint32, indexBuffer: indices, indexBufferOffset: 0) }
             else { encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: d.geometry.count) }
+        }
+        func emit(_ encoder: MTLRenderCommandEncoder, _ d: Draw) { emit(encoder, d, frame: frame) }
+        if let lights {
+            for (map, toLight) in [(lightMaps[0], lights.key), (lightMaps[1], lights.below)] {
+                let p = MTLRenderPassDescriptor()
+                p.depthAttachment.texture = map; p.depthAttachment.loadAction = .clear; p.depthAttachment.storeAction = .store; p.depthAttachment.clearDepth = 1
+                guard let encoder = command.makeRenderCommandEncoder(descriptor: p) else { throw NativeMetalError.invalid("Shadow encoder failed") }
+                encoder.setRenderPipelineState(context.shadow); encoder.setDepthStencilState(context.shadowDepth)
+                encoder.setDepthBias(0.5, slopeScale: 1.5, clamp: 0.01)
+                let lightFrame = toLight + Array(frame[16...])
+                for d in draws where !d.transparent {
+                    emit(encoder, d, frame: lightFrame, bothSides: true)
+                }
+                encoder.endEncoding()
+            }
         }
         // First ID grid holds opaque parts. Second holds visible clear surfaces, with opaque depth loaded.
         for clearPass in [false, true] {
@@ -240,11 +310,28 @@ final class DaVinciMetalRenderer {
         p.colorAttachments[0].storeAction = context.samples > 1 ? .multisampleResolve : .store
         p.depthAttachment.texture = targets[1]; p.depthAttachment.loadAction = .clear; p.depthAttachment.storeAction = .dontCare; p.depthAttachment.clearDepth = 1
         guard let encoder = command.makeRenderCommandEncoder(descriptor: p) else { throw NativeMetalError.invalid("Surface encoder failed") }
-        for d in draws {
+        if !lightMaps.isEmpty {
+            encoder.setFragmentTexture(lightMaps[0], index: 0); encoder.setFragmentTexture(lightMaps[1], index: 1)
+        }
+        encoder.setFragmentSamplerState(context.shadowCompare, index: 0); encoder.setFragmentSamplerState(context.shadowNearest, index: 1)
+        func paint(_ d: Draw) {
             encoder.setRenderPipelineState(d.transparent ? context.clear : context.solid)
             encoder.setDepthStencilState(d.transparent ? context.readDepth : context.writeDepth)
             emit(encoder, d)
         }
+        for d in draws where !d.transparent { paint(d) }
+        // The ground's shadow goes under the clear parts and over nothing: seen from above only.
+        if let lights, frame[17] > lights.floor {
+            let across = lights.radius * Self.groundReach
+            let ground = lights.below + [lights.centre.x, lights.floor, lights.centre.z, across]
+                + [lights.span, 0.5, 0.05, lights.radius * 0.4]
+            encoder.setRenderPipelineState(context.ground); encoder.setDepthStencilState(context.readDepth); encoder.setCullMode(.none)
+            encoder.setVertexBytes(frame, length: frame.count * 4, index: 1)
+            encoder.setVertexBytes(ground, length: ground.count * 4, index: 2)
+            encoder.setFragmentBytes(ground, length: ground.count * 4, index: 2)
+            encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+        }
+        for d in draws where d.transparent { paint(d) }
         encoder.endEncoding()
         let edges = MTLRenderPassDescriptor()
         edges.colorAttachments[0].texture = output; edges.colorAttachments[0].loadAction = .load; edges.colorAttachments[0].storeAction = .store
@@ -254,14 +341,19 @@ final class DaVinciMetalRenderer {
         let rgb = try Self.floats(payload["ink"], count: 3)
         let illustrated = payload["illustrated"] as? Bool == true
         var outline = rgb.map { Self.srgb($0) } + [1, min(4, (illustrated ? 1 : 0.55) * scale), min(4, 0.45 * scale), 0.55, 0.65]
-        pen.setFragmentBytes(&outline, length: 32, index: 0)
+        // Studio figures also darken where parts meet: how much, and how many pixels round each one it looks.
+        outline += [illustrated ? 0 : 0.6, max(4, Float(size.y) * 0.03), 0, 0]
+        pen.setFragmentBytes(&outline, length: 48, index: 0)
         pen.setFragmentBuffer(context.neighbours, offset: 0, index: 1)
         var count = context.neighbourCount, readsClear: UInt32 = draws.contains(where: \.transparent) ? 1 : 0
         pen.setFragmentBytes(&count, length: 4, index: 2); pen.setFragmentBytes(&readsClear, length: 4, index: 3)
-        pen.setFragmentTexture(targets[2], index: 0); pen.setFragmentTexture(targets[3], index: 1)
+        pen.setFragmentTexture(targets[2], index: 0); pen.setFragmentTexture(targets[3], index: 1); pen.setFragmentTexture(targets[4], index: 2)
         pen.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3); pen.endEncoding()
         // Retain cached geometry until stage disposal; hidden parts can become visible again without re-upload.
     }
+
+    /// How far the ground's shadow may reach from under the figure, in bounding radii.
+    private static let groundReach: Float = 1.7
 
     private static func srgb(_ x: Float) -> Float { x <= 0.0031308 ? x * 12.92 : 1.055 * pow(max(0, x), 1 / 2.4) - 0.055 }
 }

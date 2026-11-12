@@ -32,6 +32,7 @@ struct MateHomeView: View {
     /// Jobs whose plan is open in the chat's job strip.
     @State private var expandedPlanRunIDs: Set<UUID> = []
     @State private var isShowingNewMate = false
+    @State private var isShowingSchedules = false
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     /// The ready-made agent the builder opens on, when a suggestion started it.
     @State private var builderRecipe: AgentRecipe?
@@ -118,6 +119,9 @@ struct MateHomeView: View {
         .sheet(isPresented: $isShowingNewMate, onDismiss: { builderRecipe = nil }) {
             AgentBuilderSheet(companionManager: companionManager, initialRecipe: builderRecipe)
         }
+        .sheet(isPresented: $isShowingSchedules) {
+            MateSchedulesSheet(companionManager: companionManager)
+        }
         .sheet(item: $settingsMate) { mate in
             MateSettingsSheet(
                 mate: mate,
@@ -198,6 +202,14 @@ struct MateHomeView: View {
             isNearBottom = true
             // A fresh chat leads with Hold to talk again.
             isComposerExpanded = false
+        }
+        // Each double-tap lands the cursor in the field, even when the notch
+        // view was already on screen and onAppear does not fire again.
+        .onChange(of: companionManager.typedComposerSummonCount) { _, _ in
+            guard isTypeSummonedSurface else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                isComposerFocused = true
+            }
         }
         .onChange(of: typedMessageInput) { _, newValue in
             companionManager.updateCurrentDraft(newValue)
@@ -339,7 +351,13 @@ struct MateHomeView: View {
                 }
                 .dsToolbarIconButtonStyle()
                 .keyboardShortcut("n", modifiers: [.command, .shift])
-                .help(railTab == .chats ? "New chat" : "New agent (⇧⌘N)")
+                .contextMenu {
+                    Button("Import Agent from File…") {
+                        MateFileTransfer.importFromFile(companionManager: companionManager)
+                    }
+                    Button("All Schedules…") { isShowingSchedules = true }
+                }
+                .help(railTab == .chats ? "New chat" : "New agent (⇧⌘N). Right-click to import or see all schedules")
                 .accessibilityLabel(railTab == .chats ? "New chat" : "New agent")
             }
             .padding(.horizontal, 12)
@@ -554,6 +572,9 @@ struct MateHomeView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
+                    MateWakeOffers(companionManager: companionManager)
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 4)
                     if !digest.items.isEmpty {
                         railHeader(digest.hiddenCount > 0 ? "Needs you · \(digest.hiddenCount) more below" : "Needs you")
                         ForEach(digest.items) { item in
@@ -901,7 +922,13 @@ struct MateHomeView: View {
             }
             Button("Mark as Unread") { companionManager.markMateUnread(id: mate.id) }
             Button("Mark as Read") { companionManager.markMateRead(id: mate.id) }
+            Divider()
             if !mate.conductsOthers {
+                Button("Duplicate") { companionManager.duplicateMate(id: mate.id) }
+            }
+            Button("Export as File…") { MateFileTransfer.export(mateID: mate.id, companionManager: companionManager) }
+            if !mate.conductsOthers {
+                Divider()
                 Button("Delete", role: .destructive) { matePendingDelete = mate }
             }
         }
@@ -977,10 +1004,14 @@ struct MateHomeView: View {
     }
 
     private func isMateWorking(_ mate: Mate) -> Bool {
-        guard mate.id == companionManager.activeMateID else { return false }
+        // A mate's own unfinished job counts even while another mate is open.
+        if companionManager.agentRuns.contains(where: {
+            $0.chatOwner?.mateID == mate.id && ($0.status == .planning || $0.status == .running)
+        }) { return true }
+        guard companionManager.liveStateOwnerMateID == mate.id else { return false }
         if !companionManager.streamingAssistantText.isEmpty { return true }
         switch companionManager.state {
-        case .thinking, .capturingContext, .speaking, .finalizingTranscript:
+        case .thinking, .capturingContext, .speaking, .finalizingTranscript, .agentRunning:
             return true
         default:
             return false
@@ -2081,8 +2112,16 @@ struct MateHomeView: View {
     /// mate's face, a wide hold-to-talk control and a small "Type…" that
     /// opens the full composer. Anything typed, attached or focused keeps
     /// the full composer up.
+    /// The compact notch chat, opened by double-tap Control to type.
+    private var isTypeSummonedSurface: Bool {
+        isCompactLayout && shouldFocusComposerOnAppear
+    }
+
     private var showsTalkFirstComposer: Bool {
-        !companionManager.isSilentModeEnabled
+        // The notch chat is summoned to type (double-tap Control), so it is
+        // always a plain text field; voice has its own hold shortcut.
+        !isTypeSummonedSurface
+            && !companionManager.isSilentModeEnabled
             && !isComposerExpanded
             && !isComposerFocused
             && typedMessageInput.isEmpty
@@ -2866,6 +2905,7 @@ struct RoutineRow: View {
                         .foregroundColor(DS.Colors.textTertiary)
                         .lineLimit(3)
                 }
+                RoutineHistoryStrip(routine: routine)
                 HStack(spacing: 10) {
                     if routine.pausedReason == nil {
                         Button("Pause") { companionManager.pauseRoutine(id: routine.id) }
@@ -2875,6 +2915,7 @@ struct RoutineRow: View {
                     }
                     Button("Edit") { beginEditing() }
                     Button("Delete") { confirmingDelete = true }
+                    RoutineRunLimitMenu(routine: routine, companionManager: companionManager)
                 }
                 .font(DS.Fonts.control)
                 .buttonStyle(.plain)

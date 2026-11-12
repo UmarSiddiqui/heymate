@@ -72,7 +72,10 @@ extension CompanionManager {
         from draft: AgentDraft,
         faceAssetName: String?,
         runs: AgentRunsChoice = .onAsk,
-        routineTask: String = ""
+        routineTask: String = "",
+        wake: MateWakeKind? = nil,
+        wakeMatch: String = "",
+        wakeTask: String = ""
     ) -> Mate? {
         let draft = AgentDrafter.sanitized(draft, existingNames: mates.map(\.name))
         let task = draft.firstTask.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -94,6 +97,9 @@ extension CompanionManager {
                 now: Date(),
                 calendar: .current
             ))
+        }
+        if let wake {
+            setMateWake(mateID: mate.id, kind: wake, match: wakeMatch, task: wakeTask)
         }
         return mates.first { $0.id == mate.id } ?? mate
     }

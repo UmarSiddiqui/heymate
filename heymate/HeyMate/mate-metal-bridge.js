@@ -63,7 +63,9 @@
       this.inFlight = true;
       post({ op: 'frame', id: this.token, rect: [r.left, r.top, r.width, r.height],
         viewProjection: vp.toArray(), eye: camera.position.toArray(), illustrated: st.look === 'illustrated',
-        ink: new THREE.Color(st.ink).toArray(), geometries, meshes, labels });
+        ink: new THREE.Color(st.ink).toArray(), geometries, meshes, labels,
+        // Where the figure stands, at rest: its bounding sphere and the height of its ground, for its shadows.
+        bounds: st.floor ? [st.centre.x, st.centre.y, st.centre.z, st.radius, st.floor.position.y] : undefined });
     }
   }
   globalThis.MateMetal = { create: canvas => new MetalStage(canvas),

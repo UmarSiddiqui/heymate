@@ -135,3 +135,28 @@ test('speed discovery uses refreshed private credentials without returning secre
   } });
   assert.deepEqual(speeds, { eligible: ['default', 'priority'] });
 });
+
+test('per-session brain and skill overrides resolve independently without mutating global model.json', async t => {
+  const { resolveSessionBrain } = await import('../src/brain.mjs');
+  const { saveSkill, skillPrompt, deleteSkill } = await import('../src/skills.mjs');
+  const f = await fixture(t);
+  await f.access.credentials.modify('anthropic', async () => ({ type: 'oauth', access: 'fixture', refresh: 'fixture', expires: Date.now() + 3_600_000 }));
+  await f.access.credentials.modify('openai-codex', async () => ({ type: 'oauth', access: 'fixture', refresh: 'fixture', expires: Date.now() + 3_600_000 }));
+  const base = await f.harness.modelSet({ provider: 'anthropic', model: 'claude-haiku-4-5', effort: 'low' });
+  const codexResolved = await resolveSessionBrain(f.access, base, { provider: 'openai-codex', effort: 'high' });
+  assert.equal(codexResolved.provider, 'openai-codex');
+  assert.equal(codexResolved.effort, 'high');
+  assert.equal(JSON.parse(await readFile(path.join(f.home, 'model.json'), 'utf8')).provider, 'anthropic');
+  // Unauthenticated provider falls back safely to baseConfig
+  const fallback = await resolveSessionBrain(f.access, base, { provider: 'heymate-custom' });
+  assert.equal(fallback.provider, 'anthropic');
+  // Per-mate skill scoping
+  await saveSkill(f.home, 'inbox-triage', 'description: Sort email\nGroup into urgent and FYI.', false);
+  await saveSkill(f.home, 'code-review', 'description: Review diffs\nCheck tests.', true);
+  assert.match(await skillPrompt(f.home), /code-review/);
+  assert.doesNotMatch(await skillPrompt(f.home), /inbox-triage/);
+  const scoped = await skillPrompt(f.home, ['inbox-triage']);
+  assert.match(scoped, /inbox-triage/);
+  assert.doesNotMatch(scoped, /code-review/);
+  await deleteSkill(f.home, 'inbox-triage');
+});
