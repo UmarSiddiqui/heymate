@@ -3,6 +3,7 @@ import SwiftUI
 
 struct AccountGateView: View {
     @ObservedObject var account: HeyMateAccount
+    @State private var releaseEmails = false
     var body: some View {
         VStack(spacing: 0) {
             Text("Welcome to")
@@ -13,14 +14,31 @@ struct AccountGateView: View {
 
             Spacer(minLength: 96)
 
-            Button {
-                Task { await account.signInWithGoogle(using: GoogleAccountSignIn()) }
-            } label: {
-                Text("Sign in with Google")
+            VStack(spacing: 12) {
+                Button {
+                    Task { await account.signInWithGoogle(using: GoogleAccountSignIn(), releaseEmails: releaseEmails) }
+                } label: {
+                    Text("Sign in with Google")
+                }
+                .buttonStyle(AccountSignInButtonStyle())
+                .accessibilityLabel("Sign in with Google")
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Email me about HeyMate releases", isOn: $releaseEmails)
+                        .toggleStyle(.checkbox)
+                        .font(.system(size: 12))
+                    HStack(spacing: 6) {
+                        Text("Optional. Change anytime in Settings.")
+                        Link("Privacy", destination: URL(string: "https://sayheymate.com/privacy#account-emails")!)
+                    }
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
             }
-            .buttonStyle(AccountSignInButtonStyle())
             .disabled(account.busy)
-            .accessibilityLabel("Sign in with Google")
         }
         .padding(.horizontal, 32)
         .padding(.vertical, 64)

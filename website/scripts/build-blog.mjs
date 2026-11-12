@@ -81,6 +81,8 @@ function layout({title, description, canonical, markdown, schema, content, date,
   <link rel="stylesheet" href="/css/documents.css?v=2">
   <link rel="stylesheet" href="/css/blog.css?v=1">
   <script type="application/ld+json">${JSON.stringify(schema).replaceAll('<', '\\u003c')}</script>
+  <link rel="stylesheet" href="/css/consent.css?v=1">
+  <script defer src="/js/consent.js?v=1"></script>
 </head>
 <body class="home document-page blog-page">
   <a class="skip" href="#main">Skip to content</a>
