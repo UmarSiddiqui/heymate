@@ -131,18 +131,21 @@ final class HeyMateAccount: ObservableObject {
         } catch { handle(error, allowOffline: false) }
     }
 
-    func signInWithGoogle(using google: any GoogleAccountSigningIn) async {
+    func signInWithGoogle(using google: any GoogleAccountSigningIn, releaseEmails: Bool = false) async {
         guard !busy else { return }
         busy = true
         message = nil
         defer { busy = false }
         do {
             let googleToken = try await google.idToken()
-            let tokens = try await client.authenticateGoogle(idToken: googleToken)
+            var tokens = try await client.authenticateGoogle(idToken: googleToken)
             guard tokens.verifiedAt != nil else { throw FirebaseAccountError.unverified }
+            // Only an explicit opt-in changes consent at sign-in. An unchecked
+            // box leaves existing preferences alone; Settings handles withdrawal.
+            if releaseEmails { tokens.pendingReleaseEmails = true }
             try store.save(tokens)
             session = tokens
-            // Existing subscriptions survive; new accounts default to no release mail.
+            // Persist intent before syncing so failed writes retry after restart.
             await syncPreferences()
             setAccess(.verified)
         } catch is CancellationError {

@@ -10,7 +10,7 @@
   // Hotjar events (disclosed on privacy.html), so recordings and heatmaps can
   // be filtered to visitors who took the install step.
   function track(name) {
-    try { if (typeof window.hj === "function") window.hj("event", name); } catch (e) {}
+    try { if (window.heyMateAnalyticsAllowed && typeof window.hj === "function") window.hj("event", name); } catch (e) {}
   }
   document.querySelectorAll("[data-download]").forEach(function (el) {
     el.addEventListener("click", function () { track("download_click"); });

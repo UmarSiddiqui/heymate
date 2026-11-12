@@ -14,17 +14,8 @@
   <link rel="stylesheet" href="css/home.css?v=40">
   <link rel="stylesheet" href="css/documents.css?v=2">
   <script>document.documentElement.classList.add("js")</script>
-  <!-- Hotjar Tracking Code for HeyMate -->
-  <script>
-    (function(h,o,t,j,a,r){
-      h.hj=h.hj||function(){(h.hj.q=h.hj.q||[]).push(arguments)};
-      h._hjSettings={hjid:6785426,hjsv:6};
-      a=o.getElementsByTagName('head')[0];
-      r=o.createElement('script');r.async=1;
-      r.src=t+h._hjSettings.hjid+j+h._hjSettings.hjsv;
-      a.appendChild(r);
-    })(window,document,'https://static.hotjar.com/c/hotjar-','.js?sv=');
-  </script>
+  <link rel="stylesheet" href="/css/consent.css?v=1">
+  <script defer src="/js/consent.js?v=1" data-hotjar="6785426"></script>
 </head>
 <body class="home document-page">
   <a class="skip" href="#main">Skip to content</a>
@@ -76,8 +67,13 @@
 
       <h2 id="this-website">This website</h2>
       <p>The homepage does not load Vercel Web Analytics or Hotjar session recordings. Interactive preview messages stay in your browser and are not sent to an AI provider or stored by HeyMate. The buddy setting and recent public GitHub totals are cached in session storage until that browser session ends.</p>
-      <p>Other pages on sayheymate.com include Hotjar for page interaction tracking, heatmaps, and session replays. It can set Hotjar cookies. This website tracking is separate from the Mac app. For Hotjar's privacy controls, see <a href="https://www.hotjar.com/policies/do-not-track/">Hotjar's opt-out information</a>.</p>
-      <p>The site also sends Hotjar a short event name when someone clicks a download or GitHub link or copies an install command. These measure interest, not completed installations. Vercel Web Analytics is currently disabled on this website.</p>
+      <p>Some pages on sayheymate.com offer optional Hotjar analytics: interaction tracking, heatmaps, and session recordings. Hotjar loads and may set cookies only after you choose Accept analytics. Rejecting leaves the website and downloads available. This website choice is separate from Mac app analytics and email preferences. See <a href="https://www.hotjar.com/privacy/">Hotjar’s privacy information</a>.</p>
+      <p>On pages with Hotjar enabled, and only after acceptance, the site also sends a short event name when someone clicks a download or GitHub link or copies an install command. These measure interest, not completed installations. Form fields are suppressed from recordings. Vercel Web Analytics is currently disabled on this website.</p>
+      <p>We save acceptance or rejection in this browser’s local storage for up to 180 days, when browser storage is available. Use Cookie settings in any page’s footer to change your choice. Withdrawing consent clears accessible Hotjar cookies and storage and reloads any page running the recorder to stop further collection. It does not erase recordings already received by Hotjar.</p>
+
+      <h2 id="account-emails">Your account and email choices</h2>
+      <p>Signing in with Google creates or accesses your HeyMate account. It does not subscribe you to release emails. The optional, unchecked “Email me about HeyMate releases” box is a separate choice. Leaving it unchecked at sign-in keeps any existing subscription unchanged.</p>
+      <p>If you opt in, we save your release-email preference against your account, with a consent wording version and a server timestamp. You can turn it off in the app’s account settings. This permission covers HeyMate release updates, not unrelated offers. Release email delivery is not connected yet; before sending release emails, we will provide an unsubscribe link in each message. Necessary account and security messages are separate from this optional subscription.</p>
 
       <h2 id="how-to-delete-everything">How to delete everything</h2>
       <p>In the app, clear memory from the Memory section. To remove HeyMate's local application data, stop jobs and routines, quit HeyMate, and delete <span class="code">~/Library/Application Support/heymate/</span>. Workspaces under <span class="code">~/Projects/heymate/</span>, exported files, temporary files, and provider CLI histories are separate. Deleting HeyMate data does not delete copies held by a provider or connected service. Older versions kept keys in the Keychain; any items named com.heymate.app.connector can be removed in Keychain Access.</p>

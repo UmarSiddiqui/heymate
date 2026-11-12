@@ -180,12 +180,55 @@ struct HeyMateAccountTests {
         #expect(client.verificationEmails == 0)
     }
 
+    @Test func googleUncheckedDoesNotSubscribeNewAccount() async {
+        let client = AccountServiceFixture(), store = MemoryAccountStore()
+        client.result.verifiedAt = instant
+        client.subscribed = false
+        let account = HeyMateAccount(client: client, store: store)
+        await account.signInWithGoogle(using: GoogleSignInFixture(), releaseEmails: false)
+        #expect(account.mayUseApp)
+        #expect(account.session?.releaseEmails == false)
+        #expect(client.writes.isEmpty)
+    }
+
+    @Test func googleExplicitOptInPersistsAndRetriesWithoutBlockingSignIn() async {
+        let client = AccountServiceFixture(), store = MemoryAccountStore()
+        client.result.verifiedAt = instant
+        client.subscribed = false
+        client.preferenceError = URLError(.notConnectedToInternet)
+        let account = HeyMateAccount(client: client, store: store)
+        await account.signInWithGoogle(using: GoogleSignInFixture(), releaseEmails: true)
+        #expect(account.mayUseApp)
+        #expect(store.tokens?.pendingReleaseEmails == true)
+        #expect(account.preferenceMessage != nil)
+        #expect(client.writes.isEmpty)
+        client.preferenceError = nil
+        let restarted = HeyMateAccount(client: client, store: store)
+        await restarted.restore()
+        #expect(client.writes == [true])
+        #expect(store.tokens?.releaseEmails == true)
+        #expect(store.tokens?.pendingReleaseEmails == nil)
+    }
+
+    @Test func googleExplicitOptInSyncsOnSignIn() async {
+        let client = AccountServiceFixture(), store = MemoryAccountStore()
+        client.result.verifiedAt = instant
+        client.subscribed = false
+        let account = HeyMateAccount(client: client, store: store)
+        await account.signInWithGoogle(using: GoogleSignInFixture(), releaseEmails: true)
+        #expect(account.mayUseApp)
+        #expect(client.writes == [true])
+        #expect(store.tokens?.releaseEmails == true)
+        #expect(store.tokens?.pendingReleaseEmails == nil)
+    }
+
     @Test func googleCannotUnlockWithoutVerificationOrDurableSession() async {
         let client = AccountServiceFixture(), store = MemoryAccountStore()
         let account = HeyMateAccount(client: client, store: store)
-        await account.signInWithGoogle(using: GoogleSignInFixture())
+        await account.signInWithGoogle(using: GoogleSignInFixture(), releaseEmails: true)
         #expect(!account.mayUseApp)
         #expect(store.tokens == nil)
+        #expect(client.writes.isEmpty)
         client.result.verifiedAt = instant
         store.fails = true
         await account.signInWithGoogle(using: GoogleSignInFixture())
@@ -196,12 +239,13 @@ struct HeyMateAccountTests {
     @Test func cancelledGooglePickerLeavesGateRetryable() async {
         let client = AccountServiceFixture(), store = MemoryAccountStore()
         let account = HeyMateAccount(client: client, store: store)
-        await account.signInWithGoogle(using: GoogleSignInFixture(cancel: true))
+        await account.signInWithGoogle(using: GoogleSignInFixture(cancel: true), releaseEmails: true)
         #expect(!account.busy)
         #expect(!account.mayUseApp)
         #expect(account.message == nil)
         #expect(client.googleToken == nil)
         #expect(store.tokens == nil)
+        #expect(client.writes.isEmpty)
     }
 
 }
