@@ -3,7 +3,8 @@
 
   // This is the only entry point for website analytics. Pages without data-hotjar
   // offer the same site-wide choice but never load recordings themselves.
-  var siteId = document.currentScript.getAttribute("data-hotjar");
+  var siteId = Number(document.currentScript.getAttribute("data-hotjar"));
+  if (!Number.isSafeInteger(siteId) || siteId <= 0) siteId = 0;
   var storageKey = "heymate.analytics-consent.v1";
   var lifetime = 180 * 24 * 60 * 60 * 1000;
   var loaded = false;
