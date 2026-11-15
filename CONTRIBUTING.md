@@ -6,11 +6,10 @@ Help someone learn a useful task in a desktop app or website, understand how the
 
 Check [open issues](https://github.com/UmarSiddiqui/heymate/issues) and [pull requests](https://github.com/UmarSiddiqui/heymate/pulls) before starting. For a larger change, open an issue describing the user problem, the smallest proposed fix, and how you will verify it. For a small fix, a focused PR is welcome.
 
-Three starter tasks, with clear boundaries:
+Browse [open good first issues](https://github.com/UmarSiddiqui/heymate/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) for scoped tasks with verification steps. Other ways to start:
 
 1. **A walkthrough in another language.** Add one language's guidance phrases to `heymate/HeyMate/TalkContextPolicy.swift` with positive and negative examples in `TalkContextPolicyTests.swift`. The change should recognize requests such as “show me how” without making unrelated text-only questions capture the screen. Describe the language and examples in an issue first.
-2. **An accessible install-command copy button.** Improve `website/js/main.js` so keyboard and screen-reader users hear whether copying succeeded or failed. Keep the command selectable when clipboard access is unavailable. Verify Enter, Space, denied clipboard access, and VoiceOver; keep the change limited to this interaction.
-3. **A reproducible first walkthrough.** Document one small task in a free desktop app or website accessible on macOS, using a sample file you may share. Record the HeyMate version, provider/model, starting state, exact prompt, expected steps, observed mistakes, and whether the person could repeat it without help. Add a short guide under `docs/walkthroughs/`; label any recording edits or speed changes. No Swift experience needed.
+2. **A reproducible first walkthrough.** Document one small task in a free desktop app or website accessible on macOS, using a sample file you may share. Record the HeyMate version, provider/model, starting state, exact prompt, expected steps, observed mistakes, and whether the person could repeat it without help. Add a short guide under `docs/walkthroughs/`; label any recording edits or speed changes. No Swift experience needed.
 
 These are starting points, not assigned issues. Check current work before claiming one. A useful bug report, documentation correction, or accessibility review is also a contribution.
 

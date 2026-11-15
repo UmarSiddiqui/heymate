@@ -6,7 +6,7 @@ Your open-source AI assistant for Mac. Talk about your screen, see answers take 
 
 [![Latest release](https://img.shields.io/github/v/release/UmarSiddiqui/heymate?label=download&color=3380FF)](https://github.com/UmarSiddiqui/heymate/releases/latest) [![Release build](https://img.shields.io/github/actions/workflow/status/UmarSiddiqui/heymate/release.yml?branch=main&label=build)](https://github.com/UmarSiddiqui/heymate/actions/workflows/release.yml) ![macOS 14.2+](https://img.shields.io/badge/macOS-14.2%2B-111113?logo=apple) [![MIT license](https://img.shields.io/badge/license-MIT-34D399)](LICENSE)
 
-[**Download for Mac**](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg) · [Website](https://sayheymate.com) · [Blog & guides](https://sayheymate.com/blog) · [Changelog](https://sayheymate.com/changelog)
+[**Download for Mac**](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg) · [Try in your browser](https://sayheymate.com/demo) · [Website](https://sayheymate.com) · [Blog & guides](https://sayheymate.com/blog) · [Changelog](https://sayheymate.com/changelog)
 
 Free and open source · Apple silicon and Intel · Bring your own AI
 

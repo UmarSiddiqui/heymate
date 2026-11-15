@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Try HeyMate in your browser</title>
+  <meta name="description" content="Try a short HeyMate screen guidance walkthrough in a sample workspace. No app or account needed.">
+  <meta name="theme-color" content="#f7f8fa">
+  <link rel="canonical" href="https://sayheymate.com/demo">
+  <link rel="icon" href="/assets/img/icon/favicon-mischief-32.png?v=blue-1" type="image/png">
+  <link rel="stylesheet" href="/css/fonts.css?v=1">
+  <link rel="stylesheet" href="/css/site.css?v=14">
+  <link rel="stylesheet" href="/css/home.css?v=40">
+  <link rel="stylesheet" href="/css/demo.css?v=1">
+  <script defer src="/js/demo.js?v=1"></script>
+</head>
+<body class="home">
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="home-nav">
+    <a class="brand" href="/"><img src="/assets/img/icon/apple-touch-mischief.png?v=blue-1" alt="" width="24" height="24">HeyMate</a>
+    <nav aria-label="Primary">
+      <a class="nav-download" href="https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg">Get HeyMate for Mac</a>
+    </nav>
+  </header>
+  <main id="main" class="content-width demo-main">
+    <header class="demo-intro">
+      <h1>Find your latest draft.</h1>
+      <p>Ask HeyMate where to click, then follow its pointer through a sample workspace. This scripted demo runs in your browser without an account or install.</p>
+    </header>
+
+    <div id="browser-demo" class="demo-workbench" hidden>
+      <section class="demo-coach" aria-labelledby="demo-coach-name">
+        <div class="demo-coach-header">
+          <img src="/assets/img/icon/icon-mischief-192.png" alt="" width="38" height="38">
+          <h2 id="demo-coach-name">HeyMate</h2>
+          <button class="demo-reset" type="button" id="demo-reset" hidden>Start over</button>
+        </div>
+        <p id="demo-question" class="demo-question" hidden>Where’s the latest draft?</p>
+        <div class="demo-instruction" aria-live="polite" aria-atomic="true">
+          <p id="demo-step" class="demo-step" hidden></p>
+          <p id="demo-instruction">Ask a sample question to start.</p>
+        </div>
+        <button type="button" id="demo-start" class="demo-ask">Ask “Where’s the latest draft?”</button>
+        <a id="demo-next" href="/screen-guidance" hidden>Use screen guidance on your Mac <span aria-hidden="true">↗</span></a>
+      </section>
+
+      <section class="demo-workspace" aria-labelledby="demo-workspace-name">
+        <header class="demo-window-bar">
+          <span class="demo-window-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <h2 id="demo-workspace-name">Sample workspace</h2>
+        </header>
+        <div class="demo-window-body">
+          <p class="demo-location" id="demo-location">Project Files</p>
+          <button type="button" id="demo-folder" class="demo-folder" disabled>
+            <span class="demo-folder-icon" aria-hidden="true"></span>
+            <span>Drafts</span>
+            <span class="demo-folder-count">3 files</span>
+          </button>
+          <div id="demo-drafts" hidden>
+            <div class="demo-file-header">
+              <span>Name</span>
+              <button type="button" id="demo-sort" class="demo-sort">Sort by date modified</button>
+            </div>
+            <ul id="demo-file-list" class="demo-files">
+              <li data-modified="2026-11-03"><button type="button" class="demo-file"><span>Launch notes v1</span><time datetime="2026-11-03">Nov 3</time></button></li>
+              <li data-modified="2026-11-12"><button type="button" class="demo-file" id="demo-latest"><span>Launch notes v3</span><time datetime="2026-11-12">Nov 12</time></button></li>
+              <li data-modified="2026-11-08"><button type="button" class="demo-file"><span>Launch notes v2</span><time datetime="2026-11-08">Nov 8</time></button></li>
+            </ul>
+          </div>
+          <article id="demo-opened" class="demo-opened" hidden>
+            <p>Modified November 12</p>
+            <h3 id="demo-result" tabindex="-1">Launch notes v3</h3>
+            <p>Final draft. Ready for review.</p>
+          </article>
+        </div>
+      </section>
+    </div>
+    <noscript><p>This interactive demo needs JavaScript. <a href="/screen-guidance">Read how HeyMate guides you on Mac.</a></p></noscript>
+  </main>
+  <footer class="home-footer content-width">
+    <a class="brand" href="/"><img src="/assets/img/icon/favicon-mischief-32.png?v=blue-1" alt="" width="24" height="24">HeyMate</a>
+    <nav aria-label="Footer">
+      <a href="/screen-guidance">Screen guidance</a>
+      <a href="/privacy">Privacy</a>
+      <a href="https://github.com/UmarSiddiqui/heymate">Source <span aria-hidden="true">↗</span></a>
+    </nav>
+  </footer>
+</body>
+</html>
