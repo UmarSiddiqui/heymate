@@ -57,6 +57,11 @@ nonisolated enum MateFileDrop {
             guard (try? fileManager.copyItem(at: url, to: destination)) != nil else { continue }
             names.append(destination.lastPathComponent)
         }
+        // The Files view badges these as given by the person.
+        MateFileStore(folder: mateFolder).record(
+            .person,
+            relativePaths: names.map { inboxFolderName + "/" + $0 }
+        )
         return names
     }
 

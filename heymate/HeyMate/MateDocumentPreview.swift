@@ -7,6 +7,8 @@ import UniformTypeIdentifiers
 struct MateDocumentPreview: View {
     let path: String
     let onClose: () -> Void
+    /// The Files view draws its own toolbar above the preview.
+    var showsHeader = true
 
     @State private var content: MateDocumentContent?
     @State private var expanded = false
@@ -15,6 +17,7 @@ struct MateDocumentPreview: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if showsHeader {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(url.lastPathComponent)
@@ -54,6 +57,7 @@ struct MateDocumentPreview: View {
             .buttonStyle(.plain)
             .padding(16)
             Divider()
+            }
             documentBody
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
