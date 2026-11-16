@@ -197,13 +197,12 @@ export function htmlToText(html) {
     /<(script|style|noscript|svg|template|iframe|object|canvas|head|title|nav|form)\b[\s\S]*?<\/\1\s*>/gi, ' ');
   const main = body.match(/<(main|article)\b[^>]*>([\s\S]*?)<\/\1\s*>/i)?.[2];
   if (main && stripTags(main).length > 400) body = main;
-  const text = decodeEntities(body
+  const text = decodeEntities(replaceAll(body
     .replace(/<h([1-6])\b[^>]*>/gi, (_, level) => `\n\n${'#'.repeat(Number(level))} `)
     .replace(/<li\b[^>]*>/gi, '\n- ')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/?(p|div|section|header|footer|aside|blockquote|pre|table|tr|ul|ol|dl|dt|dd|figure|figcaption|h[1-6])\b[^>]*>/gi, '\n')
-    .replace(/<\/t[dh]>/gi, ' | ')
-    .replace(/<[^>]*>/g, ''))
+    .replace(/<\/t[dh]>/gi, ' | '), /<[^>]*>/g, ''))
     .replace(/[ \t\f\v\u00a0]+/g, ' ')
     .replace(/ *\n */g, '\n')
     .replace(/\n{3,}/g, '\n\n')
