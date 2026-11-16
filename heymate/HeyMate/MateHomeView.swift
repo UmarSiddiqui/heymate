@@ -1079,6 +1079,18 @@ struct MateHomeView: View {
                     .padding(.top, 12)
                     .padding(.horizontal, usesCompactLayout ? 12 : 20)
                     .padding(.bottom, usesCompactLayout ? 10 : 16)
+                    .background(alignment: .bottom) {
+                        // The floor eases darker so the bar has somewhere to rest.
+                        LinearGradient(
+                            stops: [
+                                .init(color: DS.Colors.homeBackground.opacity(0), location: 0),
+                                .init(color: DS.Colors.homeBackground, location: 0.7)
+                            ],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                        .frame(maxHeight: usesCompactLayout ? 90 : 110)
+                        .allowsHitTesting(false)
+                    }
                     .cueMotion(.homeReveal, part: .item(2))
             }
         }

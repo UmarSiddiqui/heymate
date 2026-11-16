@@ -178,14 +178,23 @@ export function decodeEntities(text) {
   });
 }
 
-const stripTags = html => decodeEntities(html.replace(/<\/?(?:b|i|em|strong|span|a|code|small|mark|u|sup|sub)\b[^>]*>/gi, '')
-  .replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
+// Removing a tag can splice a new one together ("<scr<b>ipt>"), so each pass
+// repeats until nothing changes. The output is plain text for a model, never
+// rendered as HTML; a leftover "<" is harmless but the passes still converge.
+function replaceAll(text, pattern, replacement) {
+  for (let previous; previous !== text;) { previous = text; text = text.replace(pattern, replacement); }
+  return text;
+}
+
+const stripTags = html => decodeEntities(replaceAll(
+  replaceAll(html, /<\/?(?:b|i|em|strong|span|a|code|small|mark|u|sup|sub)\b[^>]*>/gi, ''), /<[^>]*>/g, ' '))
+  .replace(/\s+/g, ' ').trim();
 
 // Readable text from HTML without a DOM: drop code and chrome, keep block structure.
 export function htmlToText(html) {
   const title = stripTags(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '');
-  let body = html.replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<(script|style|noscript|svg|template|iframe|object|canvas|head|title|nav|form)\b[\s\S]*?<\/\1\s*>/gi, ' ');
+  let body = replaceAll(replaceAll(html, /<!--[\s\S]*?-->/g, ' '),
+    /<(script|style|noscript|svg|template|iframe|object|canvas|head|title|nav|form)\b[\s\S]*?<\/\1\s*>/gi, ' ');
   const main = body.match(/<(main|article)\b[^>]*>([\s\S]*?)<\/\1\s*>/i)?.[2];
   if (main && stripTags(main).length > 400) body = main;
   const text = decodeEntities(body
@@ -239,7 +248,7 @@ export const duckDuckGoBackend = {
 function resultURL(href) {
   try {
     const url = new URL(decodeEntities(href), 'https://duckduckgo.com');
-    if (url.hostname.endsWith('duckduckgo.com')) {
+    if (url.hostname === 'duckduckgo.com' || url.hostname.endsWith('.duckduckgo.com')) {
       const target = url.searchParams.get('uddg');
       return target && /^https?:\/\//i.test(target) ? target : null;
     }
