@@ -335,8 +335,8 @@ final class ComputerUseExecutor {
             let chunk = Array(utf16Units[chunkStart..<min(chunkStart + 20, utf16Units.count)])
             guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
                   let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false) else { continue }
+            // The release completes the press without carrying a second copy of the text.
             keyDown.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: chunk)
-            keyUp.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: chunk)
             Self.post(keyDown)
             Self.post(keyUp)
         }

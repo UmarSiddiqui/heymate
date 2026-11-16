@@ -144,7 +144,7 @@ Intelligence
   Agents & Control    Agent jobs · Computer control · Honesty & safety rules
   Connections         Connected apps · Composio · Google
 Privacy
-  Privacy & Data      Screen capture · Chats & memory · What leaves this Mac · Danger zone
+  Privacy & Data      Screen capture · Chats & memory · Phone access · What leaves this Mac · Danger zone
 ```
 
 Moves, by item:
@@ -369,6 +369,27 @@ finished work never notifies for a chat you are watching
 Tests: `MateAgentSettingsTests` (quiet hours, notification gate, stricter-only
 approval, limits, counts, file compatibility, folder choice, rule edit and
 reload) and `MateSettingsCatalogTests` (search, conductor visibility, note rows).
+
+## 10. Phone access
+
+Privacy & Data › Phone access (`SettingsPhoneAccessSection.swift`, search item
+`phoneAccess`). Reach your mates from a phone browser on the same network.
+Off by default.
+
+| Control | Type | Key |
+| --- | --- | --- |
+| Reach your mates from your phone | switch | `phoneAccessEnabled` (UserDefaults, default off) |
+| Address | readout | this Mac's private IPv4 + port 47821 |
+| Pair a phone… | button → code + QR (5 min, single use, 5 tries then locked) | in memory only |
+| Paired phones, Revoke | list + destructive | `phone-access.json` (hashes only) |
+| Recent phone activity | last 5 of 50 | `phone-access.json` |
+
+Behaviour: the listener lives in the app (`RemoteAccessController`,
+`RemoteAccessServer`), not the agent runtime, because the Inbox is app state.
+It is plain HTTP and the footer says so. Turning the switch off stops the
+listener, ends every connection, voids the pairing code and unpairs every
+phone. Phones idle for 30 days are forgotten. Rules and the fixed route list
+are in `RemoteAccessCore.swift`, tested by `RemoteAccessCoreTests`.
 
 ## Verified build
 

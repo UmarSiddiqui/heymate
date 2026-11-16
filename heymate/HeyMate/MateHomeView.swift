@@ -12,6 +12,8 @@ import UniformTypeIdentifiers
 
 struct MateHomeView: View {
     @ObservedObject var companionManager: CompanionManager
+    @ObservedObject private var mateInbox = MateInboxStore.shared
+    @State private var inboxApprovalMateID: UUID?
     var isCompactLayout: Bool
     var onOpenSection: (DesktopSection) -> Void
     var onClose: (() -> Void)? = nil
@@ -38,6 +40,8 @@ struct MateHomeView: View {
     @State private var builderRecipe: AgentRecipe?
     @State private var typedMessageInput = ""
     @State private var imageAttachments: [ChatImageAttachment] = []
+    @State private var documentAttachments: [MateChatDocument] = []
+    @State private var filesSheetMate: Mate?
     @State private var isShowingImageImporter = false
     @State private var attachmentErrorText: String?
     @State private var isConfirmingMateAgentRecoveryReset = false
@@ -49,8 +53,6 @@ struct MateHomeView: View {
     @State private var imagePasteMonitor: Any?
     @State private var isNearBottom = true
     @State private var viewportHeight: CGFloat = 0
-    /// Height of the composer floating over the transcript's bottom edge.
-    @State private var composerDockHeight: CGFloat = 0
     @State private var transcriptContentMaxY: CGFloat = 0
     @State private var isHoveringTalk = false
     @State private var extraRevealed = 0
@@ -58,6 +60,9 @@ struct MateHomeView: View {
     @State private var isHoldingTalk = false
     @State private var isComposerExpanded = false
     @State private var settingsMate: Mate?
+    /// The section agent settings opens on (deep links land on one section).
+    @State private var settingsSection: MateSettingsSection = .profile
+    @ObservedObject private var settingsRouter = MateSettingsRouter.shared
     @State private var appearanceMate: Mate?
     @State private var isShowingChatHistory = false
     @State private var matePendingDelete: Mate?
@@ -104,6 +109,24 @@ struct MateHomeView: View {
         .background(WorkspaceBackground())
         .preferredColorScheme(.dark)
         .tint(DS.Colors.accent)
+        .onReceive(companionManager.connectorToolCoordinator.$pendingRequest) {
+            inboxApprovalMateID = $0?.owner?.mateID
+        }
+        .onReceive(settingsRouter.$pending) { request in
+            guard request != nil, let request = settingsRouter.take(),
+                  let mate = companionManager.mates.first(where: { $0.id == request.mateID }) else { return }
+            settingsSection = request.section
+            settingsMate = mate
+        }
+        .onReceive(settingsRouter.$filesMateID) { id in
+            guard id != nil, let id = settingsRouter.takeFiles(),
+                  let mate = companionManager.mates.first(where: { $0.id == id }), mate.folderPath != nil else { return }
+            // Let the settings sheet finish closing before the Files sheet opens.
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(350))
+                filesSheetMate = mate
+            }
+        }
         .sheet(isPresented: Binding(
             get: { presentsDetailsAsSheet && !isDrawerOpen && previewedFilePath != nil },
             set: { if !$0 { previewedFilePath = nil } }
@@ -119,6 +142,13 @@ struct MateHomeView: View {
         .sheet(isPresented: $isShowingNewMate, onDismiss: { builderRecipe = nil }) {
             AgentBuilderSheet(companionManager: companionManager, initialRecipe: builderRecipe)
         }
+        .sheet(item: $filesSheetMate) { mate in
+            if let folderPath = mate.folderPath {
+                MateFilesView(folderPath: folderPath, mateName: mate.name, onAsk: { relativePath in
+                    askAboutFile(relativePath, in: folderPath, mateID: mate.id)
+                }, onClose: { filesSheetMate = nil })
+            }
+        }
         .sheet(isPresented: $isShowingSchedules) {
             MateSchedulesSheet(companionManager: companionManager)
         }
@@ -126,6 +156,7 @@ struct MateHomeView: View {
             MateSettingsSheet(
                 mate: mate,
                 companionManager: companionManager,
+                initialSection: settingsSection,
                 onOpenSection: onOpenSection,
                 onSave: { name, job, soul, face in
                     companionManager.updateMateProfile(
@@ -177,7 +208,7 @@ struct MateHomeView: View {
         }
         .fileImporter(
             isPresented: $isShowingImageImporter,
-            allowedContentTypes: [.image],
+            allowedContentTypes: [.image, .pdf, .text, .sourceCode, .rtf, .commaSeparatedText, .data],
             allowsMultipleSelection: true,
             onCompletion: handleImageImport
         )
@@ -660,7 +691,8 @@ struct MateHomeView: View {
             sessions: companionManager.savedChats,
             defaultMateID: companionManager.mateDirectory.defaultMateID,
             activeMateID: companionManager.activeMateID,
-            includesUnread: false
+            includesUnread: false,
+            proposals: mateInbox.pendingItems.filter { $0.proposal != nil }
         )
     }
 
@@ -668,6 +700,7 @@ struct MateHomeView: View {
         switch kind {
         case .needsOK: return DS.Colors.warning
         case .routineStopped: return DS.Colors.destructive
+        case .proposal: return DS.Colors.textPrimary
         case .unread: return DS.Colors.info
         }
     }
@@ -958,6 +991,7 @@ struct MateHomeView: View {
     }
 
     private func beginMateSettings(_ mate: Mate) {
+        settingsSection = .profile
         settingsMate = mate
     }
 
@@ -1021,53 +1055,42 @@ struct MateHomeView: View {
     // MARK: Conversation
 
     private var conversation: some View {
-        VStack(spacing: 0) {
-            // After the welcome tour, home comes in a piece per note of
-            // its reveal, with a few sparkles over the top.
-            conversationHeader
-                .cueMotion(.homeReveal, part: .item(0))
-                .overlay { CueSparkles(sound: .homeReveal) }
-            // The composer and its companion float over the transcript, so
-            // messages scroll on behind the blob instead of stopping above
-            // the space it stands in.
-            ZStack(alignment: .bottom) {
-                transcript
+        ScrollViewReader { proxy in
+            VStack(spacing: 0) {
+                conversationHeader
+                    .cueMotion(.homeReveal, part: .item(0))
+                    .overlay { CueSparkles(sound: .homeReveal) }
+                transcript(proxy)
                     .cueMotion(.homeReveal, part: .item(1))
-                VStack(spacing: 0) {
-                    mateJobsStrip
-                    composer
+                if !isNearBottom && !companionManager.currentChat.messages.isEmpty {
+                    latestButton(proxy)
+                }
+                mateJobsStrip
+                if let mate = activeMate {
+                    MateBrowserLivePanel(mateID: mate.id)
                         .frame(maxWidth: MateHomeLayout.readingMeasure)
                         .frame(maxWidth: .infinity)
-                        .padding(.top, 12)
                         .padding(.horizontal, usesCompactLayout ? 12 : 20)
-                        .padding(.bottom, usesCompactLayout ? 10 : 16)
-                        .cueMotion(.homeReveal, part: .item(2))
+                        .padding(.top, 8)
                 }
-                .background(alignment: .bottom) {
-                    // Text fades out as it reaches the bar rather than
-                    // running under it.
-                    LinearGradient(
-                        stops: [
-                            .init(color: DS.Colors.homeBackground.opacity(0), location: 0),
-                            .init(color: DS.Colors.homeBackground, location: 0.7)
-                        ],
-                        startPoint: .top, endPoint: .bottom
-                    )
-                    .frame(height: composerBarFadeHeight)
-                    .allowsHitTesting(false)
-                }
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
-                    composerDockHeight = height
-                }
+                composer
+                    .frame(maxWidth: MateHomeLayout.readingMeasure)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 12)
+                    .padding(.horizontal, usesCompactLayout ? 12 : 20)
+                    .padding(.bottom, usesCompactLayout ? 10 : 16)
+                    .cueMotion(.homeReveal, part: .item(2))
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
             // Pictures ride in the message; other files go to the agent's inbox.
-            let dropped = MateFileDrop.split(urls)
+            // PDFs, documents, text and code become chips on the message.
+            let dropped = MateChatDocuments.classify(urls)
             if !dropped.images.isEmpty { addImageFiles(dropped.images) }
-            if !dropped.files.isEmpty {
+            if !dropped.documents.isEmpty { addDocumentFiles(dropped.documents) }
+            if !dropped.other.isEmpty {
                 handDroppedFiles(
-                    dropped.files,
+                    dropped.other,
                     to: companionManager.activeMateID ?? companionManager.mateDirectory.defaultMateID
                 )
             }
@@ -1079,6 +1102,17 @@ struct MateHomeView: View {
         VStack(spacing: 6) {
             if usesCompactLayout { compactHeaderIdentity }
             HStack(alignment: .center, spacing: 10) {
+                if let mate = activeMate {
+                    MateBrowserToolbarButton(mateID: mate.id)
+                    if mate.folderPath != nil {
+                        Button { filesSheetMate = mate } label: {
+                            Image(systemName: "folder").font(DS.Glyph.regular)
+                        }
+                        .dsToolbarIconButtonStyle()
+                        .help("\(mate.name)'s files")
+                        .accessibilityLabel("Open \(mate.name)'s files")
+                    }
+                }
                 Spacer(minLength: 8)
                 Button { showsTaskUpdates.toggle() } label: {
                     HStack(spacing: 4) {
@@ -1087,10 +1121,11 @@ struct MateHomeView: View {
                     }.font(DS.Glyph.regular)
                 }
                 .dsToolbarIconButtonStyle(isActive: showsTaskUpdates)
-                .help("Task updates")
-                .accessibilityLabel("Task updates, \(taskUpdateCount) pending")
+                .help("Waiting on You")
+                .accessibilityLabel("Waiting on You, \(taskUpdateCount) pending")
                 .popover(isPresented: $showsTaskUpdates) {
-                    TaskUpdatesPopover(manager: companionManager) { showsTaskUpdates = false }
+                    TaskUpdatesPopover(manager: companionManager, inbox: mateInbox,
+                        connectorApprovals: companionManager.connectorToolCoordinator) { showsTaskUpdates = false }
                 }
                 // On desktop, main HeyMate's chats live in the rail's Chats tab,
                 // so history here is only for a mate's own past chats.
@@ -1267,14 +1302,8 @@ struct MateHomeView: View {
         .padding(.top, showsComposerCompanion ? 0 : 6)
     }
 
-    /// Wide chat draws the mate once, on the composer. Talk-first always
-    /// has a face there; the typed bar has one for blob and Milo looks.
-    /// Compact chat has no composer face, so the header keeps its own.
     private var showsComposerCompanion: Bool {
-        guard !usesCompactLayout, let mate = activeMate else { return false }
-        if showsTalkFirstComposer { return true }
-        let token = MateFace.selectionToken(for: mate)
-        return BlobatarCharacter.contains(token) || MiloLook(assetName: token) != nil
+        !usesCompactLayout && showsTalkFirstComposer && activeMate != nil
     }
 
     private var headerTitles: some View {
@@ -1311,217 +1340,219 @@ struct MateHomeView: View {
         }
     }
 
-    private var transcript: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
-                // The action row under each message reserves its height even
-                // while hidden, so the gap between messages can stay small.
-                VStack(alignment: .leading, spacing: 20) {
-                    if let firstMoment = companionManager.currentChat.firstMoment {
-                        // A new agent's first chat opens on its face, which
-                        // hatches when the agent was just made.
-                        if let mate = activeMate {
-                            HatchingReveal(subject: mate.id.uuidString, side: 56) {
-                                MateFaceView(mate: mate, size: 56)
-                            }
-                            .padding(.top, 8)
-                            .accessibilityHidden(true)
+    private func transcript(_ proxy: ScrollViewProxy) -> some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            // The action row under each message reserves its height even
+            // while hidden, so the gap between messages can stay small.
+            VStack(alignment: .leading, spacing: 20) {
+                if let firstMoment = companionManager.currentChat.firstMoment {
+                    // A new agent's first chat opens on its face, which
+                    // hatches when the agent was just made.
+                    if let mate = activeMate {
+                        HatchingReveal(subject: mate.id.uuidString, side: 56) {
+                            MateFaceView(mate: mate, size: 56)
                         }
-                        Label(firstMoment.confirmation, systemImage: "checkmark.circle")
-                            .font(DS.Fonts.caption)
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.bottom, 12)
-                            .accessibilityElement(children: .ignore)
-                            .accessibilityLabel("HeyMate confirmation: \(firstMoment.confirmation)")
+                        .padding(.top, 8)
+                        .accessibilityHidden(true)
                     }
-                    if companionManager.currentChat.messages.isEmpty
-                        && companionManager.streamingAssistantText.isEmpty
-                        && companionManager.currentChat.firstMoment == nil {
-                        emptyMate
-                            .padding(.top, 36)
-                    }
-                    if messageWindow.hiddenCount > 0 {
-                        Button("Earlier messages (\(messageWindow.hiddenCount))") {
-                            extraRevealed += MateHomeLayout.messagePageSize
-                        }
-                        .buttonStyle(.plain)
-                        .font(DS.Fonts.control)
+                    Label(firstMoment.confirmation, systemImage: "checkmark.circle")
+                        .font(DS.Fonts.caption)
                         .foregroundColor(DS.Colors.textSecondary)
-                        .pointerCursor()
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.bottom, 12)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("HeyMate confirmation: \(firstMoment.confirmation)")
+                }
+                if companionManager.currentChat.messages.isEmpty
+                    && companionManager.streamingAssistantText.isEmpty
+                    && companionManager.currentChat.firstMoment == nil {
+                    emptyMate
+                        .padding(.top, 36)
+                }
+                if messageWindow.hiddenCount > 0 {
+                    Button("Earlier messages (\(messageWindow.hiddenCount))") {
+                        extraRevealed += MateHomeLayout.messagePageSize
                     }
-                    ForEach(messageWindow.visible) { message in
-                        if let run = linkedTask(for: message) {
-                            finishedTaskRow(run, message: message)
-                                .id(message.id)
-                        } else {
-                            messageRow(message, isLatest: message.id == messageWindow.visible.last?.id)
-                                .id(message.id)
-                        }
+                    .buttonStyle(.plain)
+                    .font(DS.Fonts.control)
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .pointerCursor()
+                }
+                ForEach(messageWindow.visible) { message in
+                    if let run = linkedTask(for: message) {
+                        finishedTaskRow(run, message: message)
+                            .id(message.id)
+                    } else {
+                        messageRow(message, isLatest: message.id == messageWindow.visible.last?.id)
+                            .id(message.id)
                     }
-                    if let starter = companionManager.currentChat.firstMoment?.starter,
-                       !companionManager.currentChat.messages.contains(where: { $0.role == .user }) {
-                        firstMateStarter(starter)
-                    }
-                    if !companionManager.streamingAssistantText.isEmpty {
-                        streamingRow
-                            .id("mate-streaming")
-                    }
-                    if !visibleAgentActivity.isEmpty {
-                        VStack(alignment: .leading, spacing: 5) {
-                            ForEach(visibleAgentActivity) { entry in
-                                Label(entry.text, systemImage: "gearshape.2")
-                                    .font(DS.Fonts.caption)
-                                    .foregroundStyle(DS.Colors.textSecondary)
-                                    .textSelection(.enabled)
-                            }
-                        }
-                        .frame(maxWidth: 580, alignment: .leading)
-                        // Give the changing progress rows a real AX container.
-                        // Labelling a transparent VStack can forward the label
-                        // back through its AppKit element during AX traversal.
-                        .accessibilityElement(children: .contain)
+                }
+                if let starter = companionManager.currentChat.firstMoment?.starter,
+                   !companionManager.currentChat.messages.contains(where: { $0.role == .user }) {
+                    firstMateStarter(starter)
+                }
+                if !companionManager.streamingAssistantText.isEmpty {
+                    streamingRow
+                        .id("mate-streaming")
+                }
+                if let activeWork = mateInbox.work.first(where: {
+                    $0.chatID == companionManager.currentChat.id && $0.state == .running && $0.isVisible
+                }) {
+                    MateInboxWorkRow(work: activeWork)
                         .accessibilityIdentifier("mateAgent-activity")
                         .id("mateAgent-activity")
-                    }
-                    if companionManager.mateAgentRecoveredWorkChatIDs.contains(companionManager.currentChat.id) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Earlier HeyMate Agent work is still running. Its result will return to this chat. Stop it before starting another task.")
+                } else if !visibleAgentActivity.isEmpty {
+                    VStack(alignment: .leading, spacing: 5) {
+                        ForEach(visibleAgentActivity) { entry in
+                            Label(entry.text, systemImage: "gearshape.2")
                                 .font(DS.Fonts.caption)
                                 .foregroundStyle(DS.Colors.textSecondary)
-                            Button("Stop earlier HeyMate Agent work") {
-                                companionManager.stopRecoveredMateAgentWork(chatID: companionManager.currentChat.id)
-                            }
+                                .textSelection(.enabled)
+                        }
+                    }
+                    .frame(maxWidth: 580, alignment: .leading)
+                    // Give the changing progress rows a real AX container.
+                    // Labelling a transparent VStack can forward the label
+                    // back through its AppKit element during AX traversal.
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("mateAgent-activity")
+                    .id("mateAgent-activity")
+                }
+                if companionManager.mateAgentRecoveredWorkChatIDs.contains(companionManager.currentChat.id) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Earlier HeyMate Agent work is still running. Its result will return to this chat. Stop it before starting another task.")
+                            .font(DS.Fonts.caption)
+                            .foregroundStyle(DS.Colors.textSecondary)
+                        Button("Stop earlier HeyMate Agent work") {
+                            companionManager.stopRecoveredMateAgentWork(chatID: companionManager.currentChat.id)
+                        }
+                        .dsCapsuleButtonStyle(.secondary)
+                    }
+                    .id("mateAgent-recovered-work")
+                }
+                if companionManager.mateAgentRecoveryBlockedChatIDs.contains(companionManager.currentChat.id) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("The earlier task outcome could not be verified. No task was automatically replayed.")
+                            .font(DS.Fonts.caption)
+                            .foregroundStyle(DS.Colors.textSecondary)
+                        Button("Start new conversation") { isConfirmingMateAgentRecoveryReset = true }
                             .dsCapsuleButtonStyle(.secondary)
-                        }
-                        .id("mateAgent-recovered-work")
                     }
-                    if companionManager.mateAgentRecoveryBlockedChatIDs.contains(companionManager.currentChat.id) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("The earlier task outcome could not be verified. No task was automatically replayed.")
-                                .font(DS.Fonts.caption)
-                                .foregroundStyle(DS.Colors.textSecondary)
-                            Button("Start new conversation") { isConfirmingMateAgentRecoveryReset = true }
-                                .dsCapsuleButtonStyle(.secondary)
+                    .confirmationDialog("Start a new HeyMate Agent conversation?", isPresented: $isConfirmingMateAgentRecoveryReset, titleVisibility: .visible) {
+                        Button("Start new conversation", role: .destructive) {
+                            companionManager.startNewMateAgentConversationAfterUnverifiedRecovery(chatID: companionManager.currentChat.id)
                         }
-                        .confirmationDialog("Start a new HeyMate Agent conversation?", isPresented: $isConfirmingMateAgentRecoveryReset, titleVisibility: .visible) {
-                            Button("Start new conversation", role: .destructive) {
-                                companionManager.startNewMateAgentConversationAfterUnverifiedRecovery(chatID: companionManager.currentChat.id)
-                            }
-                            Button("Cancel", role: .cancel) {}
-                        } message: {
-                            Text("The previous task outcome is unknown. This stops the owned HeyMate Agent backend, archives the old task as unverified and starts fresh runtime context for this chat. Existing native messages and files remain. Detached external actions are not proven stopped. No task is automatically replayed; send a new request only after reviewing the earlier work.")
-                        }
-                        .id("mateAgent-blocked-recovery")
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("The previous task outcome is unknown. This stops the owned HeyMate Agent backend, archives the old task as unverified and starts fresh runtime context for this chat. Existing native messages and files remain. Detached external actions are not proven stopped. No task is automatically replayed; send a new request only after reviewing the earlier work.")
                     }
-                    ForEach(chatTasks.filter { !$0.status.isTerminal }) { run in
+                    .id("mateAgent-blocked-recovery")
+                }
+                ForEach(chatTasks.filter { !$0.status.isTerminal }) { run in
+                    ChatTaskCard(run: run, mateName: taskMateName(run), manager: companionManager)
+                        .id("task-\(run.id)")
+                }
+                if !unlinkedFinishedTasks.isEmpty {
+                    Text("Finished work").font(DS.Fonts.caption.weight(.medium))
+                        .foregroundStyle(DS.Colors.textTertiary)
+                    ForEach(revealsEarlierTasks ? unlinkedFinishedTasks : Array(unlinkedFinishedTasks.prefix(6))) { run in
                         ChatTaskCard(run: run, mateName: taskMateName(run), manager: companionManager)
                             .id("task-\(run.id)")
                     }
-                    if !unlinkedFinishedTasks.isEmpty {
-                        Text("Finished work").font(DS.Fonts.caption.weight(.medium))
-                            .foregroundStyle(DS.Colors.textTertiary)
-                        ForEach(revealsEarlierTasks ? unlinkedFinishedTasks : Array(unlinkedFinishedTasks.prefix(6))) { run in
-                            ChatTaskCard(run: run, mateName: taskMateName(run), manager: companionManager)
-                                .id("task-\(run.id)")
-                        }
-                        if !revealsEarlierTasks && unlinkedFinishedTasks.count > 6 {
-                            Button("Show earlier finished work (\(unlinkedFinishedTasks.count - 6))") {
-                                revealsEarlierTasks = true
-                            }.buttonStyle(.plain).font(DS.Fonts.caption)
-                        }
+                    if !revealsEarlierTasks && unlinkedFinishedTasks.count > 6 {
+                        Button("Show earlier finished work (\(unlinkedFinishedTasks.count - 6))") {
+                            revealsEarlierTasks = true
+                        }.buttonStyle(.plain).font(DS.Fonts.caption)
                     }
-                    // Scrolling to latest pins this marker to the bottom
-                    // edge, so it spans the floating composer's height.
-                    Color.clear.frame(height: 1 + composerDockHeight).id("mate-transcript-bottom")
                 }
-                .frame(maxWidth: MateHomeLayout.readingMeasure, alignment: .leading)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, usesCompactLayout ? 16 : 28)
-                .padding(.top, 20)
-                .padding(.bottom, 32)
-                // Geometry reads rather than preferences: a preference set
-                // inside the ScrollView never reached onPreferenceChange, so
-                // "Latest" never showed and following never paused.
-                .onGeometryChange(for: CGFloat.self) { geo in
-                    geo.frame(in: .named("mateTranscript")).maxY
-                } action: { maxY in
-                    transcriptContentMaxY = maxY
-                    updateIsNearBottom()
-                }
+                Color.clear.frame(height: 1).id("mate-transcript-bottom")
             }
-            .coordinateSpace(name: "mateTranscript")
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
-                viewportHeight = height
+            .frame(maxWidth: MateHomeLayout.readingMeasure, alignment: .leading)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, usesCompactLayout ? 16 : 28)
+            .padding(.top, 20)
+            .padding(.bottom, 32)
+            // Geometry reads rather than preferences: a preference set
+            // inside the ScrollView never reached onPreferenceChange, so
+            // "Latest" never showed and following never paused.
+            .onGeometryChange(for: CGFloat.self) { geo in
+                geo.frame(in: .named("mateTranscript")).maxY
+            } action: { maxY in
+                transcriptContentMaxY = maxY
                 updateIsNearBottom()
             }
-            .onChange(of: companionManager.currentChat.messages.count) { _, _ in
-                followLatest(proxy)
+        }
+        .coordinateSpace(name: "mateTranscript")
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+            let wasFollowing = viewportHeight > 0 && isNearBottom
+            viewportHeight = height
+            if wasFollowing {
+                scrollToLatest(proxy)
+            } else {
+                updateIsNearBottom()
             }
-            .onChange(of: companionManager.streamingAssistantText) { _, _ in
-                followLatest(proxy)
+        }
+        .onChange(of: companionManager.currentChat.messages.count) { _, _ in
+            followLatest(proxy)
+        }
+        .onChange(of: companionManager.streamingAssistantText) { _, _ in
+            followLatest(proxy)
+        }
+        .onChange(of: companionManager.focusedTaskRunID) { _, id in
+            guard let id else { return }
+            revealsEarlierTasks = true
+            if let index = companionManager.currentChat.messages.firstIndex(where: { $0.taskRunID == id }) {
+                extraRevealed = max(extraRevealed, companionManager.currentChat.messages.count - index)
             }
-            .onChange(of: companionManager.focusedTaskRunID) { _, id in
-                guard let id else { return }
-                revealsEarlierTasks = true
-                if let index = companionManager.currentChat.messages.firstIndex(where: { $0.taskRunID == id }) {
-                    extraRevealed = max(extraRevealed, companionManager.currentChat.messages.count - index)
-                }
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(160))
-                    proxy.scrollTo("task-\(id)", anchor: .center)
-                    companionManager.focusedTaskRunID = nil
-                }
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(160))
+                proxy.scrollTo("task-\(id)", anchor: .center)
+                companionManager.focusedTaskRunID = nil
             }
-            .onChange(of: companionManager.currentChat.id) { _, _ in
-                extraRevealed = 0
-                revealsEarlierTasks = false
-                isNearBottom = true
-                scrollToLatestAfterLayout(proxy)
+        }
+        .onChange(of: companionManager.currentChat.id) { _, _ in
+            extraRevealed = 0
+            revealsEarlierTasks = false
+            isNearBottom = true
+            scrollToLatestAfterLayout(proxy)
+        }
+        .onChange(of: companionManager.focusedMateResultMessageID, initial: true) { _, id in
+            guard let id, let index = companionManager.currentChat.messages.firstIndex(where: { $0.id == id }) else { return }
+            extraRevealed = max(extraRevealed, companionManager.currentChat.messages.count - index)
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(180))
+                guard companionManager.focusedMateResultMessageID == id else { return }
+                proxy.scrollTo(id, anchor: .center)
+                companionManager.focusedMateResultMessageID = nil
             }
-            .onAppear { scrollToLatestAfterLayout(proxy) }
-            // The composer's height arrives after the first scroll, and
-            // its padding would leave the newest reply under the blob.
-            .onChange(of: composerDockHeight) { old, new in
-                if old == 0 {
-                    scrollToLatestAfterLayout(proxy)
-                } else if transcriptContentMaxY - (new - old) - viewportHeight < 72 {
-                    isNearBottom = true
-                    scrollToLatest(proxy)
-                }
-            }
-            .overlay(alignment: .bottom) {
-                if !isNearBottom && !companionManager.currentChat.messages.isEmpty {
-                    Button {
-                        isNearBottom = true
-                        scrollToLatest(proxy)
-                    } label: {
-                        Label("Latest", systemImage: "arrow.down")
-                            .font(DS.Fonts.control)
-                            .padding(.horizontal, 12)
-                            .frame(height: 28)
-                            .background(Capsule().fill(DS.Colors.surface3))
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                    .padding(.bottom, 10 + composerDockHeight)
-                }
-            }
-            // Buttons inside an OpenUI reply send their words as the next
-            // message, the same as a follow-up chip.
-            .environment(\.chatReplyAction) { action in
-                switch action {
-                case .send(let text): _ = companionManager.sendTypedMessage(text)
-                case .open(let url): NSWorkspace.shared.open(url)
-                }
+        }
+        .onAppear { scrollToLatestAfterLayout(proxy) }
+        // Buttons inside an OpenUI reply send their words as the next
+        // message, the same as a follow-up chip.
+        .environment(\.chatReplyAction) { action in
+            switch action {
+            case .send(let text): _ = companionManager.sendTypedMessage(text)
+            case .open(let url): NSWorkspace.shared.open(url)
             }
         }
     }
 
-    /// Only the bar itself gets a backdrop; the companion above it stays
-    /// see-through.
-    private var composerBarFadeHeight: CGFloat {
-        min(composerDockHeight, usesCompactLayout ? 90 : 110)
+    private func latestButton(_ proxy: ScrollViewProxy) -> some View {
+        Button {
+            isNearBottom = true
+            scrollToLatestAfterLayout(proxy)
+        } label: {
+            Label("Latest", systemImage: "arrow.down")
+                .font(DS.Fonts.control)
+                .padding(.horizontal, 12)
+                .frame(height: 28)
+                .background(Capsule().fill(DS.Colors.surface3))
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .frame(maxWidth: MateHomeLayout.readingMeasure, alignment: .trailing)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, usesCompactLayout ? 16 : 28)
     }
 
     /// Live progress while a turn runs; once it ends only failures, stops
@@ -1637,7 +1668,9 @@ struct MateHomeView: View {
     }
 
     private var taskUpdateCount: Int {
-        companionManager.taskNotices.count + companionManager.agentRuns.filter { run in
+        (inboxApprovalMateID == nil ? 0 : 1) + mateInbox.pendingItems.filter { item in
+            companionManager.mates.contains { $0.id == item.mateID && !$0.archived }
+        }.count + companionManager.agentRuns.filter { run in
             run.status.needsUser && run.chatOwner != nil && companionManager.mates.contains {
                 $0.id == run.chatOwner?.mateID && !$0.archived
             }
@@ -1705,13 +1738,19 @@ struct MateHomeView: View {
                                 .foregroundColor(DS.Colors.textSecondary)
                         }
                     }
+                    let shown = isUser ? MateChatDocuments.display(message.visibleText) : (body: message.visibleText, names: [String]())
+                    if !shown.names.isEmpty {
+                        HStack(spacing: 6) {
+                            ForEach(Array(shown.names.enumerated()), id: \.offset) { _, name in MateDocumentChip(name: name) }
+                        }
+                    }
                     if isUser {
                         if message.isDelegatedTask {
                             Label(message.taskSource.map { "Task from \($0)" } ?? "Delegated task", systemImage: "arrow.turn.down.right")
                                 .font(DS.Fonts.caption)
                                 .foregroundColor(DS.Colors.textTertiary)
                         }
-                        Text(message.visibleText)
+                        Text(shown.body)
                             .font(DS.Fonts.reading)
                             .foregroundColor(DS.Colors.glassInk)
                             .textSelection(.enabled)
@@ -1754,13 +1793,33 @@ struct MateHomeView: View {
                             .foregroundColor(DS.Colors.textTertiary)
                         }
                     } else {
-                        CueWordReveal(text: message.visibleText, bornAt: message.createdAt) { visibleWords in
-                            ChatMarkdownText(text: message.visibleText, visibleWordCount: visibleWords)
+                        let work = message.taskResultKey.flatMap { key in
+                            mateInbox.work.first { $0.resultKey == key && $0.chatID == companionManager.currentChat.id }
+                        }
+                        let report = AgentReplyBlocks.extract(from: message.visibleText)
+                        let shown = work == nil ? message.visibleText : report.spokenText
+                        CueWordReveal(text: shown, bornAt: message.createdAt) { visibleWords in
+                            ChatMarkdownText(text: shown, visibleWordCount: visibleWords)
                         }
                         .chatReplyBubble()
-                        .chatReplyCopyMenu(message.visibleText)
+                        .chatReplyCopyMenu(shown)
                         .cueMotion(.messageReceived, bornAt: message.createdAt, anchor: .topLeading)
                         .cueMotion(.question, part: .item(0), bornAt: message.createdAt, anchor: .topLeading)
+                        if let work {
+                            let paths = report.presentedArtifacts.filter {
+                                $0.hasPrefix("/") && AgentWorkResults.verifiedFile(URL(fileURLWithPath: $0))
+                            }
+                            ForEach(Array(Set(paths).sorted().prefix(4)), id: \.self) { path in
+                                Button {
+                                    previewedFilePath = path
+                                    if !presentsDetailsAsSheet { isDrawerOpen = true }
+                                } label: {
+                                    Label(URL(fileURLWithPath: path).lastPathComponent, systemImage: "doc")
+                                }
+                                .font(DS.Fonts.caption)
+                            }
+                            MateInboxSteps(steps: work.steps)
+                        }
                         if let chrome = companionManager.harnessReplyChrome[message.id] {
                             HarnessFollowUpRow(
                                 actions: chrome.nextActions,
@@ -1830,15 +1889,14 @@ struct MateHomeView: View {
             if !imageAttachments.isEmpty {
                 ChatAttachmentPreviewStrip(attachments: imageAttachments, remove: removeImageAttachment)
             }
+            if !documentAttachments.isEmpty {
+                MateDocumentChipStrip(documents: documentAttachments) { id in
+                    documentAttachments.removeAll { $0.id == id }
+                }
+            }
             if showsTalkFirstComposer {
                 talkFirstComposer
             } else {
-                VStack(alignment: .leading, spacing: hasBlobatarCompanion ? -8 : -18) {
-                    if let mate = activeMate, !usesCompactLayout,
-                       (MiloLook(assetName: MateFace.selectionToken(for: mate)) != nil || hasBlobatarCompanion) {
-                        LiveMateFaceView(mate: mate, size: hasBlobatarCompanion ? 116 : 108, manager: companionManager, isComposerCompanion: true)
-                            .padding(.leading, 18).zIndex(1)
-                    }
                 VStack(alignment: .leading, spacing: 6) {
                     TextField("Message \(activeMate?.name ?? Mate.defaultName)", text: $typedMessageInput, axis: .vertical)
                         .accessibilityLabel("Message \(activeMate?.name ?? Mate.defaultName)")
@@ -1856,8 +1914,8 @@ struct MateHomeView: View {
                                 .font(DS.Glyph.regular)
                         }
                         .dsToolbarIconButtonStyle()
-                        .help("Attach images")
-                        .accessibilityLabel("Attach images")
+                        .help("Attach images or files")
+                        .accessibilityLabel("Attach images or files")
                         // Silent mode means no mic, so hold-to-talk would only
                         // be a button that contradicts the mode.
                         if !companionManager.isSilentModeEnabled {
@@ -1913,7 +1971,6 @@ struct MateHomeView: View {
                         )
                 )
                 .shadow(color: Color.black.opacity(usesCompactLayout ? 0 : 0.16), radius: 18, y: 10)
-                }
             }
             if let pending = companionManager.pendingDestructiveConfirmation {
                 destructiveWorkConfirm(pending)
@@ -2371,7 +2428,8 @@ struct MateHomeView: View {
     }
 
     private var canSend: Bool {
-        (!typedMessageInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !imageAttachments.isEmpty)
+        (!typedMessageInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !imageAttachments.isEmpty
+            || !documentAttachments.isEmpty)
             && companionManager.canAcceptTypedAgentTask
     }
 
@@ -2382,9 +2440,11 @@ struct MateHomeView: View {
 
     private func sendTypedMessageFromInput() {
         guard canSend else { return }
-        if companionManager.sendTypedMessage(typedMessageInput, imageAttachments: imageAttachments) {
+        let text = MateChatDocuments.messageText(typedMessageInput, documents: documentAttachments)
+        if companionManager.sendTypedMessage(text, imageAttachments: imageAttachments) {
             typedMessageInput = ""
             imageAttachments = []
+            documentAttachments = []
             attachmentErrorText = nil
         }
     }
@@ -2392,16 +2452,19 @@ struct MateHomeView: View {
     private func beginHoldToTalk() {
         isHoldingTalk = true
         let attachments = imageAttachments
+        let documents = documentAttachments
         Task {
             await companionManager.voiceDictation.beginHoldToTalk(
                 existingDraft: typedMessageInput,
                 onDraftChange: { typedMessageInput = $0 },
                 onSubmit: { finalText in
                     let trimmed = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty || !attachments.isEmpty else { return }
-                    if companionManager.sendTypedMessage(trimmed, imageAttachments: attachments) {
+                    guard !trimmed.isEmpty || !attachments.isEmpty || !documents.isEmpty else { return }
+                    let text = MateChatDocuments.messageText(trimmed, documents: documents)
+                    if companionManager.sendTypedMessage(text, imageAttachments: attachments) {
                         typedMessageInput = ""
                         imageAttachments = []
+                        documentAttachments = []
                         attachmentErrorText = nil
                     } else {
                         typedMessageInput = finalText
@@ -2420,7 +2483,12 @@ struct MateHomeView: View {
     private func handleImageImport(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
-            addImageFiles(urls)
+            let picked = MateChatDocuments.classify(urls)
+            if !picked.images.isEmpty { addImageFiles(picked.images) }
+            if !picked.documents.isEmpty { addDocumentFiles(picked.documents) }
+            if !picked.other.isEmpty {
+                handDroppedFiles(picked.other, to: companionManager.activeMateID ?? companionManager.mateDirectory.defaultMateID)
+            }
         case .failure(let error):
             attachmentErrorText = error.localizedDescription
         }
@@ -2431,6 +2499,42 @@ struct MateHomeView: View {
     private func handDroppedFiles(_ urls: [URL], to mateID: UUID) {
         attachmentErrorText = companionManager.handFiles(urls, toMate: mateID)
         typedMessageInput = companionManager.currentChat.draftText ?? ""
+        isComposerExpanded = true
+        isComposerFocused = true
+    }
+
+    /// Documents are copied into the mate's inbox now and named to the model
+    /// by path when the message is sent.
+    private func addDocumentFiles(_ urls: [URL]) {
+        let mateID = companionManager.activeMateID ?? companionManager.mateDirectory.defaultMateID
+        companionManager.ensureMateFolder(id: mateID)
+        guard let path = companionManager.mates.first(where: { $0.id == mateID })?.folderPath else {
+            attachmentErrorText = "This agent has no folder to put files in."
+            return
+        }
+        let room = max(0, MateChatDocuments.maximumCount - documentAttachments.count)
+        guard room > 0 else {
+            attachmentErrorText = "Up to \(MateChatDocuments.maximumCount) files per message."
+            return
+        }
+        let result = MateChatDocuments.attach(Array(urls.prefix(room)), into: URL(fileURLWithPath: path, isDirectory: true))
+        documentAttachments += result.documents
+        var problems = result.problems
+        if urls.count > room { problems.append("Up to \(MateChatDocuments.maximumCount) files per message.") }
+        attachmentErrorText = problems.first
+        isComposerExpanded = true
+        isComposerFocused = true
+    }
+
+    /// "Ask the mate about this" from the Files view: names the file in the chat box.
+    private func askAboutFile(_ relativePath: String, in folderPath: String, mateID: UUID) {
+        filesSheetMate = nil
+        if (companionManager.activeMateID ?? companionManager.mateDirectory.defaultMateID) != mateID {
+            companionManager.openMate(id: mateID)
+        }
+        let path = URL(fileURLWithPath: folderPath, isDirectory: true).appendingPathComponent(relativePath).path
+        let typed = typedMessageInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        typedMessageInput = (typed.isEmpty ? "" : typed + "\n") + "About \(path): "
         isComposerExpanded = true
         isComposerFocused = true
     }
@@ -2650,9 +2754,20 @@ struct MateHomeView: View {
 
     private var filesSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Files")
-                .font(DS.Fonts.sectionLabel)
-                .foregroundColor(DS.Colors.textTertiary)
+            HStack {
+                Text("Files")
+                    .font(DS.Fonts.sectionLabel)
+                    .foregroundColor(DS.Colors.textTertiary)
+                Spacer()
+                if let mate = activeMate, mate.folderPath != nil {
+                    Button("Show all") { filesSheetMate = mate }
+                        .buttonStyle(.plain)
+                        .font(DS.Fonts.control)
+                        .foregroundColor(DS.Colors.textSecondary)
+                        .pointerCursor()
+                        .accessibilityLabel("Show all of \(mate.name)'s files")
+                }
+            }
             if let path = activeMate?.folderPath {
                 let entries = MateWorkspace.files(in: path)
                 if entries.isEmpty {

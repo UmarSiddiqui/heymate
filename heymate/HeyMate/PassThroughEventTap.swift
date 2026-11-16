@@ -2,27 +2,17 @@
 //  PassThroughEventTap.swift
 //  HeyMate
 //
-//  An active session event tap that never changes an event. macOS lets an
-//  app with Accessibility create an active (`.defaultTap`) tap, while a
-//  listen-only tap that sees key presses also needs Input Monitoring. Using
-//  active taps keeps the global shortcuts on Accessibility alone, so setup
-//  never has to ask for Input Monitoring.
-//
-//  The cost of an active tap is that each event it covers waits for the
-//  callback before it reaches the app in front. So every tap here runs on
-//  one dedicated thread, never the main run loop: a busy main thread can't
-//  hold up typing anywhere on the Mac. The callback only copies the fields
-//  it needs and hands them to the main queue. If macOS still switches a tap
-//  off (a slow callback, or secure input taking the keyboard), it is
-//  switched straight back on.
+//  A passive session listener for global shortcuts and take-back. The
+//  Accessibility grant lets it observe input. WindowServer delivers input
+//  independently of this callback, including while other apps control input.
 //
 
 import CoreGraphics
 import Foundation
 
 nonisolated final class PassThroughEventTap: @unchecked Sendable {
-    /// Runs on the tap thread for every event, while that event waits. Copy
-    /// what you need and hop to the main queue; never block here.
+    /// Runs on the tap thread for each observed event. Copy what you need and
+    /// hop to the main queue.
     typealias Handler = @Sendable (CGEventType, CGEvent) -> Void
 
     private let name: String
@@ -64,7 +54,7 @@ nonisolated final class PassThroughEventTap: @unchecked Sendable {
         guard let port = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: .defaultTap,
+            options: .listenOnly,
             eventsOfInterest: mask,
             callback: Self.callback,
             userInfo: context.toOpaque()
@@ -127,8 +117,8 @@ nonisolated final class PassThroughEventTap: @unchecked Sendable {
                 tap.handler(type, event)
             }
         }
-        // Every event goes on unchanged; this tap only watches.
-        return Unmanaged.passUnretained(event)
+        // WindowServer ignores the return value for a passive listener.
+        return nil
     }
 }
 

@@ -68,19 +68,20 @@ final class CompanionManager: ObservableObject {
 
     /// A note for the next turn only (the drawn welcome tour's step), added to its context and then cleared.
     var pendingTurnNote: String?
-    private var talkToolScopes: [String: (owner: AgentChatOwner, completion: HeyMateRequestCompletionState)] = [:]
+    private var talkToolScopes: [String: (owner: AgentChatOwner, completion: HeyMateRequestCompletionState, persistentBrowser: Bool)] = [:]
     private var talkGmailEvidence: [String: [String: Set<String>]] = [:]
 
     func registerTalkToolScope(owner: AgentChatOwner, completion: HeyMateRequestCompletionState) -> String {
         let token = UUID().uuidString
-        talkToolScopes[token] = (owner, completion)
+        talkToolScopes[token] = (owner, completion, IsolatedBrowserWorkers.shared.isPersistent(owner.mateID))
         IsolatedBrowserWorkers.shared.beginTurn(owner: IsolatedBrowserWorkers.ownerKey(owner), scope: token)
         return token
     }
 
     func revokeTalkToolScope(_ token: String) {
         if let scope = talkToolScopes[token] {
-            IsolatedBrowserWorkers.shared.finishTurn(owner: IsolatedBrowserWorkers.ownerKey(scope.owner), scope: token, cancelled: Task.isCancelled)
+            IsolatedBrowserWorkers.shared.finishTurn(owner: IsolatedBrowserWorkers.ownerKey(scope.owner), scope: token,
+                cancelled: Task.isCancelled, mateID: scope.owner.mateID)
             BrowserBridge.shared.finishTurn(owner: IsolatedBrowserWorkers.ownerKey(scope.owner), scope: token, cancelled: Task.isCancelled)
         }
         talkToolScopes[token] = nil
@@ -93,12 +94,22 @@ final class CompanionManager: ObservableObject {
     func scopedConnectorToolDescriptions(token: String) -> [[String: Any]] {
         guard let scope = talkToolScopes[token], ownsActiveResponse(scope.completion) else { return [] }
         return TalkToolCatalog.availableTools(connectorRuntime: connectorRuntime).compactMap { tool in
-            guard isScopedBridgeTool(tool, owner: scope.owner) else { return nil }
+            guard isScopedBridgeTool(tool, owner: scope.owner), !scope.persistentBrowser
+                    || tool.toolDefinition.name != TalkToolCatalog.useChromeToolName else { return nil }
             let definition = tool.toolDefinition
             let schema = (try? JSONSerialization.jsonObject(with: Data(definition.inputSchemaJSON.utf8))) as? [String: Any]
-            return ["name": definition.name, "description": definition.description,
+            let description = scope.persistentBrowser && definition.name == TalkToolCatalog.useBrowserToolName
+                ? IsolatedBrowserWorkers.persistentDescription : definition.description
+            return ["name": definition.name, "description": description,
                     "inputSchema": schema ?? ["type": "object", "properties": [String: Any]()]]
         }
+    }
+
+    private func browserInstructions(for token: String, toolNames: [String]) -> String {
+        if talkToolScopes[token]?.persistentBrowser == true, toolNames.contains(TalkToolCatalog.useBrowserToolName) {
+            return "\n\n" + IsolatedBrowserWorkers.persistentInstructions
+        }
+        return toolNames.contains(TalkToolCatalog.useChromeToolName) ? "\n\n" + BrowserGuide.text : ""
     }
 
     private func isScopedBridgeTool(_ tool: TalkTool, owner: AgentChatOwner) -> Bool {
@@ -117,10 +128,35 @@ final class CompanionManager: ObservableObject {
               let tool = TalkToolCatalog.availableTools(connectorRuntime: connectorRuntime).first(where: {
                   $0.toolDefinition.name == name && isScopedBridgeTool($0, owner: scope.owner)
               }) else { return ("This conversation tool scope expired or the connector is unavailable.", true) }
-        let result = await executeTalkTool(.init(toolUseIdentifier: UUID().uuidString, toolName: name,
+        let workID = UUID(uuidString: token)
+        if mateInbox.pendingItems.contains(where: { $0.workID != nil && $0.workID == workID }) {
+            return ("This task is waiting for the person's answer in Waiting on You. Summarize the work done so far.", true)
+        }
+        let stepID = UUID().uuidString
+        let label: String
+        switch tool.origin {
+        case .local:
+            if [TalkToolCatalog.useBrowserToolName, TalkToolCatalog.useChromeToolName].contains(name),
+               let operation = arguments["op"] as? String {
+                let labels = ["open": "Open a web page", "navigate": "Navigate to a web page", "snapshot": "Inspect the page",
+                              "extract": "Read the page", "click": "Click a page control", "type": "Fill a field",
+                              "wait_for": "Wait for the page to update"]
+                label = labels[operation] ?? MateInboxWork.toolTitle(name)
+            } else { label = MateInboxWork.toolTitle(name) }
+        case .connector(_, let displayName, _):
+            let actions = ConnectorToolCallDescription.actions(forToolNamed: name, arguments: arguments,
+                appNames: composioConnections.records.mapValues(\.displayName))
+            label = actions.count == 1 ? actions[0] : "\(displayName) · \(max(1, actions.count)) actions"
+        }
+        if let workID { mateInbox.recordWorkStep(workID, stepID: stepID, title: label, state: .running) }
+        let result = await executeTalkTool(.init(toolUseIdentifier: stepID, toolName: name,
             inputArgumentsJSON: String(data: (try? JSONSerialization.data(withJSONObject: arguments)) ?? Data("{}".utf8), encoding: .utf8) ?? "{}"),
             availableTalkTools: [tool], completion: scope.completion, resultOwner: scope.owner, browserScope: token)
         guard ownsActiveResponse(scope.completion) else { return ("This reply was cancelled. Outcome remains unverified.", true) }
+        if let workID {
+            mateInbox.recordWorkStep(workID, stepID: stepID, title: label, state: result.isError ? .failed : .finished,
+                failure: result.isError ? MateInboxWork.Step.Failure.scopedToolError(result.text) : nil)
+        }
         if !result.isError {
             for (kind, ids) in MateAgentGmailVerification.verifiedActions(tool: name, arguments: arguments, result: result.text) {
                 talkGmailEvidence[token, default: [:]][kind, default: []].formUnion(ids)
@@ -288,6 +324,7 @@ final class CompanionManager: ObservableObject {
         finishMateLaunch()
         deliverPendingAgentResults()
         mateRoutineScheduler.owner = self
+        mateRoutineScheduler.heartbeat = self
         isRecordingMeeting = meetingNotes.isRecording
     }
     /// Canonical interaction state. Every change goes through dispatch(_:)
@@ -2204,6 +2241,7 @@ final class CompanionManager: ObservableObject {
     @Published var agentRuns: [AgentRun] = []
     @Published var taskNotices: [FloatingAgentNotice] = []
     @Published var focusedTaskRunID: UUID?
+    @Published var focusedMateResultMessageID: UUID?
 
     /// Exactly one proactive nudge at a time. Matching a rule only populates
     /// this value; approval starts normal read-only planning.
@@ -2470,6 +2508,7 @@ final class CompanionManager: ObservableObject {
     }
 
     func deleteChat(id: UUID) {
+        mateInbox.removeItems(forChat: id)
         cancelPendingOpenCodeTrainingSend(chatID: id)
         cancelIndependentChatTurn(chatID: id)
         ephemeralIndependentChats.removeValue(forKey: id)
@@ -2489,6 +2528,7 @@ final class CompanionManager: ObservableObject {
     }
 
     func clearAllChats() {
+        mateInbox.removeAll()
         cancelOpenCodeTrainingSend()
         for id in Array(independentChatTurns.keys) { cancelIndependentChatTurn(chatID: id) }
         ephemeralIndependentChats.removeAll()
@@ -3181,6 +3221,8 @@ final class CompanionManager: ObservableObject {
         // see, approve, or delete them, and rules nobody can see must not
         // fire. The engine stays so they can come back with a home.
         mateRoutineScheduler.start()
+        // Phone access resumes only if the person left its switch on.
+        RemoteAccessController.shared.attach(self)
         startMateWakes()
         startComputerUseCursorBridge()
         contextualConnectorSuggestionMonitor.start()
@@ -4312,6 +4354,7 @@ final class CompanionManager: ObservableObject {
         let userActedWhileThinking = noteGuidedActionIfNeeded(for: transcript)
         guidedClickLandedDuringTurn = false
         let turnSession = backgroundRoutineSession ?? (isHeyMateTalkTurn ? heyMateTalkSession : currentChat)
+        let recordsMateWork = !isHeyMateTalkTurn
         let independentChat = (conversationClientOverride == nil || testIndependentChatTurns)
             && !isHeyMateTalkTurn && backgroundRoutineSession == nil
             && activeRoutineTurn == nil && activeHandoffMateID == nil
@@ -4355,10 +4398,12 @@ final class CompanionManager: ObservableObject {
         currentResponseChatID = independentChat ? turnSession.id : nil
         explainerWindowController.resetStreamDismissal()
         currentResponseTask = AnalyticsInteractionScope.task(context: analyticsContext) { [self] in
+            var inboxWorkID: UUID?
             // Every exit, early returns included, ends the turn. Runs after
             // the closing `guard !completion.didComplete` below, so the
             // normal ending still dispatches `interactionFinished` first.
             defer {
+                if let inboxWorkID { mateInbox.finishWork(inboxWorkID, state: .stopped) }
                 explainerWindowController.releaseTurnHold(ObjectIdentifier(completion))
                 completion.didComplete = true
                 if independentChat, independentChatTurns[turnSession.id]?.completion === completion {
@@ -4493,7 +4538,10 @@ final class CompanionManager: ObservableObject {
                         mateAgentConversationClients[turnSession.id] = client
                         let turnMateID = turnSession.mateID ?? mateDirectory.defaultMateID
                         client.preferredBrain = resolvedSessionBrain(forMateID: turnMateID)
+                        client.maxContinuations = mateLimits(turnMateID).effectiveMaxContinuations
+                        recordMateActivity(.turns, mateID: turnMateID)
                         client.enabledSkillNames = resolvedMateSkillNames(forMateID: turnMateID)
+                        client.approvalRuleScope = mateApprovalRuleScope(forMateID: turnMateID)
                         client.onRecoveredResult = { [weak self] result in
                             self?.deliverRecoveredMateAgentResult(result, chatID: turnSession.id)
                         }
@@ -4527,6 +4575,26 @@ final class CompanionManager: ObservableObject {
                     owner: AgentChatOwner(mateID: turnSession.mateID ?? mateDirectory.defaultMateID, chatID: turnSession.id),
                     completion: completion)
                 if let mateAgent = talkClient as? MateAgentServeConversationClient {
+                    mateAgent.onTurnRequest = nil
+                    mateAgent.workID = nil
+                    mateAgent.isWorkContinuation = false
+                    if recordsMateWork, let workID = UUID(uuidString: talkScopeToken),
+                       let owner = talkToolScopes[talkScopeToken]?.owner {
+                        inboxWorkID = workID
+                        mateAgent.workID = workID
+                        mateInbox.beginWork(id: workID, owner: owner, mateName: speakingMate?.name ?? "HeyMate",
+                            title: transcript, background: activeRoutineTurn != nil || activeHandoffMateID != nil,
+                            remember: rememberConversationsEnabled)
+                        let chatProgress = mateAgent.onProgress
+                        mateAgent.onProgress = { [weak self] type, payload in
+                            self?.mateInbox.recordWorkEvent(workID, type: type, payload: payload)
+                            chatProgress?(type, payload)
+                        }
+                        mateAgent.onTurnRequest = { [weak self] request in
+                            guard let self, self.ownsActiveResponse(completion) else { return nil }
+                            return await self.presentMateWorkRequest(request, owner: owner, workID: workID, task: transcript)
+                        }
+                    }
                     mateAgent.connectorScope = scopedConnectorToolDescriptions(token: talkScopeToken).isEmpty ? nil : talkScopeToken
                     let emailContext = ([transcript] + turnSession.messages.filter { $0.role == .user }.suffix(8).map(\.text))
                         .contains { text in ["gmail", "email", "pitch", "recipient"].contains { text.lowercased().contains($0) } }
@@ -4562,7 +4630,7 @@ final class CompanionManager: ObservableObject {
                         tools: scopedToolNames.filter { !TalkToolCatalog.piBridgeLocalToolNames.contains($0) },
                         enabledApps: turnEnabledApps.sorted())
                     + { let guides = AppGuides.text(for: Array(turnEnabledApps)); return guides.isEmpty ? "" : "\n\n" + guides }()
-                    + (scopedToolNames.contains(TalkToolCatalog.useChromeToolName) ? "\n\n" + BrowserGuide.text : "")
+                    + browserInstructions(for: talkScopeToken, toolNames: scopedToolNames)
                     // Screen turns need the tag contract the guided-reply parser reads.
                     // A 3D model does not need a screenshot, and it is never a file.
                     + (screenCaptures.isEmpty ? "" : "\n\n" + CompanionPrompts.screenTools)
@@ -4623,6 +4691,10 @@ final class CompanionManager: ObservableObject {
                         let wasDrawn = fullResponseText.contains(ExplanationProgram.fence)
                         shownText = said + (!wasDrawn ? "" : ExplainerParser.onlyPoints(drawn.program ?? "") ? "\n\n(Pointed it out.)" : "\n\n(Drew an explanation.)")
                     }
+                    if let inboxWorkID, let owner = talkToolScopes[talkScopeToken]?.owner {
+                        finishMateInboxWork(id: inboxWorkID, owner: owner, reply: shownText, task: transcript,
+                            resultKey: delivery?.key, allowTextQuestion: activeRoutineTurn != nil || activeHandoffMateID != nil)
+                    }
                     // The person got an answer (foreground or background chat).
                     // Routine turns run unattended, so they don't count as value.
                     if activeRoutineTurn == nil,
@@ -4682,6 +4754,9 @@ final class CompanionManager: ObservableObject {
                     completeActiveHandoff(succeeded: false)
                 }
             } catch {
+                if let inboxWorkID, !Task.isCancelled {
+                    mateInbox.finishWork(inboxWorkID, state: .failed, result: error.localizedDescription)
+                }
                 if independentChat && !ownsCurrentResponse(completion) && ownsActiveResponse(completion) {
                     deliverIndependentChatResult("HeyMate Agent could not finish: " + error.localizedDescription, chatID: turnSession.id, resultKey: nil)
                     return
@@ -4762,33 +4837,45 @@ final class CompanionManager: ObservableObject {
 
         switch matchedTool.origin {
         case .local:
+            let browsers = IsolatedBrowserWorkers.shared
+            let persistent = browsers.isPersistent(resultOwner.mateID)
+            if [TalkToolCatalog.useBrowserToolName, TalkToolCatalog.useChromeToolName].contains(toolCall.toolName) {
+                guard talkToolScopes[browserScope]?.persistentBrowser == persistent else {
+                    return ("Browser settings changed during this turn. Start another message to continue.", true)
+                }
+            }
             if toolCall.toolName == TalkToolCatalog.useBrowserToolName {
-                return await IsolatedBrowserWorkers.shared.perform(arguments: arguments,
-                    owner: IsolatedBrowserWorkers.ownerKey(resultOwner), scope: browserScope) { summary, everyTime in
+                return await browsers.perform(arguments: arguments,
+                    owner: IsolatedBrowserWorkers.ownerKey(resultOwner), scope: browserScope,
+                    mateID: persistent ? resultOwner.mateID : nil) { summary, everyTime in
                     guard self.ownsActiveResponse(completion) else { return false }
-                    let approved = await self.connectorToolCoordinator.requestApproval(for: ConnectorToolApprovalRequest(
-                        connectorDisplayName: "Isolated Chrome", toolName: TalkToolCatalog.useBrowserToolName,
+                    let outcome = await self.requestMateWorkApproval(ConnectorToolApprovalRequest(
+                        connectorDisplayName: persistent ? "Mate's browser" : "Isolated Chrome",
+                        toolName: TalkToolCatalog.useBrowserToolName,
                         argumentsSummary: TalkToolCatalog.argumentsSummary(arguments),
-                        risk: everyTime ? .externalSideEffect : .reversibleWrite, actions: [summary]))
-                    return approved && !Task.isCancelled && self.ownsActiveResponse(completion)
+                        risk: everyTime ? .externalSideEffect : .reversibleWrite, actions: [summary], owner: resultOwner))
+                    return outcome == .approved && !Task.isCancelled && self.ownsActiveResponse(completion)
                 }
             }
             if toolCall.toolName == TalkToolCatalog.useChromeToolName {
+                guard !persistent else { return ("This Mate uses its own Chrome profile. Use use_browser.", true) }
                 let browserOwner = IsolatedBrowserWorkers.ownerKey(resultOwner)
                 let mateName = mateDirectory.mates.first(where: { $0.id == resultOwner.mateID })?.name ?? "Mate"
                 return await BrowserBridge.shared.perform(arguments: arguments, owner: browserOwner, scope: browserScope,
                     groupTitle: "HeyMate · " + mateName,
-                    isActive: { self.talkToolScopes[browserScope] != nil && self.ownsActiveResponse(completion) }) { summary, everyTime in
-                    let approved = await self.connectorToolCoordinator.requestApproval(
-                        for: ConnectorToolApprovalRequest(
+                    isActive: { self.talkToolScopes[browserScope] != nil && !browsers.isPersistent(resultOwner.mateID)
+                        && self.ownsActiveResponse(completion) }) { summary, everyTime in
+                    let outcome = await self.requestMateWorkApproval(
+                        ConnectorToolApprovalRequest(
                             connectorDisplayName: mateName + " · Chrome",
                             toolName: TalkToolCatalog.useChromeToolName,
                             argumentsSummary: TalkToolCatalog.argumentsSummary(arguments),
                             risk: everyTime ? .externalSideEffect : .reversibleWrite,
-                            actions: [everyTime ? summary : summary + " (then HeyMate keeps working in its Chrome tabs for 20 minutes)"]
+                            actions: [everyTime ? summary : summary + " (then HeyMate keeps working in its Chrome tabs for 20 minutes)"],
+                            owner: resultOwner
                         )
                     )
-                    return approved && !Task.isCancelled && self.ownsActiveResponse(completion)
+                    return outcome == .approved && !Task.isCancelled && self.ownsActiveResponse(completion)
                 }
             }
             return executeLocalTalkTool(named: toolCall.toolName, arguments: arguments, resultOwner: resultOwner)
@@ -4906,15 +4993,14 @@ final class CompanionManager: ObservableObject {
             arguments: arguments,
             ceiling: maximumRisk
         )
-        let approvalPolicy = ApprovalMode.current().connectorPolicy(
+        let approvalPolicy = ApprovalMode.current(forMateID: owner?.mateID).connectorPolicy(
             connectorStore.record(for: connectorIdentifier).approvalPolicy)
         if approvalPolicy.requiresApproval(forRisk: risk) {
             // The card waits inside the agent's tool call; stop the turn clock
             // with it so a slow answer does not run the turn out of time.
             let heldClient = owner.flatMap { mateAgentConversationClients[$0.chatID] }
             await heldClient?.holdTurnClock(true)
-            let outcome = await connectorToolCoordinator.requestApprovalOutcome(
-                for: ConnectorToolApprovalRequest(
+            let request = ConnectorToolApprovalRequest(
                     connectorDisplayName: owner.flatMap { id in mateDirectory.mates.first(where: { $0.id == id.mateID }) }
                         .map { "\($0.name) · \(connectorDisplayName)" } ?? connectorDisplayName,
                     toolName: namespacedToolID,
@@ -4924,15 +5010,16 @@ final class CompanionManager: ObservableObject {
                         forToolNamed: namespacedToolID,
                         arguments: arguments,
                         appNames: composioConnections.records.mapValues(\.displayName)
-                    )
-                )
+                    ),
+                    owner: owner
             )
+            let outcome = await requestMateWorkApproval(request)
             await heldClient?.holdTurnClock(false)
             guard outcome != .denied, !Task.isCancelled, responseIsCurrent?() != false else {
                 return ("The user did not approve this action.", true)
             }
             guard outcome == .approved else {
-                return ("Approval expired after 2 minutes without an answer. Nothing ran; tell the user and ask again if they still want it.", true)
+                return ("Approval expired after 2 minutes. This action did not run. Finish any other authorized work and report the blocked action without repeating the request.", true)
             }
         }
 
@@ -5581,7 +5668,8 @@ final class CompanionManager: ObservableObject {
         // Full access starts a plan that stays off the floor without a card.
         // Approved on the next turn so the launcher finishes its own update.
         if case .planReady = event, let run = agentRunStore.run(id: runID),
-           run.status == .awaitingPlanApproval, ApprovalMode.current().autoApprovesPlan(run.planText) {
+           run.status == .awaitingPlanApproval,
+           ApprovalMode.current(forMateID: run.chatOwner?.mateID).autoApprovesPlan(run.planText) {
             Task { @MainActor [weak self] in
                 guard self?.agentRunStore.run(id: runID)?.status == .awaitingPlanApproval else { return }
                 self?.approveAgentPlan(runID: runID)
@@ -6304,6 +6392,7 @@ extension CompanionManager {
         if chatID == currentChat.id { restoreIndependentChatTurn() }
         if let current = mateDirectory.routines.first(where: { $0.id == routineID }) {
             mateDirectory.apply(MateRoutineAccounting.recordLaunch(current, now: Date(), calendar: .current))
+            recordMateActivity(.routineRuns, mateID: current.mateID)
             syncMatePublications()
         }
         HeyMateLog.log("⏰ Routine \(routineID) for \(mate.name) started alongside other work (\(Self.parallelRoutineChats.count) running)")
@@ -6316,15 +6405,6 @@ extension CompanionManager {
         switch outcome {
         case .success(let status):
             routine = MateRoutineAccounting.recordSuccess(routine, now: now, calendar: .current, status: status)
-            if let question = MateNeedsInputParser.extract(from: status) {
-                let mateName = mateDirectory.mates.first(where: { $0.id == mateID })?.name ?? "Agent"
-                mateInbox.record(MateInboxItem(
-                    id: UUID(), mateID: mateID, mateName: mateName, chatID: chatID,
-                    createdAt: now, resolvedAt: nil, resolutionSummary: nil,
-                    kind: .question(prompt: question.question, defaultAnswer: question.defaultAnswer, choices: question.choices),
-                    resumeTaskContext: routine.task
-                ))
-            }
         case .failure(let message):
             routine = MateRoutineAccounting.recordFailureWithRecovery(
                 routine, now: now, calendar: .current, status: message,
@@ -6335,8 +6415,11 @@ extension CompanionManager {
                     id: UUID(), mateID: mateID, mateName: mateName, chatID: chatID,
                     createdAt: now, resolvedAt: nil, resolutionSummary: nil,
                     kind: .routineFailed(routineID: routineID, summary: message),
-                    resumeTaskContext: routine.task
+                    resumeTaskContext: routine.task,
+                    workID: mateInbox.work.first { $0.mateID == mateID && $0.chatID == chatID && $0.state == .failed }?.id
                 ))
+                agentUserNotifier.notifyRoutineFailed(mateID: mateID, mateName: mateName, task: routine.task,
+                                                      message: message, routineID: routineID)
             }
         case .cancelled:
             routine = Self.timedOutParallelRoutines.remove(routineID) != nil
@@ -6369,16 +6452,11 @@ extension CompanionManager {
     /// Runs a background continuation turn in `chatID` so answering from the
     /// Inbox or finishing a sign-in resumes the mate without switching away
     /// from the chat the person currently has open.
-    func resumeMateChatInBackground(mateID: UUID, chatID: UUID, userMessage: String, modelPrompt: String) {
-        guard let mate = mateDirectory.mates.first(where: { $0.id == mateID && !$0.archived }) else { return }
-        if currentChat.id == chatID && !isChatTurnBusy {
-            _ = sendTypedMessage(modelPrompt)
-            return
-        }
-        var session = savedChats.first(where: { $0.id == chatID })
-            ?? ephemeralIndependentChats[chatID]
-            ?? sessionForRoutineAppend(mateID: mateID)
-        if independentChatTurns[session.id].map({ !$0.completion.didComplete }) == true { return }
+    func resumeMateChatInBackground(mateID: UUID, chatID: UUID, userMessage: String, modelPrompt: String,
+                                    previousWork: MateInboxWork? = nil) -> Bool {
+        guard let mate = mateDirectory.mates.first(where: { $0.id == mateID && !$0.archived }),
+              var session = mateInboxChat(mateID: mateID, chatID: chatID),
+              !mateInboxChatIsBusy(chatID) else { return false }
         session.messages.append(ChatMessage(id: UUID(), role: .user, text: userMessage, createdAt: Date()))
         session.updatedAt = Date()
         if currentChat.id == session.id { currentChat = session }
@@ -6404,8 +6482,9 @@ extension CompanionManager {
                 }
             }
             do {
-                let reply = try await self.runUnattendedTurnForContinuation(
-                    prompt: modelPrompt, mate: mate, session: session, completion: completion
+                let reply = try await self.runUnattendedTurn(
+                    prompt: modelPrompt, mate: mate, session: session, routine: nil,
+                    previousWork: previousWork, completion: completion
                 )
                 guard !Task.isCancelled, !completion.didComplete else { return }
                 self.deliverIndependentChatResult(reply.shown, chatID: targetChatID, resultKey: reply.resultKey)
@@ -6424,16 +6503,42 @@ extension CompanionManager {
         }
         independentChatTurns[targetChatID] = IndependentChatTurn(completion: completion, task: task, session: session)
         if targetChatID == currentChat.id { restoreIndependentChatTurn() }
+        return true
     }
 
-    func runUnattendedTurnForContinuation(
-        prompt: String, mate: Mate, session: ChatSession, completion: HeyMateRequestCompletionState
-    ) async throws -> UnattendedReply {
-        try await runUnattendedTurn(
-            prompt: prompt, mate: mate, session: session, routine: nil,
-            images: [], extraNote: "The person answered your paused question or sign-in request. Finish the task and report the outcome.",
-            completion: completion
+    func mateInboxChatIsBusy(_ chatID: UUID) -> Bool {
+        (currentChat.id == chatID && isChatTurnBusy)
+            || independentChatTurns[chatID].map { !$0.completion.didComplete } == true
+    }
+
+    private func mateInboxChat(mateID: UUID, chatID: UUID) -> ChatSession? {
+        let chat = currentChat.id == chatID ? currentChat : (
+            chatHistoryStore.session(id: chatID) ?? ephemeralIndependentChats[chatID] ?? independentChatTurns[chatID]?.session
         )
+        guard let chat, (chat.mateID ?? mateDirectory.defaultMateID) == mateID else { return nil }
+        return chat
+    }
+
+    /// The chat an Inbox action starts work in: the open chat when it is this
+    /// mate's, else its newest one, else a fresh one kept where the turn finds it.
+    func mateChatForInboxAction(mateID: UUID) -> UUID {
+        let session = (currentChat.mateID ?? mateDirectory.defaultMateID) == mateID
+            ? currentChat : sessionForRoutineAppend(mateID: mateID)
+        if mateInboxChat(mateID: mateID, chatID: session.id) == nil {
+            ephemeralIndependentChats[session.id] = session
+        }
+        return session.id
+    }
+
+    func openMateInboxChat(mateID: UUID, chatID: UUID, resultKey: String? = nil) -> Bool {
+        guard mates.contains(where: { $0.id == mateID && !$0.archived }),
+              mateInboxChat(mateID: mateID, chatID: chatID) != nil else { return false }
+        openChat(id: chatID)
+        if let resultKey {
+            focusedMateResultMessageID = currentChat.messages.first { $0.taskResultKey == resultKey }?.id
+        }
+        openDesktopWindow(section: .chat)
+        return true
     }
 
     /// One unattended agent turn in `session`: no screen, no voice, no
@@ -6441,6 +6546,7 @@ extension CompanionManager {
     private func runUnattendedTurn(
         prompt: String, mate: Mate, session: ChatSession, routine: MateRoutine?,
         images: [(data: Data, label: String)] = [], extraNote: String? = nil,
+        previousWork: MateInboxWork? = nil,
         completion: HeyMateRequestCompletionState
     ) async throws -> UnattendedReply {
         if conversationClientOverride == nil { await awaitConnectorActivation() }
@@ -6454,9 +6560,31 @@ extension CompanionManager {
             }
         }
         client.preferredBrain = resolvedSessionBrain(forMateID: mate.id)
+        client.maxContinuations = mateLimits(mate.id).effectiveMaxContinuations
+        recordMateActivity(.turns, mateID: mate.id)
         client.enabledSkillNames = resolvedMateSkillNames(forMateID: mate.id)
-        let scope = registerTalkToolScope(owner: AgentChatOwner(mateID: mate.id, chatID: chatID), completion: completion)
-        defer { revokeTalkToolScope(scope) }
+        client.approvalRuleScope = mateApprovalRuleScope(forMateID: mate.id)
+        let owner = AgentChatOwner(mateID: mate.id, chatID: chatID)
+        let scope = registerTalkToolScope(owner: owner, completion: completion)
+        let workID = UUID(uuidString: scope) ?? UUID()
+        client.workID = previousWork?.taskID ?? workID
+        client.isWorkContinuation = previousWork != nil
+        mateInbox.beginWork(id: workID, owner: owner, mateName: mate.name,
+            title: previousWork?.title ?? routine?.task ?? session.messages.last(where: { $0.role == .user })?.text ?? prompt,
+            background: true, remember: rememberConversationsEnabled, originalWorkID: previousWork?.taskID)
+        client.onProgress = { [weak self] type, payload in
+            self?.mateInbox.recordWorkEvent(workID, type: type, payload: payload)
+        }
+        client.onTurnRequest = { [weak self] request in
+            guard let self, self.ownsActiveResponse(completion) else { return nil }
+            return await self.presentMateWorkRequest(request, owner: owner, workID: workID, task: prompt)
+        }
+        defer {
+            client.onProgress = nil
+            client.onTurnRequest = nil
+            mateInbox.finishWork(workID, state: .stopped)
+            revokeTalkToolScope(scope)
+        }
         client.connectorScope = scopedConnectorToolDescriptions(token: scope).isEmpty ? nil : scope
         client.verifyReply = { [weak self] text in
             MateAgentGmailVerification.checkedReply(text, verifiedActions: self?.talkGmailEvidence[scope] ?? [:], emailContext: true)
@@ -6473,7 +6601,7 @@ extension CompanionManager {
                 tools: toolNames.filter { !TalkToolCatalog.piBridgeLocalToolNames.contains($0) },
                 enabledApps: enabledApps.sorted())
             + { let guides = AppGuides.text(for: Array(enabledApps)); return guides.isEmpty ? "" : "\n\n" + guides }()
-            + (toolNames.contains(TalkToolCatalog.useChromeToolName) ? "\n\n" + BrowserGuide.text : "")
+            + browserInstructions(for: scope, toolNames: toolNames)
         var context: [String] = []
         if let routine {
             var note = "This is your scheduled routine (\(routine.schedule.summary)), running unattended while the person may be busy elsewhere. Do the work and report what you did in full."
@@ -6483,20 +6611,28 @@ extension CompanionManager {
             context.append(note)
         }
         if let extraNote { context.append(extraNote) }
-        context.append("Unattended envelope: take the sensible default for minor choices and state what you chose in one plain line. Only if you are genuinely blocked on a decision only the person can make, call ask_person or end your reply with `NEEDS INPUT: <question>` and `Default: <your recommendation>` so HeyMate files it in Waiting on You and resumes this chat once answered.")
+        context.append("Finish everything you can within the request. Choose sensible reversible defaults. If a required decision still blocks progress, use ask_person with one concrete question and include what you finished and what remains. If that tool is unavailable, end with `NEEDS INPUT: <question>` and `Default: <your recommendation>`.")
         if let memory = MemoryRecall.promptBlock(items: memoryRepository.recall(query: prompt, for: mate.id)) {
             context.append(memory)
         }
         var earlier = session.messages
         if earlier.last?.role == .user, earlier.last?.text == prompt { earlier.removeLast() }
         client.seedMessages = earlier
-        let (raw, _) = try await client.analyzeImageStreaming(
-            images: images,
-            systemPrompt: systemPrompt,
-            conversationHistory: [],
-            userPrompt: MateAgentServeConversationClient.turnPrompt(request: prompt, contextNote: context.joined(separator: "\n\n")),
-            onTextChunk: { _ in }
-        )
+        let raw: String
+        do {
+            (raw, _) = try await client.analyzeImageStreaming(
+                images: images,
+                systemPrompt: systemPrompt,
+                conversationHistory: [],
+                userPrompt: MateAgentServeConversationClient.turnPrompt(request: prompt, contextNote: context.joined(separator: "\n\n")),
+                onTextChunk: { _ in }
+            )
+        } catch {
+            if !Task.isCancelled, !(error is CancellationError) {
+                mateInbox.finishWork(workID, state: .failed, result: error.localizedDescription)
+            }
+            throw error
+        }
         let (modelText, shownModel) = Model3DParser.extract(from: raw)
         let (chatText, modelPatch) = Model3DParser.extractPatch(from: modelText)
         var shown = GuidedReplyParser.chatText(shownModel != nil || modelPatch != nil ? chatText : raw)
@@ -6506,6 +6642,8 @@ extension CompanionManager {
                 .filter { !$0.isEmpty }.joined(separator: " ")
         }
         let delivery = client.latestDelivery
+        finishMateInboxWork(id: workID, owner: owner, reply: shown, task: prompt,
+            resultKey: delivery?.key, allowTextQuestion: true)
         return UnattendedReply(full: raw, shown: shown, resultKey: delivery?.key) { [weak client] in
             if let delivery { try? client?.acknowledgeDelivery(delivery.id) }
         }
@@ -6650,14 +6788,6 @@ extension CompanionManager {
         let state: HandoffRecord.State = stopped ? .cancelled : (succeeded ? .reported : .failed)
         handoffLedger.mark(handoff.id, state, note: note)
         HeyMateLog.log("🤝 Handoff \(handoff.id) to \(handoff.mateName) \(state)\(note.isEmpty ? "" : ": \(note)")")
-        if succeeded, let question = MateNeedsInputParser.extract(from: report) {
-            mateInbox.record(MateInboxItem(
-                id: UUID(), mateID: handoff.mateID, mateName: handoff.mateName, chatID: chatID,
-                createdAt: Date(), resolvedAt: nil, resolutionSummary: nil,
-                kind: .question(prompt: question.question, defaultAnswer: question.defaultAnswer, choices: question.choices),
-                resumeTaskContext: handoff.instruction
-            ))
-        }
         if currentChat.id != chatID, !stopped {
             mateDirectory.incrementUnread(id: handoff.mateID)
         }

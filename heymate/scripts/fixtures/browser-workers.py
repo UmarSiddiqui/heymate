@@ -42,7 +42,7 @@ class Handler(BaseHTTPRequestHandler):
             <input type="password" aria-label="Password"><p id="out">Worker page</p>
             <script>
             const args=new URLSearchParams(location.search),owner=args.get('owner');
-            if(args.has('seed')) {document.cookie='worker='+args.get('seed')+';path=/';localStorage.setItem('worker',args.get('seed'));}
+            if(args.has('seed')) {document.cookie='worker='+args.get('seed')+';path=/;Max-Age=3600';localStorage.setItem('worker',args.get('seed'));}
             fetch('/event?owner='+owner+'&cookie='+encodeURIComponent(document.cookie||'empty')+'&storage='+encodeURIComponent(localStorage.getItem('worker')||'empty'));
             </script><div style="height:2400px"></div><p>Fixture bottom</p>'''
         self.send_response(200)

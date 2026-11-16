@@ -13,6 +13,31 @@ import { StepJournal } from './step-journal.mjs';
 import { createTelemetry } from './telemetry.mjs';
 import { earlyReads } from './early-reads.mjs';
 import { scriptTool } from './script-tools.mjs';
+import { webGuide } from './web-tools.mjs';
+import { confineRead, heartbeatEffort, heartbeatGuide, heartbeatKeepsBuiltin } from './heartbeat.mjs';
+import { fileHistoryFromEnv, withFileHistory } from './file-history.mjs';
+
+const localFileTools = new Set(['read', 'write', 'edit']);
+
+function progressFileName(event) {
+  const target = event.args?.path;
+  if (!localFileTools.has(event.toolName) || typeof target !== 'string') return {};
+  const name = path.basename(target.replaceAll('\\', '/')).replace(/\p{C}/gu, '').trim();
+  return name ? { file_name: name.slice(0, 120) } : {};
+}
+
+function progressFailure(event) {
+  if (!event.isError) return {};
+  const error = event.result?.content?.find(part => part.type === 'text')?.text;
+  if (typeof error !== 'string') return {};
+  if (error.startsWith('User did not approve this operation.')) return { failure_code: 'denied' };
+  if (error.startsWith('This action may already have run;')) return { failure_code: 'uncertain' };
+  if (!localFileTools.has(event.toolName)) return {};
+  if (/^(?:Error: )?ENOENT\b/.test(error)) return { failure_code: 'missing_file' };
+  if (/^(?:Error: )?(?:EACCES|EPERM)\b/.test(error)) return { failure_code: 'inaccessible_file' };
+  if (/^(?:Error: )?EISDIR\b/.test(error)) return { failure_code: 'expected_file' };
+  return {};
+}
 
 export async function createModelAccess(home) {
   const credentials = new FileCredentials(path.join(home, 'auth.json'));
@@ -33,7 +58,9 @@ export function seedTranscript(seed) {
 // HeyMate owns the tool boundary. No discovered extensions, global Pi settings,
 // shell startup files or third-party MCP inventories enter this session.
 // Per-turn budget. The native client waits 300 s for a turn, so the wall limit
-// stays under it; at 80% of either limit the model is told to wrap up.
+// stays under it; at 80% of either limit the model is told to wrap up, unless the
+// app allows a continuation, in which case the turn ends at a checkpoint and the
+// app starts the next one (continuation.mjs).
 // Stall watchdog stops turns that go completely silent (longer while a tool runs).
 export const turnLimits = { steps: 60, ms: 280000, nudgeAt: 0.8, stallMs: 90000, toolStallMs: 210000 };
 const wrapUpNote = 'HeyMate: this turn is close to its time or step limit. Start no new work. Finish what is in progress, '
@@ -54,7 +81,11 @@ const notesGuide = 'NOTES: for work worth keeping (research, a plan, a compariso
 
 export async function createPiSession({ home, record, access, tools, approve, emit, system = '', seed = [],
   brainOverride = null, skillNames = null, modelSpeeds = {},
-  previewNote = () => {}, sideEffect = (_name, _args, _id, run) => run(), effectsNote = () => '', stats = () => {}, limits = turnLimits }) {
+  previewNote = () => {}, sideEffect = async (_name, _args, _id, run, beforeRun) => {
+    await beforeRun?.();
+    return run();
+  }, effectsNote = () => '', stats = () => {}, limits = turnLimits, heartbeat = null,
+  fileHistory = fileHistoryFromEnv() }) {
   const baseConfig = await readJSON(path.join(home, 'model.json'), {});
   const config = await resolveSessionBrain(access, baseConfig, brainOverride, modelSpeeds);
   if (!config.model || !await hasBrainCredential(access, config.provider)) {
@@ -72,7 +103,7 @@ export async function createPiSession({ home, record, access, tools, approve, em
   // in each user message where they would be stored and resent every turn.
   const loader = new DefaultResourceLoader({ cwd: record.cwd, agentDir: home, settingsManager: settings,
     noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
-    systemPrompt: 'You are HeyMate, a personal assistant in a native macOS app. Do authorized work, use tools, verify outcomes, and report failures honestly. Ask before irreversible external actions. Never claim an action succeeded from a plan or tool discovery. Follow the current mate identity supplied by the host.\n\n' + replyFirst + '\n\n' + workingFast + '\n\n' + notesGuide + '\n\n' + enabledSkills,
+    systemPrompt: 'You are HeyMate, a personal assistant in a native macOS app. Do authorized work, use tools, verify outcomes, and report failures honestly. Ask before irreversible external actions. Never claim an action succeeded from a plan or tool discovery. Follow the current mate identity supplied by the host.\n\n' + replyFirst + '\n\n' + workingFast + '\n\n' + webGuide + '\n\n' + notesGuide + '\n\n' + enabledSkills + (heartbeat ? '\n\n' + heartbeatGuide : ''),
     // The side-effect ledger is rebuilt from the durable chat record, not from
     // the model's summary, so compaction can never drop what was already done.
     extensionFactories: [{ name: 'heymate-ledger', factory: pi => {
@@ -96,7 +127,11 @@ export async function createPiSession({ home, record, access, tools, approve, em
     } }],
     appendSystemPrompt: system ? [system] : [] });
   await loader.reload();
-  const builtins = createCodingTools(record.cwd).map(tool => ({
+  // A heartbeat keeps only read, confined to the mate's own folder (heartbeat.mjs).
+  const codingTools = heartbeat
+    ? createCodingTools(record.cwd).filter(tool => heartbeatKeepsBuiltin(tool.name)).map(tool => confineRead(tool, heartbeat.readRoot))
+    : createCodingTools(record.cwd);
+  const builtins = codingTools.map(tool => ({
     ...tool, label: tool.name,
     ...(tool.name === 'read' ? {} : { executionMode: 'sequential' }),
     execute: (id, params, signal, onUpdate) => journal.run({ name: tool.name, id: journalID(id), args: params,
@@ -104,9 +139,12 @@ export async function createPiSession({ home, record, access, tools, approve, em
       signal?.throwIfAborted();
       if (tool.name === 'read') return tool.execute(id, params, signal, onUpdate);
       // All shell commands require approval: shell text is not a reliable read/write classifier.
-      await approve(tool.name, params, signal);
-      signal?.throwIfAborted();
-      return sideEffect(tool.name, params, id, () => tool.execute(id, params, signal, onUpdate));
+      // Earlier versions of mate-folder files are kept just before write and edit change them (file-history.mjs).
+      return sideEffect(tool.name, params, id, () => withFileHistory(fileHistory, record.cwd, tool.name, params,
+        () => tool.execute(id, params, signal, onUpdate)), async () => {
+        await approve(tool.name, params, signal);
+        signal?.throwIfAborted();
+      });
     })
   }));
   const readEntries = new Map((tools.batchReads ?? []).map(entry => [entry.tool.name, entry]));
@@ -126,7 +164,8 @@ export async function createPiSession({ home, record, access, tools, approve, em
     execute: async (id, args, signal, onUpdate) => (await early.take(id, tool.name, args))
       ?? tool.execute(id, args, signal, onUpdate) }));
   const readBatch = batchReadTool(entries.map(entry => ({ ...entry, tool: exposed.find(tool => tool.name === entry.tool.name) })));
-  const program = scriptTool(exposed, { emit, telemetry: event => telemetry.onEvent(event) });
+  // No programs in a heartbeat: reads only, each across its own boundary.
+  const program = heartbeat ? null : scriptTool(exposed, { emit, telemetry: event => telemetry.onEvent(event) });
   const manager = record.sessionFile
     ? SessionManager.open(record.sessionFile, path.join(home, 'sessions'), record.cwd)
     : SessionManager.create(record.cwd, path.join(home, 'sessions'));
@@ -134,18 +173,21 @@ export async function createPiSession({ home, record, access, tools, approve, em
     manager.appendCustomMessageEntry('heymate_prior_chat', seedTranscript(seed), false);
   }
   const { session } = await createAgentSession({ cwd: record.cwd, agentDir: home,
-    modelRuntime: access.runtime, model, thinkingLevel: config.effort ?? 'medium', settingsManager: settings, sessionManager: manager,
-    resourceLoader: loader, noTools: 'builtin', customTools: [...exposed, readBatch, program] });
+    modelRuntime: access.runtime, model, thinkingLevel: heartbeat ? heartbeatEffort(model) : config.effort ?? 'medium', settingsManager: settings, sessionManager: manager,
+    resourceLoader: loader, noTools: 'builtin', customTools: [...exposed, readBatch, ...(program ? [program] : [])] });
   record.sessionFile = manager.getSessionFile();
   let turn = null;
-  const limit = reason => {
+  // kind is 'steps', 'time' or 'stall'; only the first two may continue in a new turn (continuation.mjs).
+  const limit = (reason, kind) => {
     if (!turn || session.limitReached) return;
     session.limitReached = reason;
+    session.limitKind = kind;
     emit('agent.limit', { status: reason });
     Promise.resolve(session.abort()).catch(() => {});
   };
   const nudge = () => {
-    if (!turn || turn.nudged) return;
+    // A turn that will continue automatically keeps working instead of wrapping up.
+    if (!turn || turn.nudged || session.continues) return;
     turn.nudged = true;
     session.steer(wrapUpNote, undefined, { source: 'extension' }).catch(() => {});
   };
@@ -157,13 +199,13 @@ export async function createPiSession({ home, record, access, tools, approve, em
     if (turn.holds > 0) return;
     const wait = turn.activeTools > 0 ? (limits.toolStallMs ?? 210000) : (limits.stallMs ?? 90000);
     if (wait <= 0) return;
-    turn.stallTimer = setTimeout(() => limit('Turn stalled without progress and was stopped so you can retry.'), wait);
+    turn.stallTimer = setTimeout(() => limit('Turn stalled without progress and was stopped so you can retry.', 'stall'), wait);
   };
   const arm = () => {
     const used = turn.used + (turn.since ? Date.now() - turn.since : 0);
     turn.timers.forEach(clearTimeout);
     turn.timers = [setTimeout(nudge, Math.max(0, limits.ms * limits.nudgeAt - used)),
-      setTimeout(() => limit('Turn time limit reached before a final answer.'), Math.max(0, limits.ms - used))];
+      setTimeout(() => limit('Turn time limit reached before a final answer.', 'time'), Math.max(0, limits.ms - used))];
     armStall();
   };
   session.holdBudget = held => {
@@ -181,17 +223,20 @@ export async function createPiSession({ home, record, access, tools, approve, em
     if (event.type === 'agent_start') early.reset();
     early.onEvent(event);
     if (event.type === 'agent_start') {
-      session.limitReached = null;
+      session.limitReached = null; session.limitKind = null; session.modelError = false;
       turn = { started: Date.now(), steps: 0, tools: 0, activeTools: 0, nudged: false, firstText: null,
         usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, used: 0, since: Date.now(), holds: 0, timers: [], stallTimer: null };
       arm();
     } else if (event.type === 'turn_end' && turn) {
       turn.steps++;
       armStall();
-      if (turn.steps >= limits.steps) limit('Turn step limit reached before a final answer.');
+      if (turn.steps >= limits.steps) limit('Turn step limit reached before a final answer.', 'steps');
       else if (turn.steps >= limits.steps * limits.nudgeAt) nudge();
     } else if (event.type === 'message_end' && turn && event.message?.role === 'assistant') {
       armStall();
+      // The latest model call failing before any limit is a real error (a retried one that then
+      // succeeds is not); the abort a limit causes is not either.
+      if (!session.limitReached) session.modelError = event.message.stopReason === 'error';
       for (const key of Object.keys(turn.usage)) turn.usage[key] += event.message.usage?.[key] ?? 0;
       // Text written before tool calls is the opener, not the answer: the app speaks it now
       // and starts the answer's stream fresh.
@@ -219,9 +264,10 @@ export async function createPiSession({ home, record, access, tools, approve, em
     } else if (update?.type === 'thinking_start') {
       emit('agent.thinking', {});
     } else if (event.type === 'tool_execution_start') {
-      emit('tool.start', { name: event.toolName, tool_call_id: event.toolCallId });
+      emit('tool.start', { name: event.toolName, tool_call_id: event.toolCallId, ...progressFileName(event) });
     } else if (event.type === 'tool_execution_end') {
-      emit('tool.end', { name: event.toolName, tool_call_id: event.toolCallId, is_error: event.isError });
+      emit('tool.end', { name: event.toolName, tool_call_id: event.toolCallId, is_error: event.isError,
+        ...progressFailure(event) });
     } else if (event.type === 'compaction_start') {
       emit('agent.compacting', { status: event.reason });
     } else if (event.type === 'compaction_end' && event.errorMessage) {
