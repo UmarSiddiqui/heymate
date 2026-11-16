@@ -305,6 +305,8 @@ nonisolated enum MateHeartbeatContext {
         var failedJobs: [String] = []
         var unansweredItems: [String] = []
         var unreadRoutineResults: [String] = []
+        /// What the mate's finished work said, newest first. Follow-ups come from here.
+        var recentResults: [String] = []
         /// Nil when Calendar is not connected for this mate (or is excluded).
         var calendarToday: [String]?
         /// Nil when Mail is not connected for this mate (or is excluded).
@@ -317,6 +319,7 @@ nonisolated enum MateHeartbeatContext {
     static let memoryLimit = 6_000
     static let folderLimit = 40
     static let listLimit = 10
+    static let resultLimit = 5
 
     /// Names and modified dates only, newest first. Never file contents.
     static func folderEntries(at path: String?, limit: Int = folderLimit) -> [FolderEntry] {
@@ -363,6 +366,10 @@ nonisolated enum MateHeartbeatContext {
         list("Your recently failed jobs:", inputs.failedJobs)
         list("Questions you asked the person that are still unanswered (do not repeat them):", inputs.unansweredItems)
         list("Routine results nobody has read yet:", inputs.unreadRoutineResults)
+        if !inputs.recentResults.isEmpty {
+            sections.append("What your recent finished work reported (newest first; anything it flagged that nobody has acted on is a candidate):\n"
+                + inputs.recentResults.prefix(resultLimit).map { "- " + MateHeartbeatText.oneLine($0, limit: 400) }.joined(separator: "\n"))
+        }
         if let calendar = inputs.calendarToday {
             sections.append("Today's calendar (titles only):\n" + (calendar.isEmpty ? "- nothing else today"
                 : calendar.prefix(listLimit).map { "- " + MateHeartbeatText.oneLine($0, limit: 160) }.joined(separator: "\n")))
@@ -392,9 +399,12 @@ nonisolated enum MateHeartbeatPrompt {
         you are given and decide whether there is work you could start for them now. You can read files in \
         your own folder and search or read the web. You cannot change anything, message anyone or start work here.
 
-        Propose work only when the evidence in front of you makes it clearly useful today. Proposing \
-        nothing beats proposing filler, and nothing is the most common right answer. Never repeat an open \
-        question, a running job, or anything on the do-not-propose list.
+        Look for concrete next steps: something your recent work flagged that nobody has acted on, a \
+        failed or stalled job worth retrying, something due today, or a file in your folder that needs \
+        follow-up. Read a file or check the web when that would confirm it. Propose only what the evidence \
+        in front of you supports, and say what that evidence is. An empty list is right when there is no \
+        such evidence; never invent filler. Never repeat an open question, a running job, or anything on \
+        the do-not-propose list.
         """
     }
 

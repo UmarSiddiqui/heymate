@@ -259,6 +259,9 @@ extension CompanionManager: MateHeartbeatTicking {
             unreadRoutineResults: mate.unreadCount > 0 ? routines.filter {
                 $0.mateID == mate.id && ($0.lastRunAt ?? .distantPast) > unreadSince
             }.map { "\($0.task): \($0.lastStatusMessage ?? "finished")" } : [],
+            recentResults: work.filter { $0.state == .resultReady && $0.updatedAt > failedSince }
+                .sorted { $0.updatedAt > $1.updatedAt }
+                .compactMap { item in item.result.map { "\(item.title): \($0)" } },
             recentProposals: entry.records,
             doNotPropose: MateHeartbeatFatigue.suppressedTitles(entry.records, now: now),
             now: now
