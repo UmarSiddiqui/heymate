@@ -480,7 +480,11 @@ struct NotchSurfaceRoot: View {
                 request: pendingRequest,
                 expiresAt: connectorToolCoordinator.pendingExpiresAt,
                 onApprove: { connectorToolCoordinator.approvePendingRequest() },
-                onDeny: { connectorToolCoordinator.denyPendingRequest() }
+                onDeny: { connectorToolCoordinator.denyPendingRequest() },
+                onAlwaysAllow: MateApprovalRuleGate.offeredSummary(for: pendingRequest.id) == nil ? nil : {
+                    MateApprovalRuleGate.approveAlways(pendingRequest.id)
+                    connectorToolCoordinator.approvePendingRequest()
+                }
             )
             .padding(.horizontal, 14 + NotchLayoutMath.shoulderInset(occludedTopInset: occludedTopInset))
             .padding(.top, 10)

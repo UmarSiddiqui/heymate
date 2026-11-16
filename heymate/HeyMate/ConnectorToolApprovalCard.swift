@@ -18,6 +18,8 @@ struct ConnectorToolApprovalCard: View {
     var expiresAt: Date? = nil
     let onApprove: () -> Void
     let onDeny: () -> Void
+    /// Shown only when the mate can remember a safe rule for this request.
+    var onAlwaysAllow: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -85,6 +87,12 @@ struct ConnectorToolApprovalCard: View {
                 Button("Not now", action: onDeny)
                     .buttonStyle(DSSecondaryButtonStyle())
                     .keyboardShortcut(.cancelAction)
+
+                if let onAlwaysAllow {
+                    Button("Always allow this", action: onAlwaysAllow)
+                        .buttonStyle(DSSecondaryButtonStyle())
+                        .help(MateApprovalRuleGate.offeredSummary(for: request.id) ?? "")
+                }
 
                 Button("Allow", action: onApprove)
                     .buttonStyle(DSPrimaryButtonStyle())
