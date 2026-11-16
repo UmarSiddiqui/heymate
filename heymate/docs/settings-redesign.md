@@ -13,7 +13,7 @@ the code, plus the information architecture (IA) the code follows.
 | Brain, model, voice, sign-in controls | `AISettingsComponents.swift` | Embedded by Accounts and Advanced |
 | One-column notch settings | `AISettingsView.swift` | **Nothing.** No call site instantiates it. Dead code. |
 | Save chats toggle, delete saved chats | `DesktopSupportingViews.swift` › `DesktopMemoryView` | Mate sheet › "Everything HeyMate remembers" |
-| Per-mate profile (name, job, soul, picture, note, routines) | `MateSettingsSheet.swift` | Mate rail. Per-object editing, not app settings: out of scope for the IA, kept as is. |
+| Per-mate settings (profile, brain, permissions, proactive, notifications, memory, files, apps, limits) | `MateSettingsSheet.swift` + `MateSettings*Pane.swift` | Mate rail, and deep links. See section 9. |
 
 ## 2. Inventory
 
@@ -254,6 +254,121 @@ as the AI engine), `SettingsEmptyRow`, `SettingsRefreshButton`.
   text cut to one line; secondary detail folds behind `SettingsDisclosureRow`
   (Always true rules, What leaves this Mac, Other engines — the last opens
   itself when one of those engines is in use).
+
+## 9. Agent settings
+
+Per-agent settings use the same kit and the same layout as the app window: a
+section rail with search (Cmd-F; Return opens the first result, Esc clears)
+beside one section at a time. `MateSettingsSheet.swift` is the shell; each
+section is its own `MateSettings*Pane.swift`. Every control saves as it
+changes (text after typing settles); destructive actions confirm. Nothing
+spends a model call except Proactive › Check now and Profile › Draft habits.
+The default agent (`conductsOthers`) hides Duplicate, Archive, Delete and the
+folder rows. Search index and anchors: `MateSettingsCatalog.swift`.
+
+New per-agent values live in `mate-agent-settings.json` under
+`HeyMateDataDirectory` (`MateAgentSettingsStore`), keyed by agent id, so the
+Mate record keeps the shape the previous release reads. Brain fields stay on
+the Mate record, where they already were.
+
+Deep links (`MateSettingsRouter`): the approval card's "Rules…" opens
+Permissions, a check-in proposal's gear opens Proactive, the live browser
+panel's gear opens Files & Browser.
+
+### Profile
+| Control | Type | Key / source of truth |
+| --- | --- | --- |
+| Picture | button › character editor | `Mate.faceAssetName` |
+| Name, job, personality | fields | `Mate.name`, `Mate.job`, `Mate.soul` |
+| How it works, Asks you before | lists | AGENTS.md › Standing preferences |
+| Duplicate | button | `duplicateMate(id:)` |
+| Archive / Unarchive | button + confirm | `Mate.archived` |
+| Delete | destructive + confirm | `deleteMate(id:)` |
+
+### Brain
+| Control | Type | Key / source of truth |
+| --- | --- | --- |
+| Brain (Same as HeyMate or a signed-in provider) | menu | `Mate.brainRawValue` |
+| Model (that provider's models only) | menu | `Mate.modelID` |
+| Effort (levels the model supports) | menu | `Mate.effortRawValue` |
+| Backup brain | menu | `Mate.backupBrainRawValue` |
+
+Sent on every turn, routine, check-in and continuation as the per-chat brain
+(`resolvedSessionBrain` › runtime `resolveSessionBrain`).
+
+### Permissions
+| Control | Type | Key / source of truth |
+| --- | --- | --- |
+| Approval mode: Same as HeyMate / Always ask | segmented | `mate-agent-settings.json` › `approval` (global `approvalMode` unchanged) |
+| Allow / ask / deny rules: add, edit, delete | list + form | `mate-approval-rules.json` |
+| Always asks (the floor) | readout | `ApprovalFloor`, `MateApprovalRuleMatcher.floorAsks` |
+| What it can reach | readout | folder, integrations, browser, skills |
+
+"Always ask" can only make an agent stricter: Full access does not apply and
+allow rules are set aside; ask and deny rules still apply
+(`MatePermissionResolver`).
+
+### Proactive
+| Control | Type | Key / source of truth |
+| --- | --- | --- |
+| Propose work on its own | switch | `mate-heartbeats.json` › `enabledOverride` |
+| Last check-in, Check now | readout + button | `mate-heartbeats.json` |
+| Allow check-ins for every agent | switch | `mate-heartbeats.json` › `globalEnabled` |
+| Quiet hours on/off, from, until | switch + menus | `quietHours.enabled`, `startMinute`, `endMinute` (default 21:00 to 07:00) |
+| Offers to help when | menu + field | `MateWakeStore` |
+| Routines (add by phrase, edit rows) | field + rows | `MateRoutineStore` |
+| Standing orders (HeyMate only) | switches | standing-orders Markdown files |
+
+Quiet hours stop check-ins and wake offers; a routine still runs and its
+notice is delivered when quiet hours end.
+
+### Notifications
+| Control | Type | Key |
+| --- | --- | --- |
+| Proposals | switch | `notifications.proposals` |
+| Finished work | switch | `notifications.finishedWork` |
+| Needs your input | switch | `notifications.needsInput` |
+| Failed routine | switch | `notifications.failedRoutine` |
+
+All default on. Notifications only go out while HeyMate is not in front, so
+finished work never notifies for a chat you are watching
+(`MateNotificationGate`, `AgentUserNotifier`).
+
+### Memory
+| Control | Type | Key / source of truth |
+| --- | --- | --- |
+| Notes (dated rows: add, edit, remove) | list | AGENTS.md › Notes, mirrored to `Mate.memoryNote` |
+| Note (agents without a folder) | field | `Mate.memoryNote` |
+| Standing preferences (add, edit, remove) | list | AGENTS.md › Standing preferences |
+| Everything HeyMate remembers | link | Memory page |
+
+### Files & Browser
+| Control | Type | Key / source of truth |
+| --- | --- | --- |
+| Folder: Reveal, Change… | buttons | `Mate.folderPath` |
+| Open Files | link | Files view |
+| File history size, Clear history… | destructive + confirm | `mate-files/<folder>/versions` |
+| Keep its sign-ins | switch | `persistentBrowserMateIDs` |
+| Sign out of everything… | destructive + confirm | moves the agent's CuaDriver profile to the Trash |
+| Show the live view open | switch | `browserPanelStartsOpen` |
+
+### Apps & Skills
+| Control | Type | Key / source of truth |
+| --- | --- | --- |
+| Integrations | switches | `Mate.connectorOverrides` (HeyMate: chat connector defaults) |
+| Skills, Manage skills | readout + link | skills library |
+
+### Limits
+| Control | Type | Key |
+| --- | --- | --- |
+| Continuations per task | menu | `limits.maxContinuations` (default `MateAgentContinuation.maxContinuations`) |
+| Routine time limit (routines without their own) | menu | `limits.routineMinutes` |
+| Check-ins per day | menu | `limits.heartbeatsPerDay` (default 2) |
+| Today: turns, check-ins, routine runs | readout | `activity` (counts only, this Mac) |
+
+Tests: `MateAgentSettingsTests` (quiet hours, notification gate, stricter-only
+approval, limits, counts, file compatibility, folder choice, rule edit and
+reload) and `MateSettingsCatalogTests` (search, conductor visibility, note rows).
 
 ## Verified build
 
