@@ -17,6 +17,7 @@ nonisolated struct AgentNotificationPayload: Equatable {
         case approvalRequired
         case finished
         case failed
+        case proposal
     }
 
     let kind: Kind
@@ -55,6 +56,19 @@ nonisolated struct AgentNotificationPayload: Equatable {
         case .started, .sessionIdentified, .tool, .text:
             return nil
         }
+    }
+
+    /// One notification per heartbeat: the mate's name and its first proposal.
+    static func proposals(mateName: String, firstTitle: String, count: Int) -> AgentNotificationPayload? {
+        let title = firstTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard count > 0, !title.isEmpty else { return nil }
+        let name = mateName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let more = count > 1 ? " (+\(count - 1) more)" : ""
+        return AgentNotificationPayload(
+            kind: .proposal,
+            title: "\(name.isEmpty ? "Your agent" : name) has an idea",
+            body: conciseBody(title + more, fallback: title)
+        )
     }
 
     private static func conciseBody(_ text: String, fallback: String) -> String {
@@ -114,6 +128,25 @@ final class AgentUserNotifier {
 
             let identifier = "agent-\(run.id.uuidString)-\(payload.kind.rawValue)"
             let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
+            try? await notificationCenter.add(request)
+        }
+    }
+
+    /// Posts a heartbeat's proposal notice while the person is in another app.
+    func notifyProposals(mateID: UUID, mateName: String, firstTitle: String, count: Int) {
+        guard !isAppActive(),
+              let payload = AgentNotificationPayload.proposals(mateName: mateName, firstTitle: firstTitle, count: count) else { return }
+        Task {
+            let settings = await notificationCenter.notificationSettings()
+            guard settings.authorizationStatus == .authorized
+                    || settings.authorizationStatus == .provisional else { return }
+            let content = UNMutableNotificationContent()
+            content.title = payload.title
+            content.body = payload.body
+            content.sound = .default
+            content.threadIdentifier = "heartbeat-\(mateID.uuidString)"
+            content.userInfo = ["mateID": mateID.uuidString]
+            let request = UNNotificationRequest(identifier: "heartbeat-\(mateID.uuidString)", content: content, trigger: nil)
             try? await notificationCenter.add(request)
         }
     }

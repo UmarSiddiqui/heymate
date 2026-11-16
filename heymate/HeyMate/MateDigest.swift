@@ -3,7 +3,8 @@
 //  HeyMate
 //
 //  What needs the person right now, across every agent: a job waiting for
-//  a yes, a routine that stopped, or a result nobody has read. One line per
+//  a yes, a routine that stopped, work the agent proposed on its own, or a
+//  result nobody has read. One line per
 //  agent, most urgent first. Built only from state the app already keeps,
 //  so nothing here calls a model, and a line leaves when its cause does.
 //
@@ -16,6 +17,8 @@ nonisolated struct MateDigestItem: Equatable, Identifiable {
         case needsOK
         /// A routine paused itself after failing.
         case routineStopped
+        /// The agent proposed work on its heartbeat.
+        case proposal
         /// A reply or result that has not been opened.
         case unread
     }
@@ -27,6 +30,7 @@ nonisolated struct MateDigestItem: Equatable, Identifiable {
         switch kind {
         case .needsOK: return "Needs your OK"
         case .routineStopped: return "Routine stopped"
+        case .proposal: return "Has an idea"
         case .unread: return "New"
         }
     }
@@ -49,10 +53,12 @@ enum MateDigest {
         sessions: [ChatSession],
         defaultMateID: UUID,
         activeMateID: UUID?,
-        includesUnread: Bool = true
+        includesUnread: Bool = true,
+        proposals: [MateInboxItem] = []
     ) -> (items: [MateDigestItem], hiddenCount: Int) {
         var needsOK: [MateDigestItem] = []
         var stopped: [MateDigestItem] = []
+        var proposed: [MateDigestItem] = []
         var unread: [MateDigestItem] = []
 
         for mate in mates where !mate.archived {
@@ -78,6 +84,19 @@ enum MateDigest {
                 ))
                 continue
             }
+            let open = proposals.filter { $0.mateID == mate.id && $0.isPendingAttention }
+                .compactMap(\.proposal).sorted { $0.createdAt > $1.createdAt }
+            if let first = open.first {
+                let more = open.count - 1
+                proposed.append(MateDigestItem(
+                    mateID: mate.id,
+                    mateName: mate.name,
+                    kind: .proposal,
+                    title: "\(mate.name) proposes work",
+                    detail: more > 0 ? "\(first.title) and \(more) more" : first.title
+                ))
+                continue
+            }
             // The open chat is already being read.
             if includesUnread, mate.unreadCount > 0, mate.id != activeMateID {
                 let preview = MateRailPreview.make(for: mate, sessions: sessions, defaultMateID: defaultMateID)
@@ -91,7 +110,7 @@ enum MateDigest {
             }
         }
 
-        let all = needsOK + stopped + unread
+        let all = needsOK + stopped + proposed + unread
         return (Array(all.prefix(maxItems)), max(0, all.count - maxItems))
     }
 
