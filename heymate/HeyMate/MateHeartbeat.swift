@@ -109,8 +109,8 @@ nonisolated enum MateHeartbeatEligibility {
 nonisolated enum MateHeartbeatSchedule {
     static let morningHour = 7
     static let afternoonHour = 14
-    /// No heartbeat starts at or after this hour, so nothing arrives at night.
-    static let quietHour = 21
+    /// Two slots a day (morning, afternoon): the most heartbeats a mate gets.
+    static let slotsPerDay = 2
     static let minimumGap: TimeInterval = 3 * 3600
     static let backoffInterval: TimeInterval = 3 * 24 * 3600
     /// Seconds without keyboard or mouse input after which the person is away.
@@ -126,11 +126,14 @@ nonisolated enum MateHeartbeatSchedule {
     }
 
     /// Due at the first activity after a slot opens. Missed slots and missed
-    /// days collapse into one run; a backed-off mate waits three days.
+    /// days collapse into one run; a backed-off mate waits three days. Never
+    /// inside the mate's quiet hours (default 21:00 to 07:00) and never past
+    /// its heartbeats-per-day cap.
     static func isDue(
-        now: Date, lastRunAt: Date?, backedOff: Bool, userActive: Bool, calendar: Calendar
+        now: Date, lastRunAt: Date?, backedOff: Bool, userActive: Bool, calendar: Calendar,
+        quietHours: MateQuietHours = MateQuietHours(), runsToday: Int = 0, maxPerDay: Int = slotsPerDay
     ) -> Bool {
-        guard userActive, calendar.component(.hour, from: now) < quietHour,
+        guard userActive, !quietHours.contains(now, calendar: calendar), runsToday < maxPerDay,
               let slot = latestSlot(now: now, calendar: calendar) else { return false }
         guard let lastRunAt else { return true }
         if lastRunAt >= slot { return false }

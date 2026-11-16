@@ -69,6 +69,12 @@ extension CompanionManager {
             if pending.count != mateWakeOffers.count { mateWakeOffers = pending }
             return
         }
+        // Inside this agent's quiet hours a signal is let go, not queued: by
+        // morning the moment has passed.
+        if mateQuietHours(offer.mateID).contains(signal.observedAt) {
+            if pending.count != mateWakeOffers.count { mateWakeOffers = pending }
+            return
+        }
         if let wake = mateWakes.first(where: { $0.id == offer.wakeID }) {
             mateWakeStore.upsert(MateWakeMatcher.recordOffer(wake, signal: signal))
             mateWakes = mateWakeStore.loadAll()

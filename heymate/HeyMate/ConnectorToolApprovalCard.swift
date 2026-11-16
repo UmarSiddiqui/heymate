@@ -20,6 +20,8 @@ struct ConnectorToolApprovalCard: View {
     let onDeny: () -> Void
     /// Shown only when the mate can remember a safe rule for this request.
     var onAlwaysAllow: (() -> Void)? = nil
+    /// Opens the agent's settings on Permissions, where saved rules live.
+    var onManagePermissions: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -83,6 +85,15 @@ struct ConnectorToolApprovalCard: View {
             .disclosureGroupStyle(.ds)
 
             HStack(spacing: 8) {
+                if let onManagePermissions {
+                    Button("Rules…", action: onManagePermissions)
+                        .buttonStyle(.plain)
+                        .font(DS.Fonts.caption)
+                        .foregroundColor(DS.Colors.textTertiary)
+                        .pointerCursor()
+                        .help("This agent's saved permissions")
+                        .accessibilityLabel("Open this agent's permission rules")
+                }
                 Spacer(minLength: 0)
                 Button("Not now", action: onDeny)
                     .buttonStyle(DSSecondaryButtonStyle())

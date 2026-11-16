@@ -112,9 +112,13 @@ extension CompanionManager: MateHeartbeatTicking {
         let active = idle < MateHeartbeatSchedule.idleLimit
         for mate in mates where isHeartbeatEnabled(for: mate) {
             let entry = heartbeatStore.mate(mate.id)
+            let settings = mateAgentSettings.settings(for: mate.id)
             guard MateHeartbeatSchedule.isDue(now: now, lastRunAt: entry.lastRunAt,
                                               backedOff: MateHeartbeatFatigue.isBackedOff(entry.records),
-                                              userActive: active, calendar: .current),
+                                              userActive: active, calendar: .current,
+                                              quietHours: settings.quietHours,
+                                              runsToday: mateAgentSettings.today(for: mate.id).heartbeats,
+                                              maxPerDay: settings.limits.effectiveHeartbeatsPerDay),
                   !isMateBusyForHeartbeat(mate.id) else { continue }
             startHeartbeat(for: mate, now: now)
             return
@@ -149,6 +153,7 @@ extension CompanionManager: MateHeartbeatTicking {
             $0.runCount += 1
             $0.lastStatus = "Checking in"
         }
+        recordMateActivity(.heartbeats, mateID: mate.id)
         var inputs = heartbeatInputs(for: mate, now: now)
         let readsCalendar = heartbeatMacAppConnected("apple-calendar", for: mate)
             && MateHeartbeatContext.allowsSource(bundleID: Self.calendarBundleID, excluded: excludedAppBundleIds)

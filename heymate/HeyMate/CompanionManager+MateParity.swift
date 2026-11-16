@@ -238,14 +238,16 @@ extension CompanionManager: MateRoutineRunLimiting {
 
     func enforceRoutineRunLimits(now: Date) {
         restorePrimaryBrainIfLimitEnded(now: now)
-        for routine in routines where isParallelRoutineRunning(routine.id)
+        // A routine without its own limit takes its agent's default (agent settings › Limits).
+        let limited = routines.map { mateLimits($0.mateID).applyingRoutineDefault(to: $0) }
+        for routine in limited where isParallelRoutineRunning(routine.id)
             && MateRoutineAccounting.isOverRunLimit(routine, now: now) {
             HeyMateLog.log("⏱️ Routine \(routine.id) passed its \(routine.maxRunMinutes ?? 0) min limit; stopping it")
             Self.timedOutParallelRoutines.insert(routine.id)
             cancelParallelRoutine(routine.id)
         }
         guard let turn = activeRoutineTurn,
-              let routine = routines.first(where: { $0.id == turn.routineID }),
+              let routine = limited.first(where: { $0.id == turn.routineID }),
               MateRoutineAccounting.isOverRunLimit(routine, now: now) else { return }
         HeyMateLog.log("⏱️ Routine \(routine.id) passed its \(routine.maxRunMinutes ?? 0) min limit; stopping it")
         // Stopping records the run as interrupted; relabel that run so the

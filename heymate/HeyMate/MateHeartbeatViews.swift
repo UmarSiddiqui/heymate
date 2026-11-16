@@ -2,9 +2,9 @@
 //  MateHeartbeatViews.swift
 //  HeyMate
 //
-//  The heartbeat's two surfaces: a proposal in Waiting on You (Approve,
-//  Skip, Adjust), and the per-mate switch in agent settings with when it
-//  last checked in, how often, and Check now. Settings here save at once.
+//  The heartbeat's proposal in Waiting on You (Approve, Skip, Adjust). Its
+//  per-mate settings live in agent settings › Proactive
+//  (MateSettingsProactivePane.swift).
 //
 
 import SwiftUI
@@ -23,6 +23,15 @@ struct MateProposalRow: View {
                 Spacer()
                 Text(proposal.createdAt.formatted(date: .omitted, time: .shortened))
                     .font(DS.Fonts.micro).foregroundStyle(DS.Colors.textTertiary)
+                Button {
+                    MateSettingsRouter.shared.open(mateID: item.mateID, section: .proactive)
+                } label: {
+                    Image(systemName: "gearshape").font(DS.Glyph.small).foregroundStyle(DS.Colors.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .help("Check-in settings for \(item.mateName)")
+                .accessibilityLabel("Check-in settings for \(item.mateName)")
             }
             Text(proposal.title).font(DS.Fonts.body)
             Text(proposal.whyNow).font(DS.Fonts.caption).foregroundStyle(DS.Colors.textSecondary)
@@ -48,63 +57,5 @@ struct MateProposalRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
         .background(DS.Colors.surface2, in: RoundedRectangle(cornerRadius: 12))
-    }
-}
-
-struct MateHeartbeatSection: View {
-    let mate: Mate
-    @ObservedObject var companionManager: CompanionManager
-    @ObservedObject private var store = MateHeartbeatStore.shared
-    @State private var notice: String?
-
-    var body: some View {
-        let entry = store.mate(mate.id)
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text("Check-ins")
-                    .font(DS.Fonts.sectionLabel)
-                    .foregroundColor(DS.Colors.textTertiary)
-                Text("Looks for work it could do, up to twice a day")
-                    .font(DS.Fonts.caption)
-                    .foregroundColor(DS.Colors.textTertiary)
-            }
-            Toggle("Propose work on its own", isOn: Binding(
-                get: { companionManager.isHeartbeatEnabled(for: mate) },
-                set: { companionManager.setHeartbeatEnabled($0, mateID: mate.id) }
-            ))
-            .disabled(!store.state.globalEnabled || mate.archived)
-            HStack(spacing: 10) {
-                Text(summary(entry))
-                    .font(DS.Fonts.caption)
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                if store.runningMateID == mate.id {
-                    ProgressView().controlSize(.small)
-                }
-                Button("Check now") { notice = companionManager.runMateHeartbeatNow(mateID: mate.id) }
-                    .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)
-                    .disabled(store.runningMateID != nil || mate.archived)
-            }
-            if let notice {
-                Text(notice).font(DS.Fonts.caption).foregroundColor(DS.Colors.warningText)
-            }
-            Toggle("Allow check-ins for every agent", isOn: Binding(
-                get: { store.state.globalEnabled },
-                set: { companionManager.setHeartbeatsEnabledGlobally($0) }
-            ))
-            .font(DS.Fonts.caption)
-            Text("Each check-in is one short, read-only turn on your plan. It never reads your screen, clipboard or mail bodies.")
-                .font(DS.Fonts.caption)
-                .foregroundColor(DS.Colors.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private func summary(_ entry: MateHeartbeatMateState) -> String {
-        guard let last = entry.lastRunAt else { return "No check-ins yet." }
-        let count = entry.runCount == 1 ? "1 check-in" : "\(entry.runCount) check-ins"
-        let when = last.formatted(.relative(presentation: .named))
-        return "Last checked in \(when) · \(count) so far" + (entry.lastStatus.map { " · \($0)" } ?? "")
     }
 }

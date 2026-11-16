@@ -248,8 +248,13 @@ final class MateApprovalRuleStore: ObservableObject {
 
     init(fileURL: URL = HeyMateDataDirectory.url.appendingPathComponent("mate-approval-rules.json")) {
         self.fileURL = fileURL
+        // Saved with ISO 8601 dates; a plain decoder rejected the whole file,
+        // so remembered rules were lost on relaunch.
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
         if let data = try? Data(contentsOf: fileURL),
-           let decoded = try? JSONDecoder().decode([String: [MateApprovalRule]].self, from: data) {
+           let decoded = (try? decoder.decode([String: [MateApprovalRule]].self, from: data))
+            ?? (try? JSONDecoder().decode([String: [MateApprovalRule]].self, from: data)) {
             rulesByMate = Dictionary(uniqueKeysWithValues: decoded.compactMap { key, rules in
                 UUID(uuidString: key).map { ($0, rules.filter { MateApprovalRuleMatcher.ruleTools.contains($0.tool) && !$0.pattern.isEmpty }) }
             })
@@ -263,6 +268,19 @@ final class MateApprovalRuleStore: ObservableObject {
         var rules = rules(for: mateID).filter { !($0.tool == rule.tool && $0.pattern == rule.pattern) }
         rules.append(rule)
         rulesByMate[mateID] = Array(rules.suffix(Self.maximumRulesPerMate))
+        save()
+    }
+
+    /// Replaces one rule in place (settings › Permissions › Edit). Another
+    /// rule with the same tool and pattern is folded into it.
+    func replace(id: UUID, with rule: MateApprovalRule, mateID: UUID) {
+        var rules = rules(for: mateID)
+        guard let index = rules.firstIndex(where: { $0.id == id }) else { return add(rule, mateID: mateID) }
+        var edited = rule
+        edited.id = id
+        rules[index] = edited
+        rules.removeAll { $0.id != id && $0.tool == edited.tool && $0.pattern == edited.pattern }
+        rulesByMate[mateID] = rules
         save()
     }
 
@@ -304,10 +322,12 @@ enum MateApprovalRuleGate {
 
     /// The answer a stored rule gives, or nil when the card or the mode decides.
     static func answer(_ params: [String: JSONValue], scope: MateApprovalRuleScope,
-                       store: MateApprovalRuleStore = .shared) -> JSONValue? {
+                       store: MateApprovalRuleStore = .shared,
+                       settings: MateAgentSettingsStore = .shared) -> JSONValue? {
         guard let tool = MateAgentApprovalPolicy.toolName(params),
               let subject = MateAgentApprovalPolicy.subject(params, tool: tool) else { return nil }
-        switch MateApprovalRuleMatcher.decision(tool: tool, subject: subject, rules: store.rules(for: scope.mateID), scope: scope) {
+        let matched = MateApprovalRuleMatcher.decision(tool: tool, subject: subject, rules: store.rules(for: scope.mateID), scope: scope)
+        switch MatePermissionResolver.ruleDecision(matched, override: settings.settings(for: scope.mateID).approval) {
         case .allow: return allowOnce()
         case .deny: return .object(["choice": .string("deny"), "all": .bool(false)])
         case .ask, nil: return nil
@@ -341,52 +361,6 @@ enum MateApprovalRuleGate {
     static func remember(_ response: JSONValue?, rule: MateApprovalRule, mateID: UUID, store: MateApprovalRuleStore = .shared) {
         guard case .object(let fields) = response, fields["choice"] == .string("once"), fields[rememberKey] == .bool(true) else { return }
         store.add(rule, mateID: mateID)
-    }
-}
-
-/// A mate's remembered approvals, with delete. Small on purpose: a fuller
-/// permissions page comes later.
-struct MateApprovalRulesSection: View {
-    let mateID: UUID
-    @ObservedObject var store: MateApprovalRuleStore = .shared
-
-    var body: some View {
-        let rules = store.rules(for: mateID)
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text("Permissions")
-                    .font(DS.Fonts.sectionLabel)
-                    .foregroundColor(DS.Colors.textTertiary)
-                Text("Saved with “Always allow this”. Sending, deleting and money still ask.")
-                    .font(DS.Fonts.caption)
-                    .foregroundColor(DS.Colors.textTertiary)
-            }
-            if rules.isEmpty {
-                Text("No saved permissions. Commands and file changes ask each time.")
-                    .font(DS.Fonts.body)
-                    .foregroundColor(DS.Colors.textTertiary)
-            }
-            ForEach(rules) { rule in
-                HStack(spacing: 8) {
-                    Text(rule.summary)
-                        .font(DS.Fonts.body)
-                        .foregroundColor(DS.Colors.textSecondary)
-                        .lineLimit(2)
-                        .textSelection(.enabled)
-                    Spacer(minLength: 0)
-                    Button {
-                        store.remove(id: rule.id, mateID: mateID)
-                    } label: {
-                        Image(systemName: "trash")
-                            .font(DS.Glyph.regular)
-                            .foregroundColor(DS.Colors.textTertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Delete this permission")
-                    .accessibilityLabel("Delete permission: \(rule.summary)")
-                }
-            }
-        }
     }
 }
 
