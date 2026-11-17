@@ -2,7 +2,7 @@ import { fetchModelSpeeds, speedAccount } from './model-speeds.mjs';
 import { brainProviders, hasBrainCredential, configureBrain, modelEfforts, validBrainOverride } from './brain.mjs';
 import { validSkillName } from './skills.mjs';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { appendFile, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { noteHash, noteClosingIssues } from './note-workflow.mjs';
 import { noteEdits, noteToolDefinitions } from './notes.mjs';
@@ -10,6 +10,9 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { SessionStore, validID, readJSON, saveJSON } from './store.mjs';
 import { StepJournal } from './step-journal.mjs';
+import { webToolDefinitions } from './web-tools.mjs';
+import { continuationDecision, continuationText } from './continuation.mjs';
+import { heartbeatLimits, heartbeatOptions, heartbeatTools } from './heartbeat.mjs';
 
 const boundedText = (value, max) => typeof value === 'string' && value.length > 0 && Buffer.byteLength(value) <= max;
 const connectorCallTimeoutMs = 5 * 60 * 1000;
@@ -25,10 +28,18 @@ const redact = value => String(value ?? '').replace(/(sk-|xox[a-z]-|ghp_|Bearer\
 const validSeed = seed => Array.isArray(seed) && seed.length <= 200
   && seed.every(row => (row?.role === 'user' || row?.role === 'assistant') && boundedText(row.content, 65536))
   && Buffer.byteLength(JSON.stringify(seed)) <= 262144;
+const canonicalJSON = value => JSON.stringify(value, (_, field) => {
+  if (field && typeof field === 'object' && !Array.isArray(field)) {
+    return Object.fromEntries(Object.keys(field).sort().map(key => [key, field[key]]));
+  }
+  return field;
+});
+const browserTools = new Set(['use_browser', 'use_chrome']);
+const browserReads = new Set(['tabs', 'snapshot', 'read', 'extract', 'wait_for']);
 
 export class HeyMateHarness {
-  constructor({ home, access, createSession }) {
-    this.home = home; this.access = access; this.createSession = createSession;
+  constructor({ home, access, createSession, webTools }) {
+    this.home = home; this.access = access; this.createSession = createSession; this.webTools = webTools;
     this.store = new SessionStore(home); this.epoch = randomUUID();
     this.sessions = new Map(); this.bridges = new Map(); this.logins = new Map();
   }
@@ -78,7 +89,7 @@ export class HeyMateHarness {
         error ? reject(error) : resolve(value);
       };
       const abort = () => finish(new Error('Request cancelled.'));
-      const timer = setTimeout(() => finish(new Error('Approval expired after 2 minutes without an answer. Nothing ran; tell the user and ask again if they still want it.'), undefined, 'expired'), 120000);
+      const timer = setTimeout(() => finish(new Error('Approval expired after 2 minutes. This action did not run. Report the blocker and do not repeat the request.'), undefined, 'expired'), 120000);
       state.requests.set(id, { message, finish });
       signal?.addEventListener('abort', abort, { once: true });
       if (signal?.aborted) abort(); else peer.send(message);
@@ -113,6 +124,7 @@ export class HeyMateHarness {
       if (!bridge || bridge.sessionID !== state.record.id) continue;
       for (const tool of bridge.tools) {
         const readOnly = tool.annotations?.readOnlyHint === true;
+        const browserRead = browserTools.has(tool.name) ? args => browserReads.has(args?.op) : null;
         const call = async (id, args, signal) => {
           signal?.throwIfAborted();
           const current = this.bridges.get(name);
@@ -134,12 +146,13 @@ export class HeyMateHarness {
           parameters: tool.inputSchema,
           // Reads may run beside each other; writes run one at a time, keyed and ledgered.
           ...(readOnly ? {} : { executionMode: 'sequential' }),
-          execute: (id, args, signal) => readOnly ? call(null, args, signal)
+          execute: (id, args, signal) => readOnly || tool.name === 'ask_person'
+            || browserRead?.(args) ? call(null, args, signal)
             : this.sideEffect(state, `${name}_${tool.name}`, args, id, key => call(key, args, signal))
         };
         tools.push(adapted);
         if (readOnly) batchReads.push({ tool: adapted });
-        else if (tool.name === 'use_chrome') batchReads.push({ tool: adapted, allows: args => ['tabs', 'snapshot', 'read', 'extract'].includes(args.op) });
+        else if (browserRead) batchReads.push({ tool: adapted, allows: browserRead });
       }
     }
     // ReferenceRenderer's note tools (notes.mjs): one note per chat, kept as markdown in HeyMate's Notes folder, which the
@@ -152,8 +165,10 @@ export class HeyMateHarness {
           (state.closedNotePreviews ??= new Set()).add(id);
           await state.notePreviewWrite;
           await this.clearNotePreview(state);
-          const saved = await this.editNote(state, definition.name, args ?? {}, id);
-          return { content: [{ type: 'text', text: saved }], details: {} };
+          return this.sideEffect(state, definition.name, args, id, async () => {
+            const saved = await this.editNote(state, definition.name, args ?? {}, id);
+            return { content: [{ type: 'text', text: saved }], details: {} };
+          });
         } });
     }
     tools.push({ name: 'note_read', label: 'Read this chat’s note',
@@ -173,6 +188,8 @@ export class HeyMateHarness {
         const question = String(args.question ?? '').slice(0, 1000);
         const choices = Array.isArray(args.choices) ? args.choices.filter(c => typeof c === 'string' && c.trim()).slice(0, 6).map(c => c.slice(0, 120)) : [];
         const reply = await this.ask(state, 'clarify', { questions: [{ qid: 'answer', question, ...(choices.length ? { choices } : {}) }] }, signal);
+        if (reply?.deferred === true) return { content: [{ type: 'text',
+          text: 'Question filed in Waiting on You. Summarize what is done and stop this task until the person answers.' }], details: {} };
         const answer = typeof reply?.answers?.answer === 'string' ? reply.answers.answer.slice(0, 8000) : null;
         if (answer === null) return { content: [{ type: 'text', text: 'The user gave no answer. Do not assume one; continue without it or say what is needed.' }], details: {} };
         // Answers are decisions the rest of the chat relies on; keep them past compaction.
@@ -183,6 +200,12 @@ export class HeyMateHarness {
         return { content: [{ type: 'text', text: `User answered: ${answer}` }], details: {} };
       }
     });
+    // Built-in GET-only web search and fetch (web-tools.mjs). Listed as batch reads, so the
+    // journal records them as reads, batch_read may group them, and no approval card is raised.
+    for (const tool of this.webTools ?? webToolDefinitions()) {
+      tools.push(tool);
+      batchReads.push({ tool });
+    }
     Object.defineProperty(tools, "batchReads", { value: batchReads });
     return tools;
   }
@@ -261,19 +284,37 @@ export class HeyMateHarness {
   // Every action that can change the world is recorded before and after it runs,
   // keyed by its tool call, so a replayed call returns the earlier receipt
   // instead of acting twice and compaction cannot forget what was done.
-  async sideEffect(state, name, args, toolCallID, run) {
+  async sideEffect(state, name, args, toolCallID, run, beforeRun) {
     const key = `${state.record.id}:${toolCallID}`;
     const effects = state.record.effects ??= [];
-    const earlier = effects.find(effect => effect.key === key);
-    if (earlier?.status === 'done') return { content: [{ type: 'text', text: `Already done earlier (${key}): ${earlier.receipt}` }], details: {} };
-    if (earlier?.status === 'started') throw new Error('This action may already have run; its outcome is unknown. Check before trying again.');
-    const effect = { key, tool: name, target: JSON.stringify(args ?? {}).slice(0, 300), status: 'started', at: new Date().toISOString() };
+    const { activeTurnID: turnID, activeWorkID: workID, workContinuation } = state.record;
+    const fingerprint = workID ? createHash('sha256')
+      .update(canonicalJSON([name.replace(/^hm_[0-9a-f]{12}_/, ''), args ?? {}])).digest('hex') : null;
+    const sameCall = effects.find(effect => effect.key === key && (!effect.turnID || effect.turnID === turnID));
+    // A finished shell command is meant to be repeatable across a long task
+    // (`npm test` after a fix); only one cut off mid-run is held as uncertain.
+    const priorAttempt = workContinuation && effects.findLast(effect =>
+      effect.workID === workID && effect.turnID !== turnID && effect.fingerprint === fingerprint
+      && (name !== 'bash' || effect.status === 'started'));
+    const earlier = sameCall ?? priorAttempt;
+    if (earlier?.status === 'done') return { content: [{ type: 'text', text: `Already done earlier (${earlier.key}): ${earlier.receipt}` }], details: {} };
+    if (earlier?.status === 'started' || (earlier === priorAttempt && earlier?.status === 'failed')) {
+      throw new Error('This action may already have run; its outcome is unknown. Check before trying again.');
+    }
+    await beforeRun?.();
+    const effect = { key, tool: name, target: JSON.stringify(args ?? {}).slice(0, 300), status: 'started', at: new Date().toISOString(),
+      ...(workID ? { workID, turnID, fingerprint } : {}) };
     effects.push(effect);
-    while (effects.length > 200) effects.shift();
+    // A task card can outlive the recent chat history, so retain its receipts.
+    if (!workID && effects.filter(entry => !entry.workID).length > 200) {
+      effects.splice(effects.findIndex(entry => !entry.workID), 1);
+    }
+    // Every chat turn now carries a work ID (continuations), so bound the whole ledger too.
+    if (effects.length > 2000) effects.splice(0, effects.length - 2000);
     await this.store.save(state.record);
     try {
       const result = await run(key);
-      effect.status = 'done';
+      effect.status = result?.isError ? 'failed' : 'done';
       effect.receipt = (result?.content ?? []).filter(part => part.type === 'text').map(part => part.text).join(' ').slice(0, 300) || 'ok';
       return result;
     } catch (error) {
@@ -334,14 +375,17 @@ export class HeyMateHarness {
     try {
       // One Pi session per chat stays alive across turns. It is rebuilt only
       // when its instructions, tool set, per-chat brain, or skill scope change.
-      const tools = await this.tools(state);
-      const key = JSON.stringify([system, tools.map(tool => tool.name), brain ?? null, skills ?? null]);
+      // A heartbeat turn sees reads only (heartbeat.mjs), on a session built for it.
+      const heartbeat = state.heartbeat ?? null;
+      const tools = heartbeat ? heartbeatTools(await this.tools(state)) : await this.tools(state);
+      const key = JSON.stringify([system, tools.map(tool => tool.name), brain ?? null, skills ?? null, heartbeat]);
       if (!state.session || state.sessionKey !== key) {
         state.session?.dispose(); state.session = null;
         state.session = await this.createSession({ home: this.home, record: state.record, access: this.access,
           tools, system, seed, brainOverride: brain, skillNames: skills, modelSpeeds: this.modelSpeeds ?? {},
+          heartbeat, ...(heartbeat ? { limits: heartbeatLimits } : {}),
           approve: (name, args, signal) => this.approve(state, name, args, signal),
-          sideEffect: (name, args, id, run) => this.sideEffect(state, name, args, id, run),
+          sideEffect: (name, args, id, run, beforeRun) => this.sideEffect(state, name, args, id, run, beforeRun),
           previewNote: call => this.previewNote(state, call), effectsNote: () => this.effectsNote(state), stats: stats => this.logStats(state, stats),
           emit: (type, payload) => { if (!(state.noteFinishing && type === 'message.delta')) this.emit(state, type, payload); } });
         state.sessionKey = key;
@@ -349,9 +393,23 @@ export class HeyMateHarness {
       }
       if (state.cancelled) throw new Error('Turn interrupted.');
       state.noteChanged = false; state.closedNotePreviews = new Set();
+      // With continuations left, the turn is not told to wrap up near its limit (pi-session).
+      state.session.continues = state.allowContinuation === true;
       await state.session.prompt(text, { images, expandPromptTemplates: false });
       let last = state.session.messages.filter(m => m.role === 'assistant').at(-1);
       let answer = state.session.getLastAssistantText();
+      if (state.session.limitReached && continuationDecision({ limitKind: state.session.limitKind, cancelled: state.cancelled,
+        modelError: state.session.modelError === true, allowContinuation: state.allowContinuation }) === 'continue') {
+        // Out of budget with work in progress: end at a checkpoint, not a wrapped-up partial answer.
+        // The app starts the next turn on this same session; the ledger and journal carry over.
+        state.record.rows.push({ id: state.record.rows.length + 1, role: 'assistant', content: continuationText,
+          finish_reason: 'stop', display_kind: 'continuation' });
+        state.record.pending = false;
+        await this.store.save(state.record);
+        this.emit(state, 'message.complete', { status: 'complete', text: continuationText, continuation: true,
+          limit: state.session.limitKind });
+        return;
+      }
       if (state.session.limitReached) {
         // Answer from the work already done rather than discard it.
         const reason = state.session.limitReached;
@@ -514,13 +572,23 @@ export class HeyMateHarness {
       if (p.system !== undefined && p.system !== '' && !boundedText(p.system, 65536)) throw new Error('Invalid instructions.');
       if (p.seed !== undefined && !validSeed(p.seed)) throw new Error('Invalid chat history.');
       if (!validBrainOverride(p.brain)) throw new Error('Invalid session brain.');
+      if (p.work_id !== undefined && (!validID(p.work_id) || typeof p.work_continuation !== 'boolean')) {
+        throw new Error('Invalid work checkpoint.');
+      }
       if (p.skills !== undefined && p.skills !== null && (!Array.isArray(p.skills) || p.skills.length > 128 || !p.skills.every(validSkillName))) {
         throw new Error('Invalid session skills.');
       }
+      if (p.allow_continuation !== undefined && typeof p.allow_continuation !== 'boolean') throw new Error('Invalid continuation flag.');
+      const heartbeat = heartbeatOptions(p.heartbeat);
       state.running = true; state.cancelled = false;
+      state.heartbeat = heartbeat;
+      // A heartbeat is one bounded turn: it never continues into another.
+      state.allowContinuation = !heartbeat && p.allow_continuation === true;
       const rowID = state.record.rows.length + 1;
       state.record.rows.push({ id: rowID, role: 'user', content: p.text }); state.record.pending = true;
       state.record.activeTurnID = randomUUID();
+      state.record.activeWorkID = p.work_id ?? null;
+      state.record.workContinuation = p.work_continuation === true && Boolean(p.work_id);
       try { await this.store.save(state.record); } catch (error) { state.running = false; throw error; }
       const images = state.images.splice(0);
       const brain = p.brain ?? null;

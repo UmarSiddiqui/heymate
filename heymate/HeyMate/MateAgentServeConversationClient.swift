@@ -7,9 +7,18 @@ import Foundation
 final class MateAgentServeConversationClient: VisionConversationClient {
     var model = "HeyMate agent profile"
     var connectorScope: String?
+    var workID: UUID?
+    var isWorkContinuation = false
     var preferredBrain: MateAgentServeSession.BrainOverride?
     var enabledSkillNames: [String]?
-    var verifyReply: (@MainActor (String) -> String)?
+    /// Continuation turns one task may take (agent settings › Limits).
+    var maxContinuations = MateAgentContinuation.maxContinuations
+    /// Set for a heartbeat session: the turn runs read-only in the runtime, and
+    /// `read` reaches only this folder (the inner nil means no folder at all).
+    var heartbeatReadRoot: String??
+    /// The mate whose remembered approvals apply to this chat's requests.
+    var approvalRuleScope: MateApprovalRuleScope?
+    var verifyReply:(@MainActor (String) -> String)?
     /// With `verifyReply` set, text is held until the reply is verified unless
     /// the caller opts in here: a turn that is not about email shows its words
     /// as they arrive, until a draft or send claim appears.
@@ -70,6 +79,7 @@ final class MateAgentServeConversationClient: VisionConversationClient {
         contextNote.isEmpty ? request : "\(contextNote)\n\n\(request)"
     }
     var onProgress: (@MainActor (String, JSONValue?) -> Void)?
+    var onTurnRequest: (@MainActor (MateAgentServeSession.ServerRequest) async -> JSONValue?)?
     /// Native chat messages offered as one-time seed history for the next turn.
     var seedMessages: [ChatMessage] = []
     var onRecoveredResult: (@MainActor (MateAgentServeTurnLedger.Delivery) -> Void)?
@@ -126,6 +136,7 @@ final class MateAgentServeConversationClient: VisionConversationClient {
         onTextChunk: @escaping @MainActor @Sendable (String) -> Void) async throws -> (text: String, duration: TimeInterval) {
         try Task.checkCancellation()
         let progress = onProgress
+        let turnRequest = onTurnRequest
         // A newer typed turn can arrive while Stop is still confirming the
         // previous interruption. Wait for that owner to finish before reuse.
         while turnInFlight {
@@ -153,7 +164,8 @@ final class MateAgentServeConversationClient: VisionConversationClient {
         }
         // Validate the persisted map before starting any backend or remote work.
         let storedID = try store.sessionID(chatID: chatID, profile: launch.profileDirectoryURL)
-        let workspace = try store.workspace(chatID: chatID)
+        // Only a chat with no session yet may be bound to the mate's folder.
+        let workspace = try store.workspace(chatID: chatID, mateFolder: storedID == nil ? approvalRuleScope?.folder : nil)
         if activeConfiguration != launch || session?.isUsable != true {
             session?.close()
             session = nil
@@ -180,6 +192,7 @@ final class MateAgentServeConversationClient: VisionConversationClient {
                     // The answer streams fresh after the opener rather than appended to it.
                     accumulated = ""
                     self?.onOpener?(text)
+                    progress?(type, payload)
                     return
                 }
                 progress?(type, payload)
@@ -187,8 +200,31 @@ final class MateAgentServeConversationClient: VisionConversationClient {
             active.onConnectionState = { state in progress?("connection.\(state)", nil) }
             active.onRequest = { [weak self] request in
                 guard let self, !Task.isCancelled else { return nil }
+                // A mate's remembered rules answer first (deny wins even in Full access);
+                // otherwise the card may offer "Always allow this" for that mate.
+                var forwarded = request
+                var offeredRule: MateApprovalRule?
+                let ruleScope = self.approvalRuleScope.map {
+                    MateApprovalRuleScope(mateID: $0.mateID, folder: $0.folder, workingDirectory: workspace)
+                }
+                if request.method == "approval", let ruleScope, case .object(let params) = request.params {
+                    if let answer = MateApprovalRuleGate.answer(params, scope: ruleScope) {
+                        progress?("approval.rule", .object(["status": .string(
+                            answer == MateApprovalRuleGate.allowOnce() ? "allowed" : "denied")]))
+                        return answer
+                    }
+                    if let (offered, rule) = MateApprovalRuleGate.offer(params, scope: ruleScope) {
+                        forwarded = MateAgentServeSession.ServerRequest(localID: request.localID, id: request.id,
+                            method: request.method, sessionID: request.sessionID, params: .object(offered))
+                        offeredRule = rule
+                    }
+                }
                 progress?("request.\(request.method)", request.params)
-                return await self.respond(request)
+                let response = if let turnRequest { await turnRequest(forwarded) } else { await self.respond(forwarded) }
+                if let offeredRule, let ruleScope {
+                    MateApprovalRuleGate.remember(response, rule: offeredRule, mateID: ruleScope.mateID)
+                }
+                return response
             }
             active.onRequestWithdrawn = { [withdraw] id in withdraw(id) }
             active.onRecoveredResult = { [weak self, weak active] result in
@@ -288,10 +324,34 @@ final class MateAgentServeConversationClient: VisionConversationClient {
                 try await active.attachHeyMateBridge(name: name, command: runtime.path,
                     script: script.path, scope: connectorScope, contextFile: contextFile)
             }
-            let rawResult = try await active.prompt(
-                text: userPrompt, images: images, system: systemPrompt, seed: seed,
-                brain: preferredBrain, skills: enabledSkillNames
-            )
+            // One task may span several turns (MateAgentContinuation). Every turn of the
+            // chain shares a work ID so the runtime's side-effect ledger refuses to repeat
+            // an action an earlier turn of the same task already ran.
+            let chainWorkID = workID ?? UUID()
+            let rawResult = try await MateAgentContinuation.run(
+                startsAsContinuation: isWorkContinuation,
+                max: maxContinuations,
+                submit: { step in
+                    try await active.prompt(
+                        text: step.index == 0 ? userPrompt : MateAgentContinuation.prompt,
+                        images: step.index == 0 ? images : [], system: systemPrompt, seed: step.index == 0 ? seed : [],
+                        brain: preferredBrain, skills: enabledSkillNames,
+                        workID: chainWorkID, isWorkContinuation: step.isContinuation,
+                        allowsContinuation: step.allowsContinuation,
+                        heartbeatReadRoot: heartbeatReadRoot
+                    )
+                },
+                status: \.status, continues: \.continues,
+                paused: { [ledger, chatID] checkpoint, used in
+                    // Close the checkpoint turn in the ledger without showing it: the chat keeps
+                    // one "still working" state and only the chain's final answer is delivered.
+                    let interim = try ledger.complete(chatID: chatID, profile: launch.profileDirectoryURL,
+                        result: checkpoint, checkpoint: active.checkpoint)
+                    try ledger.markDelivered(interim.id, chatID: chatID, profile: launch.profileDirectoryURL)
+                    accumulated = ""
+                    holdingClaim = false
+                    progress?("turn.continuing", .object(["status": .string("part \(used + 1)")]))
+                })
             let result = MateAgentServeSession.Result(text: verifyReply?(rawResult.text) ?? rawResult.text,
                 status: rawResult.status, completionSequence: rawResult.completionSequence)
             if let bridgeName { await active.removeHeyMateBridge(name: bridgeName) }
@@ -433,6 +493,8 @@ nonisolated struct MateAgentActivityEntry: Identifiable, Equatable {
         case "request.expired": label = "Permission request expired after 2 minutes; nothing ran"
         case "request.disconnected": label = "Permission request closed because HeyMate lost the agent connection; nothing ran"
         case "turn.complete": label = "HeyMate Agent finished"
+        case "turn.continuing": label = "Still working, continuing automatically"
+        case "approval.rule": label = "Saved permission applied"
         case "turn.cancelled": label = "HeyMate Agent stopped; unfinished work is not marked complete"
         case "turn.failed": label = "HeyMate Agent could not finish"
         case "agent.thinking": label = "Thinking"

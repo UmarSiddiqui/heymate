@@ -12,6 +12,11 @@ import { FileCredentials } from '../src/credentials.mjs';
 import { createModelAccess, createPiSession } from '../src/pi-session.mjs';
 import { saveJSON } from '../src/store.mjs';
 import { AssistantMessageEventStream } from '@earendil-works/pi-ai/utils/event-stream';
+import { writeFile } from 'node:fs/promises';
+import { webToolDefinitions } from '../src/web-tools.mjs';
+import { batchReadTool } from '../src/batch-reads.mjs';
+import { continuationText } from '../src/continuation.mjs';
+import { turnLimits } from '../src/pi-session.mjs';
 
 async function fixture(t, createSession = async () => ({
   messages: [{ role: 'assistant', stopReason: 'stop' }],
@@ -166,6 +171,7 @@ test('real Pi SDK registers custom tools and gates file writes before execution'
 test('custom harness drives real Pi tool loop, approval and durable follow-up with a fixture provider', async t => {
   const f = await fixture(t), access = await createModelAccess(f.home);
   const artifact = path.join(f.workspace, 'pi-result.txt');
+  const missing = path.join(f.workspace, 'private-source', 'review-input.txt');
   let rounds = 0, followUpSawHistory = false;
   access.runtime.registerProvider('anthropic', { name: 'In-process test provider', api: 'openai-completions',
     baseUrl: 'http://127.0.0.1:1', models: [{ id: 'fixture', name: 'Fixture', reasoning: false,
@@ -175,7 +181,10 @@ test('custom harness drives real Pi tool loop, approval and durable follow-up wi
       if (rounds === 3) followUpSawHistory = JSON.stringify(context).includes('Create fixture artifact');
       const stream = new AssistantMessageEventStream();
       const message = { role: 'assistant', api: 'openai-completions', provider: 'anthropic', model: model.id,
-        content: rounds === 1 ? [{ type: 'toolCall', id: 'fixture-write', name: 'write', arguments: { path: artifact, content: 'Created through Pi' } }]
+        content: rounds === 1 ? [
+          { type: 'toolCall', id: 'fixture-write', name: 'write', arguments: { path: artifact, content: 'Created through Pi' } },
+          { type: 'toolCall', id: 'fixture-read', name: 'read', arguments: { path: missing } }
+        ]
           : [{ type: 'text', text: rounds === 2 ? 'Artifact verified.' : 'History retained.' }],
         usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
@@ -187,13 +196,19 @@ test('custom harness drives real Pi tool loop, approval and durable follow-up wi
   await saveJSON(path.join(f.home, 'model.json'), { provider: 'anthropic', model: 'fixture' });
   const harness = new HeyMateHarness({ home: f.home, access, createSession: createPiSession });
   t.after(() => harness.close());
+  const progress = [];
   const peer = { serverRequests: true, open: () => true, send: message => {
     if (message.method === 'approval') queueMicrotask(() => harness.answer(peer, { id: message.id, result: { choice: 'once' } }));
+    if (message.method === 'event' && message.params?.payload?.tool_call_id === 'fixture-read') progress.push(message.params);
   } };
   const { session_id: id } = await harness.dispatch(peer, 'session.create', { cwd: f.workspace });
   await harness.dispatch(peer, 'prompt.submit', { session_id: id, text: 'Create fixture artifact' });
   await (await harness.get(id)).run;
   assert.equal(await readFile(artifact, 'utf8'), 'Created through Pi');
+  assert.deepEqual(progress.map(event => [event.type, event.payload]), [
+    ['tool.start', { name: 'read', tool_call_id: 'fixture-read', file_name: 'review-input.txt' }],
+    ['tool.end', { name: 'read', tool_call_id: 'fixture-read', is_error: true, failure_code: 'missing_file' }]
+  ]);
   assert.equal((await harness.messages(id, 1)).messages.at(-1).content, 'Artifact verified.');
   await harness.dispatch(peer, 'prompt.submit', { session_id: id, text: 'What did we do?' });
   await (await harness.get(id)).run;
@@ -407,6 +422,84 @@ test('connector writes are keyed, ledgered and never repeated; reads run in para
   assert.equal(calls.length, 2);
 });
 
+test('task continuation reuses persisted effects across scopes and skips duplicate approval', async t => {
+  let writes = 0, approvals = 0;
+  const workID = randomUUID();
+  const createSession = async ({ sideEffect }) => ({
+    messages: [{ role: 'assistant', stopReason: 'stop' }],
+    async prompt(text) {
+      const initial = text === 'initial';
+      const tool = initial ? 'hm_123456789abc_create_draft' : 'hm_abcdef123456_create_draft';
+      const args = initial ? { recipient: 'fixture', data: { a: 1, b: 2 } }
+        : { data: { b: 2, a: 1 }, recipient: 'fixture' };
+      const result = await sideEffect(tool, args, text, async () => {
+        writes++;
+        return { content: [{ type: 'text', text: 'draft receipt' }] };
+      }, () => { approvals++; });
+      this.answer = result.content[0].text;
+    },
+    getLastAssistantText() { return this.answer; }, async abort() {}, dispose() {}
+  });
+  const f = await fixture(t, createSession);
+  const submit = async (harness, text, id, continuation) => {
+    await harness.dispatch(f.peer, 'prompt.submit', {
+      session_id: f.id, text, work_id: id, work_continuation: continuation
+    });
+    await (await harness.get(f.id)).run;
+    return (await harness.store.load(f.id)).rows.at(-1).content;
+  };
+  assert.equal(await submit(f.harness, 'initial', workID, false), 'draft receipt');
+  const restarted = new HeyMateHarness({ home: f.home, access: f.access, createSession });
+  t.after(() => restarted.close());
+  await restarted.dispatch(f.peer, 'session.resume', { session_id: f.id });
+  assert.match(await submit(restarted, 'retry', workID, true), /Already done earlier.*draft receipt/);
+  assert.equal(writes, 1);
+  assert.equal(approvals, 1);
+  assert.equal(await submit(restarted, 'other task', randomUUID(), false), 'draft receipt');
+  assert.equal(writes, 2);
+  assert.equal(approvals, 2);
+});
+
+test('both browser tools fetch fresh snapshots when a task resumes', async t => {
+  const f = await fixture(t), state = await f.harness.get(f.id);
+  const reads = [];
+  f.harness.bridges.set('hm_123456789abc', { peer: f.peer, sessionID: f.id, tools: [
+    { name: 'use_browser', inputSchema: { type: 'object' } },
+    { name: 'use_chrome', inputSchema: { type: 'object' } }
+  ], client: { async close() {}, async callTool(request) {
+    assert.equal(request._meta, undefined);
+    reads.push(request.name);
+    return { content: [{ type: 'text', text: `Page ${reads.length}` }] };
+  } } });
+  state.bridgeNames.add('hm_123456789abc');
+  Object.assign(state, { running: true });
+  Object.assign(state.record, { activeWorkID: randomUUID(), activeTurnID: randomUUID() });
+  const tools = await f.harness.tools(state);
+  const args = { op: 'snapshot', tab_id: 7 };
+  for (const tool of tools.slice(0, 2)) await tool.execute(`initial-${tool.name}`, args);
+  Object.assign(state.record, { activeTurnID: randomUUID(), workContinuation: true });
+  for (const [index, tool] of tools.slice(0, 2).entries()) {
+    const result = await tool.execute(`resumed-${tool.name}`, args);
+    assert.equal(result.content[0].text, `Page ${index + 3}`);
+  }
+  assert.deepEqual(reads, ['use_browser', 'use_chrome', 'use_browser', 'use_chrome']);
+});
+
+test('task continuation holds uncertain writes and retries actions declined before execution', async t => {
+  const f = await fixture(t), state = await f.harness.get(f.id);
+  Object.assign(state.record, { activeWorkID: randomUUID(), activeTurnID: randomUUID() });
+  await assert.rejects(f.harness.sideEffect(state, 'write', { path: 'uncertain' }, 'first',
+    async () => { throw new Error('Connection lost'); }), /Connection lost/);
+  await assert.rejects(f.harness.sideEffect(state, 'write', { path: 'declined' }, 'second',
+    () => assert.fail('Should not execute after denial'), () => { throw new Error('Declined'); }), /Declined/);
+  Object.assign(state.record, { activeTurnID: randomUUID(), workContinuation: true });
+  await assert.rejects(f.harness.sideEffect(state, 'write', { path: 'uncertain' }, 'retry-first',
+    () => assert.fail('Should not repeat an uncertain write')), /outcome is unknown/);
+  let writes = 0;
+  await f.harness.sideEffect(state, 'write', { path: 'declined' }, 'retry-second', () => { writes++; });
+  assert.equal(writes, 1);
+});
+
 test('a message sent mid-turn steers the running turn instead of being rejected', async t => {
   let release; const steered = [];
   const f = await fixture(t, async () => ({ messages: [{ role: 'assistant', stopReason: 'stop' }],
@@ -521,6 +614,12 @@ test('ask_user offers choices, records the answer and keeps it past compaction',
   assert.match(f.harness.effectsNote(state), /Q: Which color\? A: Blue/);
   f.peer.send = message => { if (message.method === 'clarify') queueMicrotask(() => f.harness.answer(f.peer, { id: message.id, result: { answers: { answer: null } } })); };
   assert.match((await ask.execute('q2', { question: 'Size?' })).content[0].text, /gave no answer/);
+  f.peer.send = message => {
+    if (message.method === 'clarify') queueMicrotask(() => f.harness.answer(f.peer, { id: message.id, result: { deferred: true } }));
+  };
+  const deferred = await ask.execute('q3', { question: 'Which region?' });
+  assert.match(deferred.content[0].text, /filed in Waiting on You/);
+  assert.equal(state.record.answers.length, 1, 'filing the question must not invent a user answer');
 });
 
 test('note tools keep one live markdown note per chat in the Notes folder', async t => {
@@ -637,4 +736,179 @@ test('text written before the first tool call is emitted as an opener, apart fro
   assert.deepEqual(openers.map(event => event.payload.text), ['Checking that file now.']);
   assert.equal((await f.harness.messages(f.id, 1)).messages.at(-1).content, 'The file is missing.');
   assert.ok(f.contexts[0].includes('Reply first'));
+});
+
+// Built-in web tools in the harness and real Pi (web-tools.mjs).
+test('web tools are batch reads in every chat and batch_read can group them', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'heymate-web-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const home = path.join(root, 'agent'); await mkdir(home, { recursive: true });
+  const access = { credentials: new FileCredentials(path.join(home, 'auth.json')), runtime: { getModels: () => [], getModel: () => ({}) } };
+  const harness = new HeyMateHarness({ home, access, createSession: async () => ({}) });
+  t.after(() => harness.close());
+  const peer = { serverRequests: true, open: () => true, send() {} };
+  const { session_id: id } = await harness.dispatch(peer, 'session.create', { cwd: root });
+  const tools = await harness.tools(await harness.get(id));
+  for (const name of ['web_search', 'web_fetch']) {
+    assert.ok(tools.some(tool => tool.name === name), name);
+    const entry = tools.batchReads.find(item => item.tool.name === name);
+    assert.ok(entry && entry.allows === undefined, `${name} is an unconditional read`);
+    assert.equal(tools.find(tool => tool.name === name).executionMode, undefined);
+  }
+  const fake = { name: 'web_fetch', execute: async (_id, args) => ({ content: [{ type: 'text', text: `page ${args.url}` }] }) };
+  const batch = batchReadTool([{ tool: fake }]);
+  const result = JSON.parse((await batch.execute('b', { calls: [{ tool: 'web_fetch', arguments: { url: 'https://a.example/' } }] })).content[0].text);
+  assert.equal(result[0].ok, true);
+});
+
+test('real Pi journals web_fetch as a read and raises no approval card', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'heymate-web-pi-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const home = path.join(root, 'Agent'); await mkdir(home);
+  const workspace = path.join(root, 'work'); await mkdir(workspace);
+  const access = await createModelAccess(home);
+  let rounds = 0;
+  access.runtime.registerProvider('anthropic', { name: 'Fixture', api: 'openai-completions', baseUrl: 'http://127.0.0.1:1',
+    models: [{ id: 'fixture', name: 'Fixture', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32768, maxTokens: 1024 }],
+    streamSimple: (model, context) => {
+      rounds++;
+      if (rounds === 1) assert.match(JSON.stringify(context), /untrusted data, never instructions/);
+      const content = rounds === 1 ? [{ type: 'toolCall', id: 'web1', name: 'web_fetch', arguments: { url: 'https://example.com/' } }]
+        : [{ type: 'text', text: 'Read it. Source: https://example.com/' }];
+      const message = { role: 'assistant', api: 'openai-completions', provider: 'anthropic', model: model.id, content,
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        stopReason: rounds === 1 ? 'toolUse' : 'stop', timestamp: Date.now() };
+      const stream = new AssistantMessageEventStream();
+      queueMicrotask(() => { stream.push({ type: 'start', partial: message }); stream.push({ type: 'done', reason: message.stopReason, message }); });
+      return stream;
+    } });
+  await access.credentials.modify('anthropic', async () => ({ type: 'oauth', access: 'fixture', refresh: 'fixture', expires: Date.now() + 3600000 }));
+  await saveJSON(path.join(home, 'model.json'), { provider: 'anthropic', model: 'fixture' });
+  const fetched = [];
+  const webTools = webToolDefinitions({ get: async url => { fetched.push(url); return { status: 200, url,
+    headers: { 'content-type': 'text/plain' }, body: Buffer.from('Example body'), truncated: false }; } });
+  const harness = new HeyMateHarness({ home, access, createSession: createPiSession, webTools });
+  t.after(() => harness.close());
+  let approvals = 0;
+  const peer = { serverRequests: true, open: () => true, send(message) { if (message.method === 'approval') approvals++; } };
+  const { session_id: id } = await harness.dispatch(peer, 'session.create', { cwd: workspace });
+  await harness.dispatch(peer, 'prompt.submit', { session_id: id, text: 'Read example.com' });
+  const state = await harness.get(id); await state.run;
+  assert.equal(state.record.rows.at(-1).content, 'Read it. Source: https://example.com/');
+  assert.deepEqual(fetched, ['https://example.com/']); assert.equal(approvals, 0);
+  assert.equal(state.record.effects ?? undefined, undefined, 'a read never enters the side-effect ledger');
+  const markers = (await readFile(path.join(home, 'desktop', 'journal', id, 'started.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
+  const toolMarkers = markers.filter(marker => marker.kind !== 'model');
+  assert.equal(toolMarkers.length, 1); assert.equal(toolMarkers[0].kind, 'read');
+});
+
+// Long runs: checkpoint and continuation turns (continuation.mjs).
+async function continuationFixture(t, createSession) {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'heymate-continue-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const home = path.join(root, 'agent'); await mkdir(home);
+  const workspace = path.join(home, 'work'); await mkdir(workspace);
+  const access = { credentials: new FileCredentials(path.join(home, 'auth.json')), runtime: { getModels: () => [], getModel: () => ({}) } };
+  const harness = new HeyMateHarness({ home, access, createSession });
+  t.after(() => harness.close());
+  const sent = [];
+  const peer = { serverRequests: true, open: () => true, send: message => sent.push(message) };
+  const { session_id: id } = await harness.dispatch(peer, 'session.create', { cwd: workspace });
+  return { harness, peer, sent, id, home, workspace };
+}
+
+const limitedSession = kind => async () => {
+  const session = { messages: [], limitReached: null, limitKind: null,
+    async prompt() {
+      session.messages.push({ role: 'assistant', stopReason: 'aborted' });
+      session.limitReached = 'Turn step limit reached before a final answer.'; session.limitKind = kind;
+    },
+    getLastAssistantText: () => 'partial', async abort() {}, dispose() {} };
+  return session;
+};
+
+test('a turn out of steps ends at a checkpoint the client can continue from', async t => {
+  const f = await continuationFixture(t, limitedSession('steps'));
+  await f.harness.dispatch(f.peer, 'prompt.submit', { session_id: f.id, text: 'Long task', allow_continuation: true });
+  const state = await f.harness.get(f.id); await state.run;
+  const complete = state.events.find(event => event.type === 'message.complete');
+  assert.deepEqual(complete.payload, { status: 'complete', text: continuationText, continuation: true, limit: 'steps' });
+  assert.equal(state.record.pending, false); assert.equal(state.running, false);
+  assert.equal(state.record.rows.at(-1).display_kind, 'continuation');
+  assert.equal(state.session.continues, true, 'wrap-up nudge is off while continuations remain');
+  // The next turn is accepted on the same session.
+  await f.harness.dispatch(f.peer, 'prompt.submit', { session_id: f.id, text: 'Continue', allow_continuation: false });
+  await state.run;
+  assert.equal(state.session.continues, false);
+  const last = state.events.filter(event => event.type === 'message.complete').at(-1);
+  assert.equal(last.payload.status, 'error', 'without continuations left the old salvage path answers (here: none)');
+  assert.equal(last.payload.continuation, undefined);
+});
+
+test('a stalled turn is never continued, and the flag must be boolean', async t => {
+  const f = await continuationFixture(t, limitedSession('stall'));
+  await f.harness.dispatch(f.peer, 'prompt.submit', { session_id: f.id, text: 'Task', allow_continuation: true });
+  const state = await f.harness.get(f.id); await state.run;
+  const complete = state.events.find(event => event.type === 'message.complete');
+  assert.equal(complete.payload.status, 'error'); assert.equal(complete.payload.continuation, undefined);
+  await assert.rejects(f.harness.dispatch(f.peer, 'prompt.submit', { session_id: f.id, text: 'x', allow_continuation: 'yes' }), /continuation/);
+});
+
+test('real Pi: a step-limited turn checkpoints without a wrap-up nudge and the continuation never repeats an action', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'heymate-continue-pi-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const home = path.join(root, 'Agent'); await mkdir(home);
+  const workspace = path.join(root, 'work'); await mkdir(workspace);
+  const access = await createModelAccess(home);
+  const target = path.join(workspace, 'out.txt');
+  let rounds = 0;
+  const contexts = [];
+  access.runtime.registerProvider('anthropic', { name: 'Fixture', api: 'openai-completions', baseUrl: 'http://127.0.0.1:1',
+    models: [{ id: 'fixture', name: 'Fixture', reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32768, maxTokens: 1024 }],
+    streamSimple: (model, context) => {
+      rounds++;
+      const text = JSON.stringify(context.messages);
+      contexts.push(text);
+      const lastUser = [...context.messages].reverse().find(message => message.role === 'user');
+      const continuing = JSON.stringify(lastUser ?? '').includes('CONTINUE-FIXTURE');
+      const toolResults = context.messages.filter(message => message.role === 'toolResult').length;
+      // Turn 1 writes once and then keeps reading; the continuation retries the same write once, then answers.
+      const content = continuing
+        ? (toolResults < 4 ? [{ type: 'toolCall', id: `again${rounds}`, name: 'write', arguments: { path: target, content: 'once' } }]
+          : [{ type: 'text', text: 'Finished after continuing.' }])
+        : rounds === 1 ? [{ type: 'toolCall', id: 'w1', name: 'write', arguments: { path: target, content: 'once' } }]
+          : [{ type: 'toolCall', id: `r${rounds}`, name: 'read', arguments: { path: target } }];
+      const message = { role: 'assistant', api: 'openai-completions', provider: 'anthropic', model: model.id, content,
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        stopReason: content[0].type === 'toolCall' ? 'toolUse' : 'stop', timestamp: Date.now() };
+      const stream = new AssistantMessageEventStream();
+      queueMicrotask(() => { stream.push({ type: 'start', partial: message }); stream.push({ type: 'done', reason: message.stopReason, message }); });
+      return stream;
+    } });
+  await access.credentials.modify('anthropic', async () => ({ type: 'oauth', access: 'fixture', refresh: 'fixture', expires: Date.now() + 3600000 }));
+  await saveJSON(path.join(home, 'model.json'), { provider: 'anthropic', model: 'fixture' });
+  const harness = new HeyMateHarness({ home, access, webTools: [],
+    createSession: options => createPiSession({ ...options, limits: { ...turnLimits, steps: 3 } }) });
+  t.after(() => harness.close());
+  let approvals = 0;
+  const peer = { serverRequests: true, open: () => true, send(message) {
+    if (message.method === 'approval') { approvals++; queueMicrotask(() => harness.answer(peer, { id: message.id, result: { choice: 'once' } })); }
+  } };
+  const { session_id: id } = await harness.dispatch(peer, 'session.create', { cwd: workspace });
+  const workID = '0F2C3A1E-1B2C-4D5E-8F90-123456789ABC';
+  await harness.dispatch(peer, 'prompt.submit', { session_id: id, text: 'Long task', allow_continuation: true, work_id: workID, work_continuation: false });
+  const state = await harness.get(id); await state.run;
+  const first = state.events.filter(event => event.type === 'message.complete').at(-1);
+  assert.equal(first.payload.continuation, true); assert.equal(first.payload.limit, 'steps');
+  assert.ok(!contexts.some(text => text.includes('close to its time or step limit')), 'no wrap-up nudge while continuing');
+  assert.equal(approvals, 1);
+  await writeFile(target, 'changed by someone else');
+  await harness.dispatch(peer, 'prompt.submit', { session_id: id, text: 'CONTINUE-FIXTURE', allow_continuation: true, work_id: workID, work_continuation: true });
+  await state.run;
+  const last = state.events.filter(event => event.type === 'message.complete').at(-1);
+  assert.equal(last.payload.text, 'Finished after continuing.'); assert.equal(last.payload.continuation, undefined);
+  // The repeated write in the continuation returned the earlier receipt instead of running again.
+  assert.equal(approvals, 1);
+  assert.equal(state.record.effects.filter(effect => effect.tool === 'write' && effect.status === 'done').length, 1);
+  assert.ok(contexts.at(-1).includes('Already done earlier'));
 });

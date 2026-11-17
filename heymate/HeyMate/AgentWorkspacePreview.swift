@@ -114,7 +114,7 @@ struct AgentWorkspacePreview: View {
 
 /// SwiftUI owns target URL and reload identity. WKWebView remains contained
 /// inside this bridge and never becomes another source of app state.
-private struct AgentWebPreview: NSViewRepresentable {
+struct AgentWebPreview: NSViewRepresentable {
     let previewTarget: AgentWorkspacePreviewTarget
     let reloadIdentifier: UUID
 

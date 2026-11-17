@@ -5,6 +5,11 @@ import Foundation
 /// card showed in both modes, so Full access never applied to chat work.
 /// The floor still asks: anything that sends, deletes, pays, touches
 /// credentials, publishes, reaches the network or changes the system.
+/// The runtime's built-in `web_search` and `web_fetch` are GET-only reads
+/// that never raise a card, so they sit outside this policy; a shell command
+/// that reaches the network (`curl`, `wget`, ...) still asks in every mode.
+/// Per-mate remembered rules (`MateApprovalRuleGate`) are checked first and
+/// cannot lift this floor.
 nonisolated enum MateAgentApprovalPolicy {
     /// Programs that leave the folder or the Mac, or change the system.
     /// Matched only where a command starts, so `Image.open(p)` inside a
@@ -37,7 +42,7 @@ nonisolated enum MateAgentApprovalPolicy {
 
     /// The command or path, whole. The card's description is cut at 3,500
     /// characters, so a long script would otherwise never parse and always ask.
-    private static func subject(_ params: [String: JSONValue], tool: String) -> String? {
+    static func subject(_ params: [String: JSONValue], tool: String) -> String? {
         if case .string(let subject) = params["subject"], !subject.isEmpty { return subject }
         guard case .string(let description) = params["description"], let data = description.data(using: .utf8),
               let args = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }

@@ -42,6 +42,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     private let accountWindow = AccountGateWindowController()
     private var servicesStarted = false
     private var accountRelocked = false
+    private var closingBrowserForQuit = false
 
     /// Hosted unit tests inject XCTest into the app before launch. Starting
     /// production services here can block XCTest itself (for example while
@@ -67,7 +68,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         account.requestSignOut = { [weak self] in
-            guard let self, self.applicationShouldTerminate(NSApp) == .terminateNow else { return }
+            guard let self, self.canQuit() else { return }
             _ = self.account.signOut()
         }
         accountWindow.show(account: account)
@@ -158,7 +159,22 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     /// Verified detached execute legs survive Cmd-Q. Planning, legacy work, and
     /// launch races still stay attached to HeyMate and must finish or cancel.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard !isHostingUnitTests, servicesStarted, !accountRelocked else { return .terminateNow }
+        guard canQuit() else { return .terminateCancel }
+        guard !isHostingUnitTests, servicesStarted, IsolatedBrowserWorkers.shared.hasPersistentBrowserToClose else {
+            return .terminateNow
+        }
+        if !closingBrowserForQuit {
+            closingBrowserForQuit = true
+            Task {
+                await IsolatedBrowserWorkers.shared.closePersistentBrowsers()
+                sender.reply(toApplicationShouldTerminate: true)
+            }
+        }
+        return .terminateLater
+    }
+
+    private func canQuit() -> Bool {
+        guard !isHostingUnitTests, servicesStarted, !accountRelocked else { return true }
         if companionManager.isMateAgentTurnInFlight {
             companionManager.openDesktopWindow(section: .chat)
             let alert = NSAlert()
@@ -167,10 +183,10 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
             alert.informativeText = "Keep HeyMate open until this turn finishes, or stop it from the chat before quitting."
             alert.addButton(withTitle: "Show chat")
             alert.runModal()
-            return .terminateCancel
+            return false
         }
         let activeCount = companionManager.activeProcessBackedAgentRunCount
-        guard activeCount > 0 else { return .terminateNow }
+        guard activeCount > 0 else { return true }
 
         companionManager.openDesktopWindow(section: .chat)
         let alert = NSAlert()
@@ -181,7 +197,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
         alert.informativeText = "HeyMate must stay open while an agent is planning or still starting. Cancel it from Agents if you need to quit now. Work already underway can keep running after HeyMate closes."
         alert.addButton(withTitle: "Show Agents")
         alert.runModal()
-        return .terminateCancel
+        return false
     }
 
     /// macOS delivers `heymate://` URLs here: connector OAuth callbacks

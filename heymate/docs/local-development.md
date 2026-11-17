@@ -78,7 +78,7 @@ signing scripts and updater configuration are unchanged.
 
 If macOS no longer has an Accessibility entry, the person must add
 `/Applications/HeyMate.app` in System Settings → Privacy & Security →
-Accessibility using **+**, then enable it. Global shortcuts use active event
+Accessibility using **+**, then enable it. Global shortcuts use passive event
 taps, which need Accessibility only; HeyMate no longer uses Input Monitoring. Approve any other permissions the app
 shows as missing, and quit/reopen if macOS requests it. The workflow cannot
 restore or grant OS authorization. It never runs `tccutil`, removes TCC entries,
@@ -359,6 +359,19 @@ inactivity, cancellation, app shutdown or `end` closes it and removes its
 throwaway sign-ins. Preparation is trusted native code; no raw setup capability
 or profile path is given to models. There is no automatic switch between shared
 and clean profiles.
+
+One Mate can use a persistent Chrome profile. Enable it in that Mate's **Agent
+settings → Browser** and save. Its chats and routines use the same named
+profile, one browser turn at a time. Chrome closes on idle, cancellation, or
+shutdown, but the profile stays on disk. Turning the setting off closes the
+window and keeps the profile for the same Mate if enabled again.
+
+**Take over** in the Mate's chat toolbar brings its Chrome window forward
+after any in-flight browser operation finishes. HeyMate refuses browser reads
+and actions while you have control. Return to the chat and choose **Hand
+back**, then tell the Mate to continue if it was waiting. It needs a fresh
+snapshot before it can act. The Mate works in its original tab, so finish
+signing in there before handing back.
 
 For clean workers, Cua transport shutdown closes stdin so Cua runs its owned
 browser/profile cleanup. Sending SIGTERM skipped that cleanup on the reviewed

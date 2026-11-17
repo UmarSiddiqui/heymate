@@ -27,13 +27,20 @@ final class MateAgentServeRequestPresenter {
             ?? NSApp.windows.first(where: { $0.isVisible && $0.canBecomeKey && $0.sheetParent == nil })
         let alert = NSAlert()
         let answer: @MainActor () -> JSONValue?
+        // Third button, offered only when the mate can remember a safe rule for this request.
+        var answerAlways: (@MainActor () -> JSONValue?)?
         switch request.method {
         case "approval":
             alert.messageText = "HeyMate Agent requests permission"
             alert.informativeText = Self.approvalDetail(params)
             alert.addButton(withTitle: "Deny")
             alert.addButton(withTitle: "Allow once")
-            answer = { .object(["choice": .string("once"), "all": .bool(false)]) }
+            answer = { MateApprovalRuleGate.allowOnce() }
+            if case .string(let rule) = params[MateApprovalRuleGate.offerKey], !rule.isEmpty {
+                alert.addButton(withTitle: "Always allow this")
+                alert.informativeText += "\n\nAlways allow this: \(String(rule.prefix(300))). Sending, deleting and money still ask."
+                answerAlways = { MateApprovalRuleGate.allowOnce(remember: true) }
+            }
         case "clarify":
             guard case .array(let questions) = params["questions"], !questions.isEmpty, questions.count <= 8 else { return nil }
             alert.messageText = "HeyMate Agent needs your answer"
@@ -91,16 +98,20 @@ final class MateAgentServeRequestPresenter {
         // The notch often has no window that can host a sheet. Denying in that
         // case shows the user nothing and the tool reports "not approved".
         // A modal dialog still asks.
+        let value: @MainActor (NSApplication.ModalResponse) -> JSONValue? = { response in
+            if response == .alertSecondButtonReturn { return answer() }
+            if response == .alertThirdButtonReturn { return answerAlways?() }
+            return nil
+        }
         guard let hostWindow, hostWindow.attachedSheet == nil else {
-            let response = alert.runModal()
-            return response == .alertSecondButtonReturn ? answer() : nil
+            return value(alert.runModal())
         }
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 guard !Task.isCancelled else { continuation.resume(returning: nil); return }
                 pending[request.localID] = (alert, continuation)
                 alert.beginSheetModal(for: hostWindow) { [weak self] response in
-                    self?.finish(request.localID, value: response == .alertSecondButtonReturn ? answer() : nil)
+                    self?.finish(request.localID, value: value(response))
                 }
             }
         } onCancel: {

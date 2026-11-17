@@ -148,7 +148,13 @@ enum ConnectorToolRisk: Int, Codable, Comparable, Sendable {
                   !name.isEmpty else {
                 return ceiling
             }
-            batchRisk = max(batchRisk, inferred(forToolNamed: name, ceiling: ceiling))
+            // In these exact operations “email” and “reply” describe the draft,
+            // not a delivery. Every actual send still reaches the approval floor.
+            let draftOnly: Set<String> = ["GMAIL_CREATE_EMAIL_DRAFT", "GMAIL_UPDATE_DRAFT",
+                "OUTLOOK_CREATE_DRAFT", "OUTLOOK_CREATE_DRAFT_REPLY", "OUTLOOK_CREATE_ME_MESSAGE_REPLY_ALL_DRAFT"]
+            let risk = draftOnly.contains(name.uppercased()) ? min(.reversibleWrite, ceiling)
+                : inferred(forToolNamed: name, ceiling: ceiling)
+            batchRisk = max(batchRisk, risk)
         }
         return batchRisk
     }

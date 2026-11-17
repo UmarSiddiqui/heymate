@@ -391,6 +391,21 @@ struct ConnectorToolRiskInferenceTests {
         ) == .destructive)
     }
 
+    @Test func draftOnlyActionsHonorWritePolicyWhileMixedSendsStillAsk() {
+        let tool = "composio__COMPOSIO_MULTI_EXECUTE_TOOL"
+        for slug in ["GMAIL_CREATE_EMAIL_DRAFT", "OUTLOOK_CREATE_DRAFT_REPLY"] {
+            let draft = ConnectorToolRisk.inferred(forToolNamed: tool,
+                arguments: ["tools": [["tool_slug": slug]]], ceiling: .destructive)
+            #expect(draft == .reversibleWrite)
+            #expect(!ConnectorApprovalPolicy.askForExternalEffects.requiresApproval(forRisk: draft))
+            #expect(ConnectorApprovalPolicy.askForWrites.requiresApproval(forRisk: draft))
+        }
+        let mixed = ConnectorToolRisk.inferred(forToolNamed: tool,
+            arguments: ["tools": [["tool_slug": "GMAIL_CREATE_EMAIL_DRAFT"], ["tool_slug": "GMAIL_SEND_DRAFT"]]],
+            ceiling: .destructive)
+        #expect(ConnectorApprovalPolicy.askForExternalEffects.requiresApproval(forRisk: mixed))
+    }
+
     /// "message", "post" and friends are nouns after a read verb. A Gmail
     /// read used to stop for a "Sends or publishes" approval.
     @Test func aSendWordAfterAReadVerbIsANoun() {

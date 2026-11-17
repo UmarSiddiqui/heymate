@@ -43,6 +43,9 @@ final class MateAgentServeSession {
         let text: String
         let status: String
         var completionSequence: Int? = nil
+        /// The runtime ended this turn at a checkpoint (step or time budget spent,
+        /// work still in progress); the client may start a continuation turn.
+        var continues: Bool = false
     }
     nonisolated struct Checkpoint: Equatable, Codable, Sendable {
         let identity: Identity
@@ -270,6 +273,9 @@ final class MateAgentServeSession {
     func prompt(text request: String, images: [(data: Data, label: String)] = [],
                 system: String = "", seed: [JSONValue] = [],
                 brain: BrainOverride? = nil, skills: [String]? = nil,
+                workID: UUID? = nil, isWorkContinuation: Bool = false,
+                allowsContinuation: Bool = false,
+                heartbeatReadRoot: String?? = nil,
                 timeout: Duration = .seconds(300)) async throws -> Result {
         let request = ScreenContextPrompt.withImageLabels(request, images: images)
         if let recovery { await recovery.value }
@@ -346,6 +352,15 @@ final class MateAgentServeSession {
                             if !seed.isEmpty { params["seed"] = .array(seed) }
                             if let brain { params["brain"] = brain.jsonObject }
                             if let skills { params["skills"] = .array(skills.map { .string($0) }) }
+                            if let workID {
+                                params["work_id"] = .string(workID.uuidString)
+                                params["work_continuation"] = .bool(isWorkContinuation)
+                            }
+                            if allowsContinuation { params["allow_continuation"] = .bool(true) }
+                            // A heartbeat turn: the runtime keeps reads only, with read confined to this folder.
+                            if let heartbeatReadRoot {
+                                params["heartbeat"] = .object(heartbeatReadRoot.map { ["read_root": .string($0)] } ?? [:])
+                            }
                             let accepted = try await self.connection.request(method: "prompt.submit", params: .object(params),
                                 timeout: .seconds(60))
                             guard self.turn?.id == id else { return }
@@ -599,7 +614,8 @@ final class MateAgentServeSession {
                 else { error = "The turn was interrupted, incomplete, or returned no final text." }
                 terminal(.failure(Failure.remoteFailure(error))); return
             }
-            terminal(.success(Result(text: answer, status: "complete", completionSequence: Self.sequence(fields["seq"]))))
+            terminal(.success(Result(text: answer, status: "complete", completionSequence: Self.sequence(fields["seq"]),
+                continues: body["continuation"] == .bool(true))))
         case "error":
             let error: String
             if case .object(let body) = payload, case .string(let value) = body["message"] { error = value }

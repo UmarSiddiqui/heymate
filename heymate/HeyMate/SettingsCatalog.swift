@@ -178,6 +178,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
     case saveChats
     case memories
     case usageAnalytics
+    case phoneAccess
     case whatLeavesThisMac
     case eraseData
 
@@ -203,7 +204,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
             return .permissions
         case .permissionList, .repairShortcuts:
             return .permissions
-        case .excludedApps, .screenRecordings, .saveChats, .memories, .usageAnalytics, .whatLeavesThisMac, .eraseData:
+        case .excludedApps, .screenRecordings, .saveChats, .memories, .usageAnalytics, .phoneAccess, .whatLeavesThisMac, .eraseData:
             return .privacy
         }
     }
@@ -262,6 +263,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .saveChats: return "Save chats on this Mac"
         case .memories: return "Memories"
         case .usageAnalytics: return "Share usage analytics"
+        case .phoneAccess: return "Reach your mates from your phone"
         case .whatLeavesThisMac: return "What leaves this Mac"
         case .eraseData: return "Erase HeyMate data"
         }
@@ -321,6 +323,7 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .saveChats: return "chat history conversations remember save"
         case .memories: return "memory forget remember"
         case .usageAnalytics: return "analytics consent tracking usage privacy posthog opt in"
+        case .phoneAccess: return "phone mobile remote away iphone android pair qr wifi network inbox"
         case .whatLeavesThisMac: return "cloud data privacy sent"
         case .eraseData: return "delete reset wipe erase remove all data"
         }

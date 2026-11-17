@@ -154,6 +154,10 @@ final class MateAgentServeBackend {
         environment["HEYMATE_AGENT_DASHBOARD_SESSION_TOKEN"] = token
         environment["HEYMATE_AGENT_DISABLE_LAZY_INSTALLS"] = "1"
         environment["HEYMATE_AGENT_DESKTOP"] = "1"
+        // Mate-folder file history and origins (agent-runtime/src/file-history.mjs, MateFileStore).
+        environment["HEYMATE_FILE_HISTORY_DIR"] = HeyMateDataDirectory.url
+            .appendingPathComponent(MateFileStore.directoryName, isDirectory: true).path
+        environment["HEYMATE_MATES_ROOT"] = MateWorkspace.projectsRoot().path
         let port = try await withCheckedThrowingContinuation { continuation in
             readiness = continuation
             readinessTimeout = Task { [weak self] in

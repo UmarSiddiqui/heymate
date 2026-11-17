@@ -31,8 +31,7 @@ protocol KeyboardShortcutChannel: AnyObject {
 /// Callbacks arrive on the main thread, in the order the keys were pressed.
 /// The tap is created when the first listener joins (retried on later joins
 /// until Accessibility is granted) and torn down when the last one leaves.
-/// It is an active tap that passes every event through unchanged, which
-/// needs only Accessibility; a listen-only tap would need Input Monitoring.
+/// Accessibility authorizes the passive listener to observe keyboard events.
 final class SharedKeyboardTap {
     static let shared = SharedKeyboardTap()
 
@@ -45,7 +44,7 @@ final class SharedKeyboardTap {
             DispatchQueue.main.async { SharedKeyboardTap.shared.resumed() }
         },
         handler: { type, event in
-            // Runs while the key press waits: copy two fields and move on.
+            // Copy the two fields used by the shortcut state machines.
             let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
             let flags = event.flags
             DispatchQueue.main.async {

@@ -2,46 +2,41 @@
 //  MateSettingsSheet.swift
 //  HeyMate
 //
-//  Everything about one mate in one place: picture, details, and soul, plus
-//  what it remembers, what it does on a schedule, the integrations it may
-//  use, and the skills it uses.
-//  Memory, routines, and skills used to be separate top-level pages; a user
-//  thinking "how do I change what this mate does?" now finds them here.
+//  Everything about one agent, laid out like the app settings window: a
+//  section rail with search on the left, one section on the right. Every
+//  control saves as it changes; destructive actions confirm. Opening or
+//  editing settings never spends a model call (only "Check now" does).
+//
+//  The sections live one per file (MateSettings*Pane.swift); this file is the
+//  shell: rail, search, deep-link landing, and the reveal highlight.
 //
 
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct MateSettingsSheet: View {
     let mate: Mate
     @ObservedObject var companionManager: CompanionManager
-    /// Opens a desktop page (all memories, the skills library, Jobs) after
-    /// the sheet closes.
+    /// Opens a desktop page (all memories, the skills library, Integrations)
+    /// after the sheet closes.
     var onOpenSection: (DesktopSection) -> Void
     var onSave: (String, String, String, String?) -> String?
     var onDelete: () -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var name: String
-    @State private var job: String
-    @State private var soul: String
-    @State private var memoryNote: String
-    @State private var selectedFace: String
-    @State private var howItWorks: [String]
-    @State private var asksFirst: [String]
-    @State private var isShowingCharacterEditor = false
-    @State private var isDraftingHabits = false
-    @State private var isConfirmingDelete = false
-    @State private var errorText: String?
-    /// Integration changes from HeyMate's defaults, applied on Save.
-    @State private var integrationDraft: [String: Bool]
-    @State private var wakeKind: MateWakeKind?
-    @State private var wakeMatch: String
-    @State private var isShowingSchedules = false
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @State private var section: MateSettingsSection
+    @State private var query = ""
+    @State private var revealAnchor: String?
+    @State private var highlightedAnchor: String?
+    @FocusState private var isSearchFocused: Bool
+    @Namespace private var railSelection
+
+    static let minimumSize = CGSize(width: 760, height: 520)
 
     init(
         mate: Mate,
         companionManager: CompanionManager,
+        initialSection: MateSettingsSection = .profile,
         onOpenSection: @escaping (DesktopSection) -> Void,
         onSave: @escaping (String, String, String, String?) -> String?,
         onDelete: @escaping () -> Void
@@ -51,356 +46,270 @@ struct MateSettingsSheet: View {
         self.onOpenSection = onOpenSection
         self.onSave = onSave
         self.onDelete = onDelete
-        _name = State(initialValue: mate.name)
-        _job = State(initialValue: mate.job)
-        _soul = State(initialValue: mate.soul)
-        _memoryNote = State(initialValue: MateWorkspaceMemory.displayNote(for: mate))
-        _selectedFace = State(initialValue: MateFace.selectionToken(for: mate))
-        let habits = companionManager.agentHabits(for: mate)
-        _howItWorks = State(initialValue: habits.howItWorks)
-        _asksFirst = State(initialValue: habits.asksFirst)
-        _integrationDraft = State(initialValue: mate.conductsOthers ? [:] : (mate.connectorOverrides ?? [:]))
-        let wake = companionManager.wake(for: mate.id)
-        _wakeKind = State(initialValue: wake?.kind)
-        _wakeMatch = State(initialValue: wake?.match ?? "")
+        _section = State(initialValue: initialSection)
+    }
+
+    private var liveMate: Mate { companionManager.mates.first { $0.id == mate.id } ?? mate }
+
+    private var context: MateSettingsContext {
+        MateSettingsContext(
+            mateID: mate.id, fallback: mate, companionManager: companionManager,
+            openDesktopSection: { section in
+                dismiss()
+                onOpenSection(section)
+            },
+            close: { dismiss() },
+            onSave: onSave,
+            onDelete: onDelete
+        )
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Agent settings").font(DS.Fonts.title)
-                Spacer()
-                Button("Edit character") { isShowingCharacterEditor = true }
-                    .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)
-            }
-            .padding(20)
-            Divider()
-            ScrollView {
-                profileFields
-                    .padding(20)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            Rectangle().fill(DS.Colors.borderSubtle).frame(height: 1)
-            HStack {
-                if !mate.conductsOthers {
-                    Button("Delete", role: .destructive) { isConfirmingDelete = true }
-                        .foregroundColor(DS.Colors.destructiveText)
-                }
-                Spacer()
-                Button("Cancel") { dismiss() }
-                Button("Save settings") { save() }
-                    .keyboardShortcut(.defaultAction)
-                    .dsCapsuleButtonStyle(.primary, height: DS.ControlSize.regular)
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
+        HStack(spacing: 0) {
+            rail
+                .frame(width: DS.SettingsLayout.railWidth - 24)
+            Rectangle().fill(DS.Colors.hairline).frame(width: 1).accessibilityHidden(true)
+            detail
         }
         .preferredColorScheme(.dark)
         .background(DS.Colors.background)
-        .frame(width: 520)
-        .frame(minHeight: 360, idealHeight: 640, maxHeight: 760)
-        .confirmationDialog(
-            "Delete \(mate.name)?",
-            isPresented: $isConfirmingDelete,
-            titleVisibility: .visible
-        ) {
-            Button("Delete", role: .destructive) {
-                onDelete()
-                dismiss()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(Mate.deletionWarning)
-        }
-        .sheet(isPresented: $isShowingSchedules) {
-            MateSchedulesSheet(companionManager: companionManager)
-        }
-        .sheet(isPresented: $isShowingCharacterEditor) {
-            MiloCharacterEditor(mate: mate, initialToken: selectedFace) { token in
-                let current = companionManager.mates.first { $0.id == mate.id } ?? mate
-                let error = companionManager.updateMateProfile(
-                    id: mate.id, name: current.name, job: current.job,
-                    soul: current.soul, faceAssetName: token
-                )
-                if error == nil { selectedFace = token }
-                return error
-            }
-        }
+        .frame(minWidth: Self.minimumSize.width, idealWidth: 880, maxWidth: 1_040,
+               minHeight: Self.minimumSize.height, idealHeight: 680, maxHeight: 820)
         .tint(DS.Colors.accent)
+        .background(
+            Button("Search agent settings") { isSearchFocused = true }
+                .keyboardShortcut("f", modifiers: .command)
+                .opacity(0)
+                .accessibilityHidden(true)
+        )
     }
 
-    private var profileFields: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            identityHeader
+    // MARK: Rail
 
-            labeled("Personality", hint: "How it talks and behaves") {
-                TextField("Clear and brief", text: $soul, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(2...5)
-            }
-            if howItWorks.isEmpty && asksFirst.isEmpty {
-                draftHabitsRow
-            }
-            AgentHabitList(
-                title: "How it works",
-                hint: "Habits it keeps on every task",
-                placeholder: "Lead with the result",
-                items: $howItWorks,
-                limit: AgentDrafter.maxHowItWorks
-            )
-            AgentHabitList(
-                title: "Asks you before",
-                hint: "Never done without your yes",
-                placeholder: "Sending email",
-                items: $asksFirst,
-                limit: AgentDrafter.maxAsksFirst
-            )
-
-            memorySection
-            MateBackupBrainField(mate: mate, companionManager: companionManager)
-            routinesSection
-            wakeSection
-            AgentIntegrationsSection(
-                isDefaults: mate.conductsOthers,
-                draft: $integrationDraft,
-                companionManager: companionManager
-            ) {
-                open(.connectors)
-            }
-            skillsSection
-
-            if let errorText {
-                Text(errorText)
-                    .font(DS.Fonts.caption)
-                    .foregroundColor(DS.Colors.destructiveText)
-            }
-        }
-    }
-
-    /// Appearance saves independently; personality and habits stay in this form.
-    private var identityHeader: some View {
-        HStack(alignment: .center, spacing: 14) {
-            Button {
-                isShowingCharacterEditor = true
-            } label: {
-                MateFaceView(mate: preview(selectedFace), size: 64, expression: .idle)
-                    .overlay(alignment: .bottomTrailing) {
-                        Image(systemName: "paintbrush.pointed.fill")
-                            .font(.system(size: 18))
-                            .foregroundStyle(DS.Colors.textPrimary, DS.Colors.surface3)
-                    }
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .focusEffectDisabled()
-            .help("Edit character")
-            .accessibilityLabel("Edit character for \(mate.name)")
-            VStack(alignment: .leading, spacing: 6) {
-                TextField("Name", text: $name)
-                    .textFieldStyle(.plain)
-                    .font(DS.Fonts.hero)
-                    .foregroundColor(DS.Colors.textPrimary)
-                TextField("What it does for you", text: $job, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(DS.Fonts.bodyLarge)
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .lineLimit(1...2)
-            }
-        }
-    }
-
-    /// Older agents were made before habits existed. One click asks the AI
-    /// to suggest them from the role, and nothing saves until Save.
-    private var draftHabitsRow: some View {
-        HStack(spacing: 10) {
-            Text("No habits yet. HeyMate can suggest them from the role.")
-                .font(DS.Fonts.body)
-                .foregroundColor(DS.Colors.textSecondary)
-            Spacer(minLength: 8)
-            if isDraftingHabits {
-                ProgressView().controlSize(.small)
-            }
-            Button("Draft habits") { draftHabits() }
-                .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)
-                .disabled(isDraftingHabits || job.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        }
-    }
-
-    private func draftHabits() {
-        isDraftingHabits = true
-        let description = [job, soul].filter { !$0.isEmpty }.joined(separator: ". ")
-        Task { @MainActor in
-            let result = await companionManager.draftAgent(description: description)
-            isDraftingHabits = false
-            howItWorks = result.draft.howItWorks
-            asksFirst = result.draft.asksFirst
-            if soul.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                soul = result.draft.personality
-            }
-        }
-    }
-
-    private func labeled<Content: View>(_ title: String, hint: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(title)
-                    .font(DS.Fonts.headline)
-                    .foregroundColor(DS.Colors.textPrimary)
-                Text(hint)
-                    .font(DS.Fonts.caption)
-                    .foregroundColor(DS.Colors.textTertiary)
-            }
-            content()
-        }
-    }
-
-    // MARK: What this mate knows and does
-
-    /// Notes for this mate live in their folder. This field edits that text
-    /// and saves it with Save. Memories shared by every mate open on their own page.
-    private var memorySection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionLabel("Memory")
-            TextField("A short note only this agent keeps", text: $memoryNote, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
-                .lineLimit(2...5)
-            sheetLink("Everything HeyMate remembers", systemImage: "brain") {
-                open(.memory)
-            }
-        }
-    }
-
-    /// What makes this agent offer to work. Saved with Save.
-    private var wakeSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                sectionLabel("Offers to help when")
-                Text(wakeKind == nil ? "Stays quiet until you ask" : "One tap in the notch to start")
-                    .font(DS.Fonts.caption)
-                    .foregroundColor(DS.Colors.textTertiary)
-            }
-            MateWakeField(kind: $wakeKind, match: $wakeMatch)
-        }
-    }
-
-    /// Routines save as soon as they're added or edited, like in the chat
-    /// side panel; they aren't part of Save, and the label says so.
-    private var routinesSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Routines run on their own clock, so they save as added and
-            // say so; everything else here waits for Save.
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                sectionLabel("Routines")
-                Text("Saved as soon as you add or change one")
-                    .font(DS.Fonts.caption)
-                    .foregroundColor(DS.Colors.textTertiary)
-            }
-            RoutineAddField(companionManager: companionManager, mateID: mate.id)
-            let routines = companionManager.routines.filter { $0.mateID == mate.id }
-            if routines.isEmpty {
-                Text("Nothing scheduled. Try “check my inbox every morning”.")
-                    .font(DS.Fonts.body)
-                    .foregroundColor(DS.Colors.textTertiary)
-            }
-            ForEach(routines) { routine in
-                RoutineRow(
-                    routine: routine,
-                    showsMateName: false,
-                    mateName: mate.name,
-                    companionManager: companionManager
-                )
-            }
-            sheetLink("Every agent's schedule", systemImage: "calendar") {
-                isShowingSchedules = true
-            }
-        }
-    }
-
-    /// Skills shape how every mate answers, so they're shared; this is the
-    /// door to them from the place people look for "what can it do".
-    private var skillsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionLabel("Skills")
-            Text(skillsSummary)
-                .font(DS.Fonts.body)
-                .foregroundColor(DS.Colors.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 14) {
-                sheetLink("Manage skills", systemImage: "wand.and.stars") {
-                    open(.skills)
+    private var rail: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: DS.Spacing.sm) {
+                MateFaceView(mate: liveMate, size: 28, expression: .idle)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(liveMate.name)
+                        .font(DS.Fonts.headline)
+                        .foregroundColor(DS.Colors.textPrimary)
+                        .lineLimit(1)
+                    Text("Agent settings")
+                        .font(DS.Fonts.caption)
+                        .foregroundColor(DS.Colors.textTertiary)
                 }
             }
-        }
-    }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
+            .padding(.horizontal, DS.Spacing.md + 2)
+            .padding(.top, DS.Spacing.lg)
 
-    private var skillsSummary: String {
-        let activeCount = companionManager.discoveredSkills
-            .filter { companionManager.isSkillActive($0) }
-            .count
-        let countText = activeCount == 1 ? "1 skill is on" : "\(activeCount) skills are on"
-        return "\(countText). Skills are short instructions every agent can use when they fit the request."
-    }
+            searchField
+                .padding(.horizontal, DS.Spacing.sm + 2)
+                .padding(.vertical, DS.Spacing.md)
 
-    private func sheetLink(
-        _ title: String,
-        systemImage: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(DS.Fonts.control)
-                .foregroundColor(DS.Colors.textSecondary)
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
-    }
-
-    /// Closes the sheet first: the page it opens replaces the chat behind it.
-    private func open(_ section: DesktopSection) {
-        dismiss()
-        onOpenSection(section)
-    }
-
-    private func sectionLabel(_ title: String) -> some View {
-        Text(title)
-            .font(DS.Fonts.sectionLabel)
-            .foregroundColor(DS.Colors.textTertiary)
-    }
-
-    private func preview(_ asset: String) -> Mate {
-        var copy = mate
-        copy.faceAssetName = asset
-        return copy
-    }
-
-    private func save() {
-        if let wakeKind, wakeKind.requiresMatch, MateWakeMatcher.terms(wakeMatch).isEmpty {
-            errorText = "Name the app it should wait for."
-            return
-        }
-        if let error = onSave(name, job, soul, selectedFace) {
-            errorText = error
-            return
-        }
-        let savedWake = companionManager.wake(for: mate.id)
-        if savedWake?.kind != wakeKind
-            || (savedWake?.match ?? "") != MateWakeMatcher.cleanedMatch(wakeMatch) {
-            companionManager.setMateWake(mateID: mate.id, kind: wakeKind, match: wakeMatch)
-        }
-        if memoryNote != mate.memoryNote {
-            companionManager.updateMateMemory(id: mate.id, note: memoryNote)
-        }
-        let saved = companionManager.agentHabits(for: mate)
-        if saved.howItWorks != howItWorks || saved.asksFirst != asksFirst {
-            companionManager.saveAgentHabits(id: mate.id, howItWorks: howItWorks, asksFirst: asksFirst)
-        }
-        if mate.conductsOthers {
-            for (selectionID, enabled) in integrationDraft {
-                companionManager.setChatConnectorEnabled(enabled, selectionID: selectionID)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    if query.trimmingCharacters(in: .whitespaces).isEmpty {
+                        ForEach(MateSettingsSection.allCases) { item in
+                            SettingsSidebarItem(
+                                title: item.title,
+                                symbolName: item.symbolName,
+                                isSelected: item == section,
+                                selectionNamespace: accessibilityReduceMotion ? nil : railSelection
+                            ) {
+                                withAnimation(accessibilityReduceMotion ? DS.Animation.reducedMotionFade : DS.Animation.settingsPage) {
+                                    section = item
+                                }
+                            }
+                        }
+                    } else {
+                        searchResults
+                    }
+                }
+                .padding(.horizontal, DS.Spacing.sm + 2)
+                .padding(.bottom, DS.Spacing.lg)
             }
-        } else if integrationDraft != (mate.connectorOverrides ?? [:]) {
-            companionManager.setMateConnectorOverrides(id: mate.id, overrides: integrationDraft)
+            .scrollIndicators(.never)
+
+            Text("Changes save as you make them.")
+                .font(DS.Fonts.caption)
+                .foregroundColor(DS.Colors.textTertiary)
+                .padding(.horizontal, DS.Spacing.md + 2)
+                .padding(.bottom, DS.Spacing.md)
         }
-        dismiss()
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(WorkspaceBackground().ignoresSafeArea())
+    }
+
+    private var results: [MateSettingsItem] {
+        MateSettingsCatalog.results(for: query, conductsOthers: liveMate.conductsOthers)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(DS.Glyph.small)
+                .foregroundColor(DS.Colors.textTertiary)
+                .accessibilityHidden(true)
+            TextField("Search", text: $query)
+                .textFieldStyle(.plain)
+                .font(DS.Fonts.body)
+                .foregroundColor(DS.Colors.textPrimary)
+                .focused($isSearchFocused)
+                .onSubmit { if let first = results.first { reveal(first) } }
+                .onExitCommand { query = "" }
+                .accessibilityLabel("Search agent settings")
+            if !query.isEmpty {
+                Button {
+                    query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(DS.Glyph.small)
+                        .foregroundColor(DS.Colors.textTertiary)
+                        .dsIconHitArea()
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .help("Clear search")
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, 9)
+        .frame(height: DS.ControlSize.regular)
+        .background(
+            RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                .fill(DS.Colors.background)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
+                .stroke(isSearchFocused ? DS.Colors.focusRing : DS.Colors.borderSubtle, lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private var searchResults: some View {
+        let found = results
+        if found.isEmpty {
+            VStack(alignment: .leading, spacing: DS.Spacing.xs) {
+                Text("No matching settings")
+                    .font(DS.Fonts.headline)
+                    .foregroundColor(DS.Colors.textPrimary)
+                Text("Try another word, like “model” or “quiet”.")
+                    .font(DS.Fonts.caption)
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, DS.Spacing.sm)
+            .padding(.top, DS.Spacing.sm)
+            .accessibilityElement(children: .combine)
+        } else {
+            Text(found.count == 1 ? "1 result" : "\(found.count) results")
+                .font(DS.Fonts.sectionLabel)
+                .foregroundColor(DS.Colors.textTertiary)
+                .padding(.horizontal, DS.Spacing.sm)
+                .padding(.vertical, DS.Spacing.xs)
+                .accessibilityAddTraits(.isHeader)
+            ForEach(found) { item in
+                Button { reveal(item) } label: {
+                    HStack(spacing: DS.Spacing.sm + 2) {
+                        Image(systemName: item.section.symbolName)
+                            .font(DS.Glyph.small)
+                            .foregroundColor(DS.Colors.textTertiary)
+                            .frame(width: DS.SettingsLayout.rowIconWidth)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(item.title)
+                                .font(DS.Fonts.bodyLarge)
+                                .foregroundColor(DS.Colors.textPrimary)
+                                .lineLimit(1)
+                            Text(item.section.title)
+                                .font(DS.Fonts.caption)
+                                .foregroundColor(DS.Colors.textTertiary)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, DS.Spacing.sm)
+                    .padding(.vertical, 5)
+                    .contentShape(RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+                .accessibilityLabel("\(item.title), in \(item.section.title)")
+            }
+        }
+    }
+
+    private func reveal(_ item: MateSettingsItem) {
+        query = ""
+        section = item.section
+        revealAnchor = item.anchor
+    }
+
+    // MARK: Detail
+
+    private var detail: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: DS.SettingsLayout.sectionSpacing) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(section.title)
+                            .font(DS.Fonts.pageTitle)
+                            .tracking(-0.5)
+                            .foregroundColor(DS.Colors.textPrimary)
+                            .accessibilityAddTraits(.isHeader)
+                        Spacer(minLength: DS.Spacing.md)
+                        Button("Done") { dismiss() }
+                            .keyboardShortcut(.cancelAction)
+                            .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)
+                            .accessibilityHint("Closes agent settings. Changes are already saved.")
+                    }
+                    pane
+                        .id(section)
+                        .transition(.opacity)
+                }
+                .frame(maxWidth: DS.SettingsLayout.contentMaxWidth, alignment: .leading)
+                .padding(.horizontal, DS.Spacing.xxl + 4)
+                .padding(.vertical, DS.Spacing.xxl + 4)
+                .frame(maxWidth: .infinity, alignment: .top)
+            }
+            .environment(\.settingsHighlightedItemID, highlightedAnchor)
+            .onChange(of: revealAnchor) { _, anchor in scroll(to: anchor, with: proxy) }
+            .onAppear { scroll(to: revealAnchor, with: proxy) }
+        }
+        .background(DS.Colors.background)
+    }
+
+    @ViewBuilder
+    private var pane: some View {
+        switch section {
+        case .profile: MateSettingsProfilePane(context: context)
+        case .brain: MateSettingsBrainPane(context: context)
+        case .permissions: MateSettingsPermissionsPane(context: context)
+        case .proactive: MateSettingsProactivePane(context: context)
+        case .notifications: MateSettingsNotificationsPane(context: context)
+        case .memory: MateSettingsMemoryPane(context: context)
+        case .files: MateSettingsFilesPane(context: context)
+        case .apps: MateSettingsAppsPane(context: context)
+        case .limits: MateSettingsLimitsPane(context: context)
+        }
+    }
+
+    /// Waits one layout pass so a section that just appeared has its rows.
+    private func scroll(to anchor: String?, with proxy: ScrollViewProxy) {
+        guard let anchor else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(80))
+            withAnimation(accessibilityReduceMotion ? nil : DS.Animation.settingsPage) {
+                proxy.scrollTo(anchor, anchor: .center)
+            }
+            revealAnchor = nil
+            highlightedAnchor = anchor
+            try? await Task.sleep(for: .seconds(DS.SettingsLayout.revealHighlightSeconds))
+            if highlightedAnchor == anchor { highlightedAnchor = nil }
+        }
     }
 }

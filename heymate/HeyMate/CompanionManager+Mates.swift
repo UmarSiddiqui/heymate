@@ -348,6 +348,7 @@ extension CompanionManager: MateRoutineRunning {
 
     func archiveMate(id: UUID) {
         mateDirectory.archiveMate(id: id)
+        IsolatedBrowserWorkers.shared.setPersistentBrowser(false, for: id)
         syncMatePublications()
         guard activeMateID == id else { return }
         if let fallback = mates.first(where: { !$0.archived }) {
@@ -394,6 +395,9 @@ extension CompanionManager: MateRoutineRunning {
             MateFaceStore.deleteIfCustom(face)
         }
         guard mateDirectory.deleteMate(id: id) else { return false }
+        MateAgentSettingsStore.shared.remove(id)
+        mateInbox.removeItems(forMate: id)
+        IsolatedBrowserWorkers.shared.setPersistentBrowser(false, for: id)
         cue(.levelDown, subject: id.uuidString)
         savedChats = rememberConversationsEnabled ? chatHistoryStore.loadAll() : []
         syncMatePublications()
@@ -644,6 +648,7 @@ extension CompanionManager: MateRoutineRunning {
         }
         if let current = mateDirectory.routines.first(where: { $0.id == routine.id }) {
             mateDirectory.apply(MateRoutineAccounting.recordLaunch(current, now: Date(), calendar: .current))
+            recordMateActivity(.routineRuns, mateID: current.mateID)
             syncMatePublications()
         }
         if !isResponseInFlight {

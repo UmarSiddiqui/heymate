@@ -3,7 +3,7 @@
 //  HeyMate
 //
 //  Every 30 seconds, at startup, after network recovery, and when the Mac
-//  or its screens wake.
+//  or its screens wake. The same tick drives mate heartbeats.
 //  Network and wake are injected so
 //  tests never need a live path or a sleep cycle.
 //
@@ -37,6 +37,14 @@ protocol MateRoutineRunning: AnyObject {
     func noteRoutineFailure(id: UUID, message: String, now: Date)
 }
 
+/// Mate heartbeats (MateHeartbeat.swift) ride the routine tick, its wake gate
+/// and its network recovery instead of keeping a second timer.
+@MainActor
+protocol MateHeartbeatTicking: AnyObject {
+    var wantsHeartbeatTicks: Bool { get }
+    func heartbeatTick(now: Date, networkUsable: Bool)
+}
+
 @MainActor
 protocol MateRoutineRunLimiting: AnyObject {
     func enforceRoutineRunLimits(now: Date)
@@ -47,6 +55,7 @@ final class MateRoutineScheduler {
     static let pollInterval: TimeInterval = 30
 
     weak var owner: MateRoutineRunning?
+    weak var heartbeat: MateHeartbeatTicking?
     private var network: MateNetworkMonitoring?
     private var wake: MateWakeSource?
     private var timer: Timer?
@@ -71,7 +80,7 @@ final class MateRoutineScheduler {
 
     func schedulesChanged() {
         guard started else { return }
-        guard let owner, !owner.scheduledRoutines.isEmpty else {
+        guard let owner, !owner.scheduledRoutines.isEmpty || heartbeat?.wantsHeartbeatTicks == true else {
             stopSources()
             return
         }
@@ -121,6 +130,9 @@ final class MateRoutineScheduler {
         (owner as? MateRoutineRunLimiting)?.enforceRoutineRunLimits(now: now)
         for routine in owner.dueRoutines(now: now) {
             attempt(routine, now: now, owner: owner)
+        }
+        if let heartbeat, heartbeat.wantsHeartbeatTicks {
+            heartbeat.heartbeatTick(now: now, networkUsable: resolvedNetwork().hasUsableNetwork)
         }
     }
 

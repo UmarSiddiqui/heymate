@@ -25,6 +25,7 @@ struct ConnectorToolApprovalRequest: Identifiable, Equatable {
     /// What the call does, one plain line per action ("Gmail: Fetch message
     /// by thread ID"). Empty falls back to the connector name alone.
     var actions: [String] = []
+    var owner: AgentChatOwner? = nil
 }
 
 /// Turns a tool call into lines a person can read. Composio's
@@ -143,6 +144,12 @@ final class ConnectorToolCoordinator: ObservableObject {
 
     func denyPendingRequest() {
         resolvePendingRequest(.denied)
+    }
+
+    func resolvePendingRequest(id: UUID, approve: Bool) {
+        guard pendingRequest?.id == id else { return }
+        if approve { approvePendingRequest() }
+        else { denyPendingRequest() }
     }
 
     private func resolvePendingRequest(_ outcome: Outcome) {

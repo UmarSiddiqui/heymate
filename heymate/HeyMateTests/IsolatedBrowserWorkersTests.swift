@@ -165,4 +165,55 @@ struct IsolatedBrowserWorkersTests {
         #expect(await open(failedPool, "a").isError)
         #expect(failing.stopped)
     }
+
+    @Test func takeoverDrainsNavigationRejectsQueuedActionsAndRequiresFreshRefs() async throws {
+        let driver = Driver()
+        let pool = IsolatedBrowserWorkers(factory: { driver }, mode: { .fullAccess }, show: { _ in driver.active == 0 })
+        let mate = UUID()
+        #expect(pool.setPersistentBrowser(true, for: mate))
+        // Every mate may keep its own profile now.
+        #expect(pool.setPersistentBrowser(true, for: UUID()))
+        let owner = "mate/chat"
+        func call(_ arguments: [String: Any]) async -> (text: String, isError: Bool) {
+            await pool.perform(arguments: arguments, owner: owner, scope: "turn", mateID: mate) { _, _ in true }
+        }
+        let page = await call(["op": "open", "url": "https://fixture.test"])
+        try #require(!page.isError)
+        let tabID = tab(page.text)
+        let oldRef = ref(page.text, named: "Name")
+        driver.delay = .milliseconds(150)
+        let navigation = Task { await call(["op": "navigate", "url": "https://fixture.test/next", "tab_id": tabID]) }
+        while driver.active == 0 { await Task.yield() }
+        let queued = Task { await call(["op": "open", "url": "https://fixture.test/queued"]) }
+        await Task.yield()
+        #expect(await pool.takeOver(for: mate) == nil)
+        #expect(pool.control == .person)
+        #expect(await navigation.value.isError)
+        #expect(await queued.value.isError)
+        #expect(await call(["op": "snapshot", "tab_id": tabID]).isError)
+        #expect(driver.calls.filter { $0.0 == "browser_navigate" }.count == 2)
+        pool.handBack(for: mate)
+        #expect(await call(["op": "type", "tab_id": tabID, "ref": oldRef, "text": "stale"]).isError)
+        #expect(!driver.calls.contains { $0.0 == "browser_type" })
+        pool.finishTurn(owner: owner, scope: "turn", cancelled: false, mateID: mate)
+        let nextChat = await pool.perform(arguments: ["op": "snapshot", "tab_id": tabID], owner: "mate/next",
+            scope: "next", mateID: mate) { _, _ in true }
+        #expect(!nextChat.isError)
+        #expect(driver.calls.filter { $0.0 == "browser_prepare" }.count == 1)
+
+        var answer: CheckedContinuation<Bool, Never>?
+        let pendingApproval = Task {
+            await pool.perform(arguments: ["op": "click", "tab_id": tabID, "ref": ref(nextChat.text, named: "Send")],
+                owner: "mate/next", scope: "next", mateID: mate) { _, _ in
+                await withCheckedContinuation { answer = $0 }
+            }
+        }
+        while answer == nil { await Task.yield() }
+        #expect(await pool.takeOver(for: mate) == nil)
+        pool.handBack(for: mate)
+        answer?.resume(returning: true)
+        #expect(await pendingApproval.value.isError)
+        #expect(!driver.calls.contains { $0.0 == "browser_click" })
+        pool.stopAll()
+    }
 }

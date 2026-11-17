@@ -241,8 +241,17 @@ struct ChatTaskCard: View {
 
 struct TaskUpdatesPopover: View {
     @ObservedObject var manager: CompanionManager
+    @ObservedObject var inbox: MateInboxStore
+    @ObservedObject var connectorApprovals: ConnectorToolCoordinator
     let onOpened: () -> Void
     @State private var error: String?
+    @State private var tab = Tab.attention
+    @State private var activityMateID: UUID?
+
+    private enum Tab: String, CaseIterable {
+        case attention = "Needs you"
+        case activity = "Activity"
+    }
 
     private var approvals: [AgentRun] {
         manager.agentRuns.filter { run in
@@ -254,24 +263,127 @@ struct TaskUpdatesPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Task updates").font(DS.Fonts.title)
-            if approvals.isEmpty && manager.taskNotices.isEmpty {
-                Text("You're caught up. Results and approval requests appear here.")
-                    .font(DS.Fonts.body).foregroundStyle(DS.Colors.textSecondary)
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        ForEach(approvals) { run in updateRow(run, notice: nil) }
-                        ForEach(manager.taskNotices) { notice in
-                            if let run = manager.agentRuns.first(where: { notice.matches($0) }) {
-                                updateRow(run, notice: notice)
-                            }
-                        }
-                    }
-                }.frame(maxHeight: 380)
+            Text("Waiting on You").font(DS.Fonts.title)
+            Picker("Inbox view", selection: $tab) {
+                ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
             }
+            .labelsHidden().pickerStyle(.segmented)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    if tab == .attention { attention }
+                    else { activity }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }.frame(maxHeight: 410)
             if let error { Text(error).font(DS.Fonts.caption).foregroundStyle(DS.Colors.warningText) }
-        }.padding(18).frame(width: 340).foregroundStyle(DS.Colors.textPrimary)
+        }.padding(18).frame(width: 360).foregroundStyle(DS.Colors.textPrimary)
+    }
+
+    @ViewBuilder private var attention: some View {
+        let pending = inbox.pendingItems.filter { isCurrentMate($0.mateID) }
+        let request = connectorApprovals.pendingRequest.flatMap { request in
+            request.owner.map { isCurrentMate($0.mateID) } == true ? request : nil
+        }
+        if let request, let owner = request.owner {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(request.connectorDisplayName).font(DS.Fonts.caption)
+                Text(request.actions.isEmpty ? "Permission needed" : request.actions.joined(separator: "\n"))
+                    .font(DS.Fonts.body)
+                DisclosureGroup("Request details") {
+                    Text(AgentReceiptPrivacy.privateToolDetails(request.argumentsSummary))
+                        .font(DS.Fonts.caption).textSelection(.enabled)
+                }.font(DS.Fonts.caption)
+                HStack {
+                    Button("Deny") { connectorApprovals.resolvePendingRequest(id: request.id, approve: false) }
+                    Button("Allow once") { connectorApprovals.resolvePendingRequest(id: request.id, approve: true) }
+                    if MateApprovalRuleGate.offeredSummary(for: request.id) != nil {
+                        Button("Always allow this") {
+                            MateApprovalRuleGate.approveAlways(request.id)
+                            connectorApprovals.resolvePendingRequest(id: request.id, approve: true)
+                        }
+                        .help(MateApprovalRuleGate.offeredSummary(for: request.id) ?? "")
+                    }
+                    Spacer()
+                    Button("Open chat") { open(mateID: owner.mateID, chatID: owner.chatID) }
+                }.font(DS.Fonts.caption)
+            }.padding(10).background(DS.Colors.surface2, in: RoundedRectangle(cornerRadius: 12))
+        }
+        ForEach(pending) { item in
+            if let proposal = item.proposal {
+                MateProposalRow(item: item, proposal: proposal) { action in
+                    let done = manager.actOnMateProposal(id: item.id, action: action)
+                    if done, action == .adjust { onOpened() }
+                    return done
+                }
+            } else {
+                MateInboxQuestionRow(item: item, work: inbox.work.first { $0.id == item.workID },
+                    answer: { manager.answerMateInboxItem(id: item.id, answer: $0) },
+                    open: { open(mateID: item.mateID, chatID: item.chatID) },
+                    dismiss: {
+                        _ = inbox.resolve(id: item.id, summary: "Dismissed")
+                    })
+            }
+        }
+        ForEach(approvals) { run in updateRow(run, notice: nil) }
+        if pending.isEmpty && request == nil && approvals.isEmpty {
+            Text("You're caught up. Check Activity for what Mates did.")
+                .font(DS.Fonts.body).foregroundStyle(DS.Colors.textSecondary)
+        }
+    }
+
+    @ViewBuilder private var activity: some View {
+        let work = MateInboxTaskActivity.group(inbox.work.filter { isCurrentMate($0.mateID) })
+        let mateIDs = Set(work.map { $0.current.mateID })
+        let visibleWork = work.filter { activityMateID == nil || $0.current.mateID == activityMateID }
+        let running = visibleWork.filter { $0.current.state == .running }
+        let recent = visibleWork.filter { $0.current.state != .running }
+        if mateIDs.count > 1 {
+            Picker("Mate", selection: $activityMateID) {
+                Text("All Mates").tag(nil as UUID?)
+                ForEach(manager.mates.filter { mateIDs.contains($0.id) }) { mate in
+                    Text(mate.name).tag(Optional(mate.id))
+                }
+            }.font(DS.Fonts.caption)
+        }
+        if !running.isEmpty {
+            Text("Working now").font(DS.Fonts.caption.weight(.semibold))
+            ForEach(running, content: workRow)
+        }
+        if !recent.isEmpty {
+            Text("Recent work").font(DS.Fonts.caption.weight(.semibold))
+            ForEach(recent.prefix(30), content: workRow)
+        }
+        ForEach(manager.taskNotices) { notice in
+            if let run = manager.agentRuns.first(where: { notice.matches($0) }),
+               activityMateID == nil || activityMateID == run.chatOwner?.mateID {
+                updateRow(run, notice: notice)
+            }
+        }
+        if visibleWork.isEmpty && manager.taskNotices.isEmpty {
+            Text("Mate tasks and results appear here as they work.")
+                .font(DS.Fonts.body).foregroundStyle(DS.Colors.textSecondary)
+        }
+    }
+
+    private func workRow(_ task: MateInboxTaskActivity) -> some View {
+        let entry = task.current
+        return MateInboxWorkRow(work: entry,
+            open: { open(mateID: entry.mateID, chatID: entry.chatID, resultKey: entry.resultKey) },
+            perform: { manager.actOnMateInboxWork(id: entry.id, action: $0, message: $1) },
+            pendingItem: inbox.pendingItems.first { $0.workID == entry.id },
+            answer: { manager.answerMateInboxItem(id: $0, answer: $1) },
+            earlierAttempts: task.earlier,
+            openAttempt: { attempt in
+                open(mateID: attempt.mateID, chatID: attempt.chatID, resultKey: attempt.resultKey)
+            })
+    }
+
+    private func isCurrentMate(_ id: UUID) -> Bool {
+        manager.mates.contains { $0.id == id && !$0.archived }
+    }
+
+    private func open(mateID: UUID, chatID: UUID, resultKey: String? = nil) {
+        if manager.openMateInboxChat(mateID: mateID, chatID: chatID, resultKey: resultKey) { onOpened() }
+        else { error = "Original chat is unavailable." }
     }
 
     private func updateRow(_ run: AgentRun, notice: FloatingAgentNotice?) -> some View {

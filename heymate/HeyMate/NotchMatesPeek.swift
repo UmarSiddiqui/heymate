@@ -60,10 +60,11 @@ nonisolated enum NotchMatesPeekOrder {
 
 struct NotchMatesPeek: View {
     @ObservedObject var companionManager: CompanionManager
+    @ObservedObject private var inbox = MateInboxStore.shared
     /// How many mates to list. "All" opens the rest in the window.
     var limit: Int = 4
 
-    /// Jobs to approve and stopped routines. Unread replies already read as
+    /// Jobs to approve, stopped routines and heartbeat proposals. Unread replies already read as
     /// bright text in the row, so they do not reorder the peek.
     private var waiting: [MateDigestItem] {
         MateDigest.make(
@@ -74,7 +75,8 @@ struct NotchMatesPeek: View {
             sessions: companionManager.savedChats,
             defaultMateID: companionManager.mateDirectory.defaultMateID,
             activeMateID: nil,
-            includesUnread: false
+            includesUnread: false,
+            proposals: inbox.pendingItems.filter { $0.proposal != nil }
         ).items
     }
 
@@ -150,7 +152,8 @@ private struct NotchMatePeekRow: View {
                             Text(waiting.badge)
                                 .font(DS.Fonts.caption.weight(.semibold))
                                 .foregroundColor(
-                                    waiting.kind == .routineStopped ? DS.Colors.destructiveText : DS.Colors.warningText
+                                    waiting.kind == .routineStopped ? DS.Colors.destructiveText
+                                        : waiting.kind == .proposal ? DS.Colors.textPrimary : DS.Colors.warningText
                                 )
                                 .lineLimit(1)
                         } else if let date = preview.date {

@@ -4,7 +4,7 @@
 //
 //  The macOS privacy permissions HeyMate needs (Accessibility and Screen
 //  Recording; the microphone is handled by VoiceDictation) and how to ask
-//  for them. Global shortcuts use active event taps, which need only
+//  for them. Global shortcuts use passive event taps, which need only
 //  Accessibility, so HeyMate never asks for Input Monitoring. macOS only shows each system prompt once per launch, so the
 //  first request shows the prompt and later ones open System Settings.
 //
