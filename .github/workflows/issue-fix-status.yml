@@ -1,0 +1,116 @@
+name: Issue fix status
+
+# Keeps reporters informed without anyone remembering to. Three mechanical steps:
+#
+#   1. A merged PR whose description has a line `Refs #123` labels that issue
+#      `fixed (pending release)` and records the merge commit in a hidden marker.
+#   2. When the Release workflow succeeds on main, each pending issue whose
+#      recorded commit is contained in the new release tag becomes
+#      `please confirm close`, and the reporter is asked to try that release.
+#      A fix merged to staging but not yet promoted stays pending.
+#   3. Once a day, an issue whose last comment is still that question, posted
+#      more than fourteen days ago, is closed with a note on how to reopen it.
+#      Any reply, from anyone, stops the clock for good: a human then decides.
+#
+# Nothing here decides a bug is fixed. A human decided that by merging, and the
+# bot never closes an issue it did not first ask about. Use `Refs #123`, never
+# `Closes #123`: GitHub would close the issue on merge, before the fix is on the
+# reporter's Mac. Issues labelled `summary` are never touched.
+#
+# Runs through `gh` only. No third-party actions, no checkout, and the PR body
+# is read from an environment variable, never interpolated into a script.
+
+on:
+  pull_request_target:
+    types: [closed]
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  schedule:
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: issue-fix-status
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  GH_REPO: ${{ github.repository }}
+  PENDING: fixed (pending release)
+  CONFIRM: please confirm close
+  ASK_MARKER: '<!-- fix-status:confirm -->'
+  CLOSE_AFTER_DAYS: '14'
+
+jobs:
+  merged-pr:
+    if: github.event_name == 'pull_request_target' && github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label issues the PR refers to
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          gh label create "$PENDING" --color FBCA04 --description "Merged, waiting for the next release" --force
+          printf '%s\n' "$PR_BODY" \
+            | grep -oiE '^[[:space:]]*refs[[:space:]]+#[0-9]+' \
+            | grep -oE '[0-9]+' | sort -u \
+            | while read -r issue; do
+                data=$(gh issue view "$issue" --json state,labels 2>/dev/null) || continue
+                [ "$(jq -r '.state' <<<"$data")" = "OPEN" ] || continue
+                jq -e '[.labels[].name] | index("summary")' <<<"$data" >/dev/null && continue
+                gh issue edit "$issue" --add-label "$PENDING"
+                gh issue comment "$issue" --body "<!-- fix-status:pending sha=$MERGE_SHA -->
+          A fix for this was merged in #$PR_NUMBER. It is not in a release yet. When a release includes it, I will ask you to check it."
+              done
+
+  after-release:
+    if: >-
+      github.event_name == 'workflow_run'
+      && github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask reporters to confirm
+        run: |
+          gh label create "$CONFIRM" --color C2E0C6 --description "Fix released, waiting for the reporter" --force
+          tag=$(gh release list --limit 1 --exclude-drafts --exclude-pre-releases --json tagName --jq '.[0].tagName')
+          [ -n "$tag" ] || exit 0
+          gh issue list --label "$PENDING" --state open --limit 500 --json number,comments \
+            | jq -c '.[] | {n: .number, shas: [.comments[].body | capture("fix-status:pending sha=(?<s>[0-9a-f]{7,40})").s]}' \
+            | while read -r row; do
+                issue=$(jq -r '.n' <<<"$row")
+                released=false
+                for sha in $(jq -r '.shas[]' <<<"$row"); do
+                  status=$(gh api "repos/$GH_REPO/compare/$sha...$tag" --jq '.status' 2>/dev/null || echo missing)
+                  case "$status" in ahead|identical) released=true; break ;; esac
+                done
+                [ "$released" = true ] || continue
+                gh issue edit "$issue" --remove-label "$PENDING" --add-label "$CONFIRM"
+                gh issue comment "$issue" --body "$ASK_MARKER
+          A fix for this is in HeyMate $tag. Could you update and check it? If it works, nothing more is needed. If it still happens, reply here and it stays open. With no reply, this closes in $CLOSE_AFTER_DAYS days, and you can reopen it any time."
+              done
+
+  close-quiet:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close issues nobody answered
+        run: |
+          cutoff=$(date -u -d "-$CLOSE_AFTER_DAYS days" +%Y-%m-%dT%H:%M:%SZ)
+          gh issue list --label "$CONFIRM" --state open --limit 500 --json number,comments \
+            | jq -r --arg cutoff "$cutoff" --arg marker "$ASK_MARKER" \
+                '.[] | select((.comments | length) > 0)
+                     | (.comments | last) as $c
+                     | select(($c.body | contains($marker)) and $c.createdAt < $cutoff)
+                     | .number' \
+            | while read -r issue; do
+                gh issue comment "$issue" --body "No reply in $CLOSE_AFTER_DAYS days, so I am closing this as fixed. If it still happens, reopen it or file a new report."
+                gh issue close "$issue" --reason completed
+              done

@@ -5,6 +5,16 @@ body:
   - type: markdown
     attributes:
       value: Rather not post publicly? Email [umarsiddiqui3037+heymate@gmail.com](mailto:umarsiddiqui3037+heymate@gmail.com?subject=HeyMate) instead.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before you file
+      description: The [troubleshooting guide](https://github.com/UmarSiddiqui/heymate/blob/main/docs/TROUBLESHOOTING.md) covers both.
+      options:
+        - label: If a feature does nothing, I checked HeyMate is switched on for its permission in System Settings → Privacy & Security, and toggled it off and on.
+          required: true
+        - label: It still happens on the latest release.
+          required: true
   - type: textarea
     id: what-happened
     attributes:

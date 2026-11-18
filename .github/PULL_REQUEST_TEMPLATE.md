@@ -1,6 +1,8 @@
 ## What changes for the user?
 
-Describe the failing task and the behavior after this change. Link a related issue when there is one.
+Describe the failing task and the behavior after this change.
+
+Related issues: put one `Refs #123` per line. Do not use Closes or Fixes. They close the report before the fix is in a release; a bot labels it on merge and asks the reporter to confirm after release.
 
 ## Verification
 
