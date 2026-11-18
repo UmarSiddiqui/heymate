@@ -148,6 +148,12 @@ final class NotchCompanionController {
     /// so a second trigger can't pile animations on top of each other.
     private var isTransitioning = false
 
+    /// Set only while a hover card folds away because the pointer left it.
+    /// Moving back onto the shrinking card reverses it from wherever it is,
+    /// instead of finishing the fold and making the person hover again.
+    /// Deliberate closes (click, Escape, close button) never set this.
+    private var catchableCollapseSurface: NotchPresentedSurface?
+
     /// Escape / click-outside dismissal, installed only while the card is on
     /// screen. Without these a pinned card has exactly two exits (its close
     /// button and a second tab click) — and the tab is ordered out while the
@@ -1192,6 +1198,19 @@ final class NotchCompanionController {
     }
 
     private func handleExpandedCardMouseEnter() {
+        // Caught mid-fold: reopen from the current frame and morph state.
+        // Deferred one turn: presenting swaps this hosting view out, which
+        // must not happen inside its own mouseEntered.
+        if catchableCollapseSurface != nil, !isExpanded, isTransitioning {
+            Task { @MainActor [weak self] in
+                guard let self, let surface = self.catchableCollapseSurface,
+                      !self.isExpanded, self.isTransitioning,
+                      self.expandedPanel?.isVisible == true else { return }
+                self.catchableCollapseSurface = nil
+                self.presentSurface(surface, pinned: false)
+            }
+            return
+        }
         // Re-entering within the grace window cancels the scheduled collapse
         // — this is what makes the grace feel forgiving instead of laggy.
         cancelPendingGraceCollapse()
@@ -1249,6 +1268,7 @@ final class NotchCompanionController {
         takesKey: Bool? = nil
     ) {
         cancelScheduledTransitions()
+        catchableCollapseSurface = nil
         // Stop any in-flight pill hover-widen so it doesn't keep ticking
         // frames under/after the card morph — that double animation is what
         // reads as "widens left-right, then finally opens" instead of one
@@ -1371,9 +1391,10 @@ final class NotchCompanionController {
     /// display-geometry changes. Always unpins — an unpinned hover-expand
     /// never needs a separate unpin step, and pinning never survives a
     /// collapse.
-    private func collapseAndUnpin(animated: Bool = true) {
+    private func collapseAndUnpin(animated: Bool = true, catchable: Bool = false) {
         cancelScheduledTransitions()
         frameAnimator.cancel()
+        catchableCollapseSurface = nil
         let wasPinned = isPinned
         let wasCaption = presentedSurface == .caption
         isPinned = false
@@ -1399,6 +1420,9 @@ final class NotchCompanionController {
         }
 
         isTransitioning = true
+        if catchable, !wasPinned, presentedSurface == .fullCard {
+            catchableCollapseSurface = presentedSurface
+        }
         surfaceTransitionModel.dismiss()
         if !wasCaption {
             if wasPinned {
@@ -1433,6 +1457,7 @@ final class NotchCompanionController {
     }
 
     private func finishCollapse() {
+        catchableCollapseSurface = nil
         removeDismissalMonitors()
         isTransitioning = false
         isExpanded = false
@@ -1448,6 +1473,7 @@ final class NotchCompanionController {
     /// `collapseAndUnpin` this does NOT bring the tab back — used when the
     /// feature is disabled or being torn down.
     private func dismissEverything() {
+        catchableCollapseSurface = nil
         removeDismissalMonitors()
         cancelScheduledTransitions()
         frameAnimator.cancel()
@@ -1532,7 +1558,7 @@ final class NotchCompanionController {
         pendingGraceCollapseTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.mouseExitCollapseGraceMilliseconds * 1_000_000)
             guard !Task.isCancelled else { return }
-            self?.collapseAndUnpin()
+            self?.collapseAndUnpin(catchable: true)
         }
     }
 

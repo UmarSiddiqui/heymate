@@ -904,6 +904,13 @@ final class CompanionManager: ObservableObject {
         notchActivityCenter.timerStore.onTimerCompleted = { [weak self] label in
             self?.handleTimerCompleted(label: label)
         }
+        notchActivityCenter.timerStore.onPomodoroPhaseChanged = { [weak self] line in
+            guard let self else { return }
+            self.cue(.responseReady)
+            Task { [weak self] in
+                try? await self?.voiceSynthesisClient.speakText(line)
+            }
+        }
     }
 
     private func handleTimerCompleted(label: String) {
@@ -4920,6 +4927,28 @@ final class CompanionManager: ObservableObject {
             }
             notchActivityCenter.timerStore.start(duration: seconds, label: label)
             return ("Set for \(NotchTimerStore.formatted(remainingSeconds: seconds)) from now: \(label).", false)
+
+        case TalkToolCatalog.startPomodoroToolName:
+            func minutes(_ key: String) -> TimeInterval? {
+                let value = (arguments[key] as? NSNumber)?.doubleValue ?? (arguments[key] as? Double)
+                return value.flatMap { $0 > 0 ? $0 * 60 : nil }
+            }
+            var plan = PomodoroPlan.standard
+            if let focus = minutes("focus_minutes") { plan.focus = focus }
+            if let shortBreak = minutes("break_minutes") { plan.shortBreak = shortBreak }
+            if let longBreak = minutes("long_break_minutes") { plan.longBreak = longBreak }
+            if let rounds = (arguments["rounds"] as? NSNumber)?.intValue, rounds > 0 { plan.rounds = rounds }
+            let announcement = notchActivityCenter.timerStore.startPomodoro(plan: plan)
+            return ("Pomodoro started. \(announcement)", false)
+
+        case TalkToolCatalog.stopTimerToolName:
+            let store = notchActivityCenter.timerStore
+            guard let running = store.runningTimer else {
+                return ("No timer or pomodoro is running.", false)
+            }
+            let what = running.pomodoro != nil ? "pomodoro session" : "timer (\(running.label))"
+            store.cancel()
+            return ("Stopped the \(what).", false)
 
         case TalkToolCatalog.openApplicationToolName:
             guard let applicationName = arguments["name"] as? String, !applicationName.isEmpty else {

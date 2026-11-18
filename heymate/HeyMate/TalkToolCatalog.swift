@@ -39,6 +39,8 @@ enum TalkToolCatalog {
 
     static let startTimerToolName = "start_timer"
     static let setReminderToolName = "set_reminder"
+    static let startPomodoroToolName = "start_pomodoro"
+    static let stopTimerToolName = "stop_timer"
     static let openApplicationToolName = "open_app"
     static let setSystemVolumeToolName = "set_volume"
     static let startMateWorkToolName = HarnessToolName.startMateWork.rawValue
@@ -153,6 +155,24 @@ enum TalkToolCatalog {
                 inputSchemaJSON: """
                 {"type":"object","properties":{"seconds":{"type":"integer","description":"Delay in seconds before the reminder fires"},"reminder":{"type":"string","description":"What to remind the user of"}},"required":["seconds","reminder"]}
                 """
+            ),
+            origin: .local
+        ),
+        TalkTool(
+            toolDefinition: AssistantToolDefinition(
+                name: startPomodoroToolName,
+                description: "Start a pomodoro focus session in the notch: focus rounds separated by short breaks, with a long break after the last round. Announces each phase aloud. Replaces any running timer. Defaults: 25 minute focus, 5 minute breaks, 15 minute long break, 4 rounds.",
+                inputSchemaJSON: """
+                {"type":"object","properties":{"focus_minutes":{"type":"integer","description":"Length of each focus round"},"break_minutes":{"type":"integer","description":"Length of each short break"},"long_break_minutes":{"type":"integer","description":"Length of the long break"},"rounds":{"type":"integer","description":"Number of focus rounds"}}}
+                """
+            ),
+            origin: .local
+        ),
+        TalkTool(
+            toolDefinition: AssistantToolDefinition(
+                name: stopTimerToolName,
+                description: "Stop the running timer, reminder or pomodoro session.",
+                inputSchemaJSON: #"{"type":"object","properties":{}}"#
             ),
             origin: .local
         ),

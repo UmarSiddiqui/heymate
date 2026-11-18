@@ -274,7 +274,10 @@ final class NotchActivityCenter: ObservableObject {
     private func recomputeFrontmostActivity() {
         var candidates: [NotchActivity] = []
         if let agentActivity { candidates.append(agentActivity) }
-        if isEnabled(.timer), let timerActivity = timerStore.activity { candidates.append(timerActivity) }
+        // Timers are exempt from the retired micro-app gate: one exists only
+        // because the person just asked for it, and a countdown or pomodoro
+        // nobody can see is a broken promise, not a quiet default.
+        if let timerActivity = timerStore.activity { candidates.append(timerActivity) }
         if isEnabled(.media), let mediaActivity = nowPlayingMonitor.activity { candidates.append(mediaActivity) }
         if isEnabled(.battery), let batteryActivity = batteryMonitor.activity { candidates.append(batteryActivity) }
         if isEnabled(.calendar), let calendarActivity = calendarMonitor.activity { candidates.append(calendarActivity) }

@@ -10,17 +10,99 @@
 //  Date; the pill re-reads it once a second while the timer is the visible
 //  activity, and not at all otherwise.
 //
+//  A pomodoro is the same single countdown, re-armed for the next phase
+//  when one ends: focus, short break, focus … with a long break after every
+//  `roundsBeforeLongBreak` focus rounds. The session ends after the break
+//  that follows its last focus round.
+//
 
 import Combine
 import Foundation
 
+/// Lengths and round count for one pomodoro session. Pure value so the
+/// phase rules are unit-testable without a clock.
+struct PomodoroPlan: Equatable, Sendable {
+    var focus: TimeInterval = 25 * 60
+    var shortBreak: TimeInterval = 5 * 60
+    var longBreak: TimeInterval = 15 * 60
+    var rounds = 4
+    var roundsBeforeLongBreak = 4
+
+    static let standard = PomodoroPlan()
+
+    /// Clamps model-supplied values to something a person would choose.
+    func sanitized() -> PomodoroPlan {
+        PomodoroPlan(
+            focus: min(max(focus, 60), 3 * 3600),
+            shortBreak: min(max(shortBreak, 60), 3600),
+            longBreak: min(max(longBreak, 60), 2 * 3600),
+            rounds: min(max(rounds, 1), 12),
+            roundsBeforeLongBreak: min(max(roundsBeforeLongBreak, 2), 12)
+        )
+    }
+}
+
+enum PomodoroPhase: Equatable, Sendable {
+    case focus(round: Int)
+    case shortBreak(afterRound: Int)
+    case longBreak(afterRound: Int)
+
+    var isBreak: Bool {
+        if case .focus = self { return false }
+        return true
+    }
+
+    func duration(in plan: PomodoroPlan) -> TimeInterval {
+        switch self {
+        case .focus: return plan.focus
+        case .shortBreak: return plan.shortBreak
+        case .longBreak: return plan.longBreak
+        }
+    }
+
+    /// The phase that follows this one, or nil when the session is over.
+    func next(in plan: PomodoroPlan) -> PomodoroPhase? {
+        switch self {
+        case .focus(let round):
+            return round % plan.roundsBeforeLongBreak == 0 || round == plan.rounds
+                ? .longBreak(afterRound: round)
+                : .shortBreak(afterRound: round)
+        case .shortBreak(let round), .longBreak(let round):
+            return round < plan.rounds ? .focus(round: round + 1) : nil
+        }
+    }
+
+    /// What to say when this phase begins.
+    func announcement(in plan: PomodoroPlan) -> String {
+        let minutes = Int((duration(in: plan) / 60).rounded())
+        switch self {
+        case .focus(let round):
+            return round == 1
+                ? "Focus for \(minutes) minutes. Round 1 of \(plan.rounds)."
+                : "Break's over. Focus round \(round) of \(plan.rounds), \(minutes) minutes."
+        case .shortBreak:
+            return "Nice work. Take a \(minutes) minute break."
+        case .longBreak(let round):
+            return round == plan.rounds
+                ? "Last round done. Take a \(minutes) minute break, then you're finished."
+                : "Good stretch. Take a longer \(minutes) minute break."
+        }
+    }
+}
+
 @MainActor
 final class NotchTimerStore: ObservableObject {
+
+    struct PomodoroState: Equatable {
+        let plan: PomodoroPlan
+        let phase: PomodoroPhase
+    }
 
     struct RunningTimer: Equatable {
         let label: String
         let startedAt: Date
         let deadline: Date
+        var pomodoro: PomodoroState? = nil
 
         var totalDuration: TimeInterval { deadline.timeIntervalSince(startedAt) }
 
@@ -39,7 +121,15 @@ final class NotchTimerStore: ObservableObject {
     @Published private(set) var activity: NotchActivity?
 
     /// Fires when a timer reaches zero so the companion can speak or chime.
+    /// A pomodoro fires it once, when the whole session ends.
     var onTimerCompleted: ((String) -> Void)?
+
+    /// Fires when a pomodoro moves into its next phase, with the line to
+    /// speak. Separate from completion so the notch keeps the new countdown
+    /// instead of flashing "done" over it.
+    var onPomodoroPhaseChanged: ((String) -> Void)?
+
+    var isPomodoroRunning: Bool { runningTimer?.pomodoro != nil }
 
     private var tickCancellable: AnyCancellable?
 
@@ -57,10 +147,31 @@ final class NotchTimerStore: ObservableObject {
         refreshActivity(asOf: now)
     }
 
+    /// Starts a pomodoro session, replacing any running timer. Returns the
+    /// line announcing the first focus round.
+    @discardableResult
+    func startPomodoro(plan: PomodoroPlan = .standard, now: Date = Date()) -> String {
+        let plan = plan.sanitized()
+        let phase = PomodoroPhase.focus(round: 1)
+        arm(phase: phase, plan: plan, at: now)
+        return phase.announcement(in: plan)
+    }
+
     func cancel() {
         stopTicking()
         runningTimer = nil
         activity = nil
+    }
+
+    private func arm(phase: PomodoroPhase, plan: PomodoroPlan, at now: Date) {
+        runningTimer = RunningTimer(
+            label: "Pomodoro",
+            startedAt: now,
+            deadline: now.addingTimeInterval(phase.duration(in: plan)),
+            pomodoro: PomodoroState(plan: plan, phase: phase)
+        )
+        startTicking()
+        refreshActivity(asOf: now)
     }
 
     /// One wakeup per second, alive only while a timer is running. The
@@ -81,23 +192,49 @@ final class NotchTimerStore: ObservableObject {
         tickCancellable = nil
     }
 
-    private func refreshActivity(asOf referenceDate: Date) {
+    /// Internal so tests can step the clock without waiting on the ticker.
+    func refreshActivity(asOf referenceDate: Date) {
         guard let runningTimer else {
             activity = nil
             return
         }
         let remaining = runningTimer.remaining(asOf: referenceDate)
         guard remaining > 0 else {
+            if let pomodoro = runningTimer.pomodoro {
+                advancePomodoro(pomodoro, at: referenceDate)
+                return
+            }
             let completedLabel = runningTimer.label
             cancel()
             onTimerCompleted?(completedLabel)
             return
         }
+        let isBreak = runningTimer.pomodoro?.phase.isBreak ?? false
         activity = NotchActivity(
             kind: .timer,
             trailingText: Self.formatted(remainingSeconds: remaining),
-            progress: runningTimer.progress(asOf: referenceDate)
+            progress: runningTimer.progress(asOf: referenceDate),
+            tintHex: isBreak ? Self.breakTintHex : nil,
+            symbolOverride: runningTimer.pomodoro.map { $0.phase.isBreak ? "cup.and.saucer.fill" : "brain.head.profile" }
         )
+    }
+
+    /// Calm green for breaks; focus keeps the person's theme color.
+    nonisolated static let breakTintHex = "34D399"
+
+    private func advancePomodoro(_ state: PomodoroState, at now: Date) {
+        guard let next = state.phase.next(in: state.plan) else {
+            cancel()
+            onTimerCompleted?("Pomodoro finished. \(state.plan.rounds) focus rounds done.")
+            return
+        }
+        // Re-arm from the old deadline so a slightly late tick doesn't
+        // stretch the session. After a long gap (the Mac slept) start the
+        // next phase now instead, rather than racing through missed phases.
+        let deadline = runningTimer?.deadline ?? now
+        let start = now.timeIntervalSince(deadline) < 60 ? deadline : now
+        arm(phase: next, plan: state.plan, at: start)
+        onPomodoroPhaseChanged?(next.announcement(in: state.plan))
     }
 
     // MARK: Formatting + parsing

@@ -295,8 +295,15 @@ struct NotchPillView: View {
             .lineLimit(1)
             .minimumScaleFactor(0.8)
             .foregroundColor(DS.Colors.textPrimary.opacity(0.92))
-            .contentTransition(.opacity)
+            // Countdowns roll digit by digit instead of crossfading the
+            // whole label once a second.
+            .contentTransition(rollsDigits ? .numericText(countsDown: true) : .opacity)
+            .animation(rollsDigits ? .snappy(duration: 0.28) : nil, value: text)
             .padding(.horizontal, 3)
+    }
+
+    private var rollsDigits: Bool {
+        !(accessibilityReduceMotion || model.reducesMotion)
     }
 
     private var accessibilitySummary: String {

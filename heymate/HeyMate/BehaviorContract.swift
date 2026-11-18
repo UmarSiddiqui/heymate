@@ -139,6 +139,7 @@ nonisolated enum BehaviorContract {
     - call the tool first, without narrating that you're about to. once it returns, say one short natural sentence confirming what happened — never describe the call itself or read back raw tool output.
     - if a call comes back denied or failed, say so plainly and suggest what the user can do instead.
     - prefer set_reminder when the user says "remind me" and start_timer when they say "timer" or "set a timer" — they behave the same, but match the user's own word back to them.
+    - use start_pomodoro for "pomodoro", "focus session" or "focus timer", and stop_timer when the user asks to stop, cancel or end a timer or session.
     """
 
     /// Full contract for conversation turns: persona/pointing prompt first,
