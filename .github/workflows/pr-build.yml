@@ -1,179 +1,90 @@
-# Builds HeyMate and runs its unit tests on every pull request, so a change is
-# known to compile before it reaches main (where merging publishes a release).
-# Signs ad hoc: no secrets are needed, and nothing here is distributed.
-
-name: PR build
+name: Public DMG startup QA
 
 on:
-  pull_request:
-    paths:
-      - "heymate/**"
-      - ".github/workflows/pr-build.yml"
-      - "!heymate/worker/**"
-      - "!heymate/design/**"
-      - "!**/*.md"
   workflow_dispatch:
-
-concurrency:
-  group: pr-build-${{ github.ref }}
-  cancel-in-progress: true
+    inputs:
+      tag:
+        description: Published HeyMate release tag
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  build-and-test:
-    runs-on: macos-26
-    timeout-minutes: 45
-    env:
-      PROJECT: heymate/HeyMate.xcodeproj
-      SCHEME: HeyMate
-      DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
+  public-dmg-startup:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-26, xcode-27]
+    timeout-minutes: 9
     steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Select the newest Xcode 26
+      - name: Install, launch and relaunch published HeyMate
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
         run: |
-          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
-          if [ -z "$XCODE" ]; then
-            echo "::error::No Xcode 26 installation found on this runner." && exit 1
+          set -euo pipefail
+          dmg="$RUNNER_TEMP/HeyMate.dmg"
+          mount="$RUNNER_TEMP/heymate-dmg"
+          app=/Applications/HeyMate.app
+          executable="$app/Contents/MacOS/HeyMate"
+          sw_vers
+          launchctl print "gui/$(id -u)" >/dev/null
+          test ! -e "$app"
+
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+[.][0-9]+[.][0-9]+$ ]]
+          base="https://github.com/UmarSiddiqui/heymate/releases/download/$RELEASE_TAG"
+          curl --fail --location --retry 2 --silent --show-error --max-time 240 "$base/HeyMate.dmg" -o "$dmg"
+          curl --fail --location --retry 2 --silent --show-error "$base/HeyMate.dmg.sha256" -o "$dmg.sha256"
+          expected="$(awk 'NR==1 {print $1}' "$dmg.sha256")"
+          [[ "$expected" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$(shasum -a 256 "$dmg" | awk '{print $1}')" == "$expected" ]]
+          xattr -w com.apple.quarantine "0081;$(printf '%x' "$(date +%s)");HeyMate release QA;" "$dmg"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
+          mkdir "$mount"
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount" "$dmg"
+          trap 'hdiutil detach "$mount" >/dev/null 2>&1 || true' EXIT
+          sudo ditto "$mount/HeyMate.app" "$app"
+          sudo xattr -w com.apple.quarantine "$(xattr -p com.apple.quarantine "$dmg")" "$app"
+          /usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Contents/Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Contents/Info.plist")" = "${RELEASE_TAG#v}"
+          xcrun stapler validate "$app"
+          codesign --verify --deep --strict "$app"
+          syspolicy_check distribution "$app"
+          spctl --assess --type execute --verbose=2 "$app"
+          hdiutil detach "$mount"
+          trap - EXIT
+
+          launch_and_check() {
+            local label="$1" pid
+            "$executable" > "$RUNNER_TEMP/heymate-process.log" 2>&1 &
+            pid=$!
+            for attempt in {1..6}; do
+              sleep 5
+              if ! kill -0 "$pid" 2>/dev/null; then
+                wait "$pid" || echo "$label exit status: $?"
+                tail -50 "$RUNNER_TEMP/heymate-process.log"
+                return 1
+              fi
+            done
+            echo "$label: PID $pid stayed alive for 30 seconds."
+            kill -TERM "$pid"
+            wait "$pid" || true
+          }
+
+          launch_and_check 'First process launch'
+          launch_and_check 'Second process launch'
+      - name: Inspect process exit and crash evidence
+        if: always()
+        shell: bash
+        run: |
+          reports="$HOME/Library/Logs/DiagnosticReports"
+          if [ -d "$reports" ]; then
+            while IFS= read -r report; do
+              echo "${report##*/}"
+              head -70 "$report"
+            done < <(find "$reports" -maxdepth 2 -type f \( -name 'HeyMate-*.ips' -o -name 'HeyMate-*.crash' \) -print)
           fi
-          sudo xcode-select -s "$XCODE/Contents/Developer"
-          xcodebuild -version
-
-      - name: Cache Swift packages
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ env.DERIVED_DATA }}/SourcePackages
-          key: spm-v2-${{ runner.os }}-${{ hashFiles('heymate/HeyMate.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-
-      - name: Set up pinned harness Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '24.21.0'
-      - name: Check custom Pi harness
-        run: |
-          python3 heymate/scripts/pi-runtime-tests.py
-          cd heymate/agent-runtime
-          npm ci --ignore-scripts --no-audit --no-fund
-          npm test
-
-      - name: Check speech transport and screen context
-        run: |
-          python3 heymate/scripts/phonon-runtime-tests.py
-          python3 heymate/script/test_phonon_transport.py
-          bash heymate/script/verify_voice_process.sh
-          bash heymate/script/verify_talk_context.sh
-          PROBE_PURE_ONLY=1 bash heymate/script/verify_phonon.sh
-
-      - name: Check local signing and install workflow
-        run: |
-          python3 heymate/script/local_install_tests.py
-          bash heymate/script/process_scope_tests.sh
-
-      - name: Build app and tests
-        run: |
-          xcodebuild \
-            -project "$PROJECT" \
-            -scheme "$SCHEME" \
-            -configuration Debug \
-            -destination 'platform=macOS' \
-            -derivedDataPath "$DERIVED_DATA" \
-            -onlyUsePackageVersionsFromResolvedFile \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY=- \
-            DEVELOPMENT_TEAM= \
-            PROVISIONING_PROFILE_SPECIFIER= \
-            build-for-testing > build.log 2>&1 || {
-              grep -E "error:" build.log | sort -u | head -80
-              tail -40 build.log
-              exit 1
-            }
-          grep -E "\*\* TEST BUILD" build.log
-
-      - name: Run unit tests
-        run: |
-          # The step shell stops at the first failure, so capture the status
-          # instead; otherwise the failing tests below would never print.
-          STATUS=0
-          xcodebuild \
-            -project "$PROJECT" \
-            -scheme "$SCHEME" \
-            -destination 'platform=macOS' \
-            -derivedDataPath "$DERIVED_DATA" \
-            -onlyUsePackageVersionsFromResolvedFile \
-            -only-testing:HeyMateTests \
-            test-without-building > test.log 2>&1 || STATUS=$?
-          grep -E "✘|failed|error:|XCTAssert" test.log | head -120 || true
-          tail -25 test.log
-          exit $STATUS
-
-  # The release job builds Release, universal. Optimized builds can fail
-  # where Debug passes (a Swift 6.3.3 optimizer crash broke the 1.0.60
-  # release), so compile the same configuration here before merging.
-  release-compile:
-    runs-on: macos-26
-    timeout-minutes: 45
-    env:
-      PROJECT: heymate/HeyMate.xcodeproj
-      SCHEME: HeyMate
-      DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Select the newest Xcode 26
-        run: |
-          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
-          if [ -z "$XCODE" ]; then
-            echo "::error::No Xcode 26 installation found on this runner." && exit 1
-          fi
-          sudo xcode-select -s "$XCODE/Contents/Developer"
-          xcodebuild -version
-
-      - name: Cache Swift packages
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ env.DERIVED_DATA }}/SourcePackages
-          key: spm-v2-${{ runner.os }}-${{ hashFiles('heymate/HeyMate.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-
-      - name: Set up pinned harness Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '24.21.0'
-
-      # Release builds refuse to run without a staged Pi harness payload.
-      - name: Prepare Pi harness payload
-        run: |
-          python3 heymate/scripts/pi-runtime-build.py --out "$RUNNER_TEMP/MateAgent"
-          echo "HEYMATE_PI_RUNTIME=$RUNNER_TEMP/MateAgent" >> "$GITHUB_ENV"
-
-      - name: Prepare pinned Phonon speech runtime
-        run: |
-          python3 heymate/scripts/phonon-runtime-tests.py
-          python3 heymate/scripts/phonon-runtime.py --out "$RUNNER_TEMP/PhononRuntime"
-          echo "HEYMATE_PHONON_RUNTIME=$RUNNER_TEMP/PhononRuntime" >> "$GITHUB_ENV"
-
-      - name: Build Release (universal, unsigned)
-        run: |
-          xcodebuild \
-            -project "$PROJECT" \
-            -scheme "$SCHEME" \
-            -configuration Release \
-            -destination 'generic/platform=macOS' \
-            -derivedDataPath "$DERIVED_DATA" \
-            -onlyUsePackageVersionsFromResolvedFile \
-            ARCHS="arm64 x86_64" \
-            ONLY_ACTIVE_ARCH=NO \
-            HEYMATE_ALLOW_EXTERNAL_RUNTIME=YES \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY=- \
-            DEVELOPMENT_TEAM= \
-            PROVISIONING_PROFILE_SPECIFIER= \
-            build > build.log 2>&1 || {
-              grep -E "error:|Stack dump|While running pass" build.log | sort -u | head -80
-              tail -40 build.log
-              exit 1
-            }
-          grep -E "\*\* BUILD" build.log
+          /usr/bin/log show --last 5m --style compact --predicate '(process == "ReportCrash" OR process == "runningboardd" OR process == "launchservicesd") AND (eventMessage CONTAINS[c] "com.heymate.app" OR eventMessage CONTAINS[c] "HeyMate.app") AND (eventMessage CONTAINS[c] "termination reported" OR eventMessage CONTAINS[c] "crash" OR eventMessage CONTAINS[c] "launch failed")' | tail -30
