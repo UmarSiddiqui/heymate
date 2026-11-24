@@ -5,10 +5,11 @@
   gap: clamp(2rem, 7vw, 6rem);
 }
 
-.ios-beta-action {
+.document-main .ios-beta-action {
   display: inline-flex;
   align-items: center;
   min-height: 44px;
+  margin-top: 1rem;
   padding: .65rem 1.15rem;
   border-radius: 100px;
   color: #fff;
@@ -17,7 +18,8 @@
   text-decoration: none;
 }
 
-.ios-beta-action:is(:hover, :focus-visible) {
+.document-main .ios-beta-action:is(:hover, :focus-visible) {
+  color: #fff;
   background: #123b92;
 }
 
