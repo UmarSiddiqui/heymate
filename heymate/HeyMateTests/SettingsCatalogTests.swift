@@ -79,6 +79,11 @@ struct SettingsCatalogTests {
         #expect(results.contains(.restoreShortcuts))
     }
 
+    @Test func pairingSearchOpensDevices() {
+        #expect(SettingsSearch.results(for: "iPhone companion").first?.tab == .devices)
+        #expect(SettingsSearch.results(for: "local browser").first?.tab == .devices)
+    }
+
     @Test func nonsenseFindsNothing() {
         #expect(SettingsSearch.results(for: "zzqqxx").isEmpty)
     }

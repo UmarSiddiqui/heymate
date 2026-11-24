@@ -63,10 +63,10 @@ nonisolated struct ChatSession: Codable, Equatable, Identifiable {
 
     static let defaultTitle = "New chat"
 
-    static func empty() -> ChatSession {
+    static func empty(id: UUID = UUID()) -> ChatSession {
         let now = Date()
         return ChatSession(
-            id: UUID(),
+            id: id,
             title: defaultTitle,
             createdAt: now,
             updatedAt: now,

@@ -31,7 +31,6 @@ struct SettingsPrivacyPane: View {
             }
             screenCaptureSection
             chatsAndMemorySection
-            SettingsPhoneAccessSection(companionManager: companionManager)
             analyticsSection
             whatLeavesSection
             dangerZoneSection

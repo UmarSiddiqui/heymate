@@ -1,20 +1,30 @@
-import AppKit
 import AuthenticationServices
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 /// The system owns browser authentication. Only a transient Google ID token
 /// reaches Firebase; no Google refresh token, inbox scopes or SDK token store.
 @MainActor
 final class GoogleAccountSignIn: NSObject, GoogleAccountSigningIn, ASWebAuthenticationPresentationContextProviding {
     private var authentication: ASWebAuthenticationSession?
-    private var window: NSWindow?
+    private var window: ASPresentationAnchor?
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         window!
     }
 
     func idToken() async throws -> String {
+        #if os(macOS)
+        let anchor = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible })
+        #else
+        let anchor = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }?.keyWindow
+        #endif
         guard let clientID = Bundle.main.object(forInfoDictionaryKey: "GIDClientID") as? String,
-              let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) else {
+              let window = anchor else {
             throw FirebaseAccountError.configuration
         }
         self.window = window

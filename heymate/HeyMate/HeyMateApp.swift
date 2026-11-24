@@ -101,6 +101,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
             Task { await OnDeviceVoiceModelStore.shared.downloadAll() }
         }
         companionManager.start()
+        companionManager.phonePilot.attach(companionManager)
         let launchArguments = ProcessInfo.processInfo.arguments
         if launchArguments.contains("--detached-chat") {
             DesktopWindowPlacement.isAttached = false
@@ -153,6 +154,7 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         guard !isHostingUnitTests, servicesStarted else { return }
         companionManager.stop()
+        companionManager.phonePilot.stop()
         MateAgentServeBackend.shared.stop()
     }
 

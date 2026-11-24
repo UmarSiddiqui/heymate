@@ -9,6 +9,44 @@
 - Google Analytics and Gemini were disabled during project creation.
 - `HeyMate/FirebaseAccount.plist` contains only the project ID and public client API key. It is not an Admin SDK credential. No server secrets belong in the app.
 
+## iPhone companion pilot
+
+The Spark project has a Firebase Apple app named **HeyMate for iPhone**, bundle ID `com.heymate.app.ios`. Build the `HeyMatePhone` scheme in `HeyMate.xcodeproj`. Its public client configuration comes from [`firebase/ios/GoogleService-Info.plist`](../../firebase/ios/GoogleService-Info.plist). The Mac uses its own Firebase configuration.
+
+The live Firestore rules reserve `companionPilot/{uid}/pairs/{pairId}/tasks/{taskId}`. To enroll a consenting tester, a project administrator sets the `enabled` boolean to `true` on `companionPilot/{Firebase UID}`. Clients need the matching verified Firebase account and cannot modify enrollment. Setting `enabled` to `false` blocks further queue access.
+
+On Mac, open **Settings → Devices → iPhone companion** and choose **Show pairing code**. Sign in on iPhone with the same Google account, then scan the QR in HeyMate or paste the code. The invitation expires in five minutes. **Local browser access** on the same Devices page has its own QR and code.
+
+Pairing gives the iPhone access to chats, profiles, routines, and questions for HeyMate and all active mates, including mates added later. It also lets the iPhone send messages, answer questions, and manage routines. Older pairings keep their existing scope until **Enable workspace access** is chosen on the Mac. Tap **Refresh from Mac** on iPhone to reload the workspace. Security-sensitive approvals and account sign-ins stay on the Mac. **Continue on Mac** opens the same conversation at your desk. **Unpair** on the Mac revokes access. **Forget this Mac** on iPhone erases its pairing and local activity.
+
+- Create a task with `version: 1`, `status: queued`, `requestEnvelope` (28 to 8,192 bytes), and server timestamps for `createdAt` and `updatedAt`. Generate and retain a random task ID before submitting so a retry can check the same task.
+- A worker claims it by changing `queued` to `running`, then publishes `completed` or `failed` with `resultEnvelope` (28 to 32,768 bytes). Every update uses a server timestamp for `updatedAt`. The request envelope and creation timestamp are immutable. Queries require a limit of 50 documents or fewer. Clients can delete queued or finished tasks.
+- A one-use invitation authenticates Curve25519 key agreement. Both apps keep the derived key in Keychain and use ChaCha20-Poly1305 with the account, pair, task ID, and message direction as authenticated context. Firestore can see IDs, timestamps, status, and envelope sizes. The Mac claims work with an update-time precondition and reports interrupted reads as failed instead of silently repeating them.
+- The iPhone polls for active requests while foregrounded and deletes delivered results after saving them locally. The Mac checks every 10 seconds while idle and every 3 seconds during pairing or an active iPhone chat turn. Keep HeyMate open on an awake, online Mac. Measure polling reads before increasing the tester count. An open iPhone chat refreshes automatically while the app is in the foreground. A new chat opens locally and the Mac creates it when the first message arrives. The phone retrieves chat text in pages, with long messages shown as excerpts. Live screen context, the Mac’s file browser, and full desktop settings stay on the Mac.
+
+The chat composer lists brains signed in on the paired Mac, with model and effort choices from the Mac catalog. A selection applies to messages sent from that open chat. The mate’s saved brain stays in effect when no override is selected.
+
+The iPhone can send up to six files or photos, totaling up to 25 MiB per message. Each upload is split into authenticated encrypted chunks in the pair’s `attachmentChunks` collection. The verified, enrolled account can create, read, and delete its chunks. The Mac copies documents to the receiving mate’s inbox and uses its existing image attachment path for photos. The worker deletes chunks after processing. The phone also attempts cleanup when an upload fails.
+
+The iPhone composer shows Stop Reply when the Mac reports a running chat turn. The encrypted stop request identifies the exact turn, so an old request cannot cancel a newer reply in the same chat. Stop Reply leaves the user’s message in history and leaves independent routines and handoffs alone.
+
+A chat sent from iPhone can show a Live Activity on the Lock Screen and Dynamic Island. It shows generic status and opens the conversation when tapped. Turn it off under Connection in the iPhone app. With APNs configured, the Mac sends a status-only completion update when a tracked iPhone turn ends, even while iOS suspends HeyMate. The iPhone includes its per-activity push token in the encrypted chat request when available. Foreground sync continues to update the activity when no token or APNs credentials are available. The Quick Chat widget opens a new HeyMate draft from the Home or Lock Screen. Neither surface shows chat contents.
+
+For the internal pilot, use separate Apple Developer APNs topic-specific keys restricted to `com.heymate.app.ios`. The USB development build uses Sandbox. TestFlight uses Production. Store the credentials only on the paired Mac in `~/Library/Application Support/heymate/phone-live-activity-apns.json`, with owner-only permissions (`0600`). The top-level keys are `sandbox` and `production`. Each entry has `teamID`, `keyID`, and `privateKey` (the contents of its .p8 file). The worker reads this file on demand. Never include it in the iPhone bundle or commit it. APNs receives the activity token and generic reply status.
+
+Run the transport smoke test from the repository root with Xcode, Node, and Java 21 available. The test uses a temporary Firebase Auth account and a synthetic Emily result in the local emulators.
+
+```bash
+swiftc heymate/HeyMate/PhonePilot/PhonePilotProtocol.swift \
+  heymate/HeyMate/PhonePilot/PhonePilotMailbox.swift \
+  firebase/phone-pilot.integration.swift -o /tmp/heymate-phone-emulator-qa
+cd firebase
+npx firebase-tools@15.34.2 emulators:exec --project demo-heymate-accounts \
+  --only auth,firestore /tmp/heymate-phone-emulator-qa
+```
+
+2026-11-21 validation: Google sign-in and pasted-code pairing worked on a physical iPhone. A device UI test tapped **Check unread mail** and verified Emily’s reply from the Mac worker using the live Gmail connection. The signed Mac build used `build_and_run.sh --verify`. The emulator smoke test separately verified queued delivery, replay and tamper rejection, competing claims, and cleanup.
+
 ## Native account gate
 
 `CompanionAppDelegate` creates the companion lazily and starts it only after account access is granted. Voice, hotkeys, the notch, browser/local bridges, routines, provider setup, model downloads, app usage events and updater startup all wait behind this gate. Settings and app deep links also check it. Completing or skipping the old welcome tour cannot bypass it. Closing the account window quits the app; reopening resumes the saved session.

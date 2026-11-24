@@ -31,8 +31,8 @@ nonisolated enum RemoteAccessPage {
 <p id="toast" class="notice" role="status" hidden></p>
 <section id="loading"><p class="muted">Connecting to your Mac…</p></section>
 <section id="pair" hidden>
-<h2>Pair this phone</h2>
-<p class="muted">On your Mac, open HeyMate Settings, then Privacy &amp; Data, then Phone access, and choose Pair a phone. Type the code it shows.</p>
+<h2>Pair this browser</h2>
+<p class="muted">On your Mac, open HeyMate Settings, then Devices, then Local browser access, and choose Pair a browser. Type the code it shows.</p>
 <form id="pairForm" class="row">
 <input id="code" name="code" autocomplete="one-time-code" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="12" aria-label="Pairing code">
 <button type="submit">Pair</button>
@@ -44,7 +44,7 @@ nonisolated enum RemoteAccessPage {
 <div id="inbox" class="list"></div>
 <h2>Mates</h2>
 <div id="mates" class="list"></div>
-<p class="foot"><button id="signout" type="button" class="quiet">Unpair this phone</button></p>
+<p class="foot"><button id="signout" type="button" class="quiet">Unpair this browser</button></p>
 </section>
 <section id="chat" hidden>
 <p><button id="back" type="button" class="quiet">Back</button></p>

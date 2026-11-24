@@ -2,7 +2,7 @@
 //  SettingsPhoneAccessSection.swift
 //  HeyMate
 //
-//  Settings › Privacy & Data › Phone access: the one switch for
+//  Settings › Devices › Local browser access: the one switch for
 //  RemoteAccessController, pairing (code + QR), paired phones with Revoke,
 //  and the last few things a phone did. The copy says plainly what turning
 //  it on exposes and that the connection is unencrypted.
@@ -28,7 +28,7 @@ struct SettingsPhoneAccessSection: View {
     }()
 
     var body: some View {
-        SettingsSection("Phone access", footer: Self.honesty) {
+        SettingsSection("Local browser access", footer: Self.honesty) {
             SettingsToggleRow(
                 SettingsItem.phoneAccess.title,
                 subtitle: Self.exposes,
@@ -41,8 +41,8 @@ struct SettingsPhoneAccessSection: View {
             }
             if phone.isEnabled {
                 SettingsDivider()
-                SettingsRow("Address", subtitle: phone.pageURL ?? "Not on a local network. Join Wi-Fi to use Phone access.") {
-                    Button("Pair a phone…") { phone.startPairing() }
+                SettingsRow("Address", subtitle: phone.pageURL ?? "Not on a local network. Join Wi-Fi to pair a browser.") {
+                    Button("Pair a browser…") { phone.startPairing() }
                         .dsCapsuleButtonStyle(.secondary)
                         .disabled(phone.pageURL == nil)
                 }
@@ -76,7 +76,7 @@ struct SettingsPhoneAccessSection: View {
                         .padding(DS.Spacing.sm)
                         .background(Color.white)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .accessibilityLabel("QR code to pair a phone")
+                        .accessibilityLabel("QR code to pair a browser")
                 }
                 VStack(alignment: .leading, spacing: DS.Spacing.xs) {
                     Text("Pairing code")
@@ -89,7 +89,7 @@ struct SettingsPhoneAccessSection: View {
                     Text("Single use. Expires in \(Self.countdown(expires.timeIntervalSince(now))).")
                         .font(DS.Fonts.body)
                         .foregroundColor(DS.Colors.textSecondary)
-                    Text("Scan with your phone's camera, or open \(phone.pageURL ?? "the address above") and type the code.")
+                    Text("Scan with your phone's Camera app to open the browser, or open \(phone.pageURL ?? "the address above") and type the code. For the HeyMate iPhone app, use iPhone companion above.")
                         .font(DS.Fonts.body)
                         .foregroundColor(DS.Colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -109,7 +109,7 @@ struct SettingsPhoneAccessSection: View {
     @ViewBuilder
     private var devicesList: some View {
         if phone.devices.isEmpty {
-            SettingsRow("Paired phones", subtitle: "None yet.") { EmptyView() }
+            SettingsRow("Paired browsers", subtitle: "None yet.") { EmptyView() }
         } else {
             ForEach(phone.devices) { device in
                 SettingsRow(device.name, subtitle: "Paired \(Self.relative.localizedString(for: device.pairedAt, relativeTo: Date())) · last seen \(Self.relative.localizedString(for: device.lastSeenAt, relativeTo: Date()))", systemImage: "iphone") {

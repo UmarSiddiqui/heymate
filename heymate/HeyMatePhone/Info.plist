@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>HeyMate</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.554870227003-dsajgdkcef23dcl41g5qhta3mq9g989b</string>
+			</array>
+		</dict>
+        <dict>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>heymate-companion</string>
+            </array>
+        </dict>
+	</array>
+    <key>NSSupportsLiveActivities</key>
+    <true/>
+	<key>GIDClientID</key>
+	<string>554870227003-dsajgdkcef23dcl41g5qhta3mq9g989b.apps.googleusercontent.com</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Scan the pairing code that HeyMate shows on your Mac.</string>
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+</dict>
+</plist>

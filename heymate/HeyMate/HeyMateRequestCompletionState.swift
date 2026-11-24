@@ -11,6 +11,7 @@ import Foundation
 import os
 
 final class HeyMateRequestCompletionState: @unchecked Sendable {
+    let id = UUID()
     private let didCompleteStorage = OSAllocatedUnfairLock(initialState: false)
 
     var didComplete: Bool {
