@@ -32,6 +32,7 @@ test('Firebase account verification and consent isolation', async t => {
   const password = 'Emulator-only-test-91!';
   const signup = await request(`${auth}signUp?key=fake-key`, { email, password, returnSecureToken: true });
   assert.equal(signup.status, 200);
+  const unverifiedToken = signup.body.idToken;
   let token = signup.body.idToken;
   const uid = signup.body.localId;
   const own = `${documents}/accountPreferences/${uid}`;
@@ -91,5 +92,63 @@ test('Firebase account verification and consent isolation', async t => {
     assert.equal((await request(`${auth}signInWithPassword?key=fake-key`, {
       email, password: 'wrong-password', returnSecureToken: true,
     })).status, 400);
+  });
+
+  await t.test('companion mailbox requires verified enrollment and enforces lifecycle', async () => {
+    const enrollment = `${documents}/companionPilot/${uid}`;
+    const group = `companionPilot/${uid}/pairs/pilot-pair/tasks`;
+    const task = `${documents}/${group}/task-1`;
+    const envelope = { bytesValue: Buffer.alloc(64, 1).toString('base64') };
+    const requestFields = { version: { integerValue: '1' }, requestEnvelope: envelope };
+    const write = (status, writer, fields = {}, creating = false) => {
+      const timestamps = creating ? ['createdAt', 'updatedAt'] : ['updatedAt'];
+      const update = { status: { stringValue: status }, ...fields };
+      return request(`${documents}:commit`, { writes: [{
+        update: { name: `projects/${project}/databases/(default)/documents/${group}/task-1`, fields: update },
+        ...(!creating && { updateMask: { fieldPaths: Object.keys(update) } }),
+        currentDocument: { exists: !creating },
+        updateTransforms: timestamps.map(fieldPath => ({ fieldPath, setToServerValue: 'REQUEST_TIME' })),
+      }] }, writer);
+    };
+
+    const optedIn = { fields: { enabled: { booleanValue: true } } };
+    assert.equal((await write('queued', token, requestFields, true)).status, 403);
+    assert.equal((await request(enrollment, optedIn, token, 'PATCH')).status, 403);
+    assert.equal((await request(enrollment, optedIn, 'owner', 'PATCH')).status, 200);
+    assert.equal((await request(task)).status, 403);
+    assert.equal((await write('queued', unverifiedToken, requestFields, true)).status, 403);
+    assert.equal((await write('queued', token, { ...requestFields, prompt: { stringValue: 'plaintext' } }, true)).status, 403);
+    assert.equal((await write('queued', token, { ...requestFields, requestEnvelope: { stringValue: 'plaintext' } }, true)).status, 403);
+    assert.equal((await write('queued', token, {
+      ...requestFields, requestEnvelope: { bytesValue: Buffer.alloc(8193).toString('base64') },
+    }, true)).status, 403);
+    assert.equal((await write('queued', token, requestFields, true)).status, 200);
+    assert.equal((await request(task, undefined, token)).body.fields.status.stringValue, 'queued');
+
+    const otherUID = 'other-enrolled-pilot';
+    assert.equal((await request(`${documents}/companionPilot/${otherUID}`, optedIn, 'owner', 'PATCH')).status, 200);
+    assert.equal((await request(task.replace(uid, otherUID), undefined, token)).status, 403);
+    const runQuery = limit => request(`${documents}/companionPilot/${uid}/pairs/pilot-pair:runQuery`, {
+      structuredQuery: { from: [{ collectionId: 'tasks' }], limit },
+    }, token);
+    assert.equal((await runQuery(51)).status, 403);
+    assert.equal((await runQuery()).status, 403);
+    const query = await runQuery(50);
+    assert.equal(query.status, 200);
+    assert.ok(query.body.some(row => row.document?.name.endsWith('/task-1')));
+
+    assert.equal((await write('completed', token, { resultEnvelope: envelope })).status, 403);
+    assert.equal((await write('running', token, { requestEnvelope: { bytesValue: Buffer.alloc(64, 2).toString('base64') } })).status, 403);
+    assert.equal((await write('running', token)).status, 200);
+    assert.equal((await write('running', token)).status, 403);
+    assert.equal((await request(task, undefined, token, 'DELETE')).status, 403);
+    assert.equal((await write('completed', token)).status, 403);
+    assert.equal((await write('completed', token, { resultEnvelope: envelope })).status, 200);
+    assert.equal((await request(task, undefined, token)).body.fields.resultEnvelope.bytesValue, envelope.bytesValue);
+    assert.equal((await write('queued', token)).status, 403);
+    assert.equal((await request(enrollment, { fields: { enabled: { booleanValue: false } } }, 'owner', 'PATCH')).status, 200);
+    assert.equal((await request(task, undefined, token)).status, 403);
+    assert.equal((await request(enrollment, optedIn, 'owner', 'PATCH')).status, 200);
+    assert.equal((await request(task, undefined, token, 'DELETE')).status, 200);
   });
 });

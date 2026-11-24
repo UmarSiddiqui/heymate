@@ -1,14 +1,15 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function verifiedOwner(uid) {
+      return request.auth != null
+        && request.auth.uid == uid
+        && request.auth.token.email_verified == true;
+    }
+
     match /accountPreferences/{uid} {
-      function owner() {
-        return request.auth != null
-          && request.auth.uid == uid
-          && request.auth.token.email_verified == true;
-      }
-      allow get: if owner();
-      allow create, update: if owner()
+      allow get: if verifiedOwner(uid);
+      allow create, update: if verifiedOwner(uid)
         && request.resource.data.keys().hasAll(['releaseEmails', 'consentVersion', 'updatedAt'])
         && request.resource.data.keys().hasOnly(['releaseEmails', 'consentVersion', 'updatedAt'])
         && request.resource.data.releaseEmails is bool
@@ -16,6 +17,58 @@ service cloud.firestore {
         && request.resource.data.updatedAt == request.time;
       // No client list, deletion, account administration, or cross-user access.
       allow list, delete: if false;
+    }
+
+    function enrolledOwner(uid) {
+      return verifiedOwner(uid)
+        && get(/databases/$(database)/documents/companionPilot/$(uid)).data.enabled == true;
+    }
+
+    match /companionPilot/{uid}/pairs/{pairId}/attachmentChunks/{chunkId} {
+      allow get, delete: if enrolledOwner(uid);
+      allow create: if enrolledOwner(uid)
+        && request.resource.data.keys().hasOnly(['envelope'])
+        && request.resource.data.envelope is bytes
+        && request.resource.data.envelope.size() >= 28
+        && request.resource.data.envelope.size() <= 700000;
+    }
+
+    match /companionPilot/{uid}/pairs/{pairId}/tasks/{taskId} {
+      function validEnvelope(data) {
+        return data.version is int && data.version == 1
+          && data.requestEnvelope is bytes
+          && data.requestEnvelope.size() >= 28
+          && data.requestEnvelope.size() <= 8192
+          && data.updatedAt == request.time;
+      }
+
+      function isTerminal(status) {
+        return status in ['completed', 'failed'];
+      }
+
+      allow get: if enrolledOwner(uid);
+      allow list: if enrolledOwner(uid) && request.query.limit <= 50;
+
+      allow create: if enrolledOwner(uid)
+        && request.resource.data.keys().hasOnly(['version', 'requestEnvelope', 'status', 'createdAt', 'updatedAt'])
+        && validEnvelope(request.resource.data)
+        && request.resource.data.status == 'queued'
+        && request.resource.data.createdAt == request.time;
+
+      allow update: if enrolledOwner(uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'resultEnvelope'])
+        && request.resource.data.updatedAt == request.time
+        && (
+          (resource.data.status == 'queued' && request.resource.data.status == 'running'
+            && !('resultEnvelope' in request.resource.data))
+          || (resource.data.status == 'running' && isTerminal(request.resource.data.status)
+            && request.resource.data.resultEnvelope is bytes
+            && request.resource.data.resultEnvelope.size() >= 28
+            && request.resource.data.resultEnvelope.size() <= 32768)
+        );
+
+      allow delete: if enrolledOwner(uid)
+        && (resource.data.status == 'queued' || isTerminal(resource.data.status));
     }
   }
 }

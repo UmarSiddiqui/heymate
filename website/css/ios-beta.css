@@ -1,0 +1,56 @@
+.ios-beta-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(2rem, 7vw, 6rem);
+}
+
+.ios-beta-action {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: .65rem 1.15rem;
+  border-radius: 100px;
+  color: #fff;
+  background: #194ebc;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.ios-beta-action:is(:hover, :focus-visible) {
+  background: #123b92;
+}
+
+.ios-beta-hero .ios-beta-note {
+  margin-top: .75rem;
+  font-size: .9rem;
+}
+
+.ios-beta-capture {
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: clamp(1rem, 4vw, 2.5rem);
+  border: 1px solid #dbe6fa;
+  border-radius: 28px;
+  background: #eaf1ff;
+}
+
+.ios-beta-capture img {
+  display: block;
+  width: min(100%, 230px);
+  height: auto;
+  border-radius: 25px;
+  box-shadow: 0 16px 34px #18254435;
+}
+
+.ios-beta-setup {
+  max-width: 680px;
+  padding-block: 2rem 3.5rem;
+}
+
+@media (max-width: 660px) {
+  .ios-beta-hero {
+    grid-template-columns: 1fr;
+  }
+}

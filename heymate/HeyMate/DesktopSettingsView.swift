@@ -103,6 +103,11 @@ struct SettingsDetailView: View {
             DesktopSettingsAccountsTab(companionManager: companionManager, navigation: navigation)
         case .permissions:
             SettingsPermissionsPane(navigation: navigation)
+        case .devices:
+            SettingsPage(tab: .devices, navigation: navigation) {
+                PhonePilotSettings(worker: companionManager.phonePilot)
+                SettingsPhoneAccessSection(companionManager: companionManager)
+            }
         case .privacy:
             SettingsPrivacyPane(companionManager: companionManager, navigation: navigation)
         }

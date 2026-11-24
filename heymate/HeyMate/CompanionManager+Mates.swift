@@ -43,7 +43,9 @@ extension CompanionManager: MateRoutineRunning {
         let loaded = chatHistoryStore.loadAll()
         savedChats = rememberConversationsEnabled ? loaded : []
         if rememberConversationsEnabled,
-           let newest = loaded.first(where: { ($0.mateID ?? defaultID) == defaultID && !$0.messages.isEmpty }) {
+           let newest = loaded.first(where: {
+               ($0.mateID ?? defaultID) == defaultID && (!$0.messages.isEmpty || $0.draftText != nil)
+           }) {
             currentChat = newest
             mateDirectory.markRead(id: defaultID)
         } else {
@@ -64,6 +66,12 @@ extension CompanionManager: MateRoutineRunning {
         var session = currentChat
         session.draftText = normalized
         currentChat = session
+        if normalized == nil, session.messages.isEmpty, rememberConversationsEnabled,
+           chatHistoryStore.session(id: session.id) != nil {
+            chatHistoryStore.delete(id: session.id)
+            savedChats = chatHistoryStore.loadAll()
+            return
+        }
         persistCurrentChatIfNeeded()
     }
 
@@ -76,7 +84,7 @@ extension CompanionManager: MateRoutineRunning {
         mateDirectory.markRead(id: id)
         applyStoredPreferences(of: mate)
         let saved = rememberConversationsEnabled ? chatHistoryStore.loadAll().first(where: {
-            ($0.mateID ?? mateDirectory.defaultMateID) == id && !$0.messages.isEmpty
+            ($0.mateID ?? mateDirectory.defaultMateID) == id && (!$0.messages.isEmpty || $0.draftText != nil)
         }) : nil
         let active = independentSession(forMateID: id)
         let newest = [saved, active].compactMap { $0 }.max { $0.updatedAt < $1.updatedAt }

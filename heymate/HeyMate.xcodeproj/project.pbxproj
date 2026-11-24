@@ -55,6 +55,18 @@
 		D51000010000000000000002 /* Speech main source */ = {isa = PBXBuildFile; fileRef = D51000020000000000000002; };
 		D51000010000000000000003 /* Speech protocol source */ = {isa = PBXBuildFile; fileRef = D51000020000000000000003; };
 		D51000010000000000000004 /* FluidAudio for speech */ = {isa = PBXBuildFile; productRef = AA00BB082F6500080039DA55; };
+		F9700000000000000000001E = {isa = PBXBuildFile; fileRef = F97000000000000000000014; };
+		F9700000000000000000001F = {isa = PBXBuildFile; fileRef = F97000000000000000000015; };
+		F97000000000000000000020 = {isa = PBXBuildFile; fileRef = F97000000000000000000016; };
+		F97000000000000000000021 = {isa = PBXBuildFile; fileRef = F97000000000000000000017; };
+		F97000000000000000000022 = {isa = PBXBuildFile; fileRef = F97000000000000000000018; };
+		F97000000000000000000023 = {isa = PBXBuildFile; fileRef = F97000000000000000000019; };
+		F97000000000000000000033 = {isa = PBXBuildFile; fileRef = F97000000000000000000032; };
+		F97000000000000000000035 = {isa = PBXBuildFile; fileRef = F97000000000000000000034; };
+
+		F98000000000000000000001 /* HeyMatePhoneWidgets.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = F98000000000000000000004; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		F98000000000000000000002 /* CompanionActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = F98000000000000000000005; };
+		F98000000000000000000003 /* HeyMatePalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = F97000000000000000000034; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -80,6 +92,8 @@
 			remoteInfo = HeyMateAgentRunner;
 		};
 		D51000030000000000000001 = {isa = PBXContainerItemProxy; containerPortal = 28F22CB72F56440300A0FC59; proxyType = 1; remoteGlobalIDString = D51000040000000000000001; remoteInfo = HeyMateSpeechRunner; };
+
+		F98000000000000000000007 = {isa = PBXContainerItemProxy; containerPortal = 28F22CB72F56440300A0FC59; proxyType = 1; remoteGlobalIDString = F9800000000000000000000A; remoteInfo = HeyMatePhoneWidgets; };
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -93,6 +107,16 @@
 				D51000010000000000000001 /* Speech runner embed */,
 			);
 			name = "Embed Agent Runner";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+
+		F98000000000000000000009 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (F98000000000000000000001,);
+			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -142,6 +166,18 @@
 		D51000020000000000000001 /* HeyMateSpeechRunner */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = HeyMateSpeechRunner; sourceTree = BUILT_PRODUCTS_DIR; };
 		D51000020000000000000002 /* Speech main */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeyMateSpeechRunner/HeyMateSpeechRunnerMain.swift; sourceTree = SOURCE_ROOT; };
 		D51000020000000000000003 /* Speech protocol */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeyMate/SpeechRunnerProtocol.swift; sourceTree = SOURCE_ROOT; };
+		F97000000000000000000014 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/FirebaseAccountClient.swift"; sourceTree = SOURCE_ROOT; };
+		F97000000000000000000015 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/HeyMateAccount.swift"; sourceTree = SOURCE_ROOT; };
+		F97000000000000000000016 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/GoogleOAuthFlow.swift"; sourceTree = SOURCE_ROOT; };
+		F97000000000000000000017 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/GoogleAccountSignIn.swift"; sourceTree = SOURCE_ROOT; };
+		F97000000000000000000018 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/PhonePilot/PhonePilotProtocol.swift"; sourceTree = SOURCE_ROOT; };
+		F97000000000000000000019 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/PhonePilot/PhonePilotMailbox.swift"; sourceTree = SOURCE_ROOT; };
+		F97000000000000000000002 /* HeyMatePhone.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = HeyMatePhone.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F97000000000000000000032 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = ../firebase/ios/GoogleService-Info.plist; sourceTree = SOURCE_ROOT; };
+		F97000000000000000000034 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMate/HeyMatePalette.swift"; sourceTree = SOURCE_ROOT; };
+
+		F98000000000000000000004 /* HeyMatePhoneWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; path = HeyMatePhoneWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		F98000000000000000000005 /* CompanionActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeyMatePhone/CompanionActivity.swift"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -152,6 +188,7 @@
 			);
 			target = 28F22CBE2F56440300A0FC59 /* HeyMate */;
 		};
+		F97000000000000000000004 = {isa = PBXFileSystemSynchronizedBuildFileExceptionSet; membershipExceptions = (Info.plist,); target = F97000000000000000000001; };
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -173,6 +210,9 @@
 			path = "HeyMateUITests";
 			sourceTree = "<group>";
 		};
+		F97000000000000000000003 /* HeyMatePhone */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (F97000000000000000000004,); path = HeyMatePhone; sourceTree = "<group>"; };
+
+		F98000000000000000000006 /* HeyMatePhoneWidgets */ = {isa = PBXFileSystemSynchronizedRootGroup; path = HeyMatePhoneWidgets; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -211,6 +251,7 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		D51000060000000000000002 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (D51000010000000000000004, ); runOnlyForDeploymentPostprocessing = 0; };
+		F97000000000000000000007 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -219,6 +260,9 @@
 			children = (
 				A10005012F90050100000501 /* HeyMateAgentRunner */,
 				28F22CC12F56440300A0FC59 /* HeyMate */,
+				F97000000000000000000003 /* HeyMatePhone */,
+				F98000000000000000000006 /* HeyMatePhoneWidgets */,
+				F97000000000000000000032 /* GoogleService-Info.plist */,
 				28F22CCF2F56440300A0FC59 /* HeyMateTests */,
 				28F22CD92F56440300A0FC59 /* HeyMateUITests */,
 				28F22CC02F56440300A0FC59 /* Products */,
@@ -229,6 +273,8 @@
 			isa = PBXGroup;
 			children = (
 				28F22CBF2F56440300A0FC59 /* HeyMate.app */,
+				F97000000000000000000002 /* HeyMatePhone.app */,
+				F98000000000000000000004 /* HeyMatePhoneWidgets.appex */,
 				A10003012F90030100000301 /* HeyMateAgentRunner */,
 				D51000020000000000000001 /* HeyMateSpeechRunner */,
 				28F22CCC2F56440300A0FC59 /* HeyMateTests.xctest */,
@@ -382,6 +428,31 @@
 			productReference = D51000020000000000000001;
 			productType = "com.apple.product-type.tool";
 		};
+		F97000000000000000000001 /* HeyMatePhone */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F97000000000000000000008;
+			buildPhases = (F97000000000000000000005, F97000000000000000000007, F97000000000000000000006, F98000000000000000000009,);
+			buildRules = ();
+			dependencies = (F98000000000000000000008,);
+			fileSystemSynchronizedGroups = (F97000000000000000000003,);
+			name = HeyMatePhone;
+			productName = HeyMatePhone;
+			productReference = F97000000000000000000002;
+			productType = "com.apple.product-type.application";
+		};
+
+		F9800000000000000000000A /* HeyMatePhoneWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F9800000000000000000000B;
+			buildPhases = (F9800000000000000000000C,);
+			buildRules = ();
+			dependencies = ();
+			fileSystemSynchronizedGroups = (F98000000000000000000006,);
+			name = HeyMatePhoneWidgets;
+			productName = HeyMatePhoneWidgets;
+			productReference = F98000000000000000000004;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -432,6 +503,8 @@
 				A10006012F90060100000601 /* HeyMateAgentRunner */,
 				D51000040000000000000001 /* HeyMateSpeechRunner */,
 				28F22CBE2F56440300A0FC59 /* HeyMate */,
+				F97000000000000000000001 /* HeyMatePhone */,
+				F9800000000000000000000A /* HeyMatePhoneWidgets */,
 				28F22CCB2F56440300A0FC59 /* HeyMateTests */,
 				28F22CD52F56440300A0FC59 /* HeyMateUITests */,
 			);
@@ -469,21 +542,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F97000000000000000000006 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (F97000000000000000000033,); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-        B77D00012F90080100000801 /* Embed Pi Harness */ = {
-            isa = PBXShellScriptBuildPhase;
-            alwaysOutOfDate = 1;
-            buildActionMask = 2147483647;
-            files = ();
-            inputPaths = ();
-            name = "Embed Pi Harness";
-            outputPaths = ("$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/MateAgent", "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/BrowserExtension",);
-            runOnlyForDeploymentPostprocessing = 0;
-            shellPath = /bin/bash;
-            shellScript = "set -euo pipefail\n# The Chrome extension ships inside the app; HeyMate copies it out for Load unpacked.\n/bin/rm -rf -- \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/BrowserExtension\"\n/bin/cp -R \"${SRCROOT}/browser/extension\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/BrowserExtension\"\n# Remove only the retired payload inside this generated app bundle.\n/bin/rm -rf -- \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Hermes\"\nif [[ -n \"${HEYMATE_PI_RUNTIME:-}\" ]]; then\n  /usr/bin/python3 \"${SRCROOT}/scripts/pi-runtime-stage.py\" --source \"${HEYMATE_PI_RUNTIME}\" --destination \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/MateAgent\"\nelif [[ \"${CONFIGURATION}\" == Release ]]; then\n  echo \"error: Release requires HEYMATE_PI_RUNTIME pointing to the prepared sealed Pi harness payload.\" >&2\n  exit 1\nfi\nif [[ -n \"${HEYMATE_PHONON_RUNTIME:-}\" ]]; then\n  /usr/bin/python3 \"${SRCROOT}/scripts/phonon-runtime.py\" --source \"${HEYMATE_PHONON_RUNTIME}\" --destination \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/PhononRuntime\"\nelif [[ \"${CONFIGURATION}\" == Release ]]; then\n  echo \"error: Release requires HEYMATE_PHONON_RUNTIME pointing to prepared Phonon payload.\" >&2\n  exit 1\nfi\n";
-        };
+		B77D00012F90080100000801 /* Embed Pi Harness */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = ();
+			inputPaths = ();
+			name = "Embed Pi Harness";
+			outputPaths = ("$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/MateAgent", "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/BrowserExtension",);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "set -euo pipefail\n# The Chrome extension ships inside the app; HeyMate copies it out for Load unpacked.\n/bin/rm -rf -- \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/BrowserExtension\"\n/bin/cp -R \"${SRCROOT}/browser/extension\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/BrowserExtension\"\n# Remove only the retired payload inside this generated app bundle.\n/bin/rm -rf -- \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Hermes\"\nif [[ -n \"${HEYMATE_PI_RUNTIME:-}\" ]]; then\n  /usr/bin/python3 \"${SRCROOT}/scripts/pi-runtime-stage.py\" --source \"${HEYMATE_PI_RUNTIME}\" --destination \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/MateAgent\"\nelif [[ \"${CONFIGURATION}\" == Release ]]; then\n  echo \"error: Release requires HEYMATE_PI_RUNTIME pointing to the prepared sealed Pi harness payload.\" >&2\n  exit 1\nfi\nif [[ -n \"${HEYMATE_PHONON_RUNTIME:-}\" ]]; then\n  /usr/bin/python3 \"${SRCROOT}/scripts/phonon-runtime.py\" --source \"${HEYMATE_PHONON_RUNTIME}\" --destination \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/PhononRuntime\"\nelif [[ \"${CONFIGURATION}\" == Release ]]; then\n  echo \"error: Release requires HEYMATE_PHONON_RUNTIME pointing to prepared Phonon payload.\" >&2\n  exit 1\nfi\n";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -544,6 +618,9 @@ A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */,
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		D51000060000000000000001 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (D51000010000000000000002, D51000010000000000000003, ); runOnlyForDeploymentPostprocessing = 0; };
+		F97000000000000000000005 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (F9700000000000000000001E, F9700000000000000000001F, F97000000000000000000020, F97000000000000000000021, F97000000000000000000022, F97000000000000000000023, F97000000000000000000035,); runOnlyForDeploymentPostprocessing = 0; };
+
+		F9800000000000000000000C = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (F98000000000000000000002, F98000000000000000000003,); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -563,6 +640,8 @@ A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */,
 			targetProxy = A10002012F90020100000201 /* PBXContainerItemProxy */;
 		};
 		D51000030000000000000002 = {isa = PBXTargetDependency; target = D51000040000000000000001; targetProxy = D51000030000000000000001; };
+
+		F98000000000000000000008 = {isa = PBXTargetDependency; target = F9800000000000000000000A; targetProxy = F98000000000000000000007; };
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -721,7 +800,7 @@ A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */,
 					ImagePlayground,
 				);
 				HEYMATE_APP_BUNDLE_IDENTIFIER = com.heymate.app;
-                PRODUCT_BUNDLE_IDENTIFIER = "$(HEYMATE_APP_BUNDLE_IDENTIFIER)";
+				PRODUCT_BUNDLE_IDENTIFIER = "$(HEYMATE_APP_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = HeyMate;
 				REGISTER_APP_GROUPS = YES;
 				SPARKLE_FEED_URL = "";
@@ -769,7 +848,7 @@ A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */,
 					ImagePlayground,
 				);
 				HEYMATE_APP_BUNDLE_IDENTIFIER = com.heymate.app;
-                PRODUCT_BUNDLE_IDENTIFIER = "$(HEYMATE_APP_BUNDLE_IDENTIFIER)";
+				PRODUCT_BUNDLE_IDENTIFIER = "$(HEYMATE_APP_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = HeyMate;
 				REGISTER_APP_GROUPS = YES;
 				SPARKLE_FEED_URL = "";
@@ -931,6 +1010,95 @@ A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */,
 			};
 			name = Release;
 		};
+		F97000000000000000000009 = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = HeyMatePhone/HeyMatePhone.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 10;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HeyMatePhone/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.heymate.app.ios;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) HEYMATE_APNS_SANDBOX";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		F9700000000000000000000A = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = HeyMatePhone/HeyMatePhone.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 10;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HeyMatePhone/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.heymate.app.ios;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+
+		F9800000000000000000000D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 10;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = HeyMate;
+				INFOPLIST_FILE = HeyMatePhoneWidgets-Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.heymate.app.ios.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+
+		F9800000000000000000000E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 10;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = HeyMate;
+				INFOPLIST_FILE = HeyMatePhoneWidgets-Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.heymate.app.ios.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -980,6 +1148,9 @@ A10001012F90010100000101 /* HeyMateAgentRunnerMain.swift in Sources */,
 			defaultConfigurationName = Release;
 		};
 		D51000050000000000000003 = {isa = XCConfigurationList; buildConfigurations = (D51000050000000000000001, D51000050000000000000002, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		F97000000000000000000008 = {isa = XCConfigurationList; buildConfigurations = (F97000000000000000000009, F9700000000000000000000A,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+
+		F9800000000000000000000B = {isa = XCConfigurationList; buildConfigurations = (F9800000000000000000000D, F9800000000000000000000E,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */

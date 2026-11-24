@@ -7,11 +7,16 @@ struct FirebaseAccountConfiguration {
     let apiKey: String
 
     static var bundled: Self? {
-        guard let url = Bundle.main.url(forResource: "FirebaseAccount", withExtension: "plist"),
+        #if os(iOS)
+        let resource = "GoogleService-Info"
+        #else
+        let resource = "FirebaseAccount"
+        #endif
+        guard let url = Bundle.main.url(forResource: resource, withExtension: "plist"),
               let data = try? Data(contentsOf: url),
-              let values = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: String],
-              let projectID = values["PROJECT_ID"], !projectID.isEmpty,
-              let apiKey = values["API_KEY"], !apiKey.isEmpty else { return nil }
+              let values = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let projectID = values["PROJECT_ID"] as? String, !projectID.isEmpty,
+              let apiKey = values["API_KEY"] as? String, !apiKey.isEmpty else { return nil }
         return Self(projectID: projectID, apiKey: apiKey)
     }
 }

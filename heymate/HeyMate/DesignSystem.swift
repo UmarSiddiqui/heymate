@@ -45,10 +45,7 @@ struct WorkspaceBackground: View {
                         // Deep at the top, easing into the charcoal the
                         // transcript sits on, then a touch darker at the
                         // floor so the composer has somewhere to rest.
-                        LinearGradient(stops: [.init(color: .black, location: 0),
-                                               .init(color: Color(hex: "#141414"), location: 0.22),
-                                               .init(color: DS.Colors.homeBackground, location: 0.62),
-                                               .init(color: Color(hex: "#1A1A1A"), location: 1)],
+                        LinearGradient(stops: HeyMatePalette.workspaceStops,
                                        startPoint: .top, endPoint: .bottom)
                         // A faint sheen along the top edge, like light on matte paint.
                         LinearGradient(colors: [Color.white.opacity(0.035), .clear],
@@ -112,22 +109,22 @@ enum DS {
     enum Colors {
 
         /// Chat surfaces stay quiet behind the sculpted companion.
-        static let homeBackground = Color(hex: "#1E1E1E")
-        static let homeRail = Color(hex: "#202020")
-        static let glassInk = Color(hex: "#183451")
+        static let homeBackground = HeyMatePalette.workspace
+        static let homeRail = HeyMatePalette.rail
+        static let glassInk = HeyMatePalette.glassInk
 
         // ── Backgrounds ──────────────────────────────────────────────
         // Charcoal desktop surfaces, with lighter wells and cards.
         // Hardware-attached notch surfaces keep their explicit black fill.
 
         /// The deepest background — used for the main app window fill.
-        static let background = Color(hex: "#1E1E1E")
+        static let background = HeyMatePalette.workspace
 
         /// First elevation layer — used for cards, sidebar, top bar backgrounds.
-        static let surface1 = Color(hex: "#242424")
+        static let surface1 = HeyMatePalette.surface
 
         /// Second elevation layer — used for input fields, elevated cards, chat bubbles.
-        static let surface2 = Color(hex: "#303030")
+        static let surface2 = HeyMatePalette.field
 
         /// Third elevation layer — used for hover backgrounds on interactive elements.
         static let surface3 = Color(hex: "#3A3A3A")
@@ -138,7 +135,7 @@ enum DS {
         // ── Borders ──────────────────────────────────────────────────
 
         /// Subtle border — used for card outlines, dividers, input field borders.
-        static let borderSubtle = Color(hex: "#38383A")
+        static let borderSubtle = HeyMatePalette.border
 
         /// Strong border — used for focused inputs, hovered card outlines.
         static let borderStrong = Color(hex: "#505054")
@@ -146,13 +143,13 @@ enum DS {
         // ── Text ─────────────────────────────────────────────────────
 
         /// Primary text — main body text, titles, headings.
-        static let textPrimary = Color(hex: "#F5F5F7")
+        static let textPrimary = HeyMatePalette.primary
 
         /// Secondary text — descriptions, hints, muted labels.
-        static let textSecondary = Color(hex: "#B3B3BA")
+        static let textSecondary = HeyMatePalette.secondary
 
         /// Tertiary text — very muted, used for section labels, timestamps, disabled text.
-        static let textTertiary = Color(hex: "#84848C")
+        static let textTertiary = HeyMatePalette.tertiary
 
         /// Text used on top of the accent fill, like the primary button label.
         static let textOnAccent: Color = .white
@@ -194,13 +191,13 @@ enum DS {
         // ── Semantic Colors ──────────────────────────────────────────
 
         /// Destructive/error actions — delete buttons, error messages, close button hover.
-        static let destructive = Color(hex: "#E5484D")        // Radix Red 9
+        static let destructive = HeyMatePalette.destructive        // Radix Red 9
 
         /// Destructive hover state.
         static let destructiveHover = Color(hex: "#F2555A")   // Radix Red 10
 
         /// Destructive used for text on dark backgrounds (brighter for readability).
-        static let destructiveText = Color(hex: "#FF6369")    // Radix Red 11
+        static let destructiveText = HeyMatePalette.destructiveText    // Radix Red 11
 
         /// Success — checkmarks, granted status, completion indicators.
         /// Independent green so success states are visually distinct from the accent.
@@ -1305,10 +1302,7 @@ struct DSGlassSurface: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         shape.fill(LinearGradient(
-            stops: [.init(color: Color(hex: "#F0F7FF"), location: 0),
-                    .init(color: Color(hex: "#CCDEFF"), location: 0.27),
-                    .init(color: Color(hex: "#A8CBFA"), location: 0.62),
-                    .init(color: Color(hex: "#76ACEB"), location: 1)],
+            stops: HeyMatePalette.glassStops,
             startPoint: .top, endPoint: .bottom
         ))
         .overlay(alignment: .top) {
@@ -1334,7 +1328,7 @@ struct DSGlassSurface: View {
 struct ChatReplySurface: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous)
-        shape.fill(Color.white.opacity(0.045))
+        shape.fill(HeyMatePalette.chatReply)
             .overlay(shape.strokeBorder(
                 LinearGradient(colors: [Color.white.opacity(0.10), Color.white.opacity(0.04)],
                                startPoint: .top, endPoint: .bottom),

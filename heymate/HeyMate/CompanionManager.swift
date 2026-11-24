@@ -41,6 +41,7 @@ enum CompanionVoiceState {
 
 @MainActor
 final class CompanionManager: ObservableObject {
+    let phonePilot = PhonePilotWorker()
 
     static let screenPointingLogger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "com.heymate.app",
@@ -2507,6 +2508,31 @@ final class CompanionManager: ObservableObject {
         }
     }
 
+    func phoneCompanionChats(for mateID: UUID) -> [ChatSession] {
+        let candidates = [currentChat] + Array(ephemeralIndependentChats.values)
+            + (rememberConversationsEnabled ? chatHistoryStore.loadAll() : [])
+        var seen = Set<UUID>()
+        return candidates.filter {
+            ($0.mateID ?? mateDirectory.defaultMateID) == mateID && seen.insert($0.id).inserted
+        }.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    func preparePhoneCompanionDraft(mateID: UUID, chatID: UUID) -> Bool {
+        if mateInboxChat(mateID: mateID, chatID: chatID) != nil { return true }
+        guard currentChat.id != chatID, ephemeralIndependentChats[chatID] == nil,
+              independentChatTurns[chatID] == nil, chatHistoryStore.session(id: chatID) == nil else { return false }
+        _ = newPhoneCompanionChat(for: mateID, id: chatID)
+        return true
+    }
+
+    func newPhoneCompanionChat(for mateID: UUID, id: UUID = UUID()) -> ChatSession {
+        var chat = ChatSession.empty(id: id)
+        chat.mateID = mateID
+        // The history store only accepts chats that contain a message or draft.
+        ephemeralIndependentChats[chat.id] = chat
+        return chat
+    }
+
     func deleteChat(id: UUID) {
         mateInbox.removeItems(forChat: id)
         cancelPendingOpenCodeTrainingSend(chatID: id)
@@ -2692,7 +2718,7 @@ final class CompanionManager: ObservableObject {
 
     /// Stops the open reply: the in-flight task, streamed text, and speech.
     /// Returns to idle so the composer cannot stay on thinking, capturing, or speaking.
-    func cancelInFlightChatTurn(resetInteractionState: Bool = true) {
+    func cancelInFlightChatTurn(resetInteractionState: Bool = true, cancelQueuedHandoffs: Bool = true) {
         if isMateAgentTurnInFlight {
             mateAgentActivity.append(MateAgentActivityEntry(type: "turn.cancelled"))
         }
@@ -2715,11 +2741,13 @@ final class CompanionManager: ObservableObject {
         }
         // Explicit Stop cancels queued delegation too. Provider failures do
         // not come through this path and must not erase unrelated tasks.
-        for dropped in pendingHandoffs {
-            handoffLedger.mark(dropped.id, .cancelled, note: "Stopped before it started.")
-            HeyMateLog.log("🤝 Handoff \(dropped.id) to \(dropped.mateName) cancelled before it started")
+        if cancelQueuedHandoffs {
+            for dropped in pendingHandoffs {
+                handoffLedger.mark(dropped.id, .cancelled, note: "Stopped before it started.")
+                HeyMateLog.log("🤝 Handoff \(dropped.id) to \(dropped.mateName) cancelled before it started")
+            }
+            pendingHandoffs.removeAll()
         }
-        pendingHandoffs.removeAll()
         guard resetInteractionState else { return }
         dispatch(.cancel)
         // The reply task calls beginContextCapture before it notices cancellation.
@@ -6452,16 +6480,27 @@ extension CompanionManager {
     /// Runs a background continuation turn in `chatID` so answering from the
     /// Inbox or finishing a sign-in resumes the mate without switching away
     /// from the chat the person currently has open.
+    enum BackgroundChatOutcome {
+        case replied, failed, stopped
+    }
+
     func resumeMateChatInBackground(mateID: UUID, chatID: UUID, userMessage: String, modelPrompt: String,
-                                    previousWork: MateInboxWork? = nil) -> Bool {
+                                    brain: MateAgentServeSession.BrainOverride? = nil,
+                                    images: [ChatImageAttachment] = [], previousWork: MateInboxWork? = nil, onFinished: ((BackgroundChatOutcome) -> Void)? = nil,
+                                    beforeStart: () -> Bool = { true }) -> Bool {
         guard let mate = mateDirectory.mates.first(where: { $0.id == mateID && !$0.archived }),
               var session = mateInboxChat(mateID: mateID, chatID: chatID),
-              !mateInboxChatIsBusy(chatID) else { return false }
-        session.messages.append(ChatMessage(id: UUID(), role: .user, text: userMessage, createdAt: Date()))
+              !mateInboxChatIsBusy(chatID), beforeStart() else { return false }
+        if session.messages.isEmpty, session.title == ChatSession.defaultTitle {
+            session.title = ChatSession.title(from: userMessage)
+        }
+        session.messages.append(ChatMessage(id: UUID(), role: .user, text: userMessage, createdAt: Date(),
+                                             attachmentNames: images.isEmpty ? nil : images.map(\.fileName)))
         session.updatedAt = Date()
         if currentChat.id == session.id { currentChat = session }
         if rememberConversationsEnabled {
             chatHistoryStore.upsert(session)
+            ephemeralIndependentChats.removeValue(forKey: session.id)
             savedChats = chatHistoryStore.loadAll()
         } else {
             ephemeralIndependentChats[session.id] = session
@@ -6470,8 +6509,10 @@ extension CompanionManager {
         let completion = HeyMateRequestCompletionState()
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
+            var deliveredReply = false
             defer {
                 completion.didComplete = true
+                onFinished?(Task.isCancelled ? .stopped : (deliveredReply ? .replied : .failed))
                 if self.independentChatTurns[targetChatID]?.completion === completion {
                     self.independentChatTurns.removeValue(forKey: targetChatID)
                 }
@@ -6484,10 +6525,12 @@ extension CompanionManager {
             do {
                 let reply = try await self.runUnattendedTurn(
                     prompt: modelPrompt, mate: mate, session: session, routine: nil,
+                    images: images.map { ($0.data, $0.modelLabel) }, brain: brain,
                     previousWork: previousWork, completion: completion
                 )
                 guard !Task.isCancelled, !completion.didComplete else { return }
                 self.deliverIndependentChatResult(reply.shown, chatID: targetChatID, resultKey: reply.resultKey)
+                deliveredReply = true
                 reply.acknowledge()
                 if self.currentChat.id != targetChatID {
                     self.mateDirectory.incrementUnread(id: mateID)
@@ -6509,6 +6552,26 @@ extension CompanionManager {
     func mateInboxChatIsBusy(_ chatID: UUID) -> Bool {
         (currentChat.id == chatID && isChatTurnBusy)
             || independentChatTurns[chatID].map { !$0.completion.didComplete } == true
+    }
+
+    func phoneReplyTurnID(mateID: UUID, chatID: UUID) -> UUID? {
+        guard mateInboxChat(mateID: mateID, chatID: chatID) != nil,
+              !Self.parallelRoutineChats.values.contains(chatID), Self.parallelHandoffs[chatID] == nil else { return nil }
+        if let turn = independentChatTurns[chatID], !turn.completion.didComplete { return turn.completion.id }
+        guard currentChat.id == chatID, currentResponseChatID == chatID,
+              backgroundRoutineSession == nil, activeHandoffMateID == nil, isResponseInFlight else { return nil }
+        return currentResponseCompletion?.id
+    }
+
+    func stopPhoneReply(mateID: UUID, chatID: UUID, turnID: UUID) -> Task<Void, Never>? {
+        guard phoneReplyTurnID(mateID: mateID, chatID: chatID) == turnID else { return nil }
+        if let turn = independentChatTurns[chatID], turn.completion.id == turnID {
+            cancelIndependentChatTurn(chatID: chatID)
+            return turn.task
+        }
+        let task = currentResponseTask
+        cancelInFlightChatTurn(cancelQueuedHandoffs: false)
+        return task
     }
 
     private func mateInboxChat(mateID: UUID, chatID: UUID) -> ChatSession? {
@@ -6546,7 +6609,7 @@ extension CompanionManager {
     private func runUnattendedTurn(
         prompt: String, mate: Mate, session: ChatSession, routine: MateRoutine?,
         images: [(data: Data, label: String)] = [], extraNote: String? = nil,
-        previousWork: MateInboxWork? = nil,
+        brain: MateAgentServeSession.BrainOverride? = nil, previousWork: MateInboxWork? = nil,
         completion: HeyMateRequestCompletionState
     ) async throws -> UnattendedReply {
         if conversationClientOverride == nil { await awaitConnectorActivation() }
@@ -6559,7 +6622,7 @@ extension CompanionManager {
                 self?.deliverRecoveredMateAgentResult(result, chatID: chatID)
             }
         }
-        client.preferredBrain = resolvedSessionBrain(forMateID: mate.id)
+        client.preferredBrain = brain ?? resolvedSessionBrain(forMateID: mate.id)
         client.maxContinuations = mateLimits(mate.id).effectiveMaxContinuations
         recordMateActivity(.turns, mateID: mate.id)
         client.enabledSkillNames = resolvedMateSkillNames(forMateID: mate.id)

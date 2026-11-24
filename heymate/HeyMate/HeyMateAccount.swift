@@ -164,6 +164,25 @@ final class HeyMateAccount: ObservableObject {
         } catch { handle(error, allowOffline: true) }
     }
 
+    func phonePilotSession() async throws -> FirebaseAccountTokens {
+        guard !busy, mayUseApp, let session, let verifiedAt = session.verifiedAt else {
+            throw FirebaseAccountError.expired
+        }
+        if access == .verified, now().timeIntervalSince(verifiedAt) < 45 * 60 { return session }
+        busy = true
+        defer { busy = false }
+        do {
+            try await refreshSession()
+            guard access == .verified, let refreshed = self.session, refreshed.uid == session.uid else {
+                throw FirebaseAccountError.expired
+            }
+            return refreshed
+        } catch {
+            handle(error, allowOffline: true)
+            throw error
+        }
+    }
+
     private func refreshSession() async throws {
         guard let previous = session else { return }
         let updated = try await client.refresh(previous)

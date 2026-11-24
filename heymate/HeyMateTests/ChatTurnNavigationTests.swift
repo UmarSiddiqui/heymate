@@ -5,6 +5,46 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct ChatTurnNavigationTests {
+    @Test func phoneStopTargetsOnlyTheObservedReply() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        let mate = fixture.addMate(name: "Phone mate", brain: .onDevice)
+        let chatID = UUID()
+
+        #expect(manager.preparePhoneCompanionDraft(mateID: mate.id, chatID: chatID))
+        #expect(manager.startPhoneCompanionTurn("Start a reply", mateID: mate.id, chatID: chatID).success)
+        let first = try #require(manager.phoneReplyTurnID(mateID: mate.id, chatID: chatID))
+        #expect(manager.stopPhoneReply(mateID: manager.mateDirectory.defaultMateID, chatID: chatID, turnID: first) == nil)
+        #expect(manager.stopPhoneReply(mateID: mate.id, chatID: chatID, turnID: first) != nil)
+        #expect(manager.phoneReplyTurnID(mateID: mate.id, chatID: chatID) == nil)
+
+        #expect(manager.startPhoneCompanionTurn("Start the next reply", mateID: mate.id, chatID: chatID).success)
+        let second = try #require(manager.phoneReplyTurnID(mateID: mate.id, chatID: chatID))
+        #expect(first != second)
+        #expect(manager.stopPhoneReply(mateID: mate.id, chatID: chatID, turnID: first) == nil)
+        #expect(manager.phoneReplyTurnID(mateID: mate.id, chatID: chatID) == second)
+        #expect(manager.stopPhoneReply(mateID: mate.id, chatID: chatID, turnID: second) != nil)
+    }
+
+    @Test func phoneDraftSurvivesUntilFirstMessageWithHistoryEnabled() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let manager = fixture.manager
+        let mate = fixture.addMate(name: "Phone mate", brain: .onDevice)
+        let chatID = UUID()
+
+        #expect(manager.preparePhoneCompanionDraft(mateID: mate.id, chatID: chatID))
+        #expect(manager.phoneCompanionChats(for: mate.id).first?.id == chatID)
+        #expect(manager.chatHistoryStore.session(id: chatID) == nil)
+        #expect(!manager.preparePhoneCompanionDraft(mateID: manager.mateDirectory.defaultMateID, chatID: chatID))
+
+        #expect(manager.startPhoneCompanionTurn("Hello from iPhone", mateID: mate.id, chatID: chatID).success)
+        #expect(manager.phoneCompanionChats(for: mate.id).first?.messages.first?.text == "Hello from iPhone")
+        #expect(manager.chatHistoryStore.session(id: chatID)?.messages.first?.text == "Hello from iPhone")
+        manager.cancelIndependentChatTurn(chatID: chatID)
+    }
+
     @Test func switchingMatesKeepsBothTurnsAndRoutesResultsToTheirChats() async throws {
         let client = ConcurrentConversationClient()
         let fixture = try Fixture(conversationClient: client)
