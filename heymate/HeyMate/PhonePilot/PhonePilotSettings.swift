@@ -3,13 +3,21 @@ import SwiftUI
 
 struct PhonePilotSettings: View {
     @ObservedObject var worker: PhonePilotWorker
+    @State private var confirmsUnpair = false
 
     var body: some View {
         SettingsSection("iPhone companion", footer: "HeyMate handles requests when this Mac is awake and online. Sensitive action approvals stay on the Mac.") {
             if worker.isPaired {
-                SettingsRow("iPhone paired", subtitle: worker.needsPairingUpgrade ? "This connection uses the earlier sharing settings." : "This iPhone can access your HeyMate workspace.", systemImage: "iphone") {
-                    Button("Unpair", role: .destructive) { worker.disconnect() }
-                        .dsCapsuleButtonStyle(.destructive)
+                SettingsRow("iPhone paired", subtitle: pairingSummary, systemImage: "iphone") {
+                    Menu {
+                        Button("Unpair iPhone…", role: .destructive) { confirmsUnpair = true }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .accessibilityLabel("iPhone pairing options")
                 }
                 if worker.needsPairingUpgrade {
                     SettingsRow("Share your full workspace", subtitle: Self.workspaceAccess) {
@@ -54,6 +62,19 @@ struct PhonePilotSettings: View {
             }
         }
         .settingsAnchor(.iphoneCompanion)
+        .confirmationDialog("Unpair this iPhone?", isPresented: $confirmsUnpair) {
+            Button("Unpair iPhone", role: .destructive) { worker.disconnect() }
+        } message: {
+            Text("This iPhone will need a new pairing code to access your HeyMate workspace.")
+        }
+    }
+
+    private var pairingSummary: String {
+        let access = worker.needsPairingUpgrade
+            ? "Uses the earlier sharing settings."
+            : "Workspace access enabled."
+        guard let lastSync = worker.lastSuccessfulSync else { return access }
+        return "\(access) Last successful sync \(lastSync.formatted(.relative(presentation: .named)))."
     }
 
     private static let betaURL = URL(string: "https://sayheymate.com/ios-beta")!

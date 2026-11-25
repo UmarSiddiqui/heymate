@@ -9,6 +9,33 @@ struct MateInboxWorkTests {
         return (MateInboxStore(fileURL: folder.appendingPathComponent("inbox.json")), folder)
     }
 
+    @Test func queuedApprovalKeepsItsPromptAndQueuePositionAcrossRestart() throws {
+        let (store, folder) = makeInbox()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let now = Date(), mateID = UUID(), chatID = UUID()
+        func proposal(_ title: String) -> MateInboxItem {
+            let proposal = MateHeartbeatProposal(id: UUID(), title: title, whyNow: "New report", prompt: "Check \(title).",
+                needsApproval: "Ask before changing data.", createdAt: now, expiresAt: now.addingTimeInterval(60))
+            return store.record(MateInboxItem(id: proposal.id, mateID: mateID, mateName: "Research", chatID: chatID,
+                createdAt: now, resolvedAt: nil, resolutionSummary: nil, kind: .proposal(proposal), resumeTaskContext: nil))
+        }
+        let first = proposal("Orders")
+        let second = proposal("Inventory")
+        #expect(store.queueProposal(id: first.id, now: now))
+        #expect(!store.queueProposal(id: first.id, now: now))
+        #expect(store.queueProposal(id: second.id, now: now.addingTimeInterval(1)))
+        #expect(store.pendingCount == 0)
+
+        let url = folder.appendingPathComponent("inbox.json")
+        let reopened = MateInboxStore(fileURL: url)
+        #expect(reopened.queuedProposals.map(\.id) == [first.id, second.id])
+        #expect(reopened.queuedProposals.first?.proposal == first.proposal)
+        #expect(reopened.pendingCount == 0)
+
+        _ = reopened.resolve(id: first.id, summary: "Cancelled")
+        #expect(MateInboxStore(fileURL: url).queuedProposals.map(\.id) == [second.id])
+    }
+
     @Test func recordedWorkKeepsTheFailedStepAndExactResultWithoutRawToolData() throws {
         let (store, folder) = makeInbox()
         defer { try? FileManager.default.removeItem(at: folder) }

@@ -26,6 +26,9 @@ struct MateHomeView: View {
     @State private var hoveredRailMateID: UUID?
     @State private var hoveredRailChatID: UUID?
     @State private var showsTaskUpdates = false
+    @State private var taskUpdatesOwner = UUID()
+    @FocusState private var isTaskUpdatesButtonFocused: Bool
+    @State private var focusedAttention: MateDigestItem?
     @State private var revealsEarlierTasks = false
     @State private var expandedMessageIDs: Set<UUID> = []
     @State private var chatPendingDelete: ChatSession?
@@ -58,7 +61,6 @@ struct MateHomeView: View {
     @State private var extraRevealed = 0
     @State private var previewedFilePath: String?
     @State private var isHoldingTalk = false
-    @State private var isComposerExpanded = false
     @State private var settingsMate: Mate?
     /// The section agent settings opens on (deep links land on one section).
     @State private var settingsSection: MateSettingsSection = .profile
@@ -224,6 +226,7 @@ struct MateHomeView: View {
         }
         .onDisappear {
             companionManager.updateCurrentDraft(typedMessageInput)
+            companionManager.unregisterTaskUpdates(owner: taskUpdatesOwner)
             removeImagePasteMonitor()
         }
         .onChange(of: companionManager.currentChat.id) { _, _ in
@@ -231,8 +234,6 @@ struct MateHomeView: View {
             previewedFilePath = nil
             typedMessageInput = companionManager.currentChat.draftText ?? ""
             isNearBottom = true
-            // A fresh chat leads with Hold to talk again.
-            isComposerExpanded = false
         }
         // Each double-tap lands the cursor in the field, even when the notch
         // view was already on screen and onAppear does not fire again.
@@ -245,11 +246,28 @@ struct MateHomeView: View {
         .onChange(of: typedMessageInput) { _, newValue in
             companionManager.updateCurrentDraft(newValue)
         }
-        // Once the full composer is up it stays up until the chat changes.
-        // Collapsing on blur swapped it for Hold to talk the moment the
-        // Integrations or model menu took focus, so those menus never opened.
-        .onChange(of: isComposerFocused) { _, focused in
-            if focused { isComposerExpanded = true }
+        .onChange(of: companionManager.currentChat.draftText) { _, draft in
+            if let draft { typedMessageInput = draft }
+        }
+        .onChange(of: companionManager.requestedMateAttention, initial: true) { _, item in
+            guard let item else { return }
+            companionManager.requestedMateAttention = nil
+            if item.kind == .routineStopped, item.targetID == nil,
+               let mate = companionManager.mates.first(where: { $0.id == item.mateID }) {
+                settingsSection = .proactive
+                settingsMate = mate
+            } else {
+                focusedAttention = item
+                showsTaskUpdates = true
+            }
+        }
+        .onChange(of: showsTaskUpdates) { _, isOpen in
+            if isOpen {
+                companionManager.taskUpdatesEscape = (taskUpdatesOwner, dismissTaskUpdatesForEscape)
+            } else {
+                companionManager.unregisterTaskUpdates(owner: taskUpdatesOwner)
+                focusedAttention = nil
+            }
         }
         #if canImport(ImagePlayground)
         .modifier(ImagePlaygroundGate(concept: $companionManager.imagePlaygroundConcept) { url in
@@ -373,23 +391,24 @@ struct MateHomeView: View {
                 .background(DS.Colors.surface2.opacity(0.7))
                 .clipShape(RoundedRectangle(cornerRadius: DS.CornerRadius.small, style: .continuous))
 
-                Button {
-                    if railTab == .chats { companionManager.startNewMainChat() }
-                    else { isShowingNewMate = true }
-                } label: {
-                    Image(systemName: "plus")
-                        .font(DS.Glyph.regular)
-                }
-                .dsToolbarIconButtonStyle()
-                .keyboardShortcut("n", modifiers: [.command, .shift])
-                .contextMenu {
-                    Button("Import Agent from File…") {
-                        MateFileTransfer.importFromFile(companionManager: companionManager)
+                if railTab == .mates {
+                    Button {
+                        isShowingNewMate = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(DS.Glyph.regular)
                     }
-                    Button("All Schedules…") { isShowingSchedules = true }
+                    .dsToolbarIconButtonStyle()
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
+                    .contextMenu {
+                        Button("Import Agent from File…") {
+                            MateFileTransfer.importFromFile(companionManager: companionManager)
+                        }
+                        Button("All Schedules…") { isShowingSchedules = true }
+                    }
+                    .help("New agent (⇧⌘N). Right-click to import or see all schedules")
+                    .accessibilityLabel("New agent")
                 }
-                .help(railTab == .chats ? "New chat" : "New agent (⇧⌘N). Right-click to import or see all schedules")
-                .accessibilityLabel(railTab == .chats ? "New chat" : "New agent")
             }
             .padding(.horizontal, 12)
             .padding(.top, 10)
@@ -406,6 +425,13 @@ struct MateHomeView: View {
             // Labeled rows, not a lone gear: there are only two places to
             // go, and a 28pt unlabeled icon was easy to miss.
             VStack(spacing: 2) {
+                SettingsSidebarItem(title: "Waiting on You", symbolName: "bell",
+                                    isSelected: showsTaskUpdates, badge: taskUpdateCount) {
+                    showsTaskUpdates.toggle()
+                }
+                .accessibilityValue("\(taskUpdateCount) pending")
+                .focused($isTaskUpdatesButtonFocused)
+                .popover(isPresented: $showsTaskUpdates) { taskUpdatesPopover }
                 ForEach(MateHomeLayout.workspaceSections) { section in
                     SettingsSidebarItem(
                         title: section.displayName,
@@ -462,20 +488,6 @@ struct MateHomeView: View {
         .accessibilityLabel("Sidebar: Chats or Mates")
     }
 
-    private func railActionButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(DS.Fonts.headline)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 10)
-                .frame(height: 32)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
-        .padding(.horizontal, 8)
-    }
-
     // MARK: Chats tab
 
     private var mainChats: [ChatSession] {
@@ -495,14 +507,6 @@ struct MateHomeView: View {
             defaultMateID: companionManager.mateDirectory.defaultMateID
         )
         return VStack(alignment: .leading, spacing: 0) {
-            // ⌘N lives on the header's new-chat button, which follows the
-            // open mate; this one always starts with main HeyMate.
-            railActionButton("New chat", systemImage: "square.and.pencil") {
-                companionManager.startNewMainChat()
-            }
-            .help("New chat with HeyMate")
-            .accessibilityLabel("New chat with HeyMate")
-
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     railHeader(searchText.isEmpty ? "Chats" : "Results")
@@ -1126,18 +1130,19 @@ struct MateHomeView: View {
                     }
                 }
                 Spacer(minLength: 8)
-                Button { showsTaskUpdates.toggle() } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "bell")
-                        if taskUpdateCount > 0 { Text("\(taskUpdateCount)").font(DS.Fonts.micro).monospacedDigit() }
-                    }.font(DS.Glyph.regular)
-                }
-                .dsToolbarIconButtonStyle(isActive: showsTaskUpdates)
-                .help("Waiting on You")
-                .accessibilityLabel("Waiting on You, \(taskUpdateCount) pending")
-                .popover(isPresented: $showsTaskUpdates) {
-                    TaskUpdatesPopover(manager: companionManager, inbox: mateInbox,
-                        connectorApprovals: companionManager.connectorToolCoordinator) { showsTaskUpdates = false }
+                if !columns.contains(.rail) {
+                    Button { showsTaskUpdates.toggle() } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "bell")
+                            if taskUpdateCount > 0 { Text("\(taskUpdateCount)").font(DS.Fonts.micro).monospacedDigit() }
+                        }.font(DS.Glyph.regular)
+                    }
+                    .dsToolbarIconButtonStyle(isActive: showsTaskUpdates)
+                    .help("Waiting on You")
+                    .accessibilityLabel("Waiting on You")
+                    .accessibilityValue("\(taskUpdateCount) pending")
+                    .focused($isTaskUpdatesButtonFocused)
+                    .popover(isPresented: $showsTaskUpdates) { taskUpdatesPopover }
                 }
                 // On desktop, main HeyMate's chats live in the rail's Chats tab,
                 // so history here is only for a mate's own past chats.
@@ -1160,8 +1165,13 @@ struct MateHomeView: View {
                 }
                 .dsToolbarIconButtonStyle()
                 .keyboardShortcut("n", modifiers: .command)
-                .help("New chat (⌘N)")
-                .accessibilityLabel("New chat")
+                .help("New chat with \(activeMate?.name ?? Mate.defaultName) (⌘N)")
+                .accessibilityLabel("New chat with \(activeMate?.name ?? Mate.defaultName)")
+                .contextMenu {
+                    if !isMainHeyMateActive {
+                        Button("New chat with HeyMate") { companionManager.startNewMainChat() }
+                    }
+                }
                 // Wide layouts open the drawer from the name pill centered
                 // above the chat; a second button did the same thing.
                 if usesCompactLayout {
@@ -1273,11 +1283,10 @@ struct MateHomeView: View {
         return "Chat history"
     }
 
-    /// Name pill centered above the chat. It opens the profile. A second
-    /// face only appears when the composer is not already showing this mate.
+    /// Name and character controls for the current mate.
     private var centeredMateIdentity: some View {
         VStack(spacing: 4) {
-            if let mate = activeMate, !showsComposerCompanion {
+            if let mate = activeMate {
                 Button {
                     appearanceMate = mate
                 } label: {
@@ -1311,11 +1320,7 @@ struct MateHomeView: View {
             .help(isDrawerOpen ? "Hide profile" : "Show profile")
             .accessibilityLabel(isDrawerOpen ? "Hide \(activeMate?.name ?? Mate.defaultName)'s profile" : "Show \(activeMate?.name ?? Mate.defaultName)'s profile")
         }
-        .padding(.top, showsComposerCompanion ? 0 : 6)
-    }
-
-    private var showsComposerCompanion: Bool {
-        !usesCompactLayout && showsTalkFirstComposer && activeMate != nil
+        .padding(.top, 6)
     }
 
     private var headerTitles: some View {
@@ -1679,6 +1684,27 @@ struct MateHomeView: View {
         .padding(.top, 2)
     }
 
+    private func dismissTaskUpdatesForEscape() {
+        showsTaskUpdates = false
+        Task { @MainActor in
+            await Task.yield()
+            if !showsTaskUpdates { isTaskUpdatesButtonFocused = true }
+        }
+    }
+
+    private var taskUpdatesPopover: some View {
+        TaskUpdatesPopover(manager: companionManager, inbox: mateInbox,
+                           connectorApprovals: companionManager.connectorToolCoordinator,
+                           focusedAttention: focusedAttention,
+                           onOpened: { showsTaskUpdates = false },
+                           onEscape: {
+                               if let event = NSApp.currentEvent,
+                                  companionManager.dismissTaskUpdatesForEscape(event) { return }
+                               dismissTaskUpdatesForEscape()
+                           })
+            .id(focusedAttention?.id)
+    }
+
     private var taskUpdateCount: Int {
         (inboxApprovalMateID == nil ? 0 : 1) + mateInbox.pendingItems.filter { item in
             companionManager.mates.contains { $0.id == item.mateID && !$0.archived }
@@ -1906,84 +1932,92 @@ struct MateHomeView: View {
                     documentAttachments.removeAll { $0.id == id }
                 }
             }
-            if showsTalkFirstComposer {
-                talkFirstComposer
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    TextField("Message \(activeMate?.name ?? Mate.defaultName)", text: $typedMessageInput, axis: .vertical)
-                        .accessibilityLabel("Message \(activeMate?.name ?? Mate.defaultName)")
-                        .textFieldStyle(.plain)
-                        .font(DS.Fonts.reading)
-                        .foregroundColor(DS.Colors.textPrimary)
-                        .lineLimit(1...6)
-                        .focused($isComposerFocused)
-                        .onSubmit(sendTypedMessageFromInput)
-                        .padding(.horizontal, 12)
-                        .padding(.top, 10)
-                    HStack(spacing: 6) {
-                        Button { isShowingImageImporter = true } label: {
-                            Image(systemName: "paperclip")
-                                .font(DS.Glyph.regular)
-                        }
-                        .dsToolbarIconButtonStyle()
-                        .help("Attach images or files")
-                        .accessibilityLabel("Attach images or files")
-                        // Silent mode means no mic, so hold-to-talk would only
-                        // be a button that contradicts the mode.
-                        if !companionManager.isSilentModeEnabled {
-                            holdToTalkButton
-                        }
-                        voiceMenu
-                        Spacer(minLength: 4)
-                        DesktopComposerModelButton(companionManager: companionManager)
-                        Button {
-                            if companionManager.isComposerStopVisible {
-                                companionManager.cancelInFlightChatTurn()
-                            } else {
-                                sendTypedMessageFromInput()
-                            }
-                        } label: {
-                            Image(systemName: companionManager.isComposerStopVisible ? "stop.fill" : "arrow.up")
-                                .font(DS.Glyph.large.weight(.semibold))
-                                .foregroundColor(
-                                    companionManager.isComposerStopVisible || canSend
-                                        ? DS.Colors.textOnAccent
-                                        : DS.Colors.textTertiary
-                                )
-                                .frame(width: DS.ControlSize.large, height: DS.ControlSize.large)
-                                .background(
-                                    Circle().fill(
-                                        companionManager.isComposerStopVisible || canSend
-                                            ? companionManager.themeColor
-                                            : DS.Colors.surface3
-                                    )
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        .pointerCursor()
-                        .disabled(!companionManager.isComposerStopVisible && !canSend)
-                        .help(companionManager.isComposerStopVisible ? "Stop" : "Send (Return)")
-                        .accessibilityLabel(companionManager.isComposerStopVisible ? "Stop" : "Send")
-                    }
-                    .foregroundColor(DS.Colors.textSecondary)
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 8)
+            VStack(alignment: .leading, spacing: 6) {
+                Button {
+                    isComposerFocused = true
+                } label: {
+                    Text("To \(activeMate?.name ?? Mate.defaultName)")
+                        .font(DS.Fonts.caption.weight(.semibold))
+                        .foregroundStyle(DS.Colors.textSecondary)
+                        .lineLimit(1)
                 }
-                .background(
-                    RoundedRectangle(cornerRadius: DS.CornerRadius.hero, style: .continuous)
-                        .fill(DS.Colors.surface2)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: DS.CornerRadius.hero, style: .continuous)
-                        .stroke(
-                            isImageDropTargeted || isComposerFocused
-                                ? DS.Colors.accent.opacity(0.7)
-                                : DS.Colors.borderSubtle,
-                            lineWidth: 1
-                        )
-                )
-                .shadow(color: Color.black.opacity(usesCompactLayout ? 0 : 0.16), radius: 18, y: 10)
+                .buttonStyle(.plain)
+                .keyboardShortcut("l", modifiers: .command)
+                .help("Focus message field (⌘L)")
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                TextField("Type a message…", text: $typedMessageInput, axis: .vertical)
+                    .accessibilityLabel("Message \(activeMate?.name ?? Mate.defaultName)")
+                    .textFieldStyle(.plain)
+                    .font(DS.Fonts.reading)
+                    .foregroundColor(DS.Colors.textPrimary)
+                    .lineLimit(1...6)
+                    .focused($isComposerFocused)
+                    .onSubmit(sendTypedMessageFromInput)
+                    .padding(.horizontal, 12)
+                HStack(spacing: 6) {
+                    Button { isShowingImageImporter = true } label: {
+                        Image(systemName: "paperclip")
+                            .font(DS.Glyph.regular)
+                    }
+                    .dsToolbarIconButtonStyle()
+                    .help("Attach images or files")
+                    .accessibilityLabel("Attach images or files")
+                    // Silent mode means no mic, so hold-to-talk would only
+                    // be a button that contradicts the mode.
+                    if !companionManager.isSilentModeEnabled {
+                        holdToTalkButton
+                    }
+                    voiceMenu
+                    Spacer(minLength: 4)
+                    DesktopComposerModelButton(companionManager: companionManager)
+                    Button {
+                        if companionManager.isComposerStopVisible {
+                            companionManager.cancelInFlightChatTurn()
+                        } else {
+                            sendTypedMessageFromInput()
+                        }
+                    } label: {
+                        Image(systemName: companionManager.isComposerStopVisible ? "stop.fill" : "arrow.up")
+                            .font(DS.Glyph.large.weight(.semibold))
+                            .foregroundColor(
+                                companionManager.isComposerStopVisible || canSend
+                                    ? DS.Colors.textOnAccent
+                                    : DS.Colors.textTertiary
+                            )
+                            .frame(width: DS.ControlSize.large, height: DS.ControlSize.large)
+                            .background(
+                                Circle().fill(
+                                    companionManager.isComposerStopVisible || canSend
+                                        ? companionManager.themeColor
+                                        : DS.Colors.surface3
+                                )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+                    .disabled(!companionManager.isComposerStopVisible && !canSend)
+                    .help(companionManager.isComposerStopVisible ? "Stop" : "Send (Return)")
+                    .accessibilityLabel(companionManager.isComposerStopVisible ? "Stop" : "Send")
+                }
+                .foregroundColor(DS.Colors.textSecondary)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
             }
+            .background(
+                RoundedRectangle(cornerRadius: DS.CornerRadius.hero, style: .continuous)
+                    .fill(DS.Colors.surface2)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: DS.CornerRadius.hero, style: .continuous)
+                    .stroke(
+                        isImageDropTargeted || isComposerFocused
+                            ? DS.Colors.accent.opacity(0.7)
+                            : DS.Colors.borderSubtle,
+                        lineWidth: 1
+                    )
+            )
+            .shadow(color: Color.black.opacity(usesCompactLayout ? 0 : 0.16), radius: 18, y: 10)
             if let pending = companionManager.pendingDestructiveConfirmation {
                 destructiveWorkConfirm(pending)
             } else if companionManager.isSilentModeSuggestionVisible {
@@ -2177,110 +2211,9 @@ struct MateHomeView: View {
         }
     }
 
-    /// Talking is the main way in, so an idle composer leads with it: the
-    /// mate's face, a wide hold-to-talk control and a small "Type…" that
-    /// opens the full composer. Anything typed, attached or focused keeps
-    /// the full composer up.
-    /// The compact notch chat, opened by double-tap Control to type.
+    /// Compact chat summoned by the double-tap Control shortcut.
     private var isTypeSummonedSurface: Bool {
         isCompactLayout && shouldFocusComposerOnAppear
-    }
-
-    private var showsTalkFirstComposer: Bool {
-        // The notch chat is summoned to type (double-tap Control), so it is
-        // always a plain text field; voice has its own hold shortcut.
-        !isTypeSummonedSurface
-            && !companionManager.isSilentModeEnabled
-            && !isComposerExpanded
-            && !isComposerFocused
-            && typedMessageInput.isEmpty
-            && imageAttachments.isEmpty
-            && !companionManager.isComposerStopVisible
-    }
-
-    private var talkShortcutLabel: String {
-        companionManager.talkShortcutOption.keyCapsuleLabels
-            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
-            .joined(separator: " + ")
-    }
-
-    private var talkFirstComposer: some View {
-        HStack(alignment: .bottom, spacing: 10) {
-            Spacer(minLength: 0)
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .bottom, spacing: 8) {
-                    voiceEntry
-                    Button {
-                        isComposerExpanded = true
-                        DispatchQueue.main.async { isComposerFocused = true }
-                    } label: {
-                        Label("Or type here", systemImage: "keyboard")
-                            .font(DS.Fonts.control)
-                            .foregroundColor(DS.Colors.textSecondary)
-                            .padding(.horizontal, 14)
-                            .frame(height: 44)
-                            .background(Capsule().fill(DS.Colors.surface2))
-                            .overlay(Capsule().strokeBorder(DS.Colors.borderSubtle, lineWidth: 1))
-                            .contentShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                    .keyboardShortcut("l", modifiers: .command)
-                    .help("Type a message (⌘L)")
-                }
-                Text(isHoldingTalk ? "Release to send" : "Or hold \(talkShortcutLabel) anywhere")
-                    .font(DS.Fonts.micro)
-                    .foregroundColor(DS.Colors.textTertiary)
-                    .padding(.leading, 12)
-            }
-            Spacer(minLength: 0)
-        }
-    }
-
-    /// The companion occupies real layout space so gaze and hello taps work
-    /// above the control. Blobatars rest on the bar with a small overlap.
-    private var voiceEntry: some View {
-        VStack(alignment: .leading, spacing: hasBlobatarCompanion ? -8 : -18) {
-            if let mate = activeMate, !usesCompactLayout {
-                if MiloLook(assetName: MateFace.selectionToken(for: mate)) != nil || hasBlobatarCompanion {
-                    LiveMateFaceView(mate: mate, size: hasBlobatarCompanion ? 116 : 108, manager: companionManager, isComposerCompanion: true)
-                        .padding(.leading, 18).zIndex(1)
-                } else {
-                    liveFace(mate, size: 64).padding(.leading, 18).zIndex(1)
-                }
-            }
-            wideTalkButton
-        }
-    }
-
-    private var wideTalkButton: some View {
-        HStack(spacing: 8) {
-            Image(systemName: isHoldingTalk ? "waveform" : "mic.fill")
-                .font(DS.Glyph.regular)
-            // The hint under the button names the shortcut; saying it twice
-            // read as two different ways to talk.
-            Text(isHoldingTalk ? "Listening…" : "Hold to talk")
-                .font(DS.Fonts.controlLarge)
-                .lineLimit(1)
-        }
-        .foregroundColor(DS.Colors.glassInk)
-        .frame(minWidth: usesCompactLayout ? 180 : 270, maxWidth: 430)
-        .frame(height: 44)
-        .background(DSGlassSurface(cornerRadius: 22, isPressed: isHoldingTalk || isHoveringTalk))
-        .contentShape(Capsule())
-        .onHover { isHoveringTalk = $0 }
-        .pointerCursor()
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    if !isHoldingTalk { beginHoldToTalk() }
-                }
-                .onEnded { _ in
-                    endHoldToTalk()
-                }
-        )
-        .help("Hold to talk, release to send")
-        .accessibilityLabel("Hold to talk")
     }
 
     private var holdToTalkButton: some View {
@@ -2511,7 +2444,6 @@ struct MateHomeView: View {
     private func handDroppedFiles(_ urls: [URL], to mateID: UUID) {
         attachmentErrorText = companionManager.handFiles(urls, toMate: mateID)
         typedMessageInput = companionManager.currentChat.draftText ?? ""
-        isComposerExpanded = true
         isComposerFocused = true
     }
 
@@ -2534,7 +2466,6 @@ struct MateHomeView: View {
         var problems = result.problems
         if urls.count > room { problems.append("Up to \(MateChatDocuments.maximumCount) files per message.") }
         attachmentErrorText = problems.first
-        isComposerExpanded = true
         isComposerFocused = true
     }
 
@@ -2547,7 +2478,6 @@ struct MateHomeView: View {
         let path = URL(fileURLWithPath: folderPath, isDirectory: true).appendingPathComponent(relativePath).path
         let typed = typedMessageInput.trimmingCharacters(in: .whitespacesAndNewlines)
         typedMessageInput = (typed.isEmpty ? "" : typed + "\n") + "About \(path): "
-        isComposerExpanded = true
         isComposerFocused = true
     }
 

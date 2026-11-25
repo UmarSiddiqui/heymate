@@ -83,7 +83,7 @@ struct SettingsVoicePane: View {
             SettingsDivider()
             SettingsRow(
                 SettingsItem.dictationMode.title,
-                subtitle: "Smart rewriting isn't available yet.",
+                subtitle: "Literal dictation inserts what you say without an AI rewrite. Smart rewriting is unavailable.",
                 item: .dictationMode
             ) {
                 DSSegmentedControl(

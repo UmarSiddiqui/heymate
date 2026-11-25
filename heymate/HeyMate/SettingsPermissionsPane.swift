@@ -18,6 +18,7 @@ struct SettingsPermissionsPane: View {
     @State private var repairNote: String?
     @AppStorage(ApprovalMode.preferenceKey) private var approvalMode = ApprovalMode.askMe.rawValue
     @State private var showsResetConfirmation = false
+    @State private var showsTroubleshooting = false
 
     /// The shortcuts' event tap needs Accessibility and nothing else.
     private var shortcutsWork: Bool {
@@ -37,6 +38,9 @@ struct SettingsPermissionsPane: View {
                     .settingsAnchor(.permissionList)
             }
             repairSection
+        }
+        .onChange(of: navigation.revealRequest, initial: true) { _, request in
+            if request?.item == .repairShortcuts { showsTroubleshooting = true }
         }
         .onAppear { guide.startWatching() }
         .onDisappear { guide.stopWatching() }
@@ -116,21 +120,10 @@ struct SettingsPermissionsPane: View {
                     step(3, "Not listed? Use + to add that app, or drag it from the card below.")
                     step(4, "If macOS asks, quit and reopen HeyMate to apply the grant.")
                 }
-                HStack(spacing: DS.Spacing.sm) {
-                    Button("Open System Settings") {
-                        Task { await guide.request(.accessibility) }
-                    }
-                    .dsCapsuleButtonStyle(.primary)
-                    Button("Reset Accessibility…") { showsResetConfirmation = true }
-                        .dsCapsuleButtonStyle(.secondary)
-                        .help("Last resort: remove HeyMate's Accessibility entry and ask again.")
+                Button("Open System Settings") {
+                    Task { await guide.request(.accessibility) }
                 }
-                if let repairNote {
-                    Text(repairNote)
-                        .font(DS.Fonts.caption)
-                        .foregroundColor(DS.Colors.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                .dsCapsuleButtonStyle(.primary)
                 NotchAppDropTile(
                     missingAccessibility: !guide.isGranted(.accessibility),
                     missingScreenRecording: false
@@ -156,18 +149,27 @@ struct SettingsPermissionsPane: View {
     // MARK: Repair
 
     private var repairSection: some View {
-        SettingsSection(
-            "Still not working?",
-            footer: "Reset only if enabling HeyMate in System Settings still fails."
-        ) {
-            SettingsRow(
-                SettingsItem.repairShortcuts.title,
-                subtitle: "Clears HeyMate's Accessibility entry and asks again.",
-                systemImage: "wrench.and.screwdriver",
-                item: .repairShortcuts
+        SettingsSection {
+            SettingsDisclosureRow(
+                "Troubleshoot keyboard shortcuts",
+                subtitle: "For shortcuts that still fail after you enable Accessibility.",
+                isExpanded: $showsTroubleshooting
             ) {
-                Button("Reset Accessibility…") { showsResetConfirmation = true }
-                    .dsCapsuleButtonStyle(.secondary)
+                SettingsDivider()
+                SettingsRow(
+                    SettingsItem.repairShortcuts.title,
+                    subtitle: "Removes HeyMate’s current Accessibility entry so you can allow it again.",
+                    systemImage: "wrench.and.screwdriver",
+                    item: .repairShortcuts
+                ) {
+                    Button("Reset Accessibility…") { showsResetConfirmation = true }
+                        .dsCapsuleButtonStyle(.secondary)
+                }
+                if let repairNote {
+                    SettingsInlineHelp(repairNote)
+                        .settingsRowContentInsets()
+                        .padding(.bottom, DS.Spacing.sm)
+                }
             }
         }
     }

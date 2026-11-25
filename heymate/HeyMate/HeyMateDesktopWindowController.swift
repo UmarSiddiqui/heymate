@@ -268,6 +268,9 @@ final class HeyMateDesktopWindowController: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
+        panel.onEscape = { [weak companionManager] event in
+            companionManager?.dismissTaskUpdatesForEscape(event) == true
+        }
         panel.isOpaque = false
         panel.backgroundColor = .clear
         // The neck continues the black notch, so the attached panel is
@@ -403,10 +406,13 @@ enum DesktopWindowPlacement {
 
 /// A borderless window that can still take the keyboard.
 final class AttachedDesktopPanel: NSWindow {
+    var onEscape: ((NSEvent) -> Bool)?
+
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 
     override func cancelOperation(_ sender: Any?) {
+        if let event = NSApp.currentEvent, onEscape?(event) == true { return }
         close()
     }
 
@@ -419,7 +425,7 @@ final class AttachedDesktopPanel: NSWindow {
            event.modifierFlags.isDisjoint(with: [.command, .option, .control, .shift]),
            attachedSheet == nil,
            (firstResponder as? NSTextInputClient)?.hasMarkedText() != true {
-            close()
+            if onEscape?(event) != true { close() }
             return
         }
         super.sendEvent(event)

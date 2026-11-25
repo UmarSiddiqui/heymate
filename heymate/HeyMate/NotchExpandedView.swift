@@ -583,12 +583,6 @@ private struct NotchHomeTab: View {
         !companionManager.hasCompletedOnboarding
     }
 
-    /// Idle with no agent running: the status card has gone quiet, so the
-    /// composer is the only thing left to look at and should read that way.
-    private var isComposerHero: Bool {
-        !companionManager.isForegroundAgentActive && companionManager.voiceState == .idle
-    }
-
     var body: some View {
         GeometryReader { viewport in
             if needsSetup {
@@ -629,39 +623,24 @@ private struct NotchHomeTab: View {
                     .frame(minHeight: viewport.size.height, alignment: .top)
                 }
             } else {
-                // Composer on the left, agents on the right. The composer
-                // comes first so it never scrolls out of sight; notes and
-                // jobs that need you stack under it. Doors live in the
-                // bottom bar.
-                // The ask box grows to the column's full height when
-                // nothing is stacked under it, so the left half is never a
-                // short field over empty black; with notes or jobs below it
-                // shrinks back to one line and the column scrolls.
                 let columnHeight = max(viewport.size.height - DS.Spacing.sm * 2, 0)
                 HStack(alignment: .top, spacing: DS.Spacing.lg) {
-                    ScrollView(.vertical, showsIndicators: false) {
+                    ScrollView {
                         VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-                            // At rest the talk hint lives in the composer's
-                            // placeholder; the card shows only real activity.
-                            if !shortcutsAreOff && !isComposerHero {
-                                NotchStatusCard(companionManager: companionManager)
-                            }
                             typedMessageInputRow
                             NotchPermissionFlow(guide: permissionGuide, openChecklist: openPermissionSettings)
                             NotchSubscriptionSignInBanner(signIn: companionManager.subscriptionSignIn)
                             ContextualConnectorSuggestionBanner(companionManager: companionManager)
                             unfinishedAgentCards
+                            MateWakeOffers(companionManager: companionManager)
                         }
                         .frame(minHeight: columnHeight, alignment: .top)
                     }
+                    .scrollIndicators(.hidden)
                     .frame(width: (viewport.size.width - DS.Spacing.lg * 3) / 2)
 
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: DS.Spacing.sm) {
-                            NotchMatesPeek(companionManager: companionManager, limit: 2)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
+                    NotchMatesPeek(companionManager: companionManager, availableHeight: columnHeight)
+                        .frame(maxWidth: .infinity)
                 }
                 .padding(.horizontal, DS.Spacing.lg)
                 .padding(.vertical, DS.Spacing.sm)
@@ -680,8 +659,7 @@ private struct NotchHomeTab: View {
         return off.filter(\.breaksShortcuts) + off.filter { !$0.breaksShortcuts }
     }
 
-    /// The talk hint says "hold ctrl + option", which is a lie while the
-    /// permission behind shortcuts is off, so the note replaces it.
+    /// The global talk shortcut needs Accessibility.
     private var shortcutsAreOff: Bool {
         missingPermissions.first?.breaksShortcuts == true
     }
@@ -739,22 +717,56 @@ private struct NotchHomeTab: View {
     private var typedMessageInputRow: some View {
         VStack(alignment: .leading, spacing: 6) {
             typedMessageComposerRow
+            if !composerStatus.isEmpty { composerStatusRow }
             commandBarFeedbackRow
         }
     }
 
-    /// A soft well, not a capsule with a rim: the text sits top-left, the
-    /// send button bottom-right, and the box fills whatever height the
-    /// column gives it.
-    /// The talk hint folds in here while it's true, so Home needs no
-    /// separate "hold ⌃⌥" line.
-    private var composerPlaceholder: String {
-        shortcutsAreOff ? "Ask HeyMate…" : "Ask HeyMate…  or hold \(companionManager.talkShortcutOption.displayText)"
+    @ViewBuilder
+    private var composerStatusRow: some View {
+        let isListening = companionManager.voiceState == .listening
+        HStack(spacing: DS.Spacing.xs) {
+            Text(composerStatus)
+                .font(DS.Fonts.caption)
+                .foregroundStyle(DS.Colors.textSecondary)
+                .lineLimit(1)
+                .accessibilityLabel(composerStatusAccessibilityLabel)
+            if isListening {
+                NotchWaveformView(audioPowerLevel: companionManager.currentAudioPowerLevel)
+                    .accessibilityHidden(true)
+                Spacer(minLength: 0)
+                Button("Stop", action: companionManager.finishVoiceInputFromNotch)
+                    .buttonStyle(NotchCapsuleControlStyle(height: DS.ControlSize.small))
+                    .keyboardShortcut(.escape, modifiers: [])
+                    .accessibilityLabel("Stop listening")
+            }
+        }
+        .padding(.horizontal, DS.Spacing.xs)
+    }
+
+    private var composerStatus: String {
+        switch companionManager.voiceState {
+        case .listening: return "Listening…"
+        case .processing: return "Thinking…"
+        case .responding: return "Responding…"
+        case .idle:
+            if companionManager.isForegroundAgentActive { return "Agent working…" }
+            if companionManager.isSilentModeEnabled || shortcutsAreOff { return "" }
+            let keys = companionManager.talkShortcutOption.keyCapsuleLabels.map(KeyCapSymbols.symbol(for:)).joined()
+            return "\(keys) to talk"
+        }
+    }
+
+    private var composerStatusAccessibilityLabel: String {
+        if companionManager.voiceState == .idle && !companionManager.isForegroundAgentActive && !composerStatus.isEmpty {
+            return "Hold \(companionManager.talkShortcutOption.displayText) to talk"
+        }
+        return composerStatus
     }
 
     private var typedMessageComposerRow: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextField(composerPlaceholder, text: $typedMessageInput, axis: .vertical)
+            TextField("Ask HeyMate…", text: $typedMessageInput, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(DS.Fonts.body)
                 .foregroundColor(DS.Colors.textPrimary)
@@ -780,7 +792,8 @@ private struct NotchHomeTab: View {
             .buttonStyle(.plain)
             .pointerCursor()
             .disabled(!canSendTypedMessage)
-            .help("Send — starts a coding agent in ~/Projects/heymate")
+            .accessibilityLabel("Send message")
+            .help("Send message")
             .padding(.trailing, 5)
         }
         .padding(.vertical, DS.Spacing.xs + 1)
@@ -1198,126 +1211,6 @@ private struct AgentRunCard: View {
 /// The buddy's home on the Home tab: its mark, what it is doing right now,
 /// and the mic waveform while it listens. Sits on a soft wash of the theme
 /// color — the one tinted surface on the card, so the eye starts here.
-private struct NotchStatusCard: View {
-    @ObservedObject var companionManager: CompanionManager
-
-    /// Idle and no agent running: nothing is happening, so the card that
-    /// would normally announce "Ready when you are" with a glow and a
-    /// 38pt mark shrinks to one quiet line. That frees the weight in this
-    /// column for the composer below it, which is the thing idle actually
-    /// wants you to look at.
-    private var isQuiet: Bool {
-        !companionManager.isForegroundAgentActive && companionManager.voiceState == .idle
-    }
-
-    var body: some View {
-        if isQuiet {
-            quietRow
-        } else {
-            activeCard
-        }
-    }
-
-    private var quietRow: some View {
-        // Readiness already shows in the header pill, so this line is just
-        // the talk hint — a mic glyph instead of a second green dot.
-        HStack(spacing: 7) {
-            Image(systemName: "mic.fill")
-                .font(DS.Glyph.micro)
-                .foregroundColor(DS.Colors.accentText)
-            Text(statusSubtitle)
-                .font(DS.Fonts.caption)
-                .foregroundColor(DS.Colors.textSecondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 2)
-    }
-
-    private var activeCard: some View {
-        HStack(spacing: DS.Spacing.sm + 2) {
-            BrandAppIcon(size: DS.ControlSize.large, state: companionManager.voiceState)
-                .cueMotion(.responseReady, .question, .surprised, anchor: .bottom)
-                .overlay(alignment: .top) {
-                    CueProp(kind: .questionMark)
-                        .offset(y: -12)
-                }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(statusTitle)
-                    .font(DS.Fonts.titleCompact)
-                    .foregroundColor(DS.Colors.textPrimary)
-
-                if companionManager.voiceState == .listening {
-                    NotchWaveformView(audioPowerLevel: companionManager.currentAudioPowerLevel)
-                        .frame(height: 14)
-                } else {
-                    Text(statusSubtitle)
-                        .font(DS.Fonts.caption)
-                        .foregroundColor(DS.Colors.textSecondary)
-                        .lineLimit(1)
-                        .help(statusSubtitle)
-                        .cueMotion(.responseReady, part: .prop)
-                }
-            }
-
-            Spacer(minLength: 0)
-
-            if companionManager.voiceState == .listening {
-                Button(action: { companionManager.finishVoiceInputFromNotch() }) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "stop.fill")
-                            .font(DS.Glyph.micro)
-                        Text("Stop")
-                    }
-                }
-                .buttonStyle(NotchCapsuleControlStyle())
-                .keyboardShortcut(.escape, modifiers: [])
-                .help("Stop listening (Escape)")
-                .accessibilityLabel("Stop listening")
-                .accessibilityHint("Press Escape")
-            }
-        }
-        .padding(DS.Spacing.sm + 2)
-        .background(Color.black, in: RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: DS.CornerRadius.extraLarge, style: .continuous)
-                .stroke(DS.Colors.accent.opacity(0.22), lineWidth: 0.7)
-        )
-    }
-
-    private var statusTitle: String {
-        if companionManager.isForegroundAgentActive {
-            return "An agent is working"
-        }
-        switch companionManager.voiceState {
-        case .idle: return "Ready when you are"
-        case .listening: return "Listening…"
-        case .processing: return "Thinking…"
-        case .responding: return "Responding…"
-        }
-    }
-
-    private var statusSubtitle: String {
-        if companionManager.isForegroundAgentActive {
-            return companionManager.agentRuns.first(where: { !$0.status.isTerminal })?.latestAction
-                ?? "Working in a project folder."
-        }
-        switch companionManager.voiceState {
-        case .idle:
-            return "Hold \(companionManager.talkShortcutOption.displayText) and ask about anything on your screen."
-        case .listening:
-            return "Speak freely — release keys or press Escape to stop."
-        case .processing:
-            return "Reading the screen and your question."
-        case .responding:
-            return "Answering out loud."
-        }
-    }
-}
-
 // MARK: - Shared controls
 
 private struct NotchToggleRow: View {
@@ -1354,8 +1247,7 @@ struct NotchSectionHeader: View {
 
 // MARK: - Waveform
 
-/// Five-bar reactive meter for the status card (larger sibling of the idle
-/// pill's compact waveform). Heights follow mic power only — a 24 fps
+/// Five-bar reactive meter for the listening status. Heights follow mic power only — a 24 fps
 /// `TimelineView` here would re-layout the whole Home card while listening.
 private struct NotchWaveformView: View {
     let audioPowerLevel: CGFloat

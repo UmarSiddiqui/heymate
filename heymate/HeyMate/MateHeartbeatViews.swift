@@ -13,7 +13,8 @@ struct MateProposalRow: View {
     let item: MateInboxItem
     let proposal: MateHeartbeatProposal
     let act: (MateHeartbeatAction) -> Bool
-    @State private var couldNotStart = false
+    @State private var actionError: String?
+    @State private var showsInstructions = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -39,18 +40,29 @@ struct MateProposalRow: View {
                 Label(needsApproval, systemImage: "hand.raised")
                     .font(DS.Fonts.caption).foregroundStyle(DS.Colors.textSecondary)
             }
-            DisclosureGroup("Message it would send") {
+            DisclosureGroup("Task instructions", isExpanded: $showsInstructions) {
                 Text(proposal.prompt).font(DS.Fonts.caption).textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 4)
             }.font(DS.Fonts.caption)
             HStack {
-                Button("Approve") { couldNotStart = !act(.approve) }
-                Button("Adjust") { _ = act(.adjust) }
-                Spacer()
-                Button("Skip") { _ = act(.skip) }
+                if item.isQueuedProposal {
+                    Label("Queued until \(item.mateName) is free", systemImage: "clock")
+                        .foregroundStyle(DS.Colors.textSecondary)
+                    Spacer()
+                    Button("Cancel") {
+                        actionError = act(.skip) ? nil : "Couldn’t cancel this proposal. Try again."
+                    }
+                } else {
+                    Button("Approve") {
+                        actionError = act(.approve) ? nil : "Couldn’t approve this proposal. Try again."
+                    }
+                    Button("Adjust") { actionError = act(.adjust) ? nil : "Couldn’t open a draft for this proposal. Try again." }
+                    Spacer()
+                    Button("Skip") { actionError = act(.skip) ? nil : "Couldn’t skip this proposal. Try again." }
+                }
             }.font(DS.Fonts.caption)
-            if couldNotStart {
-                Text("\(item.mateName) is busy or its chat is unavailable. Nothing was sent.")
+            if let actionError {
+                Text(actionError)
                     .font(DS.Fonts.caption).foregroundStyle(DS.Colors.warningText)
             }
         }
