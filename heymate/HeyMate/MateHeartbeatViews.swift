@@ -14,6 +14,7 @@ struct MateProposalRow: View {
     let proposal: MateHeartbeatProposal
     let act: (MateHeartbeatAction) -> Bool
     @State private var actionError: String?
+    @State private var showsInstructions = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -39,7 +40,7 @@ struct MateProposalRow: View {
                 Label(needsApproval, systemImage: "hand.raised")
                     .font(DS.Fonts.caption).foregroundStyle(DS.Colors.textSecondary)
             }
-            DisclosureGroup("Review task instructions") {
+            DisclosureGroup("Task instructions", isExpanded: $showsInstructions) {
                 Text(proposal.prompt).font(DS.Fonts.caption).textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 4)
             }.font(DS.Fonts.caption)
