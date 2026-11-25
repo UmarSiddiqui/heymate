@@ -1,20 +1,34 @@
 <div align="center">
 
-<img src="docs/media/heymate-readme-banner.png" width="900" alt="HeyMate — A little company. A lot of help. Open-source AI for your Mac. Three pastel mates on a dark backdrop.">
+<img src="docs/media/heymate-readme-banner.png" width="900" alt="HeyMate. A little company. A lot of help. Open-source AI for your Mac.">
 
-Your open-source AI assistant for Mac. Talk about your screen, see answers take shape, and give your mates the busywork.
+<h1>HeyMate, an open-source AI assistant for Mac</h1>
+
+Ask about what’s on your screen. HeyMate can talk you through the next click, draw an answer over your desktop, or hand a task to a mate.
 
 [![Latest release](https://img.shields.io/github/v/release/UmarSiddiqui/heymate?label=download&color=3380FF)](https://github.com/UmarSiddiqui/heymate/releases/latest) [![Release build](https://img.shields.io/github/actions/workflow/status/UmarSiddiqui/heymate/release.yml?branch=main&label=build)](https://github.com/UmarSiddiqui/heymate/actions/workflows/release.yml) ![macOS 14.2+](https://img.shields.io/badge/macOS-14.2%2B-111113?logo=apple) [![MIT license](https://img.shields.io/badge/license-MIT-34D399)](LICENSE)
 
-[**Download for Mac**](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg) · [Website](https://sayheymate.com) · [Blog & guides](https://sayheymate.com/blog) · [Changelog](https://sayheymate.com/changelog)
+[**Download for Mac**](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg) · [Watch real demos](https://sayheymate.com/#visual-answers) · [Website](https://sayheymate.com) · [Changelog](https://sayheymate.com/changelog)
 
-Free and open source · Apple silicon and Intel · Bring your own AI
+macOS 14.2+ · Apple silicon and Intel · Connect Claude, ChatGPT (Codex), or a compatible API
 
 </div>
 
-## One shortcut. A helping hand.
+## Install and ask your first question
 
-Hold <kbd>Control</kbd> + <kbd>Option</kbd>, ask, and let go. HeyMate answers out loud and can point to what it is explaining.
+1. Download [**HeyMate.dmg**](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg) and drag HeyMate into **Applications**.
+2. Open HeyMate from **Applications** and grant permissions for the features you want.
+3. Connect your AI in **Brain**, then hold <kbd>Control</kbd> + <kbd>Option</kbd> and ask “What am I looking at?” Release the keys to hear the answer. Screen questions need a vision-capable model.
+
+Prefer Homebrew?
+
+```sh
+brew install umarsiddiqui/tap/heymate
+```
+
+Mac releases are signed with **Apple Developer ID and notarized by Apple**.
+
+## A few things to try
 
 | You ask | HeyMate helps |
 | --- | --- |
@@ -22,7 +36,7 @@ Hold <kbd>Control</kbd> + <kbd>Option</kbd>, ask, and let go. HeyMate answers ou
 | “Take it from here.” | With computer control enabled and your approval, clicks and types. Click, type, or press Escape to take over. |
 | “Give me a morning inbox brief.” | A mate handles the job, keeps notes, and can follow a routine. |
 
-Try the [tested Photopea background-removal walkthrough](docs/walkthroughs/photopea-background-removal.md): free sample files, exact prompts, observed recovery steps, and verified transparent PNG exports.
+Start with the [Photopea background-removal walkthrough](docs/walkthroughs/photopea-background-removal.md). It includes sample files, prompts to try, and steps to recover when the result looks wrong.
 
 ## Answers you can see
 
@@ -53,6 +67,8 @@ Describe a researcher, editor, scheduler, or coding helper in one sentence. Give
 
 Connect Mac apps, web apps through Composio, signed-in CLIs, and MCP servers. Connections are shared across mates. Agents can also use signed-in Chrome through the HeyMate extension. Actions that send, delete, or pay ask you first.
 
+Want to keep chatting away from your desk? [Request access to the iPhone companion beta](https://sayheymate.com/ios-beta) to chat with your mates and pick up the conversation on your Mac.
+
 ## Your AI. Your voice.
 
 Use **ChatGPT (Codex), Claude**, or **Custom API** with either format:
@@ -71,27 +87,11 @@ Compatible local servers work too. Set the format, server address, model, and AP
 
 <sub>Illustrative settings artwork with cleaned backgrounds and example content; current controls may differ.</sub>
 
-Parakeet listening downloads once; Phonon speaking is bundled. Both run locally on supported Apple silicon Macs, with a Mac voice available as fallback. Optional ElevenLabs receives the audio or text it processes.
+Use dictation to speak into the Mac app you’re already typing in. Parakeet listening downloads once and Phonon speaking comes bundled. Both run locally on supported Apple silicon Macs, with a Mac voice available as fallback. Optional ElevenLabs receives the audio or text it processes.
 
 HeyMate adds no subscription fee or model metering. Provider limits and optional API, voice, and connector charges apply. Features vary by provider, model, and connected tools. Screen guidance needs a vision-capable provider.
 
-[Connect Claude or ChatGPT (Codex)](https://sayheymate.com/connect-claude-codex) · [Explore workflows](https://sayheymate.com/how-to-use-heymate)
-
-## Get started
-
-**macOS 14.2+ · Apple silicon or Intel**
-
-1. Download [**HeyMate.dmg**](https://github.com/UmarSiddiqui/heymate/releases/latest/download/HeyMate.dmg) and drag HeyMate into **Applications**.
-2. Launch `/Applications/HeyMate.app` and grant permissions for the features you want.
-3. Connect your AI in **Brain**, choose a voice, and hold <kbd>Control</kbd> + <kbd>Option</kbd> to ask.
-
-Or install with Homebrew:
-
-```sh
-brew install umarsiddiqui/tap/heymate
-```
-
-Builds are signed with **Apple Developer ID and notarized by Apple**, so macOS opens HeyMate without a security warning.
+[Connect Claude or ChatGPT (Codex)](https://sayheymate.com/connect-claude-codex) · [Setup guide](https://sayheymate.com/how-to-use-heymate) · [Blog & guides](https://sayheymate.com/blog)
 
 ## Helpful. With boundaries.
 
@@ -109,6 +109,10 @@ Chats and memory live on your Mac. Relevant questions and screen context go to y
 </details>
 
 [Permissions](https://sayheymate.com/permissions) · [Privacy details](https://sayheymate.com/privacy)
+
+## Get help or contribute
+
+Ask a question or share a workflow in [GitHub Discussions](https://github.com/UmarSiddiqui/heymate/discussions). [Report a bug](https://github.com/UmarSiddiqui/heymate/issues/new/choose) or find a place to start in the [contribution guide](CONTRIBUTING.md).
 
 <details>
 <summary><strong>Build and contribute</strong></summary>
@@ -130,7 +134,7 @@ Read [local development and permission continuity](heymate/docs/local-developmen
 
 Keep the installed certificate and compatible designated requirements. Never substitute ad-hoc signing or reset TCC. Preferences and sign-ins surviving do not prove macOS permission grants survived.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for checks and [open an issue](https://github.com/UmarSiddiqui/heymate/issues/new/choose) for bugs or ideas. Documentation and website-only changes do not publish an app build.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development checks. Documentation and website-only changes do not publish an app build.
 
 </details>
 
