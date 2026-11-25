@@ -3815,6 +3815,10 @@ final class CompanionManager: ObservableObject {
         currentResponseCompletion = dictationCompletion
 
         let usesSmartMode = effectiveDictationUsesSmartMode
+        if dictationUsesSmartMode {
+            commandBarFeedback = "HeyMate Agent uses Literal dictation. Smart rewriting is unavailable; your original words are inserted without an AI rewrite."
+        }
+
         currentResponseTask = Task {
             defer { dictationCompletion.didComplete = true }
             var textToInsert = trimmedTranscript
