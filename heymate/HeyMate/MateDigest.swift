@@ -39,6 +39,7 @@ nonisolated struct MateDigestItem: Equatable, Identifiable {
     let kind: Kind
     let title: String
     let detail: String
+    var targetID: UUID? = nil
 }
 
 enum MateDigest {
@@ -54,7 +55,8 @@ enum MateDigest {
         defaultMateID: UUID,
         activeMateID: UUID?,
         includesUnread: Bool = true,
-        proposals: [MateInboxItem] = []
+        proposals: [MateInboxItem] = [],
+        inboxItems: [MateInboxItem] = []
     ) -> (items: [MateDigestItem], hiddenCount: Int) {
         var needsOK: [MateDigestItem] = []
         var stopped: [MateDigestItem] = []
@@ -70,30 +72,52 @@ enum MateDigest {
                     mateName: mate.name,
                     kind: .needsOK,
                     title: "\(mate.name) needs your OK",
-                    detail: more > 0 ? "\(first.title) and \(more) more" : first.title
+                    detail: more > 0 ? "\(first.title) and \(more) more" : first.title,
+                    targetID: first.id
                 ))
                 continue
             }
+            let pending = inboxItems.lazy.filter { $0.mateID == mate.id && $0.isPendingAttention }
+            let question = pending.compactMap { item -> (UUID, String)? in
+                    switch item.kind {
+                    case .question(let prompt, _, _): return (item.id, prompt)
+                    case .signIn(let site, _, _, _): return (item.id, "Sign in to \(site)")
+                    default: return nil
+                    }
+                }.first
+            if let question {
+                needsOK.append(MateDigestItem(mateID: mate.id, mateName: mate.name, kind: .needsOK,
+                                              title: "\(mate.name) needs you", detail: question.1,
+                                              targetID: question.0))
+                continue
+            }
             if let routine = routines.first(where: { $0.mateID == mate.id && stoppedItself($0) }) {
+                let failure = pending.first {
+                    if case .routineFailed(let id, _) = $0.kind { return id == routine.id }
+                    return false
+                }
                 stopped.append(MateDigestItem(
                     mateID: mate.id,
                     mateName: mate.name,
                     kind: .routineStopped,
                     title: "\(mate.name)'s routine stopped",
-                    detail: routine.lastStatusMessage ?? routine.pausedReason ?? routine.task
+                    detail: routine.lastStatusMessage ?? routine.pausedReason ?? routine.task,
+                    targetID: failure?.id
                 ))
                 continue
             }
             let open = proposals.filter { $0.mateID == mate.id && $0.isPendingAttention }
-                .compactMap(\.proposal).sorted { $0.createdAt > $1.createdAt }
-            if let first = open.first {
+                .compactMap { item in item.proposal.map { (item.id, $0) } }
+                .sorted { $0.1.createdAt > $1.1.createdAt }
+            if let (itemID, first) = open.first {
                 let more = open.count - 1
                 proposed.append(MateDigestItem(
                     mateID: mate.id,
                     mateName: mate.name,
                     kind: .proposal,
                     title: "\(mate.name) proposes work",
-                    detail: more > 0 ? "\(first.title) and \(more) more" : first.title
+                    detail: more > 0 ? "\(first.title) and \(more) more" : first.title,
+                    targetID: itemID
                 ))
                 continue
             }

@@ -2,9 +2,8 @@
 //  AnnotationClearKeyMonitor.swift
 //  HeyMate
 //
-//  Global Escape watcher. Escape clears on-screen annotations immediately
-//  (master spec: "Escape clears"), independent of model state. A
-//  PassThroughEventTap, so it needs Accessibility and not Input Monitoring.
+//  Clears screen marks when Escape is pressed or the content scrolls.
+//  Uses the passive Accessibility event tap.
 //
 
 import AppKit
@@ -13,11 +12,12 @@ import Foundation
 
 final class AnnotationClearKeyMonitor {
     private var tap: PassThroughEventTap?
-    /// Called on the main thread whenever Escape is pressed anywhere.
-    private let onEscape: () -> Void
+    private let onEscape: (UInt64) -> Void
+    private let onScroll: () -> Void
 
-    init(onEscape: @escaping () -> Void) {
+    init(onEscape: @escaping (UInt64) -> Void, onScroll: @escaping () -> Void) {
         self.onEscape = onEscape
+        self.onScroll = onScroll
     }
 
     deinit {
@@ -26,10 +26,13 @@ final class AnnotationClearKeyMonitor {
 
     func start() {
         guard tap == nil else { return }
-        let tap = PassThroughEventTap(name: "Annotation clear monitor", events: [.keyDown]) { [weak self] type, event in
-            // Escape keycode is 53.
-            guard type == .keyDown, event.getIntegerValueField(.keyboardEventKeycode) == 53 else { return }
-            DispatchQueue.main.async { self?.onEscape() }
+        let tap = PassThroughEventTap(name: "Annotation clear monitor", events: [.keyDown, .scrollWheel]) { [weak self] type, event in
+            if type == .scrollWheel {
+                DispatchQueue.main.async { self?.onScroll() }
+            } else if event.getIntegerValueField(.keyboardEventKeycode) == 53 {
+                let timestamp = event.timestamp
+                DispatchQueue.main.async { self?.onEscape(timestamp) }
+            }
         }
         // Without Accessibility there is no tap; the next start() retries.
         if tap.start() { self.tap = tap }

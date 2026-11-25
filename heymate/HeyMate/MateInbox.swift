@@ -50,9 +50,12 @@ nonisolated struct MateInboxItem: Codable, Equatable, Identifiable, Sendable {
     /// Context of the paused task so answering resumes the mate cleanly.
     var resumeTaskContext: String?
     var workID: UUID? = nil
+    var proposalQueuedAt: Date? = nil
+
+    var isQueuedProposal: Bool { resolvedAt == nil && proposalQueuedAt != nil }
 
     var isPendingAttention: Bool {
-        guard resolvedAt == nil else { return false }
+        guard resolvedAt == nil, proposalQueuedAt == nil else { return false }
         switch kind {
         case .question, .signIn, .routineFailed:
             return true
@@ -145,6 +148,19 @@ final class MateInboxStore: ObservableObject {
         items.filter(\.isPendingAttention).sorted { $0.createdAt > $1.createdAt }
     }
 
+    var queuedProposals: [MateInboxItem] {
+        items.filter(\.isQueuedProposal)
+            .sorted { ($0.proposalQueuedAt ?? $0.createdAt) < ($1.proposalQueuedAt ?? $1.createdAt) }
+    }
+
+    func queueProposal(id: UUID, now: Date = Date()) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == id && $0.isPendingAttention && $0.proposal != nil })
+        else { return false }
+        var item = items[index]
+        item.proposalQueuedAt = now
+        return persistQueuedProposal(item, at: index)
+    }
+
     var recentUndoableChanges: [MateInboxItem] {
         items.filter(\.canUndo).sorted { $0.createdAt > $1.createdAt }
     }
@@ -179,7 +195,8 @@ final class MateInboxStore: ObservableObject {
         }
         items.insert(item, at: 0)
         if items.count > Self.maximumKeptItems {
-            items = Array(items.prefix(Self.maximumKeptItems))
+            let retained = Set(items.lazy.filter { !$0.isQueuedProposal }.prefix(Self.maximumKeptItems).map(\.id))
+            items.removeAll { !$0.isQueuedProposal && !retained.contains($0.id) }
         }
         save()
         return item
@@ -238,9 +255,13 @@ final class MateInboxStore: ObservableObject {
 
     func resolve(id: UUID, summary: String? = nil, resumed: Bool = false, now: Date = Date()) -> MateInboxItem? {
         guard let index = items.firstIndex(where: { $0.id == id && $0.resolvedAt == nil }) else { return nil }
-        items[index].resolvedAt = now
-        items[index].resolutionSummary = summary
-        let updated = items[index]
+        var updated = items[index]
+        updated.resolvedAt = now
+        updated.resolutionSummary = summary
+        if items[index].isQueuedProposal {
+            return persistQueuedProposal(updated, at: index) ? updated : nil
+        }
+        items[index] = updated
         if let workID = updated.workID,
            !pendingItems.contains(where: { $0.workID == workID }),
            let workIndex = work.firstIndex(where: { $0.id == workID && $0.state == .needsInput }) {
@@ -285,11 +306,28 @@ final class MateInboxStore: ObservableObject {
     }
 
     private func save() {
-        guard let data = try? JSONEncoder().encode(items.filter { item in
+        try? write(items)
+    }
+
+    private func persistQueuedProposal(_ item: MateInboxItem, at index: Int) -> Bool {
+        var updated = items
+        updated[index] = item
+        do {
+            try write(updated)
+            items = updated
+            return true
+        } catch {
+            HeyMateLog.log("Couldn't save queued proposal: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func write(_ items: [MateInboxItem]) throws {
+        let data = try JSONEncoder().encode(items.filter { item in
             item.workID.map { !transientWork.contains($0) } ?? true
-        }) else { return }
-        try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: fileURL, options: .atomic)
+        })
+        try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: fileURL, options: .atomic)
     }
 
     private func saveWork() {

@@ -269,21 +269,39 @@ final class ExplainerWindowController: NSObject, WKNavigationDelegate, WKScriptM
             forName: Notification.Name("HeyMateBrowserPageChanged"), object: nil, queue: .main
         ) { [weak self] _ in Task { @MainActor [weak self] in self?.screenChanged(reason: "browser page changed") } })
         screenInputMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.scrollWheel, .leftMouseDown]) { [weak self] event in
-            let reason = event.type == .scrollWheel ? "screen scrolled" : "screen clicked"
-            Task { @MainActor [weak self] in self?.screenChanged(reason: reason) }
+            let scrolled = event.type == .scrollWheel
+            Task { @MainActor [weak self] in
+                self?.screenChanged(reason: scrolled ? "screen scrolled" : "screen clicked", immediately: scrolled)
+            }
         }
     }
 
-    private func screenChanged(reason: String = "screen changed") {
+    private func screenChanged(reason: String = "screen changed", immediately: Bool = false) {
+        let wasStale = captureContext["stale"] as? Bool == true
         captureContext["stale"] = true
         captureContext["staleReason"] = reason
+        if immediately {
+            // Drop on the first wheel event. Waiting for a quiet period leaves
+            // a marker pinned over the wrong content throughout momentum scroll.
+            if !wasStale || screenChangeTask != nil {
+                screenChangeTask?.cancel()
+                screenChangeTask = nil
+                dropScreenPointing()
+            }
+            return
+        }
         screenChangeTask?.cancel()
         screenChangeTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(200))
-            guard !Task.isCancelled else { return }
-            self?.onDropPointing?()
-            self?.run("HeyMateCanvas.screenChanged()")
+            guard let self, !Task.isCancelled else { return }
+            self.screenChangeTask = nil
+            self.dropScreenPointing()
         }
+    }
+
+    private func dropScreenPointing() {
+        onDropPointing?()
+        run("HeyMateCanvas.screenChanged()")
     }
 
     var isShowing: Bool { panel != nil }

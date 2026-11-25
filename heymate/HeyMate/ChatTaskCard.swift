@@ -243,8 +243,11 @@ struct TaskUpdatesPopover: View {
     @ObservedObject var manager: CompanionManager
     @ObservedObject var inbox: MateInboxStore
     @ObservedObject var connectorApprovals: ConnectorToolCoordinator
+    var focusedAttention: MateDigestItem? = nil
     let onOpened: () -> Void
+    let onEscape: () -> Void
     @State private var error: String?
+    @State private var proposalReceipt: String?
     @State private var tab = Tab.attention
     @State private var activityMateID: UUID?
 
@@ -255,19 +258,28 @@ struct TaskUpdatesPopover: View {
 
     private var approvals: [AgentRun] {
         manager.agentRuns.filter { run in
-            run.status.needsUser && run.chatOwner != nil && manager.mates.contains {
-                $0.id == run.chatOwner?.mateID && !$0.archived
-            }
+            guard run.status.needsUser else { return false }
+            if let targetID = focusedAttention?.targetID { return run.id == targetID }
+            return run.chatOwner.map { isAttentionMate($0.mateID) } == true
         }.sorted { $0.createdAt > $1.createdAt }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Waiting on You").font(DS.Fonts.title)
-            Picker("Inbox view", selection: $tab) {
-                ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            if let focusedMateID = focusedAttention?.mateID, let mate = manager.mates.first(where: { $0.id == focusedMateID }) {
+                Text("\(mate.name) needs you").font(DS.Fonts.title)
+            } else {
+                Text("Waiting on You").font(DS.Fonts.title)
+                Picker("Inbox view", selection: $tab) {
+                    ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                .labelsHidden().pickerStyle(.segmented)
             }
-            .labelsHidden().pickerStyle(.segmented)
+            if let proposalReceipt {
+                Label(proposalReceipt, systemImage: "checkmark.circle")
+                    .font(DS.Fonts.caption.weight(.semibold))
+                    .foregroundStyle(DS.Colors.success)
+            }
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
                     if tab == .attention { attention }
@@ -276,12 +288,16 @@ struct TaskUpdatesPopover: View {
             }.frame(maxHeight: 410)
             if let error { Text(error).font(DS.Fonts.caption).foregroundStyle(DS.Colors.warningText) }
         }.padding(18).frame(width: 360).foregroundStyle(DS.Colors.textPrimary)
+            .onExitCommand(perform: onEscape)
     }
 
     @ViewBuilder private var attention: some View {
-        let pending = inbox.pendingItems.filter { isCurrentMate($0.mateID) }
+        let targetID = focusedAttention?.targetID
+        let pending = (inbox.pendingItems + inbox.queuedProposals).filter {
+            isAttentionMate($0.mateID) && (targetID == nil || targetID == $0.id)
+        }
         let request = connectorApprovals.pendingRequest.flatMap { request in
-            request.owner.map { isCurrentMate($0.mateID) } == true ? request : nil
+            targetID == nil && request.owner.map { isAttentionMate($0.mateID) } == true ? request : nil
         }
         if let request, let owner = request.owner {
             VStack(alignment: .leading, spacing: 8) {
@@ -310,9 +326,10 @@ struct TaskUpdatesPopover: View {
         ForEach(pending) { item in
             if let proposal = item.proposal {
                 MateProposalRow(item: item, proposal: proposal) { action in
-                    let done = manager.actOnMateProposal(id: item.id, action: action)
-                    if done, action == .adjust { onOpened() }
-                    return done
+                    guard let result = manager.decideMateProposal(id: item.id, action: action) else { return false }
+                    if result == .adjusted { onOpened() }
+                    else { proposalReceipt = result.receipt }
+                    return true
                 }
             } else {
                 MateInboxQuestionRow(item: item, work: inbox.work.first { $0.id == item.workID },
@@ -375,6 +392,10 @@ struct TaskUpdatesPopover: View {
             openAttempt: { attempt in
                 open(mateID: attempt.mateID, chatID: attempt.chatID, resultKey: attempt.resultKey)
             })
+    }
+
+    private func isAttentionMate(_ id: UUID) -> Bool {
+        (focusedAttention == nil || focusedAttention?.mateID == id) && isCurrentMate(id)
     }
 
     private func isCurrentMate(_ id: UUID) -> Bool {

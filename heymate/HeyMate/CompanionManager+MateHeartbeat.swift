@@ -101,13 +101,18 @@ extension CompanionManager: MateHeartbeatTicking {
     // MARK: Tick
 
     var wantsHeartbeatTicks: Bool {
-        !HeyMateDataDirectory.isUnitTestHost && heartbeatStore.state.globalEnabled
-            && mates.contains { isHeartbeatEnabled(for: $0) }
+        !HeyMateDataDirectory.isUnitTestHost && (!mateInbox.queuedProposals.isEmpty || hasEnabledHeartbeats)
+    }
+
+    private var hasEnabledHeartbeats: Bool {
+        heartbeatStore.state.globalEnabled && mates.contains { isHeartbeatEnabled(for: $0) }
     }
 
     func heartbeatTick(now: Date, networkUsable: Bool) {
         expireMateProposals(now: now)
-        guard heartbeatStore.runningMateID == nil, networkUsable else { return }
+        guard networkUsable else { return }
+        dispatchQueuedMateProposals()
+        guard hasEnabledHeartbeats, heartbeatStore.runningMateID == nil else { return }
         let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
         let active = idle < MateHeartbeatSchedule.idleLimit
         for mate in mates where isHeartbeatEnabled(for: mate) {
@@ -294,7 +299,8 @@ extension CompanionManager: MateHeartbeatTicking {
     private func fileProposals(_ drafts: [MateHeartbeatParser.Draft], for mate: Mate, now: Date) -> Int {
         let entry = heartbeatStore.mate(mate.id)
         let open = mateInbox.pendingItems(forMate: mate.id)
-        let openProposals = open.compactMap(\.proposal).map(\.title)
+        let openProposals = (open + mateInbox.queuedProposals.filter { $0.mateID == mate.id })
+            .compactMap(\.proposal).map(\.title)
         let busy = open.compactMap { item -> String? in
             if case .question(let prompt, _, _) = item.kind { return prompt }
             return nil
@@ -317,35 +323,92 @@ extension CompanionManager: MateHeartbeatTicking {
         return kept.count
     }
 
-    /// Approve, Skip or Adjust one proposal. False when it could not be done.
+    enum ProposalActionResult {
+        case started, queued, adjusted, skipped, cancelled
+
+        var receipt: String {
+            switch self {
+            case .started: "Started"
+            case .queued: "Queued"
+            case .adjusted: "Draft ready"
+            case .skipped: "Skipped"
+            case .cancelled: "Cancelled"
+            }
+        }
+    }
+
+    /// The browser only needs to know whether the decision was accepted.
     @discardableResult
     func actOnMateProposal(id: UUID, action: MateHeartbeatAction) -> Bool {
-        guard let item = mateInbox.pendingItems.first(where: { $0.id == id }), let proposal = item.proposal,
-              mates.contains(where: { $0.id == item.mateID && !$0.archived }) else { return false }
+        decideMateProposal(id: id, action: action) != nil
+    }
+
+    func decideMateProposal(id: UUID, action: MateHeartbeatAction) -> ProposalActionResult? {
+        guard let item = mateInbox.items.first(where: { $0.id == id && $0.resolvedAt == nil }),
+              let proposal = item.proposal,
+              item.isPendingAttention || (item.isQueuedProposal && action == .skip),
+              mates.contains(where: { $0.id == item.mateID && !$0.archived }) else { return nil }
         let outcome: MateHeartbeatRecord.Outcome
+        let result: ProposalActionResult
         switch action {
         case .approve:
-            let chatID = mateChatForInboxAction(mateID: item.mateID)
-            guard resumeMateChatInBackground(mateID: item.mateID, chatID: chatID,
-                                             userMessage: proposal.prompt, modelPrompt: proposal.prompt) else { return false }
+            if mateInbox.queuedProposals.contains(where: { $0.mateID == item.mateID })
+                || !startMateProposal(item, prompt: proposal.prompt) {
+                guard mateInbox.queueProposal(id: id) else { return nil }
+                mateRoutineScheduler.schedulesChanged()
+                return .queued
+            }
             outcome = .approved
+            result = .started
         case .adjust:
             openMate(id: item.mateID)
             let existing = (currentChat.draftText ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             updateCurrentDraft(existing.isEmpty ? proposal.prompt : "\(existing)\n\(proposal.prompt)")
             openDesktopWindow(section: .chat)
             outcome = .adjusted
+            result = .adjusted
         case .skip:
             outcome = .skipped
+            result = item.isQueuedProposal ? .cancelled : .skipped
         }
-        _ = mateInbox.resolve(id: id, summary: action.rawValue.capitalized)
+        guard mateInbox.resolve(id: id, summary: item.isQueuedProposal ? "Cancelled" : action.rawValue.capitalized) != nil
+        else { return nil }
         heartbeatStore.update(item.mateID) { $0.resolve(id, outcome, now: Date()) }
-        return true
+        if item.isQueuedProposal { mateRoutineScheduler.schedulesChanged() }
+        return result
     }
 
-    /// Proposals live a day. Expired ones leave the Inbox and count toward fatigue.
+    private func startMateProposal(_ item: MateInboxItem, prompt: String) -> Bool {
+        guard !isMateBusyForHeartbeat(item.mateID), heartbeatStore.runningMateID != item.mateID else { return false }
+        let chatID = mateChatForInboxAction(mateID: item.mateID)
+        return resumeMateChatInBackground(mateID: item.mateID, chatID: chatID,
+                                         userMessage: prompt, modelPrompt: prompt) {
+            // Commit the queue removal before creating a turn so a restart cannot replay it.
+            !item.isQueuedProposal || mateInbox.resolve(id: item.id, summary: "Approved") != nil
+        }
+    }
+
+    private func dispatchQueuedMateProposals() {
+        let queued = mateInbox.queuedProposals
+        guard !queued.isEmpty else { return }
+        var checkedMates = Set<UUID>()
+        for item in queued {
+            guard let proposal = item.proposal else { continue }
+            guard mates.contains(where: { $0.id == item.mateID && !$0.archived }) else {
+                if mateInbox.resolve(id: item.id, summary: "Mate unavailable") != nil {
+                    heartbeatStore.update(item.mateID) { $0.resolve(item.id, .skipped, now: Date()) }
+                }
+                continue
+            }
+            guard checkedMates.insert(item.mateID).inserted, startMateProposal(item, prompt: proposal.prompt) else { continue }
+            heartbeatStore.update(item.mateID) { $0.resolve(item.id, .approved, now: Date()) }
+        }
+        mateRoutineScheduler.schedulesChanged()
+    }
+
+    /// Unapproved proposals live a day. Expired ones count toward fatigue.
     func expireMateProposals(now: Date) {
-        for item in mateInbox.items where item.resolvedAt == nil {
+        for item in mateInbox.items where item.resolvedAt == nil && item.proposalQueuedAt == nil {
             guard let proposal = item.proposal, proposal.isExpired(now: now) else { continue }
             _ = mateInbox.resolve(id: item.id, summary: "Expired", now: now)
             heartbeatStore.update(item.mateID) { $0.resolve(item.id, .expired, now: now) }

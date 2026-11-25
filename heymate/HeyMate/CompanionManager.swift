@@ -453,9 +453,10 @@ final class CompanionManager: ObservableObject {
     @Published var modelBuildEvent: ModelBuildEvent?
     private var annotationExpiryTask: Task<Void, Never>?
     // lazy so the closure can capture self (stored-property initializers cannot).
-    private lazy var annotationClearKeyMonitor = AnnotationClearKeyMonitor { [weak self] in
-        self?.handleGlobalEscape()
-    }
+    private lazy var annotationClearKeyMonitor = AnnotationClearKeyMonitor(
+        onEscape: { [weak self] timestamp in self?.handleGlobalEscape(timestamp: timestamp) },
+        onScroll: { [weak self] in self?.clearScreenMarksForScroll() }
+    )
 
     private let systemOverlayYield = SystemOverlayYield()
 
@@ -465,10 +466,11 @@ final class CompanionManager: ObservableObject {
     /// the user works elsewhere, and an Escape in another app (or one another
     /// agent sends) silently killed it. Listening, agents and approvals are
     /// left alone: they have their own explicit stop controls.
-    private func handleGlobalEscape() {
+    private func handleGlobalEscape(timestamp: UInt64) {
+        let heyMateHasFocus = NSApp.isActive || NSApp.keyWindow != nil
+        if taskUpdatesEscapeTimestamp == timestamp || (heyMateHasFocus && taskUpdatesEscape != nil) { return }
         cancelGuidance()
         cancelSpatialContextAndAnnotations()
-        let heyMateHasFocus = NSApp.isActive || NSApp.keyWindow != nil
         guard Self.escapeInterruptsReply(in: state, heyMateHasFocus: heyMateHasFocus) else {
             if case .thinking = state { HeyMateLog.log("⎋ Escape in another app; reply keeps running") }
             return
@@ -797,6 +799,24 @@ final class CompanionManager: ObservableObject {
 
     /// Attached workspaces share the notch's morphing panel. Only detached
     /// workspaces (or a disabled notch) need the desktop window controller.
+    @Published var requestedMateAttention: MateDigestItem?
+    var taskUpdatesEscape: (owner: UUID, dismiss: () -> Void)?
+    private var taskUpdatesEscapeTimestamp: UInt64?
+
+    func unregisterTaskUpdates(owner: UUID) {
+        if taskUpdatesEscape?.owner == owner { taskUpdatesEscape = nil }
+    }
+
+    func dismissTaskUpdatesForEscape(_ event: NSEvent) -> Bool {
+        guard event.keyCode == 53,
+              event.modifierFlags.isDisjoint(with: [.command, .option, .control, .shift]),
+              let dismissal = taskUpdatesEscape else { return false }
+        taskUpdatesEscapeTimestamp = event.cgEvent?.timestamp
+        taskUpdatesEscape = nil
+        dismissal.dismiss()
+        return true
+    }
+
     func openDesktopWindow(section: DesktopSection = .chat) {
         activateConnectorsIfNeeded()
         if DesktopWindowPlacement.isAttached, showNotchCompanion {
@@ -3795,10 +3815,6 @@ final class CompanionManager: ObservableObject {
         currentResponseCompletion = dictationCompletion
 
         let usesSmartMode = effectiveDictationUsesSmartMode
-        if dictationUsesSmartMode {
-            commandBarFeedback = "HeyMate Agent uses Literal dictation. Smart rewriting is unavailable; your original words are inserted without an AI rewrite."
-        }
-
         currentResponseTask = Task {
             defer { dictationCompletion.didComplete = true }
             var textToInsert = trimmedTranscript
@@ -5206,6 +5222,11 @@ final class CompanionManager: ObservableObject {
         // and build them pen-down, in order.
         pendingDrawingBatch = activeAnnotations.filter { !previousIDs.contains($0.id) }
         scheduleAnnotationExpiryCleanup()
+    }
+
+    private func clearScreenMarksForScroll() {
+        clearAnnotations()
+        if pointingTarget != nil { pointingTarget = nil }
     }
 
     /// Escape (or a model "clear" action) wipes all annotations immediately.

@@ -420,6 +420,7 @@ struct PermissionChecklist: View {
                 group(HeyMatePermission.extras)
             }
         }
+        .accessibilityElement(children: .contain)
         .onAppear { guide.startWatching() }
         .onDisappear { guide.stopWatching() }
     }
@@ -474,46 +475,41 @@ struct PermissionChecklist: View {
 
     private func row(_ permission: HeyMatePermission) -> some View {
         let isOn = guide.isGranted(permission)
-        return HStack(spacing: 10) {
-            Image(systemName: permission.systemImage)
-                .font(DS.Glyph.regular)
-                .foregroundColor(isOn ? DS.Colors.success : DS.Colors.textTertiary)
-                .frame(width: 18)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(permission.title)
+        let status = isOn ? "On" : "Off"
+        return VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 10) {
+                Image(systemName: permission.systemImage)
+                    .font(DS.Glyph.regular)
+                    .foregroundStyle(isOn ? DS.Colors.success : DS.Colors.textTertiary)
+                    .frame(width: 18)
+                    .accessibilityHidden(true)
+                Text("\(permission.title) · \(status)")
                     .font(DS.Fonts.headline)
-                    .foregroundColor(DS.Colors.textPrimary)
-                if compact {
-                    Text(isOn ? permission.onText : permission.offText)
-                        .font(DS.Fonts.caption)
-                        .foregroundColor(isOn ? DS.Colors.textSecondary : DS.Colors.warningText)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    Text(permission.purpose)
-                        .font(DS.Fonts.caption)
-                        .foregroundColor(DS.Colors.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if !isOn {
-                        Text(permission.offText)
-                            .font(DS.Fonts.caption)
-                            .foregroundColor(DS.Colors.warningText)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                    .foregroundStyle(DS.Colors.textPrimary)
+                    .accessibilityLabel("\(permission.title), \(status)")
+                Spacer(minLength: 8)
+                if !isOn {
+                    Button("Allow") { Task { await guide.request(permission) } }
+                        .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)
+                        .disabled(guide.isAllowingAll)
+                        .accessibilityLabel("Allow \(permission.title)")
                 }
             }
-            Spacer(minLength: 8)
-            if isOn {
-                Text("On")
-                    .font(DS.Fonts.caption.weight(.semibold))
-                    .foregroundColor(DS.Colors.success)
-            } else {
-                Button("Allow") { Task { await guide.request(permission) } }
-                    .dsCapsuleButtonStyle(.secondary, height: DS.ControlSize.small)
-                    .disabled(guide.isAllowingAll)
+            VStack(alignment: .leading, spacing: 1) {
+                if !compact {
+                    Text(permission.purpose)
+                        .foregroundStyle(DS.Colors.textSecondary)
+                }
+                if !isOn || compact {
+                    Text(isOn ? permission.onText : permission.offText)
+                        .foregroundStyle(isOn ? DS.Colors.textSecondary : DS.Colors.warningText)
+                }
             }
+            .font(DS.Fonts.caption)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.leading, 28)
         }
         .padding(.vertical, compact ? 5 : 8)
-        .accessibilityElement(children: .combine)
-        .accessibilityValue(isOn ? "On" : "Off")
+        .accessibilityElement(children: .contain)
     }
 }

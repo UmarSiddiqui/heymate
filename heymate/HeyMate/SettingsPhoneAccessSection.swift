@@ -16,6 +16,7 @@ import SwiftUI
 struct SettingsPhoneAccessSection: View {
     @ObservedObject var companionManager: CompanionManager
     @ObservedObject private var phone = RemoteAccessController.shared
+    @State private var showsBrowserDetails = false
 
     static let exposes = "A paired phone on the same Wi-Fi can see your Inbox and each mate's status, approve or skip proposals, answer questions, and send short messages. It can't approve actions, change settings, sign in, or see files or memory."
 
@@ -28,13 +29,22 @@ struct SettingsPhoneAccessSection: View {
     }()
 
     var body: some View {
-        SettingsSection("Local browser access", footer: Self.honesty) {
+        SettingsSection("Local browser access") {
             SettingsToggleRow(
                 SettingsItem.phoneAccess.title,
-                subtitle: Self.exposes,
+                subtitle: "Uses unencrypted HTTP. Pair only on networks you trust.",
                 item: .phoneAccess,
                 isOn: Binding(get: { phone.isEnabled }, set: { phone.setEnabled($0) })
             )
+            SettingsDivider()
+            SettingsDisclosureRow("Access and connection details", isExpanded: $showsBrowserDetails) {
+                VStack(alignment: .leading, spacing: DS.Spacing.sm) {
+                    SettingsInlineHelp(Self.exposes)
+                    SettingsInlineHelp(Self.honesty)
+                }
+                .settingsRowContentInsets()
+                .padding(.bottom, DS.Spacing.sm)
+            }
             if let problem = phone.problem {
                 SettingsInlineHelp(problem, tone: .critical)
                     .settingsRowContentInsets()

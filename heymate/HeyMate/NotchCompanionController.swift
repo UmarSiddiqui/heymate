@@ -1555,6 +1555,7 @@ final class NotchCompanionController {
                 guard let self, self.isExpanded, !self.isAboutPopoverPresented,
                       event.keyCode == 53 else { return event }
                 if self.presentedSurface == .caption, event.window !== self.expandedPanel { return event }
+                if self.companionManager?.dismissTaskUpdatesForEscape(event) == true { return nil }
                 if self.companionManager?.voiceState == .listening {
                     self.companionManager?.finishVoiceInputFromNotch()
                     return nil

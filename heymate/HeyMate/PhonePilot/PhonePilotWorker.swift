@@ -31,6 +31,7 @@ final class PhonePilotWorker: ObservableObject {
     @Published private(set) var isPaired = false
     @Published private(set) var problem: String?
     @Published private(set) var needsPairingUpgrade = false
+    @Published private(set) var lastSuccessfulSync: Date?
 
     private weak var manager: CompanionManager?
     private let account = HeyMateAccount.shared
@@ -76,6 +77,7 @@ final class PhonePilotWorker: ObservableObject {
             try store.clear()
             stop()
             pair = nil
+            lastSuccessfulSync = nil
             isPaired = false
             needsPairingUpgrade = false
             problem = nil
@@ -103,6 +105,7 @@ final class PhonePilotWorker: ObservableObject {
     }
 
     private func apply(_ pair: Pair) {
+        if self.pair?.channel != pair.channel { lastSuccessfulSync = nil }
         self.pair = pair
         isPaired = true
         needsPairingUpgrade = pair.entireWorkspace != true
@@ -405,6 +408,9 @@ final class PhonePilotWorker: ObservableObject {
         guard let running = try await claim(task, channel: channel, mailbox: mailbox, token: token) else { return }
         let data = try channel.seal(reply, taskID: task.id, direction: .result)
         try await mailbox.transition(channel, task: running, status: failed ? "failed" : "completed", result: data, token: token)
+        if !failed, !Task.isCancelled, pair?.channel == channel {
+            lastSuccessfulSync = .now
+        }
     }
 }
 
