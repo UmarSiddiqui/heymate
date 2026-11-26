@@ -391,7 +391,11 @@ enum BrowserResultText {
 final class BrowserBridge: ObservableObject {
     static let shared = BrowserBridge()
     static let hostName = "com.heymate.browser"
-    static let extensionID = "beilganccfplahohmmalkakfmkbfangm"
+    private static let unpackedExtensionID = "beilganccfplahohmmalkakfmkbfangm"
+    private static let storeExtensionID = "lcicnpallfeackmhjcaaddmpdhnglfci"
+    static let allowedExtensionOrigins = [unpackedExtensionID, storeExtensionID].map {
+        "chrome-extension://\($0)/"
+    }
     /// How long one "yes" to using Chrome lasts in Ask me.
     static let grantSeconds: TimeInterval = 20 * 60
 
@@ -677,7 +681,7 @@ final class BrowserBridge: ObservableObject {
             "description": "HeyMate browser bridge",
             "path": helper.path,
             "type": "stdio",
-            "allowed_origins": ["chrome-extension://\(Self.extensionID)/"]
+            "allowed_origins": Self.allowedExtensionOrigins
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .withoutEscapingSlashes]) else { return }
         let support = fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
@@ -749,19 +753,28 @@ private final class BrowserSocketServer: @unchecked Sendable {
         while true {
             let accepted = accept(fd, nil, nil)
             if accepted < 0 { break }
-            queue.sync {
-                if self.client >= 0 { close(self.client) }
+            let admitted = queue.sync { () -> Bool in
+                // A second profile or extension install must not replace the
+                // browser that owns the current task and its approvals.
+                guard self.client < 0 else { return false }
+                var noSignal = Int32(1)
+                setsockopt(accepted, SOL_SOCKET, SO_NOSIGPIPE, &noSignal,
+                           socklen_t(MemoryLayout.size(ofValue: noSignal)))
                 self.client = accepted
+                return true
+            }
+            guard admitted else {
+                close(accepted)
+                continue
             }
             let reader = Thread { [weak self] in
-                self?.readClient(accepted)
-                self?.queue.sync {
-                    if self?.client == accepted {
-                        close(accepted)
-                        self?.client = -1
-                    }
+                guard let self else { return }
+                self.readClient(accepted)
+                self.queue.sync {
+                    close(accepted)
+                    self.client = -1
+                    self.onDisconnect?()
                 }
-                self?.onDisconnect?()
             }
             reader.start()
         }
