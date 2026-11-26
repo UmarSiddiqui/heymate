@@ -11,6 +11,7 @@ const OWNER = "heymate";
 const GROUP_TITLE = "HeyMate";
 const CURSOR = "#3380FF";
 const RECONNECT_ALARM = "heymate-reconnect";
+const STATUS_PORT = "heymate-connection-status";
 
 // Whose tabs are whose, saved for the browser session: Chrome stops this worker when the app's connection drops.
 const bridge = new BrowserBridge(chrome, undefined, { store: {
@@ -32,7 +33,21 @@ bridge.cursor = true;
 // ordered; different owners progress independently through the same profile.
 const workers = new Map(), lanes = new Map(), cancelled = new Set(), latestScopes = new Map();
 let port = null;
+let connected = false;
+const popups = new Set();
 let barrier = Promise.resolve();
+
+function updateConnection(ready) {
+  if (connected === ready) return;
+  connected = ready;
+  for (const popup of popups) {
+    try {
+      popup.postMessage({ connected });
+    } catch {
+      popups.delete(popup);
+    }
+  }
+}
 
 function connect() {
   if (port) return;
@@ -49,6 +64,7 @@ function connect() {
     void chrome.runtime.lastError;
     if (port !== connection) return;
     port = null;
+    updateConnection(false);
     // Stop in-flight work now; queue the new identity after cleanup. A stopped
     // engine task can never be reused after the native host reconnects.
     const stopped = bridge.stop("the connection to the HeyMate app dropped").catch(error => console.warn("HeyMate browser cleanup failed", error));
@@ -59,7 +75,12 @@ function connect() {
 }
 
 async function onMessage(message, connection) {
-  if (!message || port !== connection || !["command", "cancel"].includes(message.type)) return;
+  if (!message || port !== connection) return;
+  if (message.type === "ready") {
+    updateConnection(message.selected === true);
+    return;
+  }
+  if (!["command", "cancel"].includes(message.type)) return;
   const owner = message.owner ?? OWNER, scope = message.scope ?? "legacy";
   if (typeof owner !== "string" || !owner || owner.length > 200 || typeof scope !== "string" || !scope || scope.length > 100) return;
   const key = JSON.stringify([owner, scope]);
@@ -232,6 +253,13 @@ chrome.downloads?.onDeterminingFilename.addListener((item, suggest) => {
 
 chrome.runtime.onInstalled.addListener(connect);
 chrome.runtime.onStartup.addListener(connect);
+chrome.runtime.onConnect.addListener(popup => {
+  if (popup.name !== STATUS_PORT) return;
+  popups.add(popup);
+  popup.onDisconnect.addListener(() => popups.delete(popup));
+  popup.postMessage({ connected });
+  connect();
+});
 // The app may start after Chrome; try again every minute while disconnected.
 chrome.alarms.create(RECONNECT_ALARM, { periodInMinutes: 1 });
 chrome.alarms.onAlarm.addListener((alarm) => {

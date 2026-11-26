@@ -98,7 +98,7 @@ async function tabInfo(id) {
 }
 const chrome = {
   downloads: { onCreated: event(), onDeterminingFilename: event() },
-  runtime: { getManifest: () => ({ version: 'live-check' }), lastError: undefined, onInstalled: event(), onStartup: event(),
+  runtime: { getManifest: () => ({ version: 'live-check' }), lastError: undefined, onInstalled: event(), onStartup: event(), onConnect: event(),
     connectNative() { const p = { onMessage: event(), onDisconnect: event(), sent: [], postMessage(m) { this.sent.push(m); } }; native.push(p); return p; } },
   storage: { session: { data: {}, async get(k) { return { [k]: this.data[k] }; }, async set(v) { Object.assign(this.data, v); } } },
   alarms: { create() {}, onAlarm: event() },

@@ -1,0 +1,100 @@
+:root {
+  color-scheme: light dark;
+  --background: #f5f8ff;
+  --ink: #172440;
+  --muted: #4a5872;
+  --rule: #cfd9ed;
+  --accent: #2358b5;
+  --ready: #137550;
+  --waiting: #936014;
+  font: 14px/1.45 system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #131b2d;
+    --ink: #edf3ff;
+    --muted: #bbc8e1;
+    --rule: #394765;
+    --accent: #9abbff;
+    --ready: #80e1b3;
+    --waiting: #ffcb79;
+  }
+}
+
+body {
+  width: 300px;
+  margin: 0;
+  background: var(--background);
+  color: var(--ink);
+}
+
+main {
+  padding: 18px;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: -0.035em;
+}
+
+p {
+  margin: 0;
+}
+
+#connection {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  font-weight: 700;
+}
+
+#connection::before {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--waiting);
+  content: "";
+}
+
+#connection[data-connected="true"]::before {
+  background: var(--ready);
+}
+
+#next-step {
+  margin: 5px 0 10px;
+}
+
+a {
+  color: var(--accent);
+  text-underline-offset: 3px;
+}
+
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+#download {
+  font-weight: 650;
+}
+
+footer {
+  margin-top: 15px;
+  border-top: 1px solid var(--rule);
+  padding-top: 11px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+footer p {
+  margin-bottom: 5px;
+}

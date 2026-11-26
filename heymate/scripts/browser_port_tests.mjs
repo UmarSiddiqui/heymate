@@ -25,12 +25,12 @@ function adapter(execute, end = async () => {}) {
   const chrome = { runtime: { getManifest: () => ({ version: 'fixture' }), connectNative() {
     const port = { onMessage: event(), onDisconnect: event(), sent: [], postMessage(m) { this.sent.push(m); } };
     connections.push(port); return port;
-  }, onInstalled: event(), onStartup: event() }, alarms: { create() {}, onAlarm: event() },
+  }, onInstalled: event(), onStartup: event(), onConnect: event() }, alarms: { create() {}, onAlarm: event() },
   downloads: { onCreated: event(), onDeterminingFilename: event() },
   debugger: { onEvent: event(), onDetach: event() }, tabs: { onUpdated: event(), onRemoved: event() } };
   const context = vm.createContext({ chrome, BrowserBridge: Engine, snapshotLines, crypto: webcrypto, console });
   vm.runInContext(source, context);
-  return { context, connections, requests, async command(op, fields = {}) {
+  return { context, chrome, connections, requests, async command(op, fields = {}) {
     const connection = connections.at(-1), id = webcrypto.randomUUID();
     await connection.onMessage.listeners[0]({ type: 'command', id, op, ...fields });
     return connection.sent.find(m => m.id === id);
@@ -39,6 +39,28 @@ function adapter(execute, end = async () => {}) {
 const snapshot = { tabId: 7, url: 'https://fixture.test/', title: 'Fixture', nodes: [
   { ref: 'e12', role: 'textbox', name: 'Search' }, { role: 'text', name: 'Content' }
 ] };
+
+test('toolbar status follows the live native host handshake and disconnect', async () => {
+  const h = adapter(async () => ({}));
+  const host = h.connections[0];
+  const updates = [];
+  const popup = {
+    name: 'heymate-connection-status', onDisconnect: event(),
+    postMessage: message => updates.push(message.connected)
+  };
+  h.chrome.runtime.onConnect.listeners[0](popup);
+  await host.onMessage.listeners[0]({ type: 'ready', selected: false });
+  await host.onMessage.listeners[0]({ type: 'ready', selected: true });
+  host.onDisconnect.listeners[0]();
+  await host.onMessage.listeners[0]({ type: 'ready', selected: true });
+  assert.deepEqual(updates, [false, true, false]);
+
+  popup.onDisconnect.listeners[0]();
+  vm.runInContext('connect()', h.context);
+  const nextHost = h.connections.at(-1);
+  await nextHost.onMessage.listeners[0]({ type: 'ready', selected: true });
+  assert.deepEqual(updates, [false, true, false]);
+});
 
 test('settled page reports observed redirect URL rather than requested URL', async () => {
   const h = adapter(async () => ({ tabId: 7, snapshot }));
