@@ -10,6 +10,8 @@ Published by the HeyMate project. Comparisons use the linked official documentat
 
 ## Workflows
 
+- [Remove a logo background in Photopea and export a transparent PNG](https://sayheymate.com/blog/remove-background-photopea-transparent-png.md): Use Photopea’s Magic Wand to remove a solid logo background, clear enclosed white areas, and export a transparent PNG. Includes a free sample.
+- [How to animate text in Keynote on Mac](https://sayheymate.com/blog/animate-text-keynote-mac.md): Make a Keynote title fly in. Find Animate, add a Build In effect, and check timing in Build Order. Includes a HeyMate screen-guidance prompt.
 - [How to ask AI about your Mac screen by voice](https://sayheymate.com/blog/ask-ai-about-your-screen-by-voice-mac.md): Try a spoken walkthrough in TextEdit. Ask HeyMate to point out the next step, then check the PDF yourself in Preview.
 - [Learn a Mac app with AI guidance, one step at a time](https://sayheymate.com/blog/learn-mac-apps-with-ai.md): Use HeyMate to understand an unfamiliar Mac app, ask for one step at a time, and check what you learned without leaving your work.
 - [Use HeyMate for a focused Figma or website design review](https://sayheymate.com/blog/ai-design-review-figma.md): Ask for actionable design feedback on hierarchy, copy, spacing, and contrast. Turn a screen-aware AI critique into a small revision you can compare.

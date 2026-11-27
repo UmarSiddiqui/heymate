@@ -10,6 +10,53 @@ const image = (src, alt, width, height, caption) => ({ type: 'image', src, alt, 
 
 export const posts = [
 {
+ slug: 'remove-background-photopea-transparent-png', category: 'Workflows', topic: 'Photopea tutorial',
+ date: '2026-11-27',
+ title: 'Remove a logo background in Photopea and export a transparent PNG',
+ description: 'Use Photopea’s Magic Wand to remove a solid logo background, clear enclosed white areas, and export a transparent PNG. Includes a free sample.',
+ answer: 'Open the logo in Photopea. Select its solid background with Magic Wand, clear the selection, and repeat for any enclosed background. Choose File > Export as > PNG and check the downloaded image on a colored background.',
+ related: ['learn-mac-apps-with-ai', 'animate-text-keynote-mac', 'ai-design-review-figma'],
+ sections: [
+ section('Open a sample logo',
+ p('Use the [sample logo](/assets/img/guides/photopea/sample-logo-a.png) to follow along. It has a teal hexagon, an orange square, and two separate white regions. Open it in [Photopea](https://www.photopea.com/) with File > Open. Keep a copy of the original so you can compare your export.'),
+ p('Magic Wand selects pixels with similar colors. It works well for this flat white background. For hair, shadows, or a subject with colors that blend into the background, try [Photopea’s Magic Cut guide](https://www.photopea.com/tuts/magic-cut-remove-image-background-online/) and inspect the edges before exporting.')),
+ section('Clear the white background',
+ steps('Choose Magic Wand from the left toolbar. If Quick Selection is showing, open that tool group and choose Magic Wand.', 'For this sample, use Replace, Tolerance 16, and Feather 0 px. Leave Anti-alias and Contiguous on, and Sample All Layers off.', 'Click the white area outside the teal logo. Check that the selection skips the colored shapes, then choose Edit > Clear or press Delete. The cleared area shows a checkerboard.', 'The white hole inside the hexagon is disconnected from the outside. Use View > Zoom In if needed. Click inside the white hole, away from the orange square, and clear that selection too.'),
+ p('If clearing leaves white pixels, check whether you selected the right layer and whether another layer sits underneath it. A locked layer may need to be unlocked. If Magic Wand grabs part of your logo, undo, lower the tolerance, and inspect the selection again. [Photopea’s Magic Wand walkthrough](https://www.photopea.com/tuts/remove-background-from-photo/)')),
+ section('Export and check the transparent PNG',
+ steps('Choose File > Export as > PNG and keep the original size. Check for checkerboard around the logo and in the hole in the export preview.', 'Click Save. Reopen the downloaded PNG over a colored layer, or drop it onto a colored Keynote slide. The color should show through both cleared regions.'),
+ image('/assets/img/guides/photopea/sample-logo-a-transparent.png', 'Teal hexagon and orange square on a transparent background.', 320, 240, 'Actual 320 × 240 export from the guided Photopea run.'),
+ p('Use PNG for the final export because JPEG cannot store transparency. Our pixel check confirmed that both cleared regions were fully transparent and the original logo colors were intact. [Download the verified PNG](/assets/img/guides/photopea/sample-logo-a-transparent.png)')),
+ section('Ask for one step while you work',
+ p('If you want help finding a tool, bring Photopea to the front and ask HeyMate with a [vision-capable provider](/connect-claude-codex). Hold Control + Option to ask by voice, or use your configured typed shortcut.'),
+ prompt('Show me how to remove this logo’s background in Photopea, one step at a time. Explain where to look and wait while I try each step.'),
+ p('During our guided run, the toolbar was too small for HeyMate to point confidently. Selecting Magic Wand by name and enlarging the image through View > Zoom In got the task moving again. The guided run used typed prompts, and the separate repeat was done without further HeyMate guidance. [See the test transcript and pixel checks](https://github.com/UmarSiddiqui/heymate/blob/main/docs/walkthroughs/photopea-background-removal.md)'))
+ ]
+},
+{
+ slug: 'animate-text-keynote-mac', category: 'Workflows', topic: 'Keynote tutorial',
+ date: '2026-11-27',
+ title: 'How to animate text in Keynote on Mac',
+ description: 'Make a Keynote title fly in. Find Animate, add a Build In effect, and check timing in Build Order. Includes a HeyMate screen-guidance prompt.',
+ answer: 'Select the text box, open Animate in the toolbar, and choose Build In > Add an Effect > Fly In. Preview the slide and use Build Order to adjust when the title appears.',
+ related: ['learn-mac-apps-with-ai', 'remove-background-photopea-transparent-png', 'meet-heymate'],
+ sections: [
+ section('Make a title fly in',
+ p('Open a sample deck and type a title into a slide. Start with one text box and one effect so you can see what each setting changes.'),
+ steps('Select the text box on the slide. If you are editing the text, click the text box edge so the whole object is selected.', 'Click Animate in the Keynote toolbar. In the sidebar, open Build In. This is where you choose how a selected object enters the slide.', 'Click Add an Effect and choose Fly In. Preview the effect and adjust its duration or direction if those options are available.', 'Play the slide and check that the title lands where you expect. If the title waits for a click, open Build Order to check its start setting.'),
+ p('The HeyMate launch film shows this exercise on a sample slide titled “Our Trip to the Moon.” The cuts show the Animate button, effect list, and finished title animation. [Watch the Keynote sequence in the launch film](/blog/meet-heymate#film)')),
+ section('Choose when the title appears',
+ p('Click Build Order at the bottom of the Animate sidebar. Select the title’s build and check its Start setting. Use On Click when you want to cue the title yourself. If there is another build, With Build can start them together and After Build can start the title when the previous build finishes. Preview the slide to see how the effects play together. [Apple’s guide to build timing](https://support.apple.com/en-kw/guide/keynote/tan3ad5f8d82/mac)'),
+ p('Use Build In for an entrance, Build Out for an exit, and Action to move or change an object already on the slide. If you see transition settings instead of the object’s builds, select the title box on the slide and reopen Animate. [Apple’s guide to entrance and exit effects](https://support.apple.com/en-is/guide/keynote/tan72234bb6/mac)')),
+ section('Ask for help finding the next control',
+ p('Bring Keynote to the front with the text box selected. In HeyMate, hold Control + Option and ask about the step you are on. Use a sample deck while you are setting up [screen access](/screen-guidance).'),
+ prompt('Help me make this title fly in. Point to the next control, explain what it does, and wait while I try it.'),
+ p('If the sidebar looks different, describe the options you can see and ask for one corrected step. In the recorded demo, the presenter clicked each control. Once the effect works, try adding an entrance to a second text box and put it after the title in Build Order.')),
+ section('Check a title animation that does not play',
+ p('If nothing moves, make sure the text box has an effect under Build In and start playback from that slide. Press the advance key once to test an On Click build. If the whole slide changes instead, reselect the text box and check the effect in Build Order. That list shows which object has a build and when Keynote will play it.'))
+ ]
+},
+{
  slug: 'ai-assistants-that-see-your-screen-mac', category: 'Comparisons', topic: 'Screen-aware AI',
  date: '2026-11-09',
  title: 'AI assistants that can see your Mac screen',
@@ -94,6 +141,7 @@ launchPost,
  sections: [
  section('Start with one result you can check',
  p('An unfamiliar app becomes easier to learn when your first task is small. Instead of asking for a tour of every menu, choose an outcome: export a sample document, change one layer, or find a setting. Keep a copy of the original so you can compare the result without worrying about losing your work.'),
+ p('Pick a practice task with a clear finish. [Export a transparent PNG in Photopea](/blog/remove-background-photopea-transparent-png) and check it against a colored background, or [make a title fly in on a Keynote slide](/blog/animate-text-keynote-mac) and play the result.'),
  p('HeyMate supplies context from the current screen to the vision-capable provider you choose. That can help when a written tutorial shows a different version of an app. The model can still misread the screen; the useful habit is to check each suggested control before clicking.')),
  section('Try a guided practice session',
  steps('Open the app with a sample file and bring the relevant window to the front.', 'Hold Control + Option and describe the result you want.', 'Ask HeyMate to explain one step, point to the control, and wait.', 'Do the step yourself. Say “next” or use the indicated target when the walkthrough is ready to continue.', 'When the result appears, describe what changed and ask how to verify it.'),

@@ -10,6 +10,8 @@ By the HeyMate project. Published 2026-11-01. Category: Workflows.
 
 An unfamiliar app becomes easier to learn when your first task is small. Instead of asking for a tour of every menu, choose an outcome: export a sample document, change one layer, or find a setting. Keep a copy of the original so you can compare the result without worrying about losing your work.
 
+Pick a practice task with a clear finish. [Export a transparent PNG in Photopea](https://sayheymate.com/blog/remove-background-photopea-transparent-png) and check it against a colored background, or [make a title fly in on a Keynote slide](https://sayheymate.com/blog/animate-text-keynote-mac) and play the result.
+
 HeyMate supplies context from the current screen to the vision-capable provider you choose. That can help when a written tutorial shows a different version of an app. The model can still misread the screen; the useful habit is to check each suggested control before clicking.
 
 ## Try a guided practice session

@@ -26,6 +26,8 @@ HeyMate runs on Apple silicon and Intel Macs. Screen guidance needs a vision-cap
 ## Use cases and comparisons
 
 - [All guides](https://sayheymate.com/blog/index.md): Browse practical workflows and project-published comparisons.
+- [Remove a logo background in Photopea and export a transparent PNG](https://sayheymate.com/blog/remove-background-photopea-transparent-png.md): Photopea tutorial.
+- [How to animate text in Keynote on Mac](https://sayheymate.com/blog/animate-text-keynote-mac.md): Keynote tutorial.
 - [AI assistants that can see your Mac screen](https://sayheymate.com/blog/ai-assistants-that-see-your-screen-mac.md): Screen-aware AI.
 - [How to ask AI about your Mac screen by voice](https://sayheymate.com/blog/ask-ai-about-your-screen-by-voice-mac.md): Voice walkthrough.
 - [What can AI see when you share your Mac screen?](https://sayheymate.com/blog/mac-ai-screen-sharing-privacy.md): Screen privacy.
