@@ -25,7 +25,7 @@ Apple Intelligence is an optional text-only provider on eligible Macs running ma
 - If the screen changes unexpectedly, explain what changed before continuing.
 A walkthrough can show a plan and capture fresh screen context between steps. Model mistakes remain possible: read important controls before acting and check the result afterward.
 
-For a practice task with a result you can verify, try the [TextEdit voice walkthrough](https://sayheymate.com/blog/ask-ai-about-your-screen-by-voice-mac).
+Pick a practice task with a result you can verify. [Export a PDF in TextEdit](https://sayheymate.com/blog/ask-ai-about-your-screen-by-voice-mac), [remove a logo background in Photopea](https://sayheymate.com/blog/remove-background-photopea-transparent-png), or [animate a title in Keynote](https://sayheymate.com/blog/animate-text-keynote-mac).
 
 ## Example prompts for real tasks
 
